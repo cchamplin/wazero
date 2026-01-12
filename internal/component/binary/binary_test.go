@@ -60,3 +60,45 @@ func TestSectionIDName(t *testing.T) {
 	require.Equal(t, "type", SectionIDType.String())
 	require.Equal(t, "unknown(255)", SectionID(255).String())
 }
+
+func TestIsComponent(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []byte
+		expected bool
+	}{
+		{
+			name:     "valid component",
+			input:    append(append(Magic[:], Version[:]...), LayerComponent[:]...),
+			expected: true,
+		},
+		{
+			name:     "core module",
+			input:    append(append(Magic[:], 0x01, 0x00, 0x00, 0x00), LayerModule[:]...),
+			expected: false,
+		},
+		{
+			name:     "too short",
+			input:    Magic[:],
+			expected: false,
+		},
+		{
+			name:     "wrong magic",
+			input:    []byte{0x00, 0x00, 0x00, 0x00, 0x0d, 0x00, 0x01, 0x00},
+			expected: false,
+		},
+		{
+			name:     "empty",
+			input:    []byte{},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		tc := tt
+		t.Run(tc.name, func(t *testing.T) {
+			result := IsComponent(tc.input)
+			require.Equal(t, tc.expected, result)
+		})
+	}
+}

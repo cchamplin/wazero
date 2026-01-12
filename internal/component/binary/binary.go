@@ -1,7 +1,10 @@
 // Package binary provides constants for WebAssembly Component Model binary format.
 package binary
 
-import "fmt"
+import (
+	"bytes"
+	"fmt"
+)
 
 // Magic is the 4-byte preamble for all WebAssembly binaries (modules and components).
 // See https://github.com/WebAssembly/component-model/blob/main/design/mvp/Binary.md
@@ -16,6 +19,37 @@ var LayerComponent = [2]byte{0x01, 0x00}
 
 // LayerModule identifies a binary as a core module (vs component).
 var LayerModule = [2]byte{0x00, 0x00}
+
+// IsComponent returns true if the binary appears to be a component
+// (as opposed to a core wasm module).
+//
+// This checks:
+//   - Magic number matches "\0asm"
+//   - Version is component version (0x0d 0x00)
+//   - Layer byte is component layer (0x01 0x00)
+func IsComponent(binary []byte) bool {
+	// Need at least: magic(4) + version(2) + layer(2) = 8 bytes
+	if len(binary) < 8 {
+		return false
+	}
+
+	// Check magic
+	if !bytes.Equal(binary[0:4], Magic[:]) {
+		return false
+	}
+
+	// Check version (component model pre-standard version)
+	if !bytes.Equal(binary[4:6], Version[:]) {
+		return false
+	}
+
+	// Check layer (component vs module)
+	if !bytes.Equal(binary[6:8], LayerComponent[:]) {
+		return false
+	}
+
+	return true
+}
 
 // SectionID identifies a component section.
 // Component sections have different IDs than core wasm sections.
