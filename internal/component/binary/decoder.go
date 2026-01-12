@@ -4,9 +4,11 @@ package binary
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/leb128"
 )
 
 // DecodeComponent parses a WebAssembly component from binary format.
@@ -40,7 +42,28 @@ func DecodeComponent(binary []byte) (*component.Component, error) {
 		return nil, ErrInvalidLayer
 	}
 
-	// For now, return an empty component
-	// Sections will be parsed in subsequent tasks
-	return &component.Component{}, nil
+	c := &component.Component{}
+
+	// Parse sections
+	for r.Len() > 0 {
+		// Read section ID
+		sectionIDByte, err := r.ReadByte()
+		if err != nil {
+			return nil, ErrUnexpectedEOF
+		}
+		sectionID := SectionID(sectionIDByte)
+
+		// Read section size (LEB128)
+		sectionSize, _, err := leb128.DecodeUint32(r)
+		if err != nil {
+			return nil, fmt.Errorf("section %s: %w", sectionID, ErrUnexpectedEOF)
+		}
+
+		// For now, skip section content
+		if _, err := r.Seek(int64(sectionSize), io.SeekCurrent); err != nil {
+			return nil, fmt.Errorf("section %s: %w", sectionID, ErrUnexpectedEOF)
+		}
+	}
+
+	return c, nil
 }

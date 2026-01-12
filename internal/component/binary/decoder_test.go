@@ -74,3 +74,17 @@ func TestDecodeComponent_EmptyFixture(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, c)
 }
+
+func TestDecodeComponent_SectionHeader(t *testing.T) {
+	// Component with one empty core-custom section
+	// magic + version + layer + section(id=0, size=0)
+	input := append(
+		append(append(Magic[:], Version[:]...), LayerComponent[:]...),
+		0x00, // section ID: core-custom
+		0x00, // section size: 0 (LEB128)
+	)
+
+	c, err := DecodeComponent(input)
+	require.NoError(t, err)
+	require.NotNil(t, c)
+}
