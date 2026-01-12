@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/leb128"
+	wasmbinary "github.com/tetratelabs/wazero/internal/wasm/binary"
 )
 
 // DecodeComponent parses a WebAssembly component from binary format.
@@ -59,11 +61,38 @@ func DecodeComponent(binary []byte) (*component.Component, error) {
 			return nil, fmt.Errorf("section %s: %w", sectionID, ErrUnexpectedEOF)
 		}
 
-		// For now, skip section content
-		if _, err := r.Seek(int64(sectionSize), io.SeekCurrent); err != nil {
+		// Read section content
+		sectionContent := make([]byte, sectionSize)
+		if _, err := io.ReadFull(r, sectionContent); err != nil {
 			return nil, fmt.Errorf("section %s: %w", sectionID, ErrUnexpectedEOF)
+		}
+
+		switch sectionID {
+		case SectionIDCoreModule:
+			if err := decodeCoreModuleSection(c, sectionContent); err != nil {
+				return nil, fmt.Errorf("section %s: %w", sectionID, err)
+			}
+		default:
+			// Skip unknown sections for now
 		}
 	}
 
 	return c, nil
+}
+
+// decodeCoreModuleSection parses an embedded core wasm module.
+func decodeCoreModuleSection(c *component.Component, content []byte) error {
+	m, err := wasmbinary.DecodeModule(
+		content,
+		api.CoreFeaturesV2,
+		65536,
+		false,
+		false,
+		false,
+	)
+	if err != nil {
+		return fmt.Errorf("decode core module: %w", err)
+	}
+	c.CoreModules = append(c.CoreModules, m)
+	return nil
 }
