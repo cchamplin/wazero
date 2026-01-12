@@ -190,3 +190,31 @@ func TestDecodeComponent_ExportSection(t *testing.T) {
 	require.Equal(t, "add", c.Exports[0].Name)
 	require.Equal(t, component.ExportKindFunc, c.Exports[0].Kind)
 }
+
+func TestDecodeComponent_AddS32Fixture(t *testing.T) {
+	// Use the embedded add_s32 test fixture
+	c, err := DecodeComponent(testdata.AddS32Component)
+	require.NoError(t, err)
+	require.NotNil(t, c)
+
+	// Verify core module was parsed
+	require.Equal(t, 1, len(c.CoreModules))
+	require.NotNil(t, c.CoreModules[0])
+
+	// Verify type section
+	require.Equal(t, 1, len(c.Types))
+	require.Equal(t, component.TypeDefKindFunc, c.Types[0].Kind)
+	require.NotNil(t, c.Types[0].Func)
+	require.Equal(t, 2, len(c.Types[0].Func.Params))
+	require.Equal(t, "a", c.Types[0].Func.Params[0].Name)
+	require.Equal(t, "b", c.Types[0].Func.Params[1].Name)
+
+	// Verify canon section
+	require.Equal(t, 1, len(c.Canonicals))
+	require.Equal(t, component.CanonKindLift, c.Canonicals[0].Kind)
+
+	// Verify export section
+	require.Equal(t, 1, len(c.Exports))
+	require.Equal(t, "add", c.Exports[0].Name)
+	require.Equal(t, component.ExportKindFunc, c.Exports[0].Kind)
+}
