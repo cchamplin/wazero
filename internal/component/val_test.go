@@ -63,6 +63,6 @@ func TestValConstructorsAndAccessors(t *testing.T) {
 	t.Run("String", func(t *testing.T) {
 		v := ValString("hello")
 		require.Equal(t, ValKindString, v.Kind())
-		require.Equal(t, "hello", v.String())
+		require.Equal(t, "hello", v.StringVal())
 	})
 }

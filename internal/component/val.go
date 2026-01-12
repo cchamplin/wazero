@@ -2,6 +2,8 @@
 
 package component
 
+import "fmt"
+
 // Val represents a dynamically-typed component model value.
 // Used when function signatures aren't known at compile time.
 type Val struct {
@@ -120,5 +122,59 @@ func (v Val) F64() float64 { return v.v.(float64) }
 // Char returns the rune value. Panics if Kind() != ValKindChar.
 func (v Val) Char() rune { return v.v.(rune) }
 
-// String returns the string value. Panics if Kind() != ValKindString.
-func (v Val) String() string { return v.v.(string) }
+// StringVal returns the string value. Panics if Kind() != ValKindString.
+func (v Val) StringVal() string { return v.v.(string) }
+
+// String returns a string representation of the ValKind for debugging.
+func (k ValKind) String() string {
+	switch k {
+	case ValKindBool:
+		return "bool"
+	case ValKindS8:
+		return "s8"
+	case ValKindU8:
+		return "u8"
+	case ValKindS16:
+		return "s16"
+	case ValKindU16:
+		return "u16"
+	case ValKindS32:
+		return "s32"
+	case ValKindU32:
+		return "u32"
+	case ValKindS64:
+		return "s64"
+	case ValKindU64:
+		return "u64"
+	case ValKindF32:
+		return "f32"
+	case ValKindF64:
+		return "f64"
+	case ValKindChar:
+		return "char"
+	case ValKindString:
+		return "string"
+	case ValKindList:
+		return "list"
+	case ValKindRecord:
+		return "record"
+	case ValKindTuple:
+		return "tuple"
+	case ValKindVariant:
+		return "variant"
+	case ValKindEnum:
+		return "enum"
+	case ValKindOption:
+		return "option"
+	case ValKindResult:
+		return "result"
+	case ValKindFlags:
+		return "flags"
+	case ValKindOwn:
+		return "own"
+	case ValKindBorrow:
+		return "borrow"
+	default:
+		return fmt.Sprintf("unknown(%d)", k)
+	}
+}
