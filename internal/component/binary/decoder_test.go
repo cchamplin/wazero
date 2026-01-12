@@ -5,6 +5,7 @@ package binary
 import (
 	"testing"
 
+	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/component/testdata"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
@@ -111,4 +112,36 @@ func TestDecodeComponent_CoreModule(t *testing.T) {
 	require.NotNil(t, c)
 	require.Equal(t, 1, len(c.CoreModules))
 	require.NotNil(t, c.CoreModules[0])
+}
+
+func TestDecodeComponent_TypeSection(t *testing.T) {
+	// Build a component with a type section containing one function type
+	// Function type: (func (param "a" s32) (param "b" s32) (result s32))
+
+	typeSection := []byte{
+		0x01,      // 1 type definition
+		0x40,      // sync functype
+		0x02,      // 2 params
+		0x01, 'a', // param name "a" (length 1)
+		0x7a,      // s32
+		0x01, 'b', // param name "b" (length 1)
+		0x7a,      // s32
+		0x00,      // single result
+		0x7a,      // s32
+	}
+
+	// Build component
+	input := append(append(Magic[:], Version[:]...), LayerComponent[:]...)
+	input = append(input, byte(SectionIDType))    // section ID = 7
+	input = append(input, byte(len(typeSection))) // section size
+	input = append(input, typeSection...)
+
+	c, err := DecodeComponent(input)
+	require.NoError(t, err)
+	require.NotNil(t, c)
+	require.Equal(t, 1, len(c.Types))
+	require.Equal(t, component.TypeDefKindFunc, c.Types[0].Kind)
+	require.NotNil(t, c.Types[0].Func)
+	require.Equal(t, 2, len(c.Types[0].Func.Params))
+	require.Equal(t, "a", c.Types[0].Func.Params[0].Name)
 }

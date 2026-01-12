@@ -72,6 +72,10 @@ func DecodeComponent(binary []byte) (*component.Component, error) {
 			if err := decodeCoreModuleSection(c, sectionContent); err != nil {
 				return nil, fmt.Errorf("section %s: %w", sectionID, err)
 			}
+		case SectionIDType:
+			if err := decodeTypeSection(c, bytes.NewReader(sectionContent)); err != nil {
+				return nil, fmt.Errorf("section %s: %w", sectionID, err)
+			}
 		default:
 			// Skip unknown sections for now
 		}
@@ -94,5 +98,46 @@ func decodeCoreModuleSection(c *component.Component, content []byte) error {
 		return fmt.Errorf("decode core module: %w", err)
 	}
 	c.CoreModules = append(c.CoreModules, m)
+	return nil
+}
+
+// decodeTypeSection parses the type section (section ID 7).
+func decodeTypeSection(c *component.Component, r *bytes.Reader) error {
+	// Type section is: vec(typedef)
+	count, _, err := leb128.DecodeUint32(r)
+	if err != nil {
+		return fmt.Errorf("read type count: %w", err)
+	}
+
+	c.Types = make([]component.TypeDef, count)
+	for i := uint32(0); i < count; i++ {
+		// Peek at the opcode to determine type kind
+		opcode, err := r.ReadByte()
+		if err != nil {
+			return fmt.Errorf("read type %d opcode: %w", i, err)
+		}
+
+		switch opcode {
+		case TypeOpFuncSync, TypeOpFuncAsync:
+			// Unread the opcode so decodeFuncType can read it
+			if err := r.UnreadByte(); err != nil {
+				return err
+			}
+
+			ft, err := decodeFuncType(r)
+			if err != nil {
+				return fmt.Errorf("decode functype %d: %w", i, err)
+			}
+
+			c.Types[i] = component.TypeDef{
+				Kind: component.TypeDefKindFunc,
+				Func: ft,
+			}
+
+		default:
+			return fmt.Errorf("unsupported type opcode 0x%02x at index %d", opcode, i)
+		}
+	}
+
 	return nil
 }
