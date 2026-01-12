@@ -80,6 +80,10 @@ func DecodeComponent(binary []byte) (*component.Component, error) {
 			if err := decodeCanonSection(c, bytes.NewReader(sectionContent)); err != nil {
 				return nil, fmt.Errorf("section %s: %w", sectionID, err)
 			}
+		case SectionIDExport:
+			if err := decodeExportSection(c, bytes.NewReader(sectionContent)); err != nil {
+				return nil, fmt.Errorf("section %s: %w", sectionID, err)
+			}
 		default:
 			// Skip unknown sections for now
 		}
@@ -160,6 +164,25 @@ func decodeCanonSection(c *component.Component, r *bytes.Reader) error {
 			return fmt.Errorf("decode canonical %d: %w", i, err)
 		}
 		c.Canonicals[i] = def
+	}
+
+	return nil
+}
+
+// decodeExportSection parses the export section (section ID 11).
+func decodeExportSection(c *component.Component, r *bytes.Reader) error {
+	count, _, err := leb128.DecodeUint32(r)
+	if err != nil {
+		return fmt.Errorf("read export count: %w", err)
+	}
+
+	c.Exports = make([]component.Export, count)
+	for i := uint32(0); i < count; i++ {
+		exp, err := decodeExport(r)
+		if err != nil {
+			return fmt.Errorf("decode export %d: %w", i, err)
+		}
+		c.Exports[i] = exp
 	}
 
 	return nil

@@ -168,3 +168,25 @@ func TestDecodeComponent_CanonSection(t *testing.T) {
 	require.Equal(t, 1, len(c.Canonicals))
 	require.Equal(t, component.CanonKindLift, c.Canonicals[0].Kind)
 }
+
+func TestDecodeComponent_ExportSection(t *testing.T) {
+	exportSection := []byte{
+		0x01,             // 1 export
+		0x00,             // simple name
+		0x03, 'a', 'd', 'd', // name "add"
+		0x01,             // sort = func
+		0x00,             // index = 0
+	}
+
+	input := append(append(Magic[:], Version[:]...), LayerComponent[:]...)
+	input = append(input, byte(SectionIDExport))
+	input = append(input, byte(len(exportSection)))
+	input = append(input, exportSection...)
+
+	c, err := DecodeComponent(input)
+	require.NoError(t, err)
+	require.NotNil(t, c)
+	require.Equal(t, 1, len(c.Exports))
+	require.Equal(t, "add", c.Exports[0].Name)
+	require.Equal(t, component.ExportKindFunc, c.Exports[0].Kind)
+}
