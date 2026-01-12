@@ -5,6 +5,7 @@ package binary
 import (
 	"testing"
 
+	"github.com/tetratelabs/wazero/internal/component/testdata"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -63,6 +64,13 @@ func TestDecodeComponent_EmptyComponent(t *testing.T) {
 	input := append(append(Magic[:], Version[:]...), LayerComponent[:]...)
 
 	c, err := DecodeComponent(input)
+	require.NoError(t, err)
+	require.NotNil(t, c)
+}
+
+func TestDecodeComponent_EmptyFixture(t *testing.T) {
+	// Use the embedded test fixture
+	c, err := DecodeComponent(testdata.EmptyComponent)
 	require.NoError(t, err)
 	require.NotNil(t, c)
 }
