@@ -106,6 +106,8 @@ func decodeCoreModuleSection(c *component.Component, content []byte) error {
 		return fmt.Errorf("decode core module: %w", err)
 	}
 	c.CoreModules = append(c.CoreModules, m)
+	// Store raw bytes for instantiation via wazero's public API
+	c.CoreModuleData = append(c.CoreModuleData, content)
 	return nil
 }
 

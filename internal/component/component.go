@@ -12,6 +12,10 @@ type Component struct {
 	// These are the raw modules that will be instantiated.
 	CoreModules []*wasm.Module
 
+	// CoreModuleData contains the raw bytes of each core module.
+	// Used for instantiation via wazero's CompileModule API.
+	CoreModuleData [][]byte
+
 	// Types contains component type definitions (section ID 7).
 	// This includes function types, component types, instance types, etc.
 	Types []TypeDef
