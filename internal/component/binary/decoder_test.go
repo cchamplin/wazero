@@ -145,3 +145,26 @@ func TestDecodeComponent_TypeSection(t *testing.T) {
 	require.Equal(t, 2, len(c.Types[0].Func.Params))
 	require.Equal(t, "a", c.Types[0].Func.Params[0].Name)
 }
+
+func TestDecodeComponent_CanonSection(t *testing.T) {
+	// Build a component with a canon section containing one lift
+	canonSection := []byte{
+		0x01, // 1 canonical definition
+		0x00, // canon.lift
+		0x00, // core sort
+		0x00, // core:funcidx = 0
+		0x00, // opts count = 0
+		0x00, // typeidx = 0
+	}
+
+	input := append(append(Magic[:], Version[:]...), LayerComponent[:]...)
+	input = append(input, byte(SectionIDCanon))
+	input = append(input, byte(len(canonSection)))
+	input = append(input, canonSection...)
+
+	c, err := DecodeComponent(input)
+	require.NoError(t, err)
+	require.NotNil(t, c)
+	require.Equal(t, 1, len(c.Canonicals))
+	require.Equal(t, component.CanonKindLift, c.Canonicals[0].Kind)
+}
