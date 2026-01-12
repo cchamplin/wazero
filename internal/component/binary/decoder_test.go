@@ -88,3 +88,27 @@ func TestDecodeComponent_SectionHeader(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, c)
 }
+
+func TestDecodeComponent_CoreModule(t *testing.T) {
+	// Build a component with an embedded minimal core module
+	// Component preamble: magic(4) + version(2) + layer(2) = 8 bytes
+	// Section: id(1) + size(LEB128) + content
+
+	// Minimal valid core module: magic + version = 8 bytes
+	coreModule := []byte{
+		0x00, 0x61, 0x73, 0x6d, // magic
+		0x01, 0x00, 0x00, 0x00, // version
+	}
+
+	// Build component
+	input := append(append(Magic[:], Version[:]...), LayerComponent[:]...)
+	input = append(input, byte(SectionIDCoreModule)) // section ID = 1
+	input = append(input, byte(len(coreModule)))     // section size (fits in 1 byte)
+	input = append(input, coreModule...)
+
+	c, err := DecodeComponent(input)
+	require.NoError(t, err)
+	require.NotNil(t, c)
+	require.Equal(t, 1, len(c.CoreModules))
+	require.NotNil(t, c.CoreModules[0])
+}
