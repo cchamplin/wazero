@@ -70,3 +70,86 @@ func (r Record) FieldOffsets() []uint32 {
 func alignTo(offset, align uint32) uint32 {
 	return (offset + align - 1) &^ (align - 1)
 }
+
+// Case represents a case in a variant type.
+type Case struct {
+	Name string
+	Type ValType // nil for cases with no payload
+}
+
+// Variant represents a discriminated union type.
+type Variant struct {
+	Cases []Case
+}
+
+func (Variant) valType() {}
+
+// DiscriminantSize returns the size of the discriminant in bytes.
+func (v Variant) DiscriminantSize() uint32 {
+	n := len(v.Cases)
+	switch {
+	case n <= 0x100: // 256
+		return 1
+	case n <= 0x10000: // 65536
+		return 2
+	default:
+		return 4
+	}
+}
+
+func (v Variant) Size() uint32 {
+	discSize := v.DiscriminantSize()
+	payloadSize := uint32(0)
+	payloadAlign := uint32(1)
+	for _, c := range v.Cases {
+		if c.Type != nil {
+			if s := c.Type.Size(); s > payloadSize {
+				payloadSize = s
+			}
+			if a := c.Type.Align(); a > payloadAlign {
+				payloadAlign = a
+			}
+		}
+	}
+	// discriminant + padding + payload, aligned to variant alignment
+	offset := alignTo(discSize, payloadAlign)
+	return alignTo(offset+payloadSize, v.Align())
+}
+
+func (v Variant) Align() uint32 {
+	align := v.DiscriminantSize()
+	for _, c := range v.Cases {
+		if c.Type != nil {
+			if a := c.Type.Align(); a > align {
+				align = a
+			}
+		}
+	}
+	return align
+}
+
+func (v Variant) FlattenCount() int {
+	// discriminant + max payload flattening
+	maxPayload := 0
+	for _, c := range v.Cases {
+		if c.Type != nil {
+			if n := c.Type.FlattenCount(); n > maxPayload {
+				maxPayload = n
+			}
+		}
+	}
+	return 1 + maxPayload
+}
+
+// PayloadOffset returns the byte offset where payload data starts.
+func (v Variant) PayloadOffset() uint32 {
+	payloadAlign := uint32(1)
+	for _, c := range v.Cases {
+		if c.Type != nil {
+			if a := c.Type.Align(); a > payloadAlign {
+				payloadAlign = a
+			}
+		}
+	}
+	return alignTo(v.DiscriminantSize(), payloadAlign)
+}
