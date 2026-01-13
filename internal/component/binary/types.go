@@ -285,7 +285,14 @@ func decodeDefinedType(r *bytes.Reader) (*TypeDef, error) {
 		}, nil
 
 	case ValTypeOpcodeList:
-		return nil, fmt.Errorf("list type decoding not yet implemented")
+		list, err := decodeListTypeDef(r)
+		if err != nil {
+			return nil, fmt.Errorf("decode list type: %w", err)
+		}
+		return &TypeDef{
+			Kind: TypeDefKindList,
+			List: list,
+		}, nil
 
 	case ValTypeOpcodeTuple:
 		return nil, fmt.Errorf("tuple type decoding not yet implemented")
@@ -335,6 +342,19 @@ func decodeRecordTypeDef(r *bytes.Reader) (*RecordTypeDef, error) {
 
 	return &RecordTypeDef{
 		Fields: fields,
+	}, nil
+}
+
+// decodeListTypeDef reads a list type definition from the reader.
+// Format: 0x70 <element_type>
+func decodeListTypeDef(r *bytes.Reader) (*ListTypeDef, error) {
+	elemType, err := decodeValType(r)
+	if err != nil {
+		return nil, fmt.Errorf("read list element type: %w", err)
+	}
+
+	return &ListTypeDef{
+		Element: elemType,
 	}, nil
 }
 
