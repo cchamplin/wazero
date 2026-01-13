@@ -51,6 +51,12 @@ func TestDecodeValType_TypeIndex(t *testing.T) {
 		{"index 0", []byte{0x00}, component.ValTypeRef{IsPrimitive: false, TypeIdx: 0}},
 		{"index 5", []byte{0x05}, component.ValTypeRef{IsPrimitive: false, TypeIdx: 5}},
 		{"index 127", []byte{0x7f & 0x72}, component.ValTypeRef{IsPrimitive: false, TypeIdx: 0x72}}, // 0x72 is below primitive range
+		// Multi-byte LEB128 type indices
+		{"index 128", []byte{0x80, 0x01}, component.ValTypeRef{IsPrimitive: false, TypeIdx: 128}},            // 128 = 0x80 0x01 in LEB128
+		{"index 255", []byte{0xff, 0x01}, component.ValTypeRef{IsPrimitive: false, TypeIdx: 255}},            // 255 = 0xff 0x01 in LEB128
+		{"index 256", []byte{0x80, 0x02}, component.ValTypeRef{IsPrimitive: false, TypeIdx: 256}},            // 256 = 0x80 0x02 in LEB128
+		{"index 16383", []byte{0xff, 0x7f}, component.ValTypeRef{IsPrimitive: false, TypeIdx: 16383}},        // 16383 = 0xff 0x7f in LEB128
+		{"index 16384", []byte{0x80, 0x80, 0x01}, component.ValTypeRef{IsPrimitive: false, TypeIdx: 16384}},  // 16384 = 0x80 0x80 0x01 in LEB128
 	}
 
 	for _, tt := range tests {
