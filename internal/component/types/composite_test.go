@@ -317,3 +317,48 @@ func TestFlagsEmpty(t *testing.T) {
 	require.Equal(t, uint32(1), f.Align())
 	require.Equal(t, 0, f.FlattenCount())
 }
+
+func TestEnumType(t *testing.T) {
+	// enum { red, green, blue }
+	e := Enum{Cases: []string{"red", "green", "blue"}}
+
+	require.Equal(t, uint32(1), e.Size())  // 3 cases fits in u8
+	require.Equal(t, uint32(1), e.Align())
+	require.Equal(t, 1, e.FlattenCount())
+}
+
+func TestEnumType256(t *testing.T) {
+	// 256 cases still fits in u8
+	cases := make([]string, 256)
+	for i := range cases {
+		cases[i] = fmt.Sprintf("case%d", i)
+	}
+	e := Enum{Cases: cases}
+
+	require.Equal(t, uint32(1), e.Size())
+	require.Equal(t, uint32(1), e.Align())
+}
+
+func TestEnumType257(t *testing.T) {
+	// 257 cases needs u16
+	cases := make([]string, 257)
+	for i := range cases {
+		cases[i] = fmt.Sprintf("case%d", i)
+	}
+	e := Enum{Cases: cases}
+
+	require.Equal(t, uint32(2), e.Size())
+	require.Equal(t, uint32(2), e.Align())
+}
+
+func TestEnumType65537(t *testing.T) {
+	// 65537 cases needs u32
+	cases := make([]string, 65537)
+	for i := range cases {
+		cases[i] = fmt.Sprintf("case%d", i)
+	}
+	e := Enum{Cases: cases}
+
+	require.Equal(t, uint32(4), e.Size())
+	require.Equal(t, uint32(4), e.Align())
+}
