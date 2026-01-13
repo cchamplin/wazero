@@ -104,3 +104,46 @@ func TestEchoRecord_EdgeCases(t *testing.T) {
 		})
 	}
 }
+
+func TestOptionRoundtrip(t *testing.T) {
+	ctx := context.Background()
+	rt := wazero.NewRuntime(ctx)
+	defer rt.Close(ctx)
+
+	c, err := binary.DecodeComponent(testdata.OptionRoundtripComponent)
+	require.NoError(t, err)
+
+	inst, err := component.Instantiate(ctx, rt, c)
+	require.NoError(t, err)
+
+	echo := inst.ExportedFunction("echo")
+	require.NotNil(t, echo)
+
+	t.Run("None case", func(t *testing.T) {
+		// Call with None (nil payload)
+		input := component.ValOption(nil)
+
+		results, err := echo.Call(ctx, input)
+		require.NoError(t, err)
+		require.Equal(t, 1, len(results))
+
+		// Expect None back
+		opt := results[0].Option()
+		require.Nil(t, opt, "expected None (nil payload)")
+	})
+
+	t.Run("Some case", func(t *testing.T) {
+		// Call with Some(42)
+		val := component.ValS32(42)
+		input := component.ValOption(&val)
+
+		results, err := echo.Call(ctx, input)
+		require.NoError(t, err)
+		require.Equal(t, 1, len(results))
+
+		// Expect Some(42) back
+		opt := results[0].Option()
+		require.NotNil(t, opt, "expected Some (non-nil payload)")
+		require.Equal(t, int32(42), opt.S32())
+	})
+}

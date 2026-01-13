@@ -41,6 +41,9 @@ type TypeDef struct {
 	// These are stored as parsed structures from the binary package.
 	// Record holds the decoded record type definition.
 	Record interface{}
+
+	// Option holds the decoded option type definition.
+	Option interface{}
 }
 
 // TypeDefKind identifies the kind of type definition.
