@@ -170,3 +170,32 @@ func TestListElementSize(t *testing.T) {
 	require.Equal(t, uint32(8), l.ElementSize())
 	require.Equal(t, uint32(8), l.ElementAlign())
 }
+
+func TestOptionType(t *testing.T) {
+	// option<u32> is variant { none, some(u32) }
+	o := Option{Some: U32{}}
+
+	// Same layout as variant with 2 cases
+	// disc(1) + padding(3) + payload(4) = 8, align 4
+	require.Equal(t, uint32(8), o.Size())
+	require.Equal(t, uint32(4), o.Align())
+	require.Equal(t, 2, o.FlattenCount()) // disc + payload
+}
+
+func TestOptionNone(t *testing.T) {
+	// option<string> where Some is a string (8 bytes, align 4)
+	o := Option{Some: String{}}
+
+	// disc(1) + padding(3) + payload(8) = 12, align 4
+	require.Equal(t, uint32(12), o.Size())
+	require.Equal(t, uint32(4), o.Align())
+}
+
+func TestOptionU64(t *testing.T) {
+	// option<u64>
+	// disc(1) + padding(7) + payload(8) = 16, align 8
+	o := Option{Some: U64{}}
+
+	require.Equal(t, uint32(16), o.Size())
+	require.Equal(t, uint32(8), o.Align())
+}

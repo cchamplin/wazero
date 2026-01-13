@@ -175,3 +175,32 @@ func (l List) ElementSize() uint32 { return l.Element.Size() }
 
 // ElementAlign returns the alignment of each element.
 func (l List) ElementAlign() uint32 { return l.Element.Align() }
+
+// Option represents an optional value type (sugar for variant { none, some(T) }).
+type Option struct {
+	Some ValType
+}
+
+func (Option) valType() {}
+
+func (o Option) Size() uint32 {
+	return o.asVariant().Size()
+}
+
+func (o Option) Align() uint32 {
+	return o.asVariant().Align()
+}
+
+func (o Option) FlattenCount() int {
+	return o.asVariant().FlattenCount()
+}
+
+// asVariant returns the equivalent Variant representation.
+func (o Option) asVariant() Variant {
+	return Variant{
+		Cases: []Case{
+			{Name: "none", Type: nil},
+			{Name: "some", Type: o.Some},
+		},
+	}
+}
