@@ -204,3 +204,33 @@ func (o Option) asVariant() Variant {
 		},
 	}
 }
+
+// Result represents a result type (sugar for variant { ok(T), error(E) }).
+type Result struct {
+	Ok    ValType // nil for result<_, E>
+	Error ValType // nil for result<T, _>
+}
+
+func (Result) valType() {}
+
+func (r Result) Size() uint32 {
+	return r.asVariant().Size()
+}
+
+func (r Result) Align() uint32 {
+	return r.asVariant().Align()
+}
+
+func (r Result) FlattenCount() int {
+	return r.asVariant().FlattenCount()
+}
+
+// asVariant returns the equivalent Variant representation.
+func (r Result) asVariant() Variant {
+	return Variant{
+		Cases: []Case{
+			{Name: "ok", Type: r.Ok},
+			{Name: "error", Type: r.Error},
+		},
+	}
+}
