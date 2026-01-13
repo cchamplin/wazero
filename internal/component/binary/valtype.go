@@ -64,3 +64,20 @@ func (p PrimValType) String() string {
 func IsPrimValType(b byte) bool {
 	return b >= 0x73 && b <= 0x7f
 }
+
+// Composite type opcodes
+const (
+	ValTypeOpcodeRecord  byte = 0x72
+	ValTypeOpcodeVariant byte = 0x71
+	ValTypeOpcodeList    byte = 0x70
+	ValTypeOpcodeTuple   byte = 0x6f
+	ValTypeOpcodeFlags   byte = 0x6e
+	ValTypeOpcodeEnum    byte = 0x6d
+	ValTypeOpcodeOption  byte = 0x6c
+	ValTypeOpcodeResult  byte = 0x6b
+)
+
+// IsCompositeTypeOpcode returns true if the opcode is a composite type.
+func IsCompositeTypeOpcode(opcode byte) bool {
+	return opcode >= 0x6b && opcode <= 0x72
+}

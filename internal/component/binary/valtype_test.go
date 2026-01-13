@@ -56,3 +56,36 @@ func TestIsPrimValType(t *testing.T) {
 	require.False(t, IsPrimValType(0x00))
 	require.False(t, IsPrimValType(0xff))
 }
+
+func TestCompositeTypeOpcodes(t *testing.T) {
+	tests := []struct {
+		opcode byte
+		name   string
+	}{
+		{0x72, "record"},
+		{0x71, "variant"},
+		{0x70, "list"},
+		{0x6f, "tuple"},
+		{0x6e, "flags"},
+		{0x6d, "enum"},
+		{0x6c, "option"},
+		{0x6b, "result"},
+	}
+
+	for _, tc := range tests {
+		require.True(t, IsCompositeTypeOpcode(tc.opcode),
+			"opcode 0x%02x should be composite type %s", tc.opcode, tc.name)
+	}
+}
+
+func TestNonCompositeTypeOpcodes(t *testing.T) {
+	// Primitive opcodes should not be composite
+	for b := byte(0x73); b <= 0x7f; b++ {
+		require.False(t, IsCompositeTypeOpcode(b),
+			"opcode 0x%02x should not be composite type", b)
+	}
+
+	// Other opcodes outside the range should not be composite
+	require.False(t, IsCompositeTypeOpcode(0x6a))
+	require.False(t, IsCompositeTypeOpcode(0x40)) // function type opcode
+}
