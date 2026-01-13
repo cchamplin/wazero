@@ -47,6 +47,9 @@ type TypeDef struct {
 
 	// List holds the decoded list type definition.
 	List interface{}
+
+	// Result holds the decoded result type definition.
+	Result interface{}
 }
 
 // TypeDefKind identifies the kind of type definition.

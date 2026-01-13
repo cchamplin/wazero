@@ -210,3 +210,82 @@ func TestListSum(t *testing.T) {
 		})
 	}
 }
+
+func TestResultDivide(t *testing.T) {
+	ctx := context.Background()
+	rt := wazero.NewRuntime(ctx)
+	defer rt.Close(ctx)
+
+	c, err := binary.DecodeComponent(testdata.ResultDivideComponent)
+	require.NoError(t, err)
+
+	inst, err := component.Instantiate(ctx, rt, c)
+	require.NoError(t, err)
+
+	divide := inst.ExportedFunction("divide")
+	require.NotNil(t, divide)
+
+	t.Run("Ok case", func(t *testing.T) {
+		// divide(10, 2) should return Ok(5)
+		results, err := divide.Call(ctx, component.ValS32(10), component.ValS32(2))
+		require.NoError(t, err)
+		require.Equal(t, 1, len(results))
+
+		isOk, okVal, errVal := results[0].Result()
+		require.True(t, isOk, "expected Ok result")
+		require.NotNil(t, okVal)
+		require.Nil(t, errVal)
+		require.Equal(t, int32(5), okVal.S32())
+	})
+
+	t.Run("Error case", func(t *testing.T) {
+		// divide(10, 0) should return Error(1) (division by zero)
+		results, err := divide.Call(ctx, component.ValS32(10), component.ValS32(0))
+		require.NoError(t, err)
+		require.Equal(t, 1, len(results))
+
+		isOk, okVal, errVal := results[0].Result()
+		require.False(t, isOk, "expected Error result")
+		require.Nil(t, okVal)
+		require.NotNil(t, errVal)
+		require.Equal(t, int32(1), errVal.S32())
+	})
+
+	t.Run("Additional cases", func(t *testing.T) {
+		tests := []struct {
+			name     string
+			a        int32
+			b        int32
+			expectOk bool
+			expected int32 // expected ok value or error code
+		}{
+			{"positive division", 100, 4, true, 25},
+			{"negative dividend", -10, 2, true, -5},
+			{"negative divisor", 10, -2, true, -5},
+			{"both negative", -10, -2, true, 5},
+			{"zero dividend", 0, 5, true, 0},
+			{"division by zero", 1, 0, false, 1},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				results, err := divide.Call(ctx, component.ValS32(tc.a), component.ValS32(tc.b))
+				require.NoError(t, err)
+				require.Equal(t, 1, len(results))
+
+				isOk, okVal, errVal := results[0].Result()
+				require.Equal(t, tc.expectOk, isOk)
+
+				if tc.expectOk {
+					require.NotNil(t, okVal)
+					require.Nil(t, errVal)
+					require.Equal(t, tc.expected, okVal.S32())
+				} else {
+					require.Nil(t, okVal)
+					require.NotNil(t, errVal)
+					require.Equal(t, tc.expected, errVal.S32())
+				}
+			})
+		}
+	})
+}
