@@ -199,3 +199,43 @@ func TestOptionU64(t *testing.T) {
 	require.Equal(t, uint32(16), o.Size())
 	require.Equal(t, uint32(8), o.Align())
 }
+
+func TestResultType(t *testing.T) {
+	// result<u32, string>
+	// variant { ok(u32), error(string) }
+	// Discriminant: 1 byte
+	// Payload: max(4, 8) = 8 bytes, align max(4, 4) = 4
+	// Size: disc(1) + padding(3) + payload(8) = 12, align 4
+	r := Result{Ok: U32{}, Error: String{}}
+
+	require.Equal(t, uint32(12), r.Size())
+	require.Equal(t, uint32(4), r.Align())
+	require.Equal(t, 3, r.FlattenCount()) // disc + max(1, 2)
+}
+
+func TestResultOkOnly(t *testing.T) {
+	// result<u64, _> (no error payload)
+	r := Result{Ok: U64{}, Error: nil}
+
+	// disc(1) + padding(7) + payload(8) = 16, align 8
+	require.Equal(t, uint32(16), r.Size())
+	require.Equal(t, uint32(8), r.Align())
+}
+
+func TestResultErrorOnly(t *testing.T) {
+	// result<_, string> (no ok payload)
+	r := Result{Ok: nil, Error: String{}}
+
+	// disc(1) + padding(3) + payload(8) = 12, align 4
+	require.Equal(t, uint32(12), r.Size())
+	require.Equal(t, uint32(4), r.Align())
+}
+
+func TestResultUnit(t *testing.T) {
+	// result (no payloads)
+	r := Result{Ok: nil, Error: nil}
+
+	// Just discriminant: 1 byte, align 1
+	require.Equal(t, uint32(1), r.Size())
+	require.Equal(t, uint32(1), r.Align())
+}
