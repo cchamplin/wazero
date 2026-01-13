@@ -866,3 +866,673 @@ func TestLiftHeapUnsupportedType(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unsupported heap lift")
 }
+
+// --- LiftHeap Tuple Tests ---
+
+func TestLiftHeapTuple(t *testing.T) {
+	// tuple<s32, u64> at offset 0
+	// Layout: s32@0, padding@4-7, u64@8
+	data := make([]byte, 32)
+	binary.LittleEndian.PutUint32(data[0:], 42)            // s32
+	binary.LittleEndian.PutUint64(data[8:], 0x1234567890) // u64 (aligned to 8)
+
+	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	tupleType := types.Tuple{Types: []types.ValType{types.S32{}, types.U64{}}}
+
+	val, err := LiftHeap(ctx, tupleType, 0)
+	require.NoError(t, err)
+	require.Equal(t, component.ValKindTuple, val.Kind())
+
+	elems := val.Tuple()
+	require.Equal(t, 2, len(elems))
+	require.Equal(t, int32(42), elems[0].S32())
+	require.Equal(t, uint64(0x1234567890), elems[1].U64())
+}
+
+func TestLiftHeapTupleEmpty(t *testing.T) {
+	data := make([]byte, 16)
+	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	tupleType := types.Tuple{Types: []types.ValType{}}
+
+	val, err := LiftHeap(ctx, tupleType, 0)
+	require.NoError(t, err)
+	require.Equal(t, component.ValKindTuple, val.Kind())
+	require.Equal(t, 0, len(val.Tuple()))
+}
+
+func TestLiftHeapTupleNested(t *testing.T) {
+	// tuple<u8, tuple<u16, u32>>
+	// Inner tuple has alignment 4 (max of u16=2, u32=4)
+	// Layout: u8@0, padding@1-3, inner tuple@4 (u16@4, padding@6-7, u32@8)
+	data := make([]byte, 16)
+	data[0] = 0x11                                      // u8 at 0
+	binary.LittleEndian.PutUint16(data[4:], 0x2222)     // inner u16 at 4
+	binary.LittleEndian.PutUint32(data[8:], 0x33333333) // inner u32 at 8
+
+	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	innerType := types.Tuple{Types: []types.ValType{types.U16{}, types.U32{}}}
+	outerType := types.Tuple{Types: []types.ValType{types.U8{}, innerType}}
+
+	val, err := LiftHeap(ctx, outerType, 0)
+	require.NoError(t, err)
+
+	elems := val.Tuple()
+	require.Equal(t, 2, len(elems))
+	require.Equal(t, uint8(0x11), elems[0].U8())
+
+	innerElems := elems[1].Tuple()
+	require.Equal(t, uint16(0x2222), innerElems[0].U16())
+	require.Equal(t, uint32(0x33333333), innerElems[1].U32())
+}
+
+// --- LiftHeap Variant Tests ---
+
+func TestLiftHeapVariant(t *testing.T) {
+	// variant { none, some(s32) }
+	// Layout: discriminant (1 byte), padding, s32 at aligned offset
+	// With s32 alignment of 4: disc@0, padding@1-3, payload@4
+	data := make([]byte, 16)
+	data[0] = 1 // discriminant = some
+	binary.LittleEndian.PutUint32(data[4:], 42) // payload
+
+	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	varType := types.Variant{
+		Cases: []types.Case{
+			{Name: "none", Type: nil},
+			{Name: "some", Type: types.S32{}},
+		},
+	}
+
+	val, err := LiftHeap(ctx, varType, 0)
+	require.NoError(t, err)
+
+	caseName, payload := val.Variant()
+	require.Equal(t, "some", caseName)
+	require.NotNil(t, payload)
+	require.Equal(t, int32(42), payload.S32())
+}
+
+func TestLiftHeapVariantNoPayload(t *testing.T) {
+	// variant { none, some(s32) }
+	// discriminant = 0 (none)
+	data := make([]byte, 16)
+	data[0] = 0 // discriminant = none
+
+	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	varType := types.Variant{
+		Cases: []types.Case{
+			{Name: "none", Type: nil},
+			{Name: "some", Type: types.S32{}},
+		},
+	}
+
+	val, err := LiftHeap(ctx, varType, 0)
+	require.NoError(t, err)
+
+	caseName, payload := val.Variant()
+	require.Equal(t, "none", caseName)
+	require.Nil(t, payload)
+}
+
+func TestLiftHeapVariantInvalidDiscriminant(t *testing.T) {
+	data := make([]byte, 16)
+	data[0] = 5 // invalid discriminant
+
+	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	varType := types.Variant{
+		Cases: []types.Case{
+			{Name: "a", Type: nil},
+			{Name: "b", Type: nil},
+		},
+	}
+
+	_, err := LiftHeap(ctx, varType, 0)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid variant discriminant")
+}
+
+func TestLiftHeapVariantWithRecord(t *testing.T) {
+	// variant { empty, pair(record { x: u16, y: u16 }) }
+	// Layout: disc@0, padding@1, record@2 (record has align 2)
+	data := make([]byte, 16)
+	data[0] = 1 // discriminant = pair
+	binary.LittleEndian.PutUint16(data[2:], 10) // x
+	binary.LittleEndian.PutUint16(data[4:], 20) // y
+
+	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	recType := types.Record{
+		Fields: []types.Field{
+			{Name: "x", Type: types.U16{}},
+			{Name: "y", Type: types.U16{}},
+		},
+	}
+	varType := types.Variant{
+		Cases: []types.Case{
+			{Name: "empty", Type: nil},
+			{Name: "pair", Type: recType},
+		},
+	}
+
+	val, err := LiftHeap(ctx, varType, 0)
+	require.NoError(t, err)
+
+	caseName, payload := val.Variant()
+	require.Equal(t, "pair", caseName)
+	require.NotNil(t, payload)
+	rec := payload.Record()
+	require.Equal(t, uint16(10), rec["x"].U16())
+	require.Equal(t, uint16(20), rec["y"].U16())
+}
+
+func TestLiftHeapVariantManyCase(t *testing.T) {
+	// variant with 300 cases needs 2-byte discriminant
+	cases := make([]types.Case, 300)
+	for i := range cases {
+		cases[i] = types.Case{Name: fmt.Sprintf("case%d", i), Type: nil}
+	}
+	cases[256].Type = types.U32{} // Give case 256 a payload
+
+	// Select case 256
+	data := make([]byte, 16)
+	binary.LittleEndian.PutUint16(data[0:], 256) // 2-byte discriminant
+	binary.LittleEndian.PutUint32(data[4:], 0xDEADBEEF) // payload at offset 4 (aligned)
+
+	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	varType := types.Variant{Cases: cases}
+
+	val, err := LiftHeap(ctx, varType, 0)
+	require.NoError(t, err)
+
+	caseName, payload := val.Variant()
+	require.Equal(t, "case256", caseName)
+	require.NotNil(t, payload)
+	require.Equal(t, uint32(0xDEADBEEF), payload.U32())
+}
+
+// --- LiftHeap Option Tests ---
+
+func TestLiftHeapOptionSome(t *testing.T) {
+	// option<s32> as Some(42)
+	// Layout: disc@0 (1 byte), padding@1-3, payload@4
+	data := make([]byte, 16)
+	data[0] = 1 // Some
+	binary.LittleEndian.PutUint32(data[4:], 42)
+
+	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	optType := types.Option{Some: types.S32{}}
+
+	val, err := LiftHeap(ctx, optType, 0)
+	require.NoError(t, err)
+	require.Equal(t, component.ValKindOption, val.Kind())
+
+	payload := val.Option()
+	require.NotNil(t, payload)
+	require.Equal(t, int32(42), payload.S32())
+}
+
+func TestLiftHeapOptionNone(t *testing.T) {
+	// option<s32> as None
+	data := make([]byte, 16)
+	data[0] = 0 // None
+
+	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	optType := types.Option{Some: types.S32{}}
+
+	val, err := LiftHeap(ctx, optType, 0)
+	require.NoError(t, err)
+	require.Equal(t, component.ValKindOption, val.Kind())
+	require.Nil(t, val.Option())
+}
+
+func TestLiftHeapOptionUnit(t *testing.T) {
+	// option<> (unit) - Some has no type
+	data := make([]byte, 16)
+	data[0] = 1 // Some
+
+	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	optType := types.Option{Some: nil}
+
+	val, err := LiftHeap(ctx, optType, 0)
+	require.NoError(t, err)
+	payload := val.Option()
+	require.NotNil(t, payload) // Some(unit) is not nil
+}
+
+func TestLiftHeapOptionWithRecord(t *testing.T) {
+	// option<record { x: u8, y: u16 }>
+	// Layout: disc@0, y has align 2, so record at offset 2
+	data := make([]byte, 16)
+	data[0] = 1    // Some
+	data[2] = 0x11 // x
+	binary.LittleEndian.PutUint16(data[4:], 0x2222) // y at offset 4 within record (2+2)
+
+	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	recType := types.Record{
+		Fields: []types.Field{
+			{Name: "x", Type: types.U8{}},
+			{Name: "y", Type: types.U16{}},
+		},
+	}
+	optType := types.Option{Some: recType}
+
+	val, err := LiftHeap(ctx, optType, 0)
+	require.NoError(t, err)
+
+	payload := val.Option()
+	require.NotNil(t, payload)
+	rec := payload.Record()
+	require.Equal(t, uint8(0x11), rec["x"].U8())
+	require.Equal(t, uint16(0x2222), rec["y"].U16())
+}
+
+// --- LiftHeap Result Tests ---
+
+func TestLiftHeapResultOk(t *testing.T) {
+	// result<s32, u32> as Ok(42)
+	data := make([]byte, 16)
+	data[0] = 0 // Ok
+	binary.LittleEndian.PutUint32(data[4:], 42) // payload at aligned offset
+
+	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	resType := types.Result{Ok: types.S32{}, Error: types.U32{}}
+
+	val, err := LiftHeap(ctx, resType, 0)
+	require.NoError(t, err)
+	require.Equal(t, component.ValKindResult, val.Kind())
+
+	isOk, ok, errVal := val.Result()
+	require.True(t, isOk)
+	require.NotNil(t, ok)
+	require.Nil(t, errVal)
+	require.Equal(t, int32(42), ok.S32())
+}
+
+func TestLiftHeapResultError(t *testing.T) {
+	// result<s32, u32> as Err(99)
+	data := make([]byte, 16)
+	data[0] = 1 // Error
+	binary.LittleEndian.PutUint32(data[4:], 99) // payload at aligned offset
+
+	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	resType := types.Result{Ok: types.S32{}, Error: types.U32{}}
+
+	val, err := LiftHeap(ctx, resType, 0)
+	require.NoError(t, err)
+
+	isOk, ok, errVal := val.Result()
+	require.False(t, isOk)
+	require.Nil(t, ok)
+	require.NotNil(t, errVal)
+	require.Equal(t, uint32(99), errVal.U32())
+}
+
+func TestLiftHeapResultOkNoPayload(t *testing.T) {
+	// result<_, u32> as Ok (no ok payload)
+	data := make([]byte, 16)
+	data[0] = 0 // Ok
+
+	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	resType := types.Result{Ok: nil, Error: types.U32{}}
+
+	val, err := LiftHeap(ctx, resType, 0)
+	require.NoError(t, err)
+
+	isOk, ok, errVal := val.Result()
+	require.True(t, isOk)
+	require.Nil(t, ok)
+	require.Nil(t, errVal)
+}
+
+func TestLiftHeapResultErrorNoPayload(t *testing.T) {
+	// result<s32, _> as Err (no error payload)
+	data := make([]byte, 16)
+	data[0] = 1 // Error
+
+	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	resType := types.Result{Ok: types.S32{}, Error: nil}
+
+	val, err := LiftHeap(ctx, resType, 0)
+	require.NoError(t, err)
+
+	isOk, ok, errVal := val.Result()
+	require.False(t, isOk)
+	require.Nil(t, ok)
+	require.Nil(t, errVal)
+}
+
+func TestLiftHeapResultDifferentPayloadSizes(t *testing.T) {
+	// result<u64, u8> - ok is larger
+	// Layout: disc@0, padding@1-7, payload@8 (u64 alignment)
+	data := make([]byte, 24)
+	data[0] = 0 // Ok
+	binary.LittleEndian.PutUint64(data[8:], 0x123456789ABCDEF0)
+
+	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	resType := types.Result{Ok: types.U64{}, Error: types.U8{}}
+
+	val, err := LiftHeap(ctx, resType, 0)
+	require.NoError(t, err)
+
+	isOk, ok, _ := val.Result()
+	require.True(t, isOk)
+	require.Equal(t, uint64(0x123456789ABCDEF0), ok.U64())
+}
+
+// --- LiftHeap Enum Tests ---
+
+func TestLiftHeapEnum(t *testing.T) {
+	// enum { a, b, c } - select b (index 1)
+	data := make([]byte, 16)
+	data[0] = 1 // discriminant = b
+
+	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	enumType := types.Enum{Cases: []string{"a", "b", "c"}}
+
+	val, err := LiftHeap(ctx, enumType, 0)
+	require.NoError(t, err)
+	require.Equal(t, component.ValKindEnum, val.Kind())
+	require.Equal(t, "b", val.Enum())
+}
+
+func TestLiftHeapEnumFirst(t *testing.T) {
+	data := make([]byte, 16)
+	data[0] = 0
+
+	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	enumType := types.Enum{Cases: []string{"first", "second", "third"}}
+
+	val, err := LiftHeap(ctx, enumType, 0)
+	require.NoError(t, err)
+	require.Equal(t, "first", val.Enum())
+}
+
+func TestLiftHeapEnumLast(t *testing.T) {
+	data := make([]byte, 16)
+	data[0] = 2
+
+	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	enumType := types.Enum{Cases: []string{"a", "b", "c"}}
+
+	val, err := LiftHeap(ctx, enumType, 0)
+	require.NoError(t, err)
+	require.Equal(t, "c", val.Enum())
+}
+
+func TestLiftHeapEnumInvalid(t *testing.T) {
+	data := make([]byte, 16)
+	data[0] = 10
+
+	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	enumType := types.Enum{Cases: []string{"a", "b", "c"}}
+
+	_, err := LiftHeap(ctx, enumType, 0)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid enum discriminant")
+}
+
+func TestLiftHeapEnumManyCase(t *testing.T) {
+	// enum with 300 cases needs 2-byte discriminant
+	cases := make([]string, 300)
+	for i := range cases {
+		cases[i] = fmt.Sprintf("case%d", i)
+	}
+
+	data := make([]byte, 16)
+	binary.LittleEndian.PutUint16(data[0:], 256)
+
+	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	enumType := types.Enum{Cases: cases}
+
+	val, err := LiftHeap(ctx, enumType, 0)
+	require.NoError(t, err)
+	require.Equal(t, "case256", val.Enum())
+}
+
+// --- LiftHeap Flags Tests ---
+
+func TestLiftHeapFlags(t *testing.T) {
+	// flags { read, write, execute } with read|execute set
+	data := make([]byte, 16)
+	data[0] = 0b101 // bits 0 and 2
+
+	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	flagsType := types.Flags{Names: []string{"read", "write", "execute"}}
+
+	val, err := LiftHeap(ctx, flagsType, 0)
+	require.NoError(t, err)
+	require.Equal(t, component.ValKindFlags, val.Kind())
+
+	flags := val.Flags()
+	require.True(t, flags["read"])
+	require.False(t, flags["write"])
+	require.True(t, flags["execute"])
+}
+
+func TestLiftHeapFlagsAllSet(t *testing.T) {
+	data := make([]byte, 16)
+	data[0] = 0b111
+
+	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	flagsType := types.Flags{Names: []string{"a", "b", "c"}}
+
+	val, err := LiftHeap(ctx, flagsType, 0)
+	require.NoError(t, err)
+
+	flags := val.Flags()
+	require.True(t, flags["a"])
+	require.True(t, flags["b"])
+	require.True(t, flags["c"])
+}
+
+func TestLiftHeapFlagsNone(t *testing.T) {
+	data := make([]byte, 16)
+	data[0] = 0
+
+	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	flagsType := types.Flags{Names: []string{"a", "b", "c"}}
+
+	val, err := LiftHeap(ctx, flagsType, 0)
+	require.NoError(t, err)
+
+	flags := val.Flags()
+	require.False(t, flags["a"])
+	require.False(t, flags["b"])
+	require.False(t, flags["c"])
+}
+
+func TestLiftHeapFlagsEmpty(t *testing.T) {
+	data := make([]byte, 16)
+	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	flagsType := types.Flags{Names: []string{}}
+
+	val, err := LiftHeap(ctx, flagsType, 0)
+	require.NoError(t, err)
+
+	flags := val.Flags()
+	require.Equal(t, 0, len(flags))
+}
+
+func TestLiftHeapFlags16(t *testing.T) {
+	// flags with 16 flags (uses u16)
+	names := make([]string, 16)
+	for i := range names {
+		names[i] = fmt.Sprintf("flag%d", i)
+	}
+
+	data := make([]byte, 16)
+	binary.LittleEndian.PutUint16(data[0:], 0b1000000000000001) // bits 0 and 15
+
+	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	flagsType := types.Flags{Names: names}
+
+	val, err := LiftHeap(ctx, flagsType, 0)
+	require.NoError(t, err)
+
+	flags := val.Flags()
+	require.True(t, flags["flag0"])
+	require.False(t, flags["flag1"])
+	require.True(t, flags["flag15"])
+}
+
+func TestLiftHeapFlags32(t *testing.T) {
+	// flags with 32 flags (uses u32)
+	names := make([]string, 32)
+	for i := range names {
+		names[i] = fmt.Sprintf("flag%d", i)
+	}
+
+	data := make([]byte, 16)
+	binary.LittleEndian.PutUint32(data[0:], (1<<0)|(1<<15)|(1<<31))
+
+	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	flagsType := types.Flags{Names: names}
+
+	val, err := LiftHeap(ctx, flagsType, 0)
+	require.NoError(t, err)
+
+	flags := val.Flags()
+	require.True(t, flags["flag0"])
+	require.True(t, flags["flag15"])
+	require.True(t, flags["flag31"])
+	require.False(t, flags["flag16"])
+}
+
+func TestLiftHeapFlagsMoreThan32(t *testing.T) {
+	// flags with 64 flags (uses 2 u32s)
+	names := make([]string, 64)
+	for i := range names {
+		names[i] = fmt.Sprintf("flag%d", i)
+	}
+
+	data := make([]byte, 16)
+	binary.LittleEndian.PutUint32(data[0:], (1<<0)|(1<<31))  // first u32
+	binary.LittleEndian.PutUint32(data[4:], (1<<0)|(1<<31))  // second u32 (flags 32-63)
+
+	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	flagsType := types.Flags{Names: names}
+
+	val, err := LiftHeap(ctx, flagsType, 0)
+	require.NoError(t, err)
+
+	flags := val.Flags()
+	require.True(t, flags["flag0"])
+	require.True(t, flags["flag31"])
+	require.True(t, flags["flag32"])
+	require.True(t, flags["flag63"])
+	require.False(t, flags["flag1"])
+	require.False(t, flags["flag33"])
+}
+
+// --- LiftHeap List Tests ---
+
+func TestLiftHeapList(t *testing.T) {
+	// list<s32> with ptr=16, len=3
+	// At ptr 16: [10, 20, 30]
+	data := make([]byte, 64)
+	binary.LittleEndian.PutUint32(data[0:], 16) // ptr
+	binary.LittleEndian.PutUint32(data[4:], 3)  // len
+	// Elements at offset 16
+	binary.LittleEndian.PutUint32(data[16:], 10)
+	binary.LittleEndian.PutUint32(data[20:], 20)
+	binary.LittleEndian.PutUint32(data[24:], 30)
+
+	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	listType := types.List{Element: types.S32{}}
+
+	val, err := LiftHeap(ctx, listType, 0)
+	require.NoError(t, err)
+	require.Equal(t, component.ValKindList, val.Kind())
+
+	elems := val.List()
+	require.Equal(t, 3, len(elems))
+	require.Equal(t, int32(10), elems[0].S32())
+	require.Equal(t, int32(20), elems[1].S32())
+	require.Equal(t, int32(30), elems[2].S32())
+}
+
+func TestLiftHeapListEmpty(t *testing.T) {
+	// list<s32> with ptr=16, len=0
+	data := make([]byte, 32)
+	binary.LittleEndian.PutUint32(data[0:], 16) // ptr (irrelevant for empty)
+	binary.LittleEndian.PutUint32(data[4:], 0)  // len
+
+	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	listType := types.List{Element: types.S32{}}
+
+	val, err := LiftHeap(ctx, listType, 0)
+	require.NoError(t, err)
+
+	elems := val.List()
+	require.Equal(t, 0, len(elems))
+}
+
+func TestLiftHeapListU8(t *testing.T) {
+	// list<u8> with ptr=8, len=4
+	data := make([]byte, 32)
+	binary.LittleEndian.PutUint32(data[0:], 8) // ptr
+	binary.LittleEndian.PutUint32(data[4:], 4) // len
+	data[8] = 0x10
+	data[9] = 0x20
+	data[10] = 0x30
+	data[11] = 0x40
+
+	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	listType := types.List{Element: types.U8{}}
+
+	val, err := LiftHeap(ctx, listType, 0)
+	require.NoError(t, err)
+
+	elems := val.List()
+	require.Equal(t, 4, len(elems))
+	require.Equal(t, uint8(0x10), elems[0].U8())
+	require.Equal(t, uint8(0x20), elems[1].U8())
+	require.Equal(t, uint8(0x30), elems[2].U8())
+	require.Equal(t, uint8(0x40), elems[3].U8())
+}
+
+func TestLiftHeapListNested(t *testing.T) {
+	// list<record { a: u8, b: u16 }> with ptr=8, len=2
+	// Record layout: u8@0, u16@2, size=4
+	data := make([]byte, 32)
+	binary.LittleEndian.PutUint32(data[0:], 8) // ptr
+	binary.LittleEndian.PutUint32(data[4:], 2) // len
+	// First record at 8
+	data[8] = 0x11
+	binary.LittleEndian.PutUint16(data[10:], 0x1111)
+	// Second record at 12
+	data[12] = 0x22
+	binary.LittleEndian.PutUint16(data[14:], 0x2222)
+
+	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	recType := types.Record{
+		Fields: []types.Field{
+			{Name: "a", Type: types.U8{}},
+			{Name: "b", Type: types.U16{}},
+		},
+	}
+	listType := types.List{Element: recType}
+
+	val, err := LiftHeap(ctx, listType, 0)
+	require.NoError(t, err)
+
+	elems := val.List()
+	require.Equal(t, 2, len(elems))
+	require.Equal(t, uint8(0x11), elems[0].Record()["a"].U8())
+	require.Equal(t, uint16(0x1111), elems[0].Record()["b"].U16())
+	require.Equal(t, uint8(0x22), elems[1].Record()["a"].U8())
+	require.Equal(t, uint16(0x2222), elems[1].Record()["b"].U16())
+}
+
+func TestLiftHeapListBoundsError(t *testing.T) {
+	// Create small memory with list pointing beyond bounds
+	data := make([]byte, 16)
+	binary.LittleEndian.PutUint32(data[0:], 100) // ptr = 100 (beyond memory)
+	binary.LittleEndian.PutUint32(data[4:], 10)  // len = 10
+
+	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	listType := types.List{Element: types.S32{}}
+
+	_, err := LiftHeap(ctx, listType, 0)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "exceeds memory bounds")
+}
