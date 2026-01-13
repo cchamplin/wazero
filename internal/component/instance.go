@@ -191,6 +191,22 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 					"y": ValS32(int32(coreResults[1])),
 				}
 				return []Val{ValRecord(rec)}, nil
+			} else if typeDef.Result != nil && len(coreResults) == 2 {
+				// Result type: first result is discriminant, second is payload
+				// discriminant 0 = Ok, 1 = Error
+				discriminant := coreResults[0]
+				if discriminant == 0 {
+					// Ok: return success result with value
+					// TODO: In a full implementation, the payload type should be
+					// determined from the result type definition.
+					payload := ValS32(int32(coreResults[1]))
+					return []Val{ValResultOk(&payload)}, nil
+				}
+				// Error: return error result with error value
+				// TODO: In a full implementation, the error type should be
+				// determined from the result type definition.
+				errVal := ValS32(int32(coreResults[1]))
+				return []Val{ValResultError(&errVal)}, nil
 			}
 		}
 	}
