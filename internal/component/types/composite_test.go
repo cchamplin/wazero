@@ -143,3 +143,30 @@ func TestVariantFlatten(t *testing.T) {
 
 	require.Equal(t, 2, v.FlattenCount())
 }
+
+func TestListType(t *testing.T) {
+	// list<u32> (variable length)
+	// In memory: (ptr: i32, len: i32)
+	// Size: 8, Align: 4, Flatten: 2
+	l := List{Element: U32{}}
+
+	require.Equal(t, uint32(8), l.Size())
+	require.Equal(t, uint32(4), l.Align())
+	require.Equal(t, 2, l.FlattenCount())
+}
+
+func TestListTypeWithComplexElement(t *testing.T) {
+	// list<u64>
+	// Still stored as ptr+len regardless of element type
+	l := List{Element: U64{}}
+
+	require.Equal(t, uint32(8), l.Size())
+	require.Equal(t, uint32(4), l.Align())
+	require.Equal(t, 2, l.FlattenCount())
+}
+
+func TestListElementSize(t *testing.T) {
+	l := List{Element: U64{}}
+	require.Equal(t, uint32(8), l.ElementSize())
+	require.Equal(t, uint32(8), l.ElementAlign())
+}
