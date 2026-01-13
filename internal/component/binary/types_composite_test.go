@@ -219,3 +219,212 @@ func TestDecodeListType_WithTypeIndex(t *testing.T) {
 	require.False(t, typeDef.List.Element.IsPrimitive)
 	require.Equal(t, uint32(0), typeDef.List.Element.TypeIdx)
 }
+
+func TestDecodeTupleType(t *testing.T) {
+	// tuple<s32, u64>
+	// Format: 0x6f <count> <type>*
+	data := []byte{
+		0x6f, // tuple opcode
+		0x02, // 2 elements
+		0x7a, // s32
+		0x77, // u64
+	}
+	r := bytes.NewReader(data)
+	typeDef, err := decodeDefinedType(r)
+	require.NoError(t, err)
+	require.Equal(t, TypeDefKindTuple, typeDef.Kind)
+	require.NotNil(t, typeDef.Tuple)
+	require.Equal(t, 2, len(typeDef.Tuple.Types))
+	require.True(t, typeDef.Tuple.Types[0].IsPrimitive)
+	require.Equal(t, byte(0x7a), typeDef.Tuple.Types[0].Primitive)
+	require.True(t, typeDef.Tuple.Types[1].IsPrimitive)
+	require.Equal(t, byte(0x77), typeDef.Tuple.Types[1].Primitive)
+}
+
+func TestDecodeTupleType_Empty(t *testing.T) {
+	// tuple<> - empty tuple (unit type)
+	// Format: 0x6f <count>
+	data := []byte{
+		0x6f, // tuple opcode
+		0x00, // 0 elements
+	}
+	r := bytes.NewReader(data)
+	typeDef, err := decodeDefinedType(r)
+	require.NoError(t, err)
+	require.Equal(t, TypeDefKindTuple, typeDef.Kind)
+	require.NotNil(t, typeDef.Tuple)
+	require.Equal(t, 0, len(typeDef.Tuple.Types))
+}
+
+func TestDecodeTupleType_Single(t *testing.T) {
+	// tuple<string> - single element tuple
+	// Format: 0x6f <count> <type>
+	data := []byte{
+		0x6f, // tuple opcode
+		0x01, // 1 element
+		0x73, // string
+	}
+	r := bytes.NewReader(data)
+	typeDef, err := decodeDefinedType(r)
+	require.NoError(t, err)
+	require.Equal(t, TypeDefKindTuple, typeDef.Kind)
+	require.NotNil(t, typeDef.Tuple)
+	require.Equal(t, 1, len(typeDef.Tuple.Types))
+	require.True(t, typeDef.Tuple.Types[0].IsPrimitive)
+	require.Equal(t, byte(0x73), typeDef.Tuple.Types[0].Primitive)
+}
+
+func TestDecodeTupleType_WithTypeIndex(t *testing.T) {
+	// tuple<s32, $0> - tuple with type index reference
+	// Format: 0x6f <count> <type>*
+	data := []byte{
+		0x6f, // tuple opcode
+		0x02, // 2 elements
+		0x7a, // s32
+		0x00, // type index 0
+	}
+	r := bytes.NewReader(data)
+	typeDef, err := decodeDefinedType(r)
+	require.NoError(t, err)
+	require.Equal(t, TypeDefKindTuple, typeDef.Kind)
+	require.NotNil(t, typeDef.Tuple)
+	require.Equal(t, 2, len(typeDef.Tuple.Types))
+	require.True(t, typeDef.Tuple.Types[0].IsPrimitive)
+	require.Equal(t, byte(0x7a), typeDef.Tuple.Types[0].Primitive)
+	require.False(t, typeDef.Tuple.Types[1].IsPrimitive)
+	require.Equal(t, uint32(0), typeDef.Tuple.Types[1].TypeIdx)
+}
+
+func TestDecodeFlagsType(t *testing.T) {
+	// flags { read, write }
+	// Format: 0x6e <count> <name>*
+	data := []byte{
+		0x6e,                     // flags opcode
+		0x02,                     // 2 flags
+		0x04, 'r', 'e', 'a', 'd', // "read"
+		0x05, 'w', 'r', 'i', 't', 'e', // "write"
+	}
+	r := bytes.NewReader(data)
+	typeDef, err := decodeDefinedType(r)
+	require.NoError(t, err)
+	require.Equal(t, TypeDefKindFlags, typeDef.Kind)
+	require.NotNil(t, typeDef.Flags)
+	require.Equal(t, []string{"read", "write"}, typeDef.Flags.Names)
+}
+
+func TestDecodeFlagsType_Empty(t *testing.T) {
+	// flags {} - empty flags (edge case)
+	// Format: 0x6e <count>
+	data := []byte{
+		0x6e, // flags opcode
+		0x00, // 0 flags
+	}
+	r := bytes.NewReader(data)
+	typeDef, err := decodeDefinedType(r)
+	require.NoError(t, err)
+	require.Equal(t, TypeDefKindFlags, typeDef.Kind)
+	require.NotNil(t, typeDef.Flags)
+	require.Equal(t, 0, len(typeDef.Flags.Names))
+}
+
+func TestDecodeFlagsType_Single(t *testing.T) {
+	// flags { enabled }
+	// Format: 0x6e <count> <name>*
+	data := []byte{
+		0x6e,                                    // flags opcode
+		0x01,                                    // 1 flag
+		0x07, 'e', 'n', 'a', 'b', 'l', 'e', 'd', // "enabled"
+	}
+	r := bytes.NewReader(data)
+	typeDef, err := decodeDefinedType(r)
+	require.NoError(t, err)
+	require.Equal(t, TypeDefKindFlags, typeDef.Kind)
+	require.NotNil(t, typeDef.Flags)
+	require.Equal(t, []string{"enabled"}, typeDef.Flags.Names)
+}
+
+func TestDecodeFlagsType_Multiple(t *testing.T) {
+	// flags { read, write, execute, admin }
+	// Format: 0x6e <count> <name>*
+	data := []byte{
+		0x6e,                     // flags opcode
+		0x04,                     // 4 flags
+		0x04, 'r', 'e', 'a', 'd', // "read"
+		0x05, 'w', 'r', 'i', 't', 'e', // "write"
+		0x07, 'e', 'x', 'e', 'c', 'u', 't', 'e', // "execute"
+		0x05, 'a', 'd', 'm', 'i', 'n', // "admin"
+	}
+	r := bytes.NewReader(data)
+	typeDef, err := decodeDefinedType(r)
+	require.NoError(t, err)
+	require.Equal(t, TypeDefKindFlags, typeDef.Kind)
+	require.NotNil(t, typeDef.Flags)
+	require.Equal(t, []string{"read", "write", "execute", "admin"}, typeDef.Flags.Names)
+}
+
+func TestDecodeEnumType(t *testing.T) {
+	// enum { red, green, blue }
+	// Format: 0x6d <count> <name>*
+	data := []byte{
+		0x6d,                          // enum opcode
+		0x03,                          // 3 cases
+		0x03, 'r', 'e', 'd',           // "red"
+		0x05, 'g', 'r', 'e', 'e', 'n', // "green"
+		0x04, 'b', 'l', 'u', 'e', // "blue"
+	}
+	r := bytes.NewReader(data)
+	typeDef, err := decodeDefinedType(r)
+	require.NoError(t, err)
+	require.Equal(t, TypeDefKindEnum, typeDef.Kind)
+	require.NotNil(t, typeDef.Enum)
+	require.Equal(t, []string{"red", "green", "blue"}, typeDef.Enum.Cases)
+}
+
+func TestDecodeEnumType_Empty(t *testing.T) {
+	// enum {} - empty enum (edge case)
+	// Format: 0x6d <count>
+	data := []byte{
+		0x6d, // enum opcode
+		0x00, // 0 cases
+	}
+	r := bytes.NewReader(data)
+	typeDef, err := decodeDefinedType(r)
+	require.NoError(t, err)
+	require.Equal(t, TypeDefKindEnum, typeDef.Kind)
+	require.NotNil(t, typeDef.Enum)
+	require.Equal(t, 0, len(typeDef.Enum.Cases))
+}
+
+func TestDecodeEnumType_Single(t *testing.T) {
+	// enum { only }
+	// Format: 0x6d <count> <name>*
+	data := []byte{
+		0x6d,                     // enum opcode
+		0x01,                     // 1 case
+		0x04, 'o', 'n', 'l', 'y', // "only"
+	}
+	r := bytes.NewReader(data)
+	typeDef, err := decodeDefinedType(r)
+	require.NoError(t, err)
+	require.Equal(t, TypeDefKindEnum, typeDef.Kind)
+	require.NotNil(t, typeDef.Enum)
+	require.Equal(t, []string{"only"}, typeDef.Enum.Cases)
+}
+
+func TestDecodeEnumType_HTTPStatus(t *testing.T) {
+	// enum { ok, not-found, server-error } - more realistic example
+	// Format: 0x6d <count> <name>*
+	data := []byte{
+		0x6d,             // enum opcode
+		0x03,             // 3 cases
+		0x02, 'o', 'k',   // "ok"
+		0x09, 'n', 'o', 't', '-', 'f', 'o', 'u', 'n', 'd', // "not-found"
+		0x0c, 's', 'e', 'r', 'v', 'e', 'r', '-', 'e', 'r', 'r', 'o', 'r', // "server-error"
+	}
+	r := bytes.NewReader(data)
+	typeDef, err := decodeDefinedType(r)
+	require.NoError(t, err)
+	require.Equal(t, TypeDefKindEnum, typeDef.Kind)
+	require.NotNil(t, typeDef.Enum)
+	require.Equal(t, []string{"ok", "not-found", "server-error"}, typeDef.Enum.Cases)
+}
