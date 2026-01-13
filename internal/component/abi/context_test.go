@@ -2,6 +2,7 @@ package abi
 
 import (
 	"encoding/binary"
+	"math"
 	"testing"
 
 	"github.com/tetratelabs/wazero/internal/testing/require"
@@ -23,6 +24,41 @@ func TestLiftContext(t *testing.T) {
 	// Read u32 from offset 8
 	val := ctx.ReadU32(8)
 	require.Equal(t, uint32(42), val)
+}
+
+func TestLiftContextReadU8(t *testing.T) {
+	data := make([]byte, 64)
+	data[0] = 0x42
+	ctx := &LiftContext{Memory: &mockMemory{data: data}, Opts: &Options{}}
+	require.Equal(t, uint8(0x42), ctx.ReadU8(0))
+}
+
+func TestLiftContextReadU16(t *testing.T) {
+	data := make([]byte, 64)
+	binary.LittleEndian.PutUint16(data[0:], 0x1234)
+	ctx := &LiftContext{Memory: &mockMemory{data: data}, Opts: &Options{}}
+	require.Equal(t, uint16(0x1234), ctx.ReadU16(0))
+}
+
+func TestLiftContextReadU64(t *testing.T) {
+	data := make([]byte, 64)
+	binary.LittleEndian.PutUint64(data[0:], 0x123456789ABCDEF0)
+	ctx := &LiftContext{Memory: &mockMemory{data: data}, Opts: &Options{}}
+	require.Equal(t, uint64(0x123456789ABCDEF0), ctx.ReadU64(0))
+}
+
+func TestLiftContextReadF32(t *testing.T) {
+	data := make([]byte, 64)
+	binary.LittleEndian.PutUint32(data[0:], math.Float32bits(3.14))
+	ctx := &LiftContext{Memory: &mockMemory{data: data}, Opts: &Options{}}
+	require.Equal(t, float32(3.14), ctx.ReadF32(0))
+}
+
+func TestLiftContextReadF64(t *testing.T) {
+	data := make([]byte, 64)
+	binary.LittleEndian.PutUint64(data[0:], math.Float64bits(3.14159265359))
+	ctx := &LiftContext{Memory: &mockMemory{data: data}, Opts: &Options{}}
+	require.Equal(t, 3.14159265359, ctx.ReadF64(0))
 }
 
 type mockMemory struct {
