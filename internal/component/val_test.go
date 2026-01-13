@@ -66,3 +66,33 @@ func TestValConstructorsAndAccessors(t *testing.T) {
 		require.Equal(t, "hello", v.StringVal())
 	})
 }
+
+func TestValRecord(t *testing.T) {
+	// Create a record value { a: 42, b: "hello" }
+	fields := map[string]Val{
+		"a": ValS32(42),
+		"b": ValString("hello"),
+	}
+	v := ValRecord(fields)
+
+	require.Equal(t, ValKindRecord, v.Kind())
+
+	got := v.Record()
+	require.Equal(t, int32(42), got["a"].S32())
+	require.Equal(t, "hello", got["b"].StringVal())
+}
+
+func TestValRecordField(t *testing.T) {
+	fields := map[string]Val{
+		"x": ValF64(3.14),
+	}
+	v := ValRecord(fields)
+
+	// Access single field
+	x, ok := v.RecordField("x")
+	require.True(t, ok)
+	require.Equal(t, 3.14, x.F64())
+
+	_, ok = v.RecordField("missing")
+	require.False(t, ok)
+}

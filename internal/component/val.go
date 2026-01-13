@@ -125,6 +125,29 @@ func (v Val) Char() rune { return v.v.(rune) }
 // StringVal returns the string value. Panics if Kind() != ValKindString.
 func (v Val) StringVal() string { return v.v.(string) }
 
+// ValRecord creates a record value from field name to value map.
+func ValRecord(fields map[string]Val) Val {
+	return Val{kind: ValKindRecord, v: fields}
+}
+
+// Record returns the value as a record (map of field name to value).
+// Panics if Kind() != ValKindRecord.
+func (v Val) Record() map[string]Val {
+	if v.kind != ValKindRecord {
+		panic("Val is not a record")
+	}
+	return v.v.(map[string]Val)
+}
+
+// RecordField returns a specific field from a record value.
+// Returns the field value and true if found, or zero Val and false if not found.
+// Panics if Kind() != ValKindRecord.
+func (v Val) RecordField(name string) (Val, bool) {
+	r := v.Record()
+	val, ok := r[name]
+	return val, ok
+}
+
 // String returns a string representation of the ValKind for debugging.
 func (k ValKind) String() string {
 	switch k {
