@@ -205,3 +205,85 @@ func TestLiftFlatRecordFieldError(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "lift record field unsupported")
 }
+
+func TestLiftFlatVariant(t *testing.T) {
+	// variant { none, some(s32) }
+	// Flat for some(42): [i32(case=1), i32(payload=42)]
+	iter := NewFlatIter([]uint64{1, 42})
+	varType := types.Variant{
+		Cases: []types.Case{
+			{Name: "none", Type: nil},
+			{Name: "some", Type: types.S32{}},
+		},
+	}
+
+	val, err := LiftFlat(nil, varType, iter)
+	require.NoError(t, err)
+
+	caseName, payload := val.Variant()
+	require.Equal(t, "some", caseName)
+	require.NotNil(t, payload)
+	require.Equal(t, int32(42), payload.S32())
+}
+
+func TestLiftFlatVariantNoPayload(t *testing.T) {
+	// variant { none, some(s32) }
+	// Flat for none: [i32(case=0), i32(padding=0)]
+	iter := NewFlatIter([]uint64{0, 0})
+	varType := types.Variant{
+		Cases: []types.Case{
+			{Name: "none", Type: nil},
+			{Name: "some", Type: types.S32{}},
+		},
+	}
+
+	val, err := LiftFlat(nil, varType, iter)
+	require.NoError(t, err)
+
+	caseName, payload := val.Variant()
+	require.Equal(t, "none", caseName)
+	require.Nil(t, payload)
+}
+
+func TestLiftFlatVariantInvalidDiscriminant(t *testing.T) {
+	// variant { none, some(s32) }
+	// Invalid discriminant: 5 (only 0 and 1 are valid)
+	iter := NewFlatIter([]uint64{5, 0})
+	varType := types.Variant{
+		Cases: []types.Case{
+			{Name: "none", Type: nil},
+			{Name: "some", Type: types.S32{}},
+		},
+	}
+
+	_, err := LiftFlat(nil, varType, iter)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid variant discriminant")
+}
+
+func TestLiftFlatVariantMultiValuePayload(t *testing.T) {
+	// variant { none, pair(record { a: s32, b: s32 }) }
+	// Flat for pair({10, 20}): [i32(case=1), i32(a=10), i32(b=20)]
+	iter := NewFlatIter([]uint64{1, 10, 20})
+	varType := types.Variant{
+		Cases: []types.Case{
+			{Name: "none", Type: nil},
+			{Name: "pair", Type: types.Record{
+				Fields: []types.Field{
+					{Name: "a", Type: types.S32{}},
+					{Name: "b", Type: types.S32{}},
+				},
+			}},
+		},
+	}
+
+	val, err := LiftFlat(nil, varType, iter)
+	require.NoError(t, err)
+
+	caseName, payload := val.Variant()
+	require.Equal(t, "pair", caseName)
+	require.NotNil(t, payload)
+	rec := payload.Record()
+	require.Equal(t, int32(10), rec["a"].S32())
+	require.Equal(t, int32(20), rec["b"].S32())
+}

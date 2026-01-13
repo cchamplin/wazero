@@ -63,6 +63,55 @@ func LowerFlat(ctx *LowerContext, typ types.ValType, val component.Val) ([]uint6
 			result = append(result, flat...)
 		}
 		return result, nil
+	case types.Variant:
+		t := typ.(types.Variant)
+		caseName, payload := val.Variant()
+
+		// Find case index
+		caseIdx := -1
+		var caseType types.ValType
+		for i, c := range t.Cases {
+			if c.Name == caseName {
+				caseIdx = i
+				caseType = c.Type
+				break
+			}
+		}
+		if caseIdx == -1 {
+			return nil, fmt.Errorf("unknown variant case: %s", caseName)
+		}
+
+		if caseType != nil && payload == nil {
+			return nil, fmt.Errorf("variant case %q requires a payload", caseName)
+		}
+
+		// Calculate max payload flatten count for padding
+		maxPayloadFlat := 0
+		for _, vc := range t.Cases {
+			if vc.Type != nil {
+				if n := vc.Type.FlattenCount(); n > maxPayloadFlat {
+					maxPayloadFlat = n
+				}
+			}
+		}
+
+		result := []uint64{uint64(caseIdx)}
+		payloadCount := 0
+		if caseType != nil && payload != nil {
+			flat, err := LowerFlat(ctx, caseType, *payload)
+			if err != nil {
+				return nil, fmt.Errorf("lower variant payload: %w", err)
+			}
+			result = append(result, flat...)
+			payloadCount = len(flat)
+		}
+
+		// Add padding zeros for remaining slots
+		for i := payloadCount; i < maxPayloadFlat; i++ {
+			result = append(result, 0)
+		}
+
+		return result, nil
 	default:
 		return nil, fmt.Errorf("unsupported flat lower for type: %T", typ)
 	}

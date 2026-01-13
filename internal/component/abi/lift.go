@@ -85,6 +85,41 @@ func LiftFlat(ctx *LiftContext, typ types.ValType, iter *FlatIter) (component.Va
 			fields[f.Name] = fieldVal
 		}
 		return component.ValRecord(fields), nil
+	case types.Variant:
+		t := typ.(types.Variant)
+		disc := iter.NextI32()
+		if int(disc) >= len(t.Cases) {
+			return component.Val{}, fmt.Errorf("invalid variant discriminant: %d", disc)
+		}
+		c := t.Cases[disc]
+
+		// Calculate max payload flatten count for padding
+		maxPayloadFlat := 0
+		for _, vc := range t.Cases {
+			if vc.Type != nil {
+				if n := vc.Type.FlattenCount(); n > maxPayloadFlat {
+					maxPayloadFlat = n
+				}
+			}
+		}
+
+		var payload *component.Val
+		payloadConsumed := 0
+		if c.Type != nil {
+			p, err := LiftFlat(ctx, c.Type, iter)
+			if err != nil {
+				return component.Val{}, fmt.Errorf("lift variant payload: %w", err)
+			}
+			payload = &p
+			payloadConsumed = c.Type.FlattenCount()
+		}
+
+		// Skip remaining padding values
+		for i := payloadConsumed; i < maxPayloadFlat; i++ {
+			iter.NextI64() // Consume as i64 (largest type)
+		}
+
+		return component.ValVariant(c.Name, payload), nil
 	default:
 		return component.Val{}, fmt.Errorf("unsupported flat lift for type: %T", typ)
 	}
