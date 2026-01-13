@@ -249,3 +249,56 @@ func LiftFlat(ctx *LiftContext, typ types.ValType, iter *FlatIter) (component.Va
 		return component.Val{}, fmt.Errorf("unsupported flat lift for type: %T", typ)
 	}
 }
+
+// LiftHeap lifts a value from heap memory at the given offset.
+func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (component.Val, error) {
+	switch t := typ.(type) {
+	// Primitives
+	case types.Bool:
+		return component.ValBool(ctx.ReadU8(offset) != 0), nil
+	case types.U8:
+		return component.ValU8(ctx.ReadU8(offset)), nil
+	case types.S8:
+		return component.ValS8(int8(ctx.ReadU8(offset))), nil
+	case types.U16:
+		return component.ValU16(ctx.ReadU16(offset)), nil
+	case types.S16:
+		return component.ValS16(int16(ctx.ReadU16(offset))), nil
+	case types.U32:
+		return component.ValU32(ctx.ReadU32(offset)), nil
+	case types.S32:
+		return component.ValS32(int32(ctx.ReadU32(offset))), nil
+	case types.U64:
+		return component.ValU64(ctx.ReadU64(offset)), nil
+	case types.S64:
+		return component.ValS64(int64(ctx.ReadU64(offset))), nil
+	case types.F32:
+		return component.ValF32(ctx.ReadF32(offset)), nil
+	case types.F64:
+		return component.ValF64(ctx.ReadF64(offset)), nil
+	case types.Char:
+		return component.ValChar(rune(ctx.ReadU32(offset))), nil
+
+	// Record
+	case types.Record:
+		fields := make(map[string]component.Val)
+		fieldOffset := uint32(0)
+		for _, f := range t.Fields {
+			// Align field offset
+			align := f.Type.Align()
+			if fieldOffset%align != 0 {
+				fieldOffset += align - (fieldOffset % align)
+			}
+			fieldVal, err := LiftHeap(ctx, f.Type, offset+fieldOffset)
+			if err != nil {
+				return component.Val{}, fmt.Errorf("lift record field %s: %w", f.Name, err)
+			}
+			fields[f.Name] = fieldVal
+			fieldOffset += f.Type.Size()
+		}
+		return component.ValRecord(fields), nil
+
+	default:
+		return component.Val{}, fmt.Errorf("unsupported heap lift for type: %T", typ)
+	}
+}
