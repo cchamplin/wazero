@@ -295,13 +295,34 @@ func decodeDefinedType(r *bytes.Reader) (*TypeDef, error) {
 		}, nil
 
 	case ValTypeOpcodeTuple:
-		return nil, fmt.Errorf("tuple type decoding not yet implemented")
+		tuple, err := decodeTupleTypeDef(r)
+		if err != nil {
+			return nil, fmt.Errorf("decode tuple type: %w", err)
+		}
+		return &TypeDef{
+			Kind:  TypeDefKindTuple,
+			Tuple: tuple,
+		}, nil
 
 	case ValTypeOpcodeFlags:
-		return nil, fmt.Errorf("flags type decoding not yet implemented")
+		flags, err := decodeFlagsTypeDef(r)
+		if err != nil {
+			return nil, fmt.Errorf("decode flags type: %w", err)
+		}
+		return &TypeDef{
+			Kind:  TypeDefKindFlags,
+			Flags: flags,
+		}, nil
 
 	case ValTypeOpcodeEnum:
-		return nil, fmt.Errorf("enum type decoding not yet implemented")
+		enum, err := decodeEnumTypeDef(r)
+		if err != nil {
+			return nil, fmt.Errorf("decode enum type: %w", err)
+		}
+		return &TypeDef{
+			Kind: TypeDefKindEnum,
+			Enum: enum,
+		}, nil
 
 	case ValTypeOpcodeOption:
 		return nil, fmt.Errorf("option type decoding not yet implemented")
@@ -417,6 +438,72 @@ func decodeVariantTypeDef(r *bytes.Reader) (*VariantTypeDef, error) {
 	}
 
 	return &VariantTypeDef{
+		Cases: cases,
+	}, nil
+}
+
+// decodeTupleTypeDef reads a tuple type definition from the reader.
+// Format: 0x6f <count> <type>*
+func decodeTupleTypeDef(r *bytes.Reader) (*TupleTypeDef, error) {
+	count, _, err := leb128.DecodeUint32(r)
+	if err != nil {
+		return nil, fmt.Errorf("read tuple element count: %w", err)
+	}
+
+	types := make([]component.ValTypeRef, count)
+	for i := uint32(0); i < count; i++ {
+		valType, err := decodeValType(r)
+		if err != nil {
+			return nil, fmt.Errorf("read tuple element %d type: %w", i, err)
+		}
+		types[i] = valType
+	}
+
+	return &TupleTypeDef{
+		Types: types,
+	}, nil
+}
+
+// decodeFlagsTypeDef reads a flags type definition from the reader.
+// Format: 0x6e <count> <name>*
+func decodeFlagsTypeDef(r *bytes.Reader) (*FlagsTypeDef, error) {
+	count, _, err := leb128.DecodeUint32(r)
+	if err != nil {
+		return nil, fmt.Errorf("read flags count: %w", err)
+	}
+
+	names := make([]string, count)
+	for i := uint32(0); i < count; i++ {
+		name, err := decodeName(r)
+		if err != nil {
+			return nil, fmt.Errorf("read flag %d name: %w", i, err)
+		}
+		names[i] = name
+	}
+
+	return &FlagsTypeDef{
+		Names: names,
+	}, nil
+}
+
+// decodeEnumTypeDef reads an enum type definition from the reader.
+// Format: 0x6d <count> <name>*
+func decodeEnumTypeDef(r *bytes.Reader) (*EnumTypeDef, error) {
+	count, _, err := leb128.DecodeUint32(r)
+	if err != nil {
+		return nil, fmt.Errorf("read enum case count: %w", err)
+	}
+
+	cases := make([]string, count)
+	for i := uint32(0); i < count; i++ {
+		name, err := decodeName(r)
+		if err != nil {
+			return nil, fmt.Errorf("read enum case %d name: %w", i, err)
+		}
+		cases[i] = name
+	}
+
+	return &EnumTypeDef{
 		Cases: cases,
 	}, nil
 }
