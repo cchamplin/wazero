@@ -153,3 +153,25 @@ func (v Variant) PayloadOffset() uint32 {
 	}
 	return alignTo(v.DiscriminantSize(), payloadAlign)
 }
+
+// List represents a variable-length list type.
+type List struct {
+	Element ValType
+}
+
+func (List) valType() {}
+
+// Size returns the size of the list in memory (pointer + length).
+func (List) Size() uint32 { return 8 } // ptr: i32, len: i32
+
+// Align returns the alignment of the list (i32 alignment).
+func (List) Align() uint32 { return 4 }
+
+// FlattenCount returns 2 (pointer and length).
+func (List) FlattenCount() int { return 2 }
+
+// ElementSize returns the size of each element.
+func (l List) ElementSize() uint32 { return l.Element.Size() }
+
+// ElementAlign returns the alignment of each element.
+func (l List) ElementAlign() uint32 { return l.Element.Align() }
