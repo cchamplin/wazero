@@ -119,7 +119,7 @@ type ResultTypeDef struct {
 
 // decodeValType reads a valtype from the reader.
 // valtypes are either primitive opcodes (0x73-0x7f) or type indices (LEB128).
-func decodeValType(r io.ByteReader) (component.ValTypeRef, error) {
+func decodeValType(r *bytes.Reader) (component.ValTypeRef, error) {
 	b, err := r.ReadByte()
 	if err != nil {
 		return component.ValTypeRef{}, err
@@ -133,11 +133,20 @@ func decodeValType(r io.ByteReader) (component.ValTypeRef, error) {
 		}, nil
 	}
 
-	// Otherwise, it's a type index (need to unread and decode as LEB128)
-	// For now, assume single-byte indices (< 128)
+	// Otherwise, it's a type index encoded as LEB128 unsigned 32-bit integer.
+	// We need to unread the byte we just read and decode the full LEB128 value.
+	if err := r.UnreadByte(); err != nil {
+		return component.ValTypeRef{}, fmt.Errorf("unread byte: %w", err)
+	}
+
+	typeIdx, _, err := leb128.DecodeUint32(r)
+	if err != nil {
+		return component.ValTypeRef{}, fmt.Errorf("decode type index: %w", err)
+	}
+
 	return component.ValTypeRef{
 		IsPrimitive: false,
-		TypeIdx:     uint32(b),
+		TypeIdx:     typeIdx,
 	}, nil
 }
 
