@@ -335,7 +335,14 @@ func decodeDefinedType(r *bytes.Reader) (*TypeDef, error) {
 		}, nil
 
 	case ValTypeOpcodeResult:
-		return nil, fmt.Errorf("result type decoding not yet implemented")
+		result, err := decodeResultTypeDef(r)
+		if err != nil {
+			return nil, fmt.Errorf("decode result type: %w", err)
+		}
+		return &TypeDef{
+			Kind:   TypeDefKindResult,
+			Result: result,
+		}, nil
 
 	default:
 		return nil, fmt.Errorf("unknown defined type opcode: 0x%02x", opcode)
@@ -524,4 +531,46 @@ func decodeOptionTypeDef(r *bytes.Reader) (*OptionTypeDef, error) {
 	}
 
 	return &OptionTypeDef{Some: someType}, nil
+}
+
+// decodeResultTypeDef reads a result type definition from the reader.
+// Format: 0x6a <ok_flag> [<ok_type>] <error_flag> [<error_type>]
+// ok_flag: 0x00 = no ok type, 0x01 = has ok type
+// error_flag: 0x00 = no error type, 0x01 = has error type
+func decodeResultTypeDef(r *bytes.Reader) (*ResultTypeDef, error) {
+	result := &ResultTypeDef{}
+
+	// Read ok type flag
+	okFlag, err := r.ReadByte()
+	if err != nil {
+		return nil, fmt.Errorf("read result ok flag: %w", err)
+	}
+
+	if okFlag == 0x01 {
+		okType, err := decodeValType(r)
+		if err != nil {
+			return nil, fmt.Errorf("read result ok type: %w", err)
+		}
+		result.Ok = &okType
+	} else if okFlag != 0x00 {
+		return nil, fmt.Errorf("invalid result ok flag: 0x%02x", okFlag)
+	}
+
+	// Read error type flag
+	errorFlag, err := r.ReadByte()
+	if err != nil {
+		return nil, fmt.Errorf("read result error flag: %w", err)
+	}
+
+	if errorFlag == 0x01 {
+		errorType, err := decodeValType(r)
+		if err != nil {
+			return nil, fmt.Errorf("read result error type: %w", err)
+		}
+		result.Error = &errorType
+	} else if errorFlag != 0x00 {
+		return nil, fmt.Errorf("invalid result error flag: 0x%02x", errorFlag)
+	}
+
+	return result, nil
 }
