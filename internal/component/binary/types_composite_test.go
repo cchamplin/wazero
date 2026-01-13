@@ -496,3 +496,102 @@ func TestDecodeOptionType_WithLargerTypeIndex(t *testing.T) {
 	require.False(t, typeDef.Option.Some.IsPrimitive)
 	require.Equal(t, uint32(5), typeDef.Option.Some.TypeIdx)
 }
+
+func TestDecodeResultType(t *testing.T) {
+	// result<s32, string>
+	// Format: 0x6a <ok_type>? <error_type>?
+	data := []byte{
+		0x6a, // result opcode
+		0x01, // has ok type
+		0x7a, // s32
+		0x01, // has error type
+		0x73, // string
+	}
+	r := bytes.NewReader(data)
+	typeDef, err := decodeDefinedType(r)
+	require.NoError(t, err)
+	require.Equal(t, TypeDefKindResult, typeDef.Kind)
+	require.NotNil(t, typeDef.Result)
+	require.NotNil(t, typeDef.Result.Ok)
+	require.True(t, typeDef.Result.Ok.IsPrimitive)
+	require.Equal(t, byte(0x7a), typeDef.Result.Ok.Primitive)
+	require.NotNil(t, typeDef.Result.Error)
+	require.True(t, typeDef.Result.Error.IsPrimitive)
+	require.Equal(t, byte(0x73), typeDef.Result.Error.Primitive)
+}
+
+func TestDecodeResultTypeOkOnly(t *testing.T) {
+	// result<s32, _>
+	data := []byte{
+		0x6a, // result opcode
+		0x01, // has ok type
+		0x7a, // s32
+		0x00, // no error type
+	}
+	r := bytes.NewReader(data)
+	typeDef, err := decodeDefinedType(r)
+	require.NoError(t, err)
+	require.Equal(t, TypeDefKindResult, typeDef.Kind)
+	require.NotNil(t, typeDef.Result)
+	require.NotNil(t, typeDef.Result.Ok)
+	require.True(t, typeDef.Result.Ok.IsPrimitive)
+	require.Equal(t, byte(0x7a), typeDef.Result.Ok.Primitive)
+	require.Nil(t, typeDef.Result.Error)
+}
+
+func TestDecodeResultTypeErrorOnly(t *testing.T) {
+	// result<_, string>
+	data := []byte{
+		0x6a, // result opcode
+		0x00, // no ok type
+		0x01, // has error type
+		0x73, // string
+	}
+	r := bytes.NewReader(data)
+	typeDef, err := decodeDefinedType(r)
+	require.NoError(t, err)
+	require.Equal(t, TypeDefKindResult, typeDef.Kind)
+	require.NotNil(t, typeDef.Result)
+	require.Nil(t, typeDef.Result.Ok)
+	require.NotNil(t, typeDef.Result.Error)
+	require.True(t, typeDef.Result.Error.IsPrimitive)
+	require.Equal(t, byte(0x73), typeDef.Result.Error.Primitive)
+}
+
+func TestDecodeResultTypeUnit(t *testing.T) {
+	// result (no ok, no error)
+	data := []byte{
+		0x6a, // result opcode
+		0x00, // no ok type
+		0x00, // no error type
+	}
+	r := bytes.NewReader(data)
+	typeDef, err := decodeDefinedType(r)
+	require.NoError(t, err)
+	require.Equal(t, TypeDefKindResult, typeDef.Kind)
+	require.NotNil(t, typeDef.Result)
+	require.Nil(t, typeDef.Result.Ok)
+	require.Nil(t, typeDef.Result.Error)
+}
+
+func TestDecodeResultType_WithTypeIndex(t *testing.T) {
+	// result<$0, $1> - result with type index references
+	data := []byte{
+		0x6a, // result opcode
+		0x01, // has ok type
+		0x00, // type index 0
+		0x01, // has error type
+		0x01, // type index 1
+	}
+	r := bytes.NewReader(data)
+	typeDef, err := decodeDefinedType(r)
+	require.NoError(t, err)
+	require.Equal(t, TypeDefKindResult, typeDef.Kind)
+	require.NotNil(t, typeDef.Result)
+	require.NotNil(t, typeDef.Result.Ok)
+	require.False(t, typeDef.Result.Ok.IsPrimitive)
+	require.Equal(t, uint32(0), typeDef.Result.Ok.TypeIdx)
+	require.NotNil(t, typeDef.Result.Error)
+	require.False(t, typeDef.Result.Error.IsPrimitive)
+	require.Equal(t, uint32(1), typeDef.Result.Error.TypeIdx)
+}
