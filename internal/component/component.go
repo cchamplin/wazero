@@ -44,6 +44,9 @@ type TypeDef struct {
 
 	// Option holds the decoded option type definition.
 	Option interface{}
+
+	// List holds the decoded list type definition.
+	List interface{}
 }
 
 // TypeDefKind identifies the kind of type definition.
