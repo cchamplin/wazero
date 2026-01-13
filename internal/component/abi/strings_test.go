@@ -2,6 +2,7 @@ package abi
 
 import (
 	"encoding/binary"
+	"fmt"
 	"testing"
 
 	"github.com/tetratelabs/wazero/internal/testing/require"
@@ -325,4 +326,250 @@ func TestLiftStringLatin1UTF16_UTF16SurrogatePair(t *testing.T) {
 	val, err := LiftString(ctx, 0)
 	require.NoError(t, err)
 	require.Equal(t, "\U0001F600", val)
+}
+
+// Task 64: String Lowering Tests
+
+func TestLowerStringUTF8(t *testing.T) {
+	data := make([]byte, 64)
+	allocPtr := uint32(16)
+
+	ctx := &LowerContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingUTF8},
+		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+			return allocPtr, nil
+		},
+	}
+
+	ptr, length, err := LowerString(ctx, "hello")
+	require.NoError(t, err)
+	require.Equal(t, uint32(16), ptr)
+	require.Equal(t, uint32(5), length)
+	require.Equal(t, "hello", string(data[16:21]))
+}
+
+func TestLowerStringUTF8_Empty(t *testing.T) {
+	data := make([]byte, 64)
+	ctx := &LowerContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingUTF8},
+		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+			t.Fatal("Realloc should not be called for empty string")
+			return 0, nil
+		},
+	}
+
+	ptr, length, err := LowerString(ctx, "")
+	require.NoError(t, err)
+	require.Equal(t, uint32(0), ptr)
+	require.Equal(t, uint32(0), length)
+}
+
+func TestLowerStringUTF8_Unicode(t *testing.T) {
+	data := make([]byte, 64)
+	allocPtr := uint32(16)
+
+	ctx := &LowerContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingUTF8},
+		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+			return allocPtr, nil
+		},
+	}
+
+	ptr, length, err := LowerString(ctx, "日本語")
+	require.NoError(t, err)
+	require.Equal(t, uint32(16), ptr)
+	require.Equal(t, uint32(9), length) // 3 chars * 3 bytes each
+	require.Equal(t, "日本語", string(data[16:25]))
+}
+
+func TestLowerStringUTF16(t *testing.T) {
+	data := make([]byte, 64)
+	allocPtr := uint32(16)
+
+	ctx := &LowerContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingUTF16},
+		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+			return allocPtr, nil
+		},
+	}
+
+	ptr, codeUnits, err := LowerString(ctx, "hello")
+	require.NoError(t, err)
+	require.Equal(t, uint32(16), ptr)
+	require.Equal(t, uint32(5), codeUnits)
+	// Verify UTF-16 LE encoding
+	require.Equal(t, uint16(0x0068), binary.LittleEndian.Uint16(data[16:])) // h
+	require.Equal(t, uint16(0x0065), binary.LittleEndian.Uint16(data[18:])) // e
+}
+
+func TestLowerStringUTF16_Empty(t *testing.T) {
+	data := make([]byte, 64)
+	ctx := &LowerContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingUTF16},
+		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+			t.Fatal("Realloc should not be called for empty string")
+			return 0, nil
+		},
+	}
+
+	ptr, codeUnits, err := LowerString(ctx, "")
+	require.NoError(t, err)
+	require.Equal(t, uint32(0), ptr)
+	require.Equal(t, uint32(0), codeUnits)
+}
+
+func TestLowerStringUTF16_SurrogatePair(t *testing.T) {
+	data := make([]byte, 64)
+	allocPtr := uint32(16)
+
+	ctx := &LowerContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingUTF16},
+		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+			return allocPtr, nil
+		},
+	}
+
+	// Emoji requires surrogate pair in UTF-16
+	ptr, codeUnits, err := LowerString(ctx, "\U0001F600")
+	require.NoError(t, err)
+	require.Equal(t, uint32(16), ptr)
+	require.Equal(t, uint32(2), codeUnits) // surrogate pair = 2 code units
+	require.Equal(t, uint16(0xD83D), binary.LittleEndian.Uint16(data[16:]))
+	require.Equal(t, uint16(0xDE00), binary.LittleEndian.Uint16(data[18:]))
+}
+
+func TestLowerStringLatin1UTF16_Latin1(t *testing.T) {
+	data := make([]byte, 64)
+	allocPtr := uint32(16)
+
+	ctx := &LowerContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingLatin1UTF16},
+		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+			return allocPtr, nil
+		},
+	}
+
+	ptr, length, err := LowerString(ctx, "cafe")
+	require.NoError(t, err)
+	require.Equal(t, uint32(16), ptr)
+	require.Equal(t, uint32(4), length) // No tag bit = Latin-1
+	require.Equal(t, byte('c'), data[16])
+	require.Equal(t, byte('a'), data[17])
+	require.Equal(t, byte('f'), data[18])
+	require.Equal(t, byte('e'), data[19])
+}
+
+func TestLowerStringLatin1UTF16_Latin1Extended(t *testing.T) {
+	data := make([]byte, 64)
+	allocPtr := uint32(16)
+
+	ctx := &LowerContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingLatin1UTF16},
+		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+			return allocPtr, nil
+		},
+	}
+
+	// Note: "cafe" with accent must be represented correctly
+	// In Go, "cafe" is different from "cafe" with the e-acute character
+	// We'll test with explicit Latin-1 range characters
+	ptr, length, err := LowerString(ctx, "caf\u00E9") // e-acute in Latin-1 range
+	require.NoError(t, err)
+	require.Equal(t, uint32(16), ptr)
+	require.Equal(t, uint32(4), length) // No tag bit = Latin-1
+	require.Equal(t, byte('c'), data[16])
+	require.Equal(t, byte('a'), data[17])
+	require.Equal(t, byte('f'), data[18])
+	require.Equal(t, byte(0xE9), data[19]) // e-acute in Latin-1
+}
+
+func TestLowerStringLatin1UTF16_Empty(t *testing.T) {
+	data := make([]byte, 64)
+	ctx := &LowerContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingLatin1UTF16},
+		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+			t.Fatal("Realloc should not be called for empty string")
+			return 0, nil
+		},
+	}
+
+	ptr, length, err := LowerString(ctx, "")
+	require.NoError(t, err)
+	require.Equal(t, uint32(0), ptr)
+	require.Equal(t, uint32(0), length)
+}
+
+func TestLowerStringLatin1UTF16_FallbackUTF16(t *testing.T) {
+	data := make([]byte, 64)
+	allocPtr := uint32(16)
+
+	ctx := &LowerContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingLatin1UTF16},
+		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+			return allocPtr, nil
+		},
+	}
+
+	// Japanese character cannot be encoded in Latin-1
+	ptr, taggedLen, err := LowerString(ctx, "\u65E5") // U+65E5 = Japanese "day"
+	require.NoError(t, err)
+	require.Equal(t, uint32(16), ptr)
+	// Tag bit should be set, 1 code unit
+	require.Equal(t, uint32(0x80000001), taggedLen)
+}
+
+func TestLowerStringUTF8_ReallocError(t *testing.T) {
+	data := make([]byte, 64)
+	ctx := &LowerContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingUTF8},
+		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+			return 0, fmt.Errorf("out of memory")
+		},
+	}
+
+	_, _, err := LowerString(ctx, "hello")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "realloc")
+}
+
+func TestLowerStringUTF8_WriteError(t *testing.T) {
+	// Create a small memory that will fail on write
+	data := make([]byte, 10)
+	ctx := &LowerContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingUTF8},
+		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+			return 100, nil // Return pointer beyond memory bounds
+		},
+	}
+
+	_, _, err := LowerString(ctx, "hello")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "failed to write")
+}
+
+func TestLowerStringUnknownEncoding(t *testing.T) {
+	data := make([]byte, 64)
+	ctx := &LowerContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncoding(99)}, // Invalid encoding
+		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+			return 0, nil
+		},
+	}
+
+	_, _, err := LowerString(ctx, "hello")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unknown string encoding")
 }
