@@ -181,6 +181,89 @@ func (v Val) Option() *Val {
 	return v.v.(*Val)
 }
 
+// ValList creates a list value from a slice of elements.
+func ValList(elements []Val) Val {
+	return Val{kind: ValKindList, v: elements}
+}
+
+// List returns the list elements.
+// Panics if Kind() != ValKindList.
+func (v Val) List() []Val {
+	if v.kind != ValKindList {
+		panic("Val is not a list")
+	}
+	return v.v.([]Val)
+}
+
+// ValTuple creates a tuple value from a slice of elements.
+func ValTuple(elements []Val) Val {
+	return Val{kind: ValKindTuple, v: elements}
+}
+
+// Tuple returns the tuple elements.
+// Panics if Kind() != ValKindTuple.
+func (v Val) Tuple() []Val {
+	if v.kind != ValKindTuple {
+		panic("Val is not a tuple")
+	}
+	return v.v.([]Val)
+}
+
+// resultVal holds a result's ok/error state and value.
+type resultVal struct {
+	isOk bool
+	ok   *Val
+	err  *Val
+}
+
+// ValResultOk creates a result value representing success with an optional value.
+func ValResultOk(ok *Val) Val {
+	return Val{kind: ValKindResult, v: resultVal{isOk: true, ok: ok, err: nil}}
+}
+
+// ValResultError creates a result value representing failure with an optional error value.
+func ValResultError(err *Val) Val {
+	return Val{kind: ValKindResult, v: resultVal{isOk: false, ok: nil, err: err}}
+}
+
+// Result returns whether the result is ok, and the ok/error values.
+// Panics if Kind() != ValKindResult.
+func (v Val) Result() (isOk bool, ok *Val, err *Val) {
+	if v.kind != ValKindResult {
+		panic("Val is not a result")
+	}
+	rv := v.v.(resultVal)
+	return rv.isOk, rv.ok, rv.err
+}
+
+// ValFlags creates a flags value from a map of flag names to boolean values.
+func ValFlags(flags map[string]bool) Val {
+	return Val{kind: ValKindFlags, v: flags}
+}
+
+// Flags returns the flags as a map of flag names to boolean values.
+// Panics if Kind() != ValKindFlags.
+func (v Val) Flags() map[string]bool {
+	if v.kind != ValKindFlags {
+		panic("Val is not a flags")
+	}
+	return v.v.(map[string]bool)
+}
+
+// ValEnum creates an enum value with the given case name.
+func ValEnum(caseName string) Val {
+	return Val{kind: ValKindEnum, v: caseName}
+}
+
+// Enum returns the enum case name.
+// Panics if Kind() != ValKindEnum.
+func (v Val) Enum() string {
+	if v.kind != ValKindEnum {
+		panic("Val is not an enum")
+	}
+	return v.v.(string)
+}
+
 // String returns a string representation of the ValKind for debugging.
 func (k ValKind) String() string {
 	switch k {
