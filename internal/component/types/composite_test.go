@@ -239,3 +239,81 @@ func TestResultUnit(t *testing.T) {
 	require.Equal(t, uint32(1), r.Size())
 	require.Equal(t, uint32(1), r.Align())
 }
+
+func TestFlagsType(t *testing.T) {
+	// flags { read, write, execute }
+	// 3 flags fits in u8
+	f := Flags{Names: []string{"read", "write", "execute"}}
+
+	require.Equal(t, uint32(1), f.Size())
+	require.Equal(t, uint32(1), f.Align())
+	require.Equal(t, 1, f.FlattenCount())
+}
+
+func TestFlagsType8(t *testing.T) {
+	// 8 flags still fits in u8
+	names := make([]string, 8)
+	for i := range names {
+		names[i] = fmt.Sprintf("flag%d", i)
+	}
+	f := Flags{Names: names}
+
+	require.Equal(t, uint32(1), f.Size())
+	require.Equal(t, uint32(1), f.Align())
+}
+
+func TestFlagsType9(t *testing.T) {
+	// 9 flags needs u16
+	names := make([]string, 9)
+	for i := range names {
+		names[i] = fmt.Sprintf("flag%d", i)
+	}
+	f := Flags{Names: names}
+
+	require.Equal(t, uint32(2), f.Size())
+	require.Equal(t, uint32(2), f.Align())
+}
+
+func TestFlagsType16(t *testing.T) {
+	// 16 flags fits in u16
+	names := make([]string, 16)
+	for i := range names {
+		names[i] = fmt.Sprintf("flag%d", i)
+	}
+	f := Flags{Names: names}
+
+	require.Equal(t, uint32(2), f.Size())
+	require.Equal(t, uint32(2), f.Align())
+}
+
+func TestFlagsType17(t *testing.T) {
+	// 17 flags needs u32
+	names := make([]string, 17)
+	for i := range names {
+		names[i] = fmt.Sprintf("flag%d", i)
+	}
+	f := Flags{Names: names}
+
+	require.Equal(t, uint32(4), f.Size())
+	require.Equal(t, uint32(4), f.Align())
+}
+
+func TestFlagsType33(t *testing.T) {
+	// 33 flags needs 2 x u32 = 8 bytes
+	names := make([]string, 33)
+	for i := range names {
+		names[i] = fmt.Sprintf("flag%d", i)
+	}
+	f := Flags{Names: names}
+
+	require.Equal(t, uint32(8), f.Size())
+	require.Equal(t, uint32(4), f.Align())
+	require.Equal(t, 2, f.FlattenCount()) // 2 i32s
+}
+
+func TestFlagsEmpty(t *testing.T) {
+	f := Flags{Names: []string{}}
+	require.Equal(t, uint32(0), f.Size())
+	require.Equal(t, uint32(1), f.Align())
+	require.Equal(t, 0, f.FlattenCount())
+}

@@ -234,3 +234,48 @@ func (r Result) asVariant() Variant {
 		},
 	}
 }
+
+// Flags represents a flags (bitfield) type.
+type Flags struct {
+	Names []string
+}
+
+func (Flags) valType() {}
+
+func (f Flags) Size() uint32 {
+	n := len(f.Names)
+	switch {
+	case n == 0:
+		return 0
+	case n <= 8:
+		return 1
+	case n <= 16:
+		return 2
+	default:
+		// Round up to multiple of 32 bits
+		return 4 * uint32((n+31)/32)
+	}
+}
+
+func (f Flags) Align() uint32 {
+	n := len(f.Names)
+	switch {
+	case n == 0:
+		return 1
+	case n <= 8:
+		return 1
+	case n <= 16:
+		return 2
+	default:
+		return 4
+	}
+}
+
+func (f Flags) FlattenCount() int {
+	n := len(f.Names)
+	if n == 0 {
+		return 0
+	}
+	// Number of i32s needed
+	return (n + 31) / 32
+}
