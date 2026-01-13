@@ -147,3 +147,66 @@ func TestOptionRoundtrip(t *testing.T) {
 		require.Equal(t, int32(42), opt.S32())
 	})
 }
+
+func TestListSum(t *testing.T) {
+	ctx := context.Background()
+	rt := wazero.NewRuntime(ctx)
+	defer rt.Close(ctx)
+
+	c, err := binary.DecodeComponent(testdata.ListSumComponent)
+	require.NoError(t, err)
+
+	inst, err := component.Instantiate(ctx, rt, c)
+	require.NoError(t, err)
+
+	sum := inst.ExportedFunction("sum")
+	require.NotNil(t, sum)
+
+	tests := []struct {
+		name     string
+		input    []int32
+		expected int32
+	}{
+		{
+			name:     "empty list",
+			input:    []int32{},
+			expected: 0,
+		},
+		{
+			name:     "single element",
+			input:    []int32{42},
+			expected: 42,
+		},
+		{
+			name:     "multiple elements",
+			input:    []int32{1, 2, 3, 4, 5},
+			expected: 15,
+		},
+		{
+			name:     "negative values",
+			input:    []int32{-10, 5, -3, 8},
+			expected: 0,
+		},
+		{
+			name:     "large values",
+			input:    []int32{1000000, 2000000, 3000000},
+			expected: 6000000,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Convert input to list of Val
+			elements := make([]component.Val, len(tc.input))
+			for i, v := range tc.input {
+				elements[i] = component.ValS32(v)
+			}
+			input := component.ValList(elements)
+
+			results, err := sum.Call(ctx, input)
+			require.NoError(t, err)
+			require.Equal(t, 1, len(results))
+			require.Equal(t, tc.expected, results[0].S32())
+		})
+	}
+}

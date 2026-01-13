@@ -38,6 +38,7 @@ type ExportedFunc struct {
 	coreFunc  api.Function
 	canonical *CanonicalDef
 	component *Component // reference to parent component for type lookups
+	instance  *Instance  // reference to parent instance for memory access
 }
 
 // Name returns the export name of this function.
@@ -108,6 +109,45 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 					return nil, fmt.Errorf("unsupported option payload type: %s", opt.Kind())
 				}
 			}
+		case ValKindList:
+			// Lists flatten to (ptr: i32, len: i32) pointing to linear memory
+			// The list data must be written to component memory first
+			list := p.List()
+			if f.instance == nil || len(f.instance.coreInstances) == 0 {
+				return nil, fmt.Errorf("no instance available for list memory allocation")
+			}
+
+			// Get the memory from the core module
+			// Use the memory specified in canonical options, or default to "memory"
+			coreModule := f.instance.coreInstances[0]
+			mem := coreModule.Memory()
+			if mem == nil {
+				return nil, fmt.Errorf("core module has no memory for list data")
+			}
+
+			// Write list elements to memory
+			// For list<s32>, each element is 4 bytes
+			// Currently using a simple allocation strategy: write at offset 0
+			// TODO: In a full implementation, use realloc for proper allocation
+			ptr := uint32(0)
+			for i, elem := range list {
+				offset := ptr + uint32(i*4)
+				switch elem.Kind() {
+				case ValKindS32:
+					if !mem.WriteUint32Le(offset, uint32(elem.S32())) {
+						return nil, fmt.Errorf("failed to write list element %d to memory", i)
+					}
+				case ValKindU32:
+					if !mem.WriteUint32Le(offset, elem.U32()) {
+						return nil, fmt.Errorf("failed to write list element %d to memory", i)
+					}
+				default:
+					return nil, fmt.Errorf("unsupported list element type: %s", elem.Kind())
+				}
+			}
+
+			// Pass (ptr, len) to core function
+			coreParams = append(coreParams, uint64(ptr), uint64(len(list)))
 		default:
 			return nil, fmt.Errorf("unsupported parameter type: %s", p.Kind())
 		}

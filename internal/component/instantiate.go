@@ -89,6 +89,7 @@ func Instantiate(ctx context.Context, rt wazero.Runtime, c *Component) (*Instanc
 			coreFunc:  coreFunc,
 			canonical: canon,
 			component: c,
+			instance:  inst,
 		}
 	}
 

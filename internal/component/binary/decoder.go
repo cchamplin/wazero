@@ -168,6 +168,18 @@ func decodeTypeSection(c *component.Component, r *bytes.Reader) error {
 				Option: option,
 			}
 
+		case ValTypeOpcodeList:
+			// Decode list type (opcode already consumed, decode element type directly)
+			list, err := decodeListTypeDef(r)
+			if err != nil {
+				return fmt.Errorf("decode list type %d: %w", i, err)
+			}
+
+			c.Types[i] = component.TypeDef{
+				Kind: component.TypeDefKindDefined,
+				List: list,
+			}
+
 		default:
 			return fmt.Errorf("unsupported type opcode 0x%02x at index %d", opcode, i)
 		}
