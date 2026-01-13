@@ -49,9 +49,9 @@ func TestDecodeRecordType_Empty(t *testing.T) {
 func TestDecodeRecordType_SingleField(t *testing.T) {
 	// Record with 1 field: (value: string)
 	data := []byte{
-		0x72,                             // record opcode
-		0x01,                             // 1 field
-		0x05, 'v', 'a', 'l', 'u', 'e',    // field name "value"
+		0x72,                          // record opcode
+		0x01,                          // 1 field
+		0x05, 'v', 'a', 'l', 'u', 'e', // field name "value"
 		0x73, // string
 	}
 
@@ -70,11 +70,11 @@ func TestDecodeRecordType_WithTypeIndex(t *testing.T) {
 	// Record with a field that references another type by index
 	// (name: string, inner: $0)
 	data := []byte{
-		0x72,                             // record opcode
-		0x02,                             // 2 fields
-		0x04, 'n', 'a', 'm', 'e',         // field name "name"
-		0x73,                             // string
-		0x05, 'i', 'n', 'n', 'e', 'r',    // field name "inner"
+		0x72,                     // record opcode
+		0x02,                     // 2 fields
+		0x04, 'n', 'a', 'm', 'e', // field name "name"
+		0x73,                          // string
+		0x05, 'i', 'n', 'n', 'e', 'r', // field name "inner"
 		0x00, // type index 0
 	}
 
@@ -95,15 +95,15 @@ func TestDecodeVariantType(t *testing.T) {
 	// Variant with 2 cases: { none, some(s32) }
 	// Format: 0x71 <case_count> (<name> <refines>? <type>?)*
 	data := []byte{
-		0x71,                         // variant opcode
-		0x02,                         // 2 cases
-		0x04, 'n', 'o', 'n', 'e',     // case name "none"
-		0x00,                         // no refines
-		0x00,                         // no type (discriminant only case)
-		0x04, 's', 'o', 'm', 'e',     // case name "some"
-		0x00,                         // no refines
-		0x01,                         // has type
-		0x7a,                         // s32
+		0x71,                     // variant opcode
+		0x02,                     // 2 cases
+		0x04, 'n', 'o', 'n', 'e', // case name "none"
+		0x00,                     // no refines
+		0x00,                     // no type (discriminant only case)
+		0x04, 's', 'o', 'm', 'e', // case name "some"
+		0x00, // no refines
+		0x01, // has type
+		0x7a, // s32
 	}
 
 	r := bytes.NewReader(data)
@@ -137,17 +137,17 @@ func TestDecodeVariantType_WithRefines(t *testing.T) {
 	// Variant with refines: case that refines another case
 	// Format: 0x71 <case_count> (<name> <refines_flag> [<refines_idx>] <type_flag> [<type>])*
 	data := []byte{
-		0x71,                         // variant opcode
-		0x02,                         // 2 cases
-		0x04, 'b', 'a', 's', 'e',     // case name "base"
-		0x00,                         // no refines
-		0x01,                         // has type
-		0x7a,                         // s32
+		0x71,                     // variant opcode
+		0x02,                     // 2 cases
+		0x04, 'b', 'a', 's', 'e', // case name "base"
+		0x00,                                    // no refines
+		0x01,                                    // has type
+		0x7a,                                    // s32
 		0x07, 'd', 'e', 'r', 'i', 'v', 'e', 'd', // case name "derived"
-		0x01,                         // has refines
-		0x00,                         // refines case index 0
-		0x01,                         // has type
-		0x79,                         // u32
+		0x01, // has refines
+		0x00, // refines case index 0
+		0x01, // has type
+		0x79, // u32
 	}
 
 	r := bytes.NewReader(data)
@@ -168,11 +168,11 @@ func TestDecodeVariantType_WithRefines(t *testing.T) {
 func TestDecodeVariantType_SingleCaseNoType(t *testing.T) {
 	// Variant with a single case that has no payload type
 	data := []byte{
-		0x71,                         // variant opcode
-		0x01,                         // 1 case
-		0x04, 'u', 'n', 'i', 't',     // case name "unit"
-		0x00,                         // no refines
-		0x00,                         // no type
+		0x71,                     // variant opcode
+		0x01,                     // 1 case
+		0x04, 'u', 'n', 'i', 't', // case name "unit"
+		0x00, // no refines
+		0x00, // no type
 	}
 
 	r := bytes.NewReader(data)
@@ -184,4 +184,38 @@ func TestDecodeVariantType_SingleCaseNoType(t *testing.T) {
 	require.Equal(t, "unit", typeDef.Variant.Cases[0].Name)
 	require.Nil(t, typeDef.Variant.Cases[0].Type)
 	require.Nil(t, typeDef.Variant.Cases[0].Refines)
+}
+
+func TestDecodeListType(t *testing.T) {
+	// list<s32>
+	// Format: 0x70 <element_type>
+	data := []byte{
+		0x70, // list opcode
+		0x7a, // s32 element type
+	}
+
+	r := bytes.NewReader(data)
+	typeDef, err := decodeDefinedType(r)
+	require.NoError(t, err)
+	require.Equal(t, TypeDefKindList, typeDef.Kind)
+	require.NotNil(t, typeDef.List)
+	require.True(t, typeDef.List.Element.IsPrimitive)
+	require.Equal(t, byte(0x7a), typeDef.List.Element.Primitive)
+}
+
+func TestDecodeListType_WithTypeIndex(t *testing.T) {
+	// list<$0> - list with element type referencing type index 0
+	// Format: 0x70 <element_type>
+	data := []byte{
+		0x70, // list opcode
+		0x00, // type index 0
+	}
+
+	r := bytes.NewReader(data)
+	typeDef, err := decodeDefinedType(r)
+	require.NoError(t, err)
+	require.Equal(t, TypeDefKindList, typeDef.Kind)
+	require.NotNil(t, typeDef.List)
+	require.False(t, typeDef.List.Element.IsPrimitive)
+	require.Equal(t, uint32(0), typeDef.List.Element.TypeIdx)
 }
