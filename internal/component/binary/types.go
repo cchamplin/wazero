@@ -26,6 +26,97 @@ const (
 	ResultNamed  byte = 0x01 // Named results (or empty)
 )
 
+// TypeDefKind identifies the kind of type definition decoded from binary format.
+type TypeDefKind uint8
+
+const (
+	TypeDefKindFunc TypeDefKind = iota
+	TypeDefKindComponent
+	TypeDefKindInstance
+	TypeDefKindResource
+	TypeDefKindRecord
+	TypeDefKindVariant
+	TypeDefKindList
+	TypeDefKindTuple
+	TypeDefKindFlags
+	TypeDefKindEnum
+	TypeDefKindOption
+	TypeDefKindResult
+)
+
+// TypeDef represents a decoded type definition from binary format.
+// This is a discriminated union of different type kinds.
+type TypeDef struct {
+	Kind TypeDefKind
+
+	// For FuncType
+	Func *component.FuncType
+
+	// For composite types
+	Record  *RecordTypeDef
+	Variant *VariantTypeDef
+	List    *ListTypeDef
+	Tuple   *TupleTypeDef
+	Flags   *FlagsTypeDef
+	Enum    *EnumTypeDef
+	Option  *OptionTypeDef
+	Result  *ResultTypeDef
+}
+
+// RecordTypeDef represents a decoded record type definition.
+type RecordTypeDef struct {
+	Fields []RecordField
+}
+
+// RecordField represents a field in a record type.
+type RecordField struct {
+	Name string
+	Type component.ValTypeRef
+}
+
+// VariantTypeDef represents a decoded variant type definition.
+type VariantTypeDef struct {
+	Cases []VariantCase
+}
+
+// VariantCase represents a case in a variant type.
+type VariantCase struct {
+	Name    string
+	Type    *component.ValTypeRef // nil for cases with no payload
+	Refines *uint32               // optional index of refined case
+}
+
+// ListTypeDef represents a decoded list type definition.
+type ListTypeDef struct {
+	Element component.ValTypeRef
+}
+
+// TupleTypeDef represents a decoded tuple type definition.
+type TupleTypeDef struct {
+	Types []component.ValTypeRef
+}
+
+// FlagsTypeDef represents a decoded flags type definition.
+type FlagsTypeDef struct {
+	Names []string
+}
+
+// EnumTypeDef represents a decoded enum type definition.
+type EnumTypeDef struct {
+	Cases []string
+}
+
+// OptionTypeDef represents a decoded option type definition.
+type OptionTypeDef struct {
+	Some component.ValTypeRef
+}
+
+// ResultTypeDef represents a decoded result type definition.
+type ResultTypeDef struct {
+	Ok    *component.ValTypeRef // nil for result<_, E>
+	Error *component.ValTypeRef // nil for result<T, _>
+}
+
 // decodeValType reads a valtype from the reader.
 // valtypes are either primitive opcodes (0x73-0x7f) or type indices (LEB128).
 func decodeValType(r io.ByteReader) (component.ValTypeRef, error) {
@@ -152,4 +243,81 @@ func decodeName(r *bytes.Reader) (string, error) {
 	}
 
 	return string(buf), nil
+}
+
+// decodeDefinedType reads a defined type from the reader.
+// Defined types include composite types (record, variant, list, etc.)
+// Format: <opcode> <type-specific-data>
+func decodeDefinedType(r *bytes.Reader) (*TypeDef, error) {
+	opcode, err := r.ReadByte()
+	if err != nil {
+		return nil, err
+	}
+
+	switch opcode {
+	case ValTypeOpcodeRecord:
+		record, err := decodeRecordTypeDef(r)
+		if err != nil {
+			return nil, fmt.Errorf("decode record type: %w", err)
+		}
+		return &TypeDef{
+			Kind:   TypeDefKindRecord,
+			Record: record,
+		}, nil
+
+	case ValTypeOpcodeVariant:
+		return nil, fmt.Errorf("variant type decoding not yet implemented")
+
+	case ValTypeOpcodeList:
+		return nil, fmt.Errorf("list type decoding not yet implemented")
+
+	case ValTypeOpcodeTuple:
+		return nil, fmt.Errorf("tuple type decoding not yet implemented")
+
+	case ValTypeOpcodeFlags:
+		return nil, fmt.Errorf("flags type decoding not yet implemented")
+
+	case ValTypeOpcodeEnum:
+		return nil, fmt.Errorf("enum type decoding not yet implemented")
+
+	case ValTypeOpcodeOption:
+		return nil, fmt.Errorf("option type decoding not yet implemented")
+
+	case ValTypeOpcodeResult:
+		return nil, fmt.Errorf("result type decoding not yet implemented")
+
+	default:
+		return nil, fmt.Errorf("unknown defined type opcode: 0x%02x", opcode)
+	}
+}
+
+// decodeRecordTypeDef reads a record type definition from the reader.
+// Format: 0x72 <field_count> (<name> <type>)*
+func decodeRecordTypeDef(r *bytes.Reader) (*RecordTypeDef, error) {
+	fieldCount, _, err := leb128.DecodeUint32(r)
+	if err != nil {
+		return nil, fmt.Errorf("read field count: %w", err)
+	}
+
+	fields := make([]RecordField, fieldCount)
+	for i := uint32(0); i < fieldCount; i++ {
+		name, err := decodeName(r)
+		if err != nil {
+			return nil, fmt.Errorf("read field %d name: %w", i, err)
+		}
+
+		valType, err := decodeValType(r)
+		if err != nil {
+			return nil, fmt.Errorf("read field %d type: %w", i, err)
+		}
+
+		fields[i] = RecordField{
+			Name: name,
+			Type: valType,
+		}
+	}
+
+	return &RecordTypeDef{
+		Fields: fields,
+	}, nil
 }
