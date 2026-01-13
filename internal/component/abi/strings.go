@@ -1,7 +1,10 @@
 package abi
 
 import (
+	"encoding/binary"
 	"fmt"
+	"math"
+	"unicode/utf16"
 	"unicode/utf8"
 )
 
@@ -45,13 +48,52 @@ func liftStringUTF8(ctx *LiftContext, ptr, byteLen uint32) (string, error) {
 }
 
 // liftStringUTF16 lifts a UTF-16 encoded string from memory.
-// Placeholder for Task 62.
+// The codeUnits parameter is the number of UTF-16 code units (not bytes).
+// Each code unit is 2 bytes, stored in little-endian order.
 func liftStringUTF16(ctx *LiftContext, ptr, codeUnits uint32) (string, error) {
-	return "", fmt.Errorf("UTF-16 string encoding not yet implemented")
+	if codeUnits == 0 {
+		return "", nil
+	}
+	// Check for potential overflow in byte length calculation
+	if codeUnits > math.MaxUint32/2 {
+		return "", fmt.Errorf("UTF-16 string too large: %d code units", codeUnits)
+	}
+	byteLen := codeUnits * 2
+	data, ok := ctx.Memory.Read(ptr, byteLen)
+	if !ok {
+		return "", fmt.Errorf("failed to read UTF-16 string at ptr=%d len=%d", ptr, byteLen)
+	}
+
+	// Decode UTF-16 LE
+	u16 := make([]uint16, codeUnits)
+	for i := uint32(0); i < codeUnits; i++ {
+		u16[i] = binary.LittleEndian.Uint16(data[i*2:])
+	}
+
+	return string(utf16.Decode(u16)), nil
 }
 
 // liftStringLatin1UTF16 lifts a Latin1+UTF16 encoded string from memory.
-// Placeholder for Task 63.
+// If the tag bit (bit 31) is set, it's UTF-16 encoded; otherwise it's Latin-1.
+// Latin-1 is a subset of Unicode where each byte is a code point 0-255.
 func liftStringLatin1UTF16(ctx *LiftContext, ptr, taggedLen uint32) (string, error) {
-	return "", fmt.Errorf("Latin1+UTF16 string encoding not yet implemented")
+	if taggedLen&utf16Tag != 0 {
+		// UTF-16 encoded (tag bit set)
+		codeUnits := taggedLen &^ utf16Tag
+		return liftStringUTF16(ctx, ptr, codeUnits)
+	}
+	// Latin-1 encoded (each byte is a code point)
+	if taggedLen == 0 {
+		return "", nil
+	}
+	data, ok := ctx.Memory.Read(ptr, taggedLen)
+	if !ok {
+		return "", fmt.Errorf("failed to read Latin-1 string at ptr=%d len=%d", ptr, taggedLen)
+	}
+	// Latin-1 is a subset of Unicode (code points 0-255), direct conversion
+	runes := make([]rune, taggedLen)
+	for i, b := range data {
+		runes[i] = rune(b)
+	}
+	return string(runes), nil
 }

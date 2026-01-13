@@ -126,10 +126,68 @@ func TestLiftStringUTF8_Emoji(t *testing.T) {
 	require.Equal(t, emoji, val)
 }
 
-func TestLiftStringUTF16_NotImplemented(t *testing.T) {
+// Task 62: UTF-16 tests
+
+func TestLiftStringUTF16(t *testing.T) {
+	// "hello" in UTF-16 LE
+	data := make([]byte, 32)
+	// UTF-16 LE for "hello": h=0x0068, e=0x0065, l=0x006C, l=0x006C, o=0x006F
+	binary.LittleEndian.PutUint16(data[16:], 0x0068) // h
+	binary.LittleEndian.PutUint16(data[18:], 0x0065) // e
+	binary.LittleEndian.PutUint16(data[20:], 0x006C) // l
+	binary.LittleEndian.PutUint16(data[22:], 0x006C) // l
+	binary.LittleEndian.PutUint16(data[24:], 0x006F) // o
+	binary.LittleEndian.PutUint32(data[0:], 16)      // ptr
+	binary.LittleEndian.PutUint32(data[4:], 5)       // 5 code units
+
+	ctx := &LiftContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingUTF16},
+	}
+
+	val, err := LiftString(ctx, 0)
+	require.NoError(t, err)
+	require.Equal(t, "hello", val)
+}
+
+func TestLiftStringUTF16_Empty(t *testing.T) {
+	data := make([]byte, 8)
+	binary.LittleEndian.PutUint32(data[0:], 0)
+	binary.LittleEndian.PutUint32(data[4:], 0) // 0 code units
+
+	ctx := &LiftContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingUTF16},
+	}
+
+	val, err := LiftString(ctx, 0)
+	require.NoError(t, err)
+	require.Equal(t, "", val)
+}
+
+func TestLiftStringUTF16_SurrogatePair(t *testing.T) {
+	// "😀" (U+1F600) requires surrogate pair: 0xD83D 0xDE00
 	data := make([]byte, 16)
-	binary.LittleEndian.PutUint32(data[0:], 8)
-	binary.LittleEndian.PutUint32(data[4:], 2)
+	binary.LittleEndian.PutUint16(data[8:], 0xD83D)  // high surrogate
+	binary.LittleEndian.PutUint16(data[10:], 0xDE00) // low surrogate
+	binary.LittleEndian.PutUint32(data[0:], 8)       // ptr
+	binary.LittleEndian.PutUint32(data[4:], 2)       // 2 code units
+
+	ctx := &LiftContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingUTF16},
+	}
+
+	val, err := LiftString(ctx, 0)
+	require.NoError(t, err)
+	require.Equal(t, "😀", val)
+}
+
+func TestLiftStringUTF16_BoundsCheck(t *testing.T) {
+	// Small memory with string pointing beyond bounds
+	data := make([]byte, 16)
+	binary.LittleEndian.PutUint32(data[0:], 100) // ptr = 100 (beyond memory)
+	binary.LittleEndian.PutUint32(data[4:], 10)  // 10 code units
 
 	ctx := &LiftContext{
 		Memory: &mockMemory{data: data},
@@ -138,13 +196,88 @@ func TestLiftStringUTF16_NotImplemented(t *testing.T) {
 
 	_, err := LiftString(ctx, 0)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "not yet implemented")
+	require.Contains(t, err.Error(), "failed to read UTF-16 string")
 }
 
-func TestLiftStringLatin1UTF16_NotImplemented(t *testing.T) {
+// Task 63: Latin1+UTF16 tests
+
+func TestLiftStringLatin1UTF16_Latin1(t *testing.T) {
+	// "hello" in Latin-1 (same as ASCII for these characters)
 	data := make([]byte, 16)
+	copy(data[8:], "hello")
 	binary.LittleEndian.PutUint32(data[0:], 8)
-	binary.LittleEndian.PutUint32(data[4:], 2)
+	binary.LittleEndian.PutUint32(data[4:], 5) // No tag bit = Latin-1
+
+	ctx := &LiftContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingLatin1UTF16},
+	}
+
+	val, err := LiftString(ctx, 0)
+	require.NoError(t, err)
+	require.Equal(t, "hello", val)
+}
+
+func TestLiftStringLatin1UTF16_Latin1Extended(t *testing.T) {
+	// "café" with é = 0xE9 in Latin-1
+	data := make([]byte, 16)
+	copy(data[8:], "caf")
+	data[11] = 0xE9 // é in Latin-1
+	binary.LittleEndian.PutUint32(data[0:], 8)
+	binary.LittleEndian.PutUint32(data[4:], 4) // No tag bit = Latin-1
+
+	ctx := &LiftContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingLatin1UTF16},
+	}
+
+	val, err := LiftString(ctx, 0)
+	require.NoError(t, err)
+	require.Equal(t, "café", val)
+}
+
+func TestLiftStringLatin1UTF16_UTF16Tagged(t *testing.T) {
+	// "hello" in UTF-16 with tag bit set
+	data := make([]byte, 32)
+	binary.LittleEndian.PutUint16(data[16:], 0x0068)
+	binary.LittleEndian.PutUint16(data[18:], 0x0065)
+	binary.LittleEndian.PutUint16(data[20:], 0x006C)
+	binary.LittleEndian.PutUint16(data[22:], 0x006C)
+	binary.LittleEndian.PutUint16(data[24:], 0x006F)
+	binary.LittleEndian.PutUint32(data[0:], 16) // ptr
+	// 5 code units with tag bit set (0x80000000 | 5 = 0x80000005)
+	binary.LittleEndian.PutUint32(data[4:], 0x80000005)
+
+	ctx := &LiftContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingLatin1UTF16},
+	}
+
+	val, err := LiftString(ctx, 0)
+	require.NoError(t, err)
+	require.Equal(t, "hello", val)
+}
+
+func TestLiftStringLatin1UTF16_Empty(t *testing.T) {
+	data := make([]byte, 8)
+	binary.LittleEndian.PutUint32(data[0:], 0)
+	binary.LittleEndian.PutUint32(data[4:], 0) // 0 length = empty
+
+	ctx := &LiftContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingLatin1UTF16},
+	}
+
+	val, err := LiftString(ctx, 0)
+	require.NoError(t, err)
+	require.Equal(t, "", val)
+}
+
+func TestLiftStringLatin1UTF16_Latin1BoundsCheck(t *testing.T) {
+	// Small memory with string pointing beyond bounds
+	data := make([]byte, 16)
+	binary.LittleEndian.PutUint32(data[0:], 100) // ptr = 100 (beyond memory)
+	binary.LittleEndian.PutUint32(data[4:], 10)  // No tag bit = Latin-1
 
 	ctx := &LiftContext{
 		Memory: &mockMemory{data: data},
@@ -153,5 +286,43 @@ func TestLiftStringLatin1UTF16_NotImplemented(t *testing.T) {
 
 	_, err := LiftString(ctx, 0)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "not yet implemented")
+	require.Contains(t, err.Error(), "failed to read Latin-1 string")
+}
+
+func TestLiftStringUTF16_UnpairedSurrogate(t *testing.T) {
+	// Unpaired high surrogate 0xD83D without following low surrogate
+	// Go's utf16.Decode replaces with U+FFFD (replacement character)
+	data := make([]byte, 16)
+	binary.LittleEndian.PutUint16(data[8:], 0xD83D)  // high surrogate
+	binary.LittleEndian.PutUint16(data[10:], 0x0041) // 'A' (not a low surrogate)
+	binary.LittleEndian.PutUint32(data[0:], 8)
+	binary.LittleEndian.PutUint32(data[4:], 2)
+
+	ctx := &LiftContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingUTF16},
+	}
+
+	val, err := LiftString(ctx, 0)
+	require.NoError(t, err)
+	// Go's utf16.Decode returns replacement char (U+FFFD) for unpaired surrogates
+	require.Contains(t, val, "\uFFFD")
+}
+
+func TestLiftStringLatin1UTF16_UTF16SurrogatePair(t *testing.T) {
+	// Emoji in UTF-16 with tag bit set
+	data := make([]byte, 16)
+	binary.LittleEndian.PutUint16(data[8:], 0xD83D)  // high surrogate
+	binary.LittleEndian.PutUint16(data[10:], 0xDE00) // low surrogate
+	binary.LittleEndian.PutUint32(data[0:], 8)
+	binary.LittleEndian.PutUint32(data[4:], 0x80000002) // 2 code units with tag
+
+	ctx := &LiftContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingLatin1UTF16},
+	}
+
+	val, err := LiftString(ctx, 0)
+	require.NoError(t, err)
+	require.Equal(t, "\U0001F600", val)
 }
