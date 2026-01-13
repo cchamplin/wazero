@@ -1,6 +1,7 @@
 package abi
 
 import (
+	"encoding/binary"
 	"fmt"
 	"math"
 	"testing"
@@ -116,11 +117,64 @@ func TestLowerFlatChar(t *testing.T) {
 	require.Equal(t, []uint64{0x1F600}, flat)
 }
 
-func TestLowerFlatUnsupportedType(t *testing.T) {
-	val := component.ValString("test")
-	_, err := LowerFlat(nil, types.String{}, val)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "unsupported flat lower")
+// --- String Tests ---
+
+func TestLowerFlatString(t *testing.T) {
+	data := make([]byte, 64)
+	allocPtr := uint32(16)
+
+	ctx := &LowerContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingUTF8},
+		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+			return allocPtr, nil
+		},
+	}
+
+	val := component.ValString("hello")
+	flat, err := LowerFlat(ctx, types.String{}, val)
+	require.NoError(t, err)
+	require.Equal(t, 2, len(flat))
+	require.Equal(t, uint64(16), flat[0]) // ptr
+	require.Equal(t, uint64(5), flat[1])  // len
+	require.Equal(t, "hello", string(data[16:21]))
+}
+
+func TestLowerFlatStringEmpty(t *testing.T) {
+	data := make([]byte, 64)
+	ctx := &LowerContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingUTF8},
+		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+			t.Fatal("Realloc should not be called for empty string")
+			return 0, nil
+		},
+	}
+
+	val := component.ValString("")
+	flat, err := LowerFlat(ctx, types.String{}, val)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{0, 0}, flat)
+}
+
+func TestLowerFlatStringUnicode(t *testing.T) {
+	data := make([]byte, 64)
+	allocPtr := uint32(16)
+
+	ctx := &LowerContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingUTF8},
+		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+			return allocPtr, nil
+		},
+	}
+
+	val := component.ValString("日本語")
+	flat, err := LowerFlat(ctx, types.String{}, val)
+	require.NoError(t, err)
+	require.Equal(t, uint64(16), flat[0]) // ptr
+	require.Equal(t, uint64(9), flat[1])  // 9 bytes for 3 UTF-8 chars
+	require.Equal(t, "日本語", string(data[16:25]))
 }
 
 func TestLowerFlatRecord(t *testing.T) {
@@ -759,4 +813,145 @@ func TestLowerFlatRoundTrip(t *testing.T) {
 			}
 		})
 	}
+}
+
+// --- LowerHeap Tests ---
+
+func TestLowerHeapString(t *testing.T) {
+	data := make([]byte, 64)
+	allocPtr := uint32(24) // String data will be allocated at 24
+
+	ctx := &LowerContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingUTF8},
+		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+			return allocPtr, nil
+		},
+	}
+
+	val := component.ValString("hello")
+	err := LowerHeap(ctx, types.String{}, val, 0)
+	require.NoError(t, err)
+
+	// Verify ptr and len were written at offset 0
+	ptr := binary.LittleEndian.Uint32(data[0:])
+	length := binary.LittleEndian.Uint32(data[4:])
+	require.Equal(t, uint32(24), ptr)
+	require.Equal(t, uint32(5), length)
+	require.Equal(t, "hello", string(data[24:29]))
+}
+
+func TestLowerHeapStringAtOffset(t *testing.T) {
+	data := make([]byte, 64)
+	allocPtr := uint32(32)
+
+	ctx := &LowerContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingUTF8},
+		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+			return allocPtr, nil
+		},
+	}
+
+	val := component.ValString("test")
+	err := LowerHeap(ctx, types.String{}, val, 8) // Write ptr/len at offset 8
+	require.NoError(t, err)
+
+	// Verify ptr and len were written at offset 8
+	ptr := binary.LittleEndian.Uint32(data[8:])
+	length := binary.LittleEndian.Uint32(data[12:])
+	require.Equal(t, uint32(32), ptr)
+	require.Equal(t, uint32(4), length)
+	require.Equal(t, "test", string(data[32:36]))
+}
+
+func TestLowerHeapStringEmpty(t *testing.T) {
+	data := make([]byte, 64)
+
+	ctx := &LowerContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingUTF8},
+		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+			t.Fatal("Realloc should not be called for empty string")
+			return 0, nil
+		},
+	}
+
+	val := component.ValString("")
+	err := LowerHeap(ctx, types.String{}, val, 0)
+	require.NoError(t, err)
+
+	// Empty string: ptr=0, len=0
+	ptr := binary.LittleEndian.Uint32(data[0:])
+	length := binary.LittleEndian.Uint32(data[4:])
+	require.Equal(t, uint32(0), ptr)
+	require.Equal(t, uint32(0), length)
+}
+
+func TestLowerHeapPrimitives(t *testing.T) {
+	data := make([]byte, 64)
+	ctx := &LowerContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingUTF8},
+	}
+
+	// Test Bool
+	err := LowerHeap(ctx, types.Bool{}, component.ValBool(true), 0)
+	require.NoError(t, err)
+	require.Equal(t, uint8(1), data[0])
+
+	err = LowerHeap(ctx, types.Bool{}, component.ValBool(false), 1)
+	require.NoError(t, err)
+	require.Equal(t, uint8(0), data[1])
+
+	// Test U8/S8
+	err = LowerHeap(ctx, types.U8{}, component.ValU8(0xAB), 2)
+	require.NoError(t, err)
+	require.Equal(t, uint8(0xAB), data[2])
+
+	err = LowerHeap(ctx, types.S8{}, component.ValS8(-1), 3)
+	require.NoError(t, err)
+	require.Equal(t, uint8(0xFF), data[3])
+
+	// Test U16/S16
+	err = LowerHeap(ctx, types.U16{}, component.ValU16(0x1234), 4)
+	require.NoError(t, err)
+	require.Equal(t, uint16(0x1234), binary.LittleEndian.Uint16(data[4:]))
+
+	err = LowerHeap(ctx, types.S16{}, component.ValS16(-1), 6)
+	require.NoError(t, err)
+	require.Equal(t, uint16(0xFFFF), binary.LittleEndian.Uint16(data[6:]))
+
+	// Test U32/S32
+	err = LowerHeap(ctx, types.U32{}, component.ValU32(0xDEADBEEF), 8)
+	require.NoError(t, err)
+	require.Equal(t, uint32(0xDEADBEEF), binary.LittleEndian.Uint32(data[8:]))
+
+	err = LowerHeap(ctx, types.S32{}, component.ValS32(-42), 12)
+	require.NoError(t, err)
+	require.Equal(t, int32(-42), int32(binary.LittleEndian.Uint32(data[12:])))
+
+	// Test U64/S64
+	err = LowerHeap(ctx, types.U64{}, component.ValU64(0x123456789ABCDEF0), 16)
+	require.NoError(t, err)
+	require.Equal(t, uint64(0x123456789ABCDEF0), binary.LittleEndian.Uint64(data[16:]))
+
+	err = LowerHeap(ctx, types.S64{}, component.ValS64(-1), 24)
+	require.NoError(t, err)
+	require.Equal(t, uint64(0xFFFFFFFFFFFFFFFF), binary.LittleEndian.Uint64(data[24:]))
+
+	// Test F32
+	err = LowerHeap(ctx, types.F32{}, component.ValF32(3.14), 32)
+	require.NoError(t, err)
+	require.Equal(t, math.Float32bits(3.14), binary.LittleEndian.Uint32(data[32:]))
+
+	// Test F64
+	err = LowerHeap(ctx, types.F64{}, component.ValF64(3.14159), 40)
+	require.NoError(t, err)
+	require.Equal(t, math.Float64bits(3.14159), binary.LittleEndian.Uint64(data[40:]))
+
+	// Test Char
+	err = LowerHeap(ctx, types.Char{}, component.ValChar(0x1F600), 48)
+	require.NoError(t, err)
+	require.Equal(t, uint32(0x1F600), binary.LittleEndian.Uint32(data[48:]))
 }

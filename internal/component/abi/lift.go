@@ -74,6 +74,14 @@ func LiftFlat(ctx *LiftContext, typ types.ValType, iter *FlatIter) (component.Va
 		return component.ValF64(iter.NextF64()), nil
 	case types.Char:
 		return component.ValChar(rune(iter.NextI32())), nil
+	case types.String:
+		ptr := iter.NextI32()
+		taggedLen := iter.NextI32()
+		s, err := liftStringFromPtrLen(ctx, ptr, taggedLen)
+		if err != nil {
+			return component.Val{}, err
+		}
+		return component.ValString(s), nil
 	case types.Record:
 		t := typ.(types.Record)
 		fields := make(map[string]component.Val)
@@ -280,6 +288,12 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (component.Val
 		return component.ValF64(ctx.ReadF64(offset)), nil
 	case types.Char:
 		return component.ValChar(rune(ctx.ReadU32(offset))), nil
+	case types.String:
+		s, err := LiftString(ctx, offset)
+		if err != nil {
+			return component.Val{}, err
+		}
+		return component.ValString(s), nil
 
 	// Record
 	case types.Record:

@@ -15,11 +15,16 @@ const utf16Tag = uint32(1 << 31)
 
 // LiftString lifts a string from memory at the given offset.
 // The offset points to a (ptr, len) pair in memory.
-// NOTE: Integration with LiftHeap/LiftFlat for types.String is handled in Task 65.
 func LiftString(ctx *LiftContext, offset uint32) (string, error) {
 	ptr := ctx.ReadU32(offset)
 	taggedLen := ctx.ReadU32(offset + 4)
 
+	return liftStringFromPtrLen(ctx, ptr, taggedLen)
+}
+
+// liftStringFromPtrLen lifts a string from memory given the ptr and taggedLen directly.
+// This is used by LiftFlat for flat string representation (ptr, len as separate values).
+func liftStringFromPtrLen(ctx *LiftContext, ptr, taggedLen uint32) (string, error) {
 	switch ctx.Opts.StringEncoding {
 	case StringEncodingUTF8:
 		return liftStringUTF8(ctx, ptr, taggedLen)

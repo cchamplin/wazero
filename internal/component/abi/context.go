@@ -70,3 +70,29 @@ func (c *LiftContext) ReadF64(offset uint32) float64 {
 	bits := c.ReadU64(offset)
 	return math.Float64frombits(bits)
 }
+
+// writeUint8 writes a uint8 to memory at the given offset.
+func writeUint8(m Memory, offset uint32, val uint8) {
+	m.Write(offset, []byte{val})
+}
+
+// writeUint16Le writes a uint16 to memory at the given offset in little-endian order.
+func writeUint16Le(m Memory, offset uint32, val uint16) {
+	buf := make([]byte, 2)
+	binary.LittleEndian.PutUint16(buf, val)
+	m.Write(offset, buf)
+}
+
+// writeUint32Le writes a uint32 to memory at the given offset in little-endian order.
+func writeUint32Le(m Memory, offset uint32, val uint32) {
+	buf := make([]byte, 4)
+	binary.LittleEndian.PutUint32(buf, val)
+	m.Write(offset, buf)
+}
+
+// writeUint64Le writes a uint64 to memory at the given offset in little-endian order.
+func writeUint64Le(m Memory, offset uint32, val uint64) {
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, val)
+	m.Write(offset, buf)
+}
