@@ -325,7 +325,14 @@ func decodeDefinedType(r *bytes.Reader) (*TypeDef, error) {
 		}, nil
 
 	case ValTypeOpcodeOption:
-		return nil, fmt.Errorf("option type decoding not yet implemented")
+		option, err := decodeOptionTypeDef(r)
+		if err != nil {
+			return nil, fmt.Errorf("decode option type: %w", err)
+		}
+		return &TypeDef{
+			Kind:   TypeDefKindOption,
+			Option: option,
+		}, nil
 
 	case ValTypeOpcodeResult:
 		return nil, fmt.Errorf("result type decoding not yet implemented")
@@ -506,4 +513,15 @@ func decodeEnumTypeDef(r *bytes.Reader) (*EnumTypeDef, error) {
 	return &EnumTypeDef{
 		Cases: cases,
 	}, nil
+}
+
+// decodeOptionTypeDef reads an option type definition from the reader.
+// Format: 0x6b <type>
+func decodeOptionTypeDef(r *bytes.Reader) (*OptionTypeDef, error) {
+	someType, err := decodeValType(r)
+	if err != nil {
+		return nil, fmt.Errorf("read option some type: %w", err)
+	}
+
+	return &OptionTypeDef{Some: someType}, nil
 }
