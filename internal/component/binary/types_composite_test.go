@@ -90,3 +90,98 @@ func TestDecodeRecordType_WithTypeIndex(t *testing.T) {
 	require.False(t, typeDef.Record.Fields[1].Type.IsPrimitive)
 	require.Equal(t, uint32(0), typeDef.Record.Fields[1].Type.TypeIdx)
 }
+
+func TestDecodeVariantType(t *testing.T) {
+	// Variant with 2 cases: { none, some(s32) }
+	// Format: 0x71 <case_count> (<name> <refines>? <type>?)*
+	data := []byte{
+		0x71,                         // variant opcode
+		0x02,                         // 2 cases
+		0x04, 'n', 'o', 'n', 'e',     // case name "none"
+		0x00,                         // no refines
+		0x00,                         // no type (discriminant only case)
+		0x04, 's', 'o', 'm', 'e',     // case name "some"
+		0x00,                         // no refines
+		0x01,                         // has type
+		0x7a,                         // s32
+	}
+
+	r := bytes.NewReader(data)
+	typeDef, err := decodeDefinedType(r)
+	require.NoError(t, err)
+	require.Equal(t, TypeDefKindVariant, typeDef.Kind)
+	require.NotNil(t, typeDef.Variant)
+	require.Equal(t, 2, len(typeDef.Variant.Cases))
+	require.Equal(t, "none", typeDef.Variant.Cases[0].Name)
+	require.Nil(t, typeDef.Variant.Cases[0].Type)
+	require.Equal(t, "some", typeDef.Variant.Cases[1].Name)
+	require.NotNil(t, typeDef.Variant.Cases[1].Type)
+}
+
+func TestDecodeVariantType_Empty(t *testing.T) {
+	// Empty variant (edge case)
+	data := []byte{
+		0x71, // variant opcode
+		0x00, // 0 cases
+	}
+
+	r := bytes.NewReader(data)
+	typeDef, err := decodeDefinedType(r)
+	require.NoError(t, err)
+	require.Equal(t, TypeDefKindVariant, typeDef.Kind)
+	require.NotNil(t, typeDef.Variant)
+	require.Equal(t, 0, len(typeDef.Variant.Cases))
+}
+
+func TestDecodeVariantType_WithRefines(t *testing.T) {
+	// Variant with refines: case that refines another case
+	// Format: 0x71 <case_count> (<name> <refines_flag> [<refines_idx>] <type_flag> [<type>])*
+	data := []byte{
+		0x71,                         // variant opcode
+		0x02,                         // 2 cases
+		0x04, 'b', 'a', 's', 'e',     // case name "base"
+		0x00,                         // no refines
+		0x01,                         // has type
+		0x7a,                         // s32
+		0x07, 'd', 'e', 'r', 'i', 'v', 'e', 'd', // case name "derived"
+		0x01,                         // has refines
+		0x00,                         // refines case index 0
+		0x01,                         // has type
+		0x79,                         // u32
+	}
+
+	r := bytes.NewReader(data)
+	typeDef, err := decodeDefinedType(r)
+	require.NoError(t, err)
+	require.Equal(t, TypeDefKindVariant, typeDef.Kind)
+	require.NotNil(t, typeDef.Variant)
+	require.Equal(t, 2, len(typeDef.Variant.Cases))
+	require.Equal(t, "base", typeDef.Variant.Cases[0].Name)
+	require.Nil(t, typeDef.Variant.Cases[0].Refines)
+	require.NotNil(t, typeDef.Variant.Cases[0].Type)
+	require.Equal(t, "derived", typeDef.Variant.Cases[1].Name)
+	require.NotNil(t, typeDef.Variant.Cases[1].Refines)
+	require.Equal(t, uint32(0), *typeDef.Variant.Cases[1].Refines)
+	require.NotNil(t, typeDef.Variant.Cases[1].Type)
+}
+
+func TestDecodeVariantType_SingleCaseNoType(t *testing.T) {
+	// Variant with a single case that has no payload type
+	data := []byte{
+		0x71,                         // variant opcode
+		0x01,                         // 1 case
+		0x04, 'u', 'n', 'i', 't',     // case name "unit"
+		0x00,                         // no refines
+		0x00,                         // no type
+	}
+
+	r := bytes.NewReader(data)
+	typeDef, err := decodeDefinedType(r)
+	require.NoError(t, err)
+	require.Equal(t, TypeDefKindVariant, typeDef.Kind)
+	require.NotNil(t, typeDef.Variant)
+	require.Equal(t, 1, len(typeDef.Variant.Cases))
+	require.Equal(t, "unit", typeDef.Variant.Cases[0].Name)
+	require.Nil(t, typeDef.Variant.Cases[0].Type)
+	require.Nil(t, typeDef.Variant.Cases[0].Refines)
+}

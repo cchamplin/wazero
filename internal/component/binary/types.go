@@ -275,7 +275,14 @@ func decodeDefinedType(r *bytes.Reader) (*TypeDef, error) {
 		}, nil
 
 	case ValTypeOpcodeVariant:
-		return nil, fmt.Errorf("variant type decoding not yet implemented")
+		variant, err := decodeVariantTypeDef(r)
+		if err != nil {
+			return nil, fmt.Errorf("decode variant type: %w", err)
+		}
+		return &TypeDef{
+			Kind:    TypeDefKindVariant,
+			Variant: variant,
+		}, nil
 
 	case ValTypeOpcodeList:
 		return nil, fmt.Errorf("list type decoding not yet implemented")
@@ -328,5 +335,68 @@ func decodeRecordTypeDef(r *bytes.Reader) (*RecordTypeDef, error) {
 
 	return &RecordTypeDef{
 		Fields: fields,
+	}, nil
+}
+
+// decodeVariantTypeDef reads a variant type definition from the reader.
+// Format: 0x71 <case_count> (<name> <refines_flag> [<refines_idx>] <type_flag> [<type>])*
+// Note: refines_flag 0x00 = no refines, 0x01 = has refines index
+// Note: type_flag 0x00 = no type (discriminant only), 0x01 = has type
+func decodeVariantTypeDef(r *bytes.Reader) (*VariantTypeDef, error) {
+	caseCount, _, err := leb128.DecodeUint32(r)
+	if err != nil {
+		return nil, fmt.Errorf("read case count: %w", err)
+	}
+
+	cases := make([]VariantCase, caseCount)
+	for i := uint32(0); i < caseCount; i++ {
+		name, err := decodeName(r)
+		if err != nil {
+			return nil, fmt.Errorf("read case %d name: %w", i, err)
+		}
+
+		// Read refines flag
+		refinesFlag, err := r.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("read case %d refines flag: %w", i, err)
+		}
+
+		var refines *uint32
+		if refinesFlag == 0x01 {
+			refinesIdx, _, err := leb128.DecodeUint32(r)
+			if err != nil {
+				return nil, fmt.Errorf("read case %d refines index: %w", i, err)
+			}
+			refines = &refinesIdx
+		} else if refinesFlag != 0x00 {
+			return nil, fmt.Errorf("invalid refines flag for case %d: 0x%02x", i, refinesFlag)
+		}
+
+		// Read type flag
+		typeFlag, err := r.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("read case %d type flag: %w", i, err)
+		}
+
+		var valTypeRef *component.ValTypeRef
+		if typeFlag == 0x01 {
+			vt, err := decodeValType(r)
+			if err != nil {
+				return nil, fmt.Errorf("read case %d type: %w", i, err)
+			}
+			valTypeRef = &vt
+		} else if typeFlag != 0x00 {
+			return nil, fmt.Errorf("invalid type flag for case %d: 0x%02x", i, typeFlag)
+		}
+
+		cases[i] = VariantCase{
+			Name:    name,
+			Refines: refines,
+			Type:    valTypeRef,
+		}
+	}
+
+	return &VariantTypeDef{
+		Cases: cases,
 	}, nil
 }
