@@ -428,3 +428,71 @@ func TestDecodeEnumType_HTTPStatus(t *testing.T) {
 	require.NotNil(t, typeDef.Enum)
 	require.Equal(t, []string{"ok", "not-found", "server-error"}, typeDef.Enum.Cases)
 }
+
+func TestDecodeOptionType(t *testing.T) {
+	// option<s32>
+	// Format: 0x6b <type>
+	data := []byte{
+		0x6b, // option opcode
+		0x7a, // s32
+	}
+
+	r := bytes.NewReader(data)
+	typeDef, err := decodeDefinedType(r)
+	require.NoError(t, err)
+	require.Equal(t, TypeDefKindOption, typeDef.Kind)
+	require.NotNil(t, typeDef.Option)
+	require.True(t, typeDef.Option.Some.IsPrimitive)
+	require.Equal(t, byte(0x7a), typeDef.Option.Some.Primitive)
+}
+
+func TestDecodeOptionType_String(t *testing.T) {
+	// option<string>
+	// Format: 0x6b <type>
+	data := []byte{
+		0x6b, // option opcode
+		0x73, // string
+	}
+
+	r := bytes.NewReader(data)
+	typeDef, err := decodeDefinedType(r)
+	require.NoError(t, err)
+	require.Equal(t, TypeDefKindOption, typeDef.Kind)
+	require.NotNil(t, typeDef.Option)
+	require.True(t, typeDef.Option.Some.IsPrimitive)
+	require.Equal(t, byte(0x73), typeDef.Option.Some.Primitive)
+}
+
+func TestDecodeOptionType_WithTypeIndex(t *testing.T) {
+	// option<$0> - option with type index reference
+	// Format: 0x6b <type>
+	data := []byte{
+		0x6b, // option opcode
+		0x00, // type index 0
+	}
+
+	r := bytes.NewReader(data)
+	typeDef, err := decodeDefinedType(r)
+	require.NoError(t, err)
+	require.Equal(t, TypeDefKindOption, typeDef.Kind)
+	require.NotNil(t, typeDef.Option)
+	require.False(t, typeDef.Option.Some.IsPrimitive)
+	require.Equal(t, uint32(0), typeDef.Option.Some.TypeIdx)
+}
+
+func TestDecodeOptionType_WithLargerTypeIndex(t *testing.T) {
+	// option<$5> - option with larger type index reference
+	// Format: 0x6b <type>
+	data := []byte{
+		0x6b, // option opcode
+		0x05, // type index 5
+	}
+
+	r := bytes.NewReader(data)
+	typeDef, err := decodeDefinedType(r)
+	require.NoError(t, err)
+	require.Equal(t, TypeDefKindOption, typeDef.Kind)
+	require.NotNil(t, typeDef.Option)
+	require.False(t, typeDef.Option.Some.IsPrimitive)
+	require.Equal(t, uint32(5), typeDef.Option.Some.TypeIdx)
+}
