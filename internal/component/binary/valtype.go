@@ -66,6 +66,7 @@ func IsPrimValType(b byte) bool {
 }
 
 // Composite type opcodes
+// See: https://github.com/WebAssembly/component-model/blob/main/design/mvp/Binary.md
 const (
 	ValTypeOpcodeRecord  byte = 0x72
 	ValTypeOpcodeVariant byte = 0x71
@@ -73,11 +74,11 @@ const (
 	ValTypeOpcodeTuple   byte = 0x6f
 	ValTypeOpcodeFlags   byte = 0x6e
 	ValTypeOpcodeEnum    byte = 0x6d
-	ValTypeOpcodeOption  byte = 0x6c
-	ValTypeOpcodeResult  byte = 0x6b
+	ValTypeOpcodeOption  byte = 0x6b
+	ValTypeOpcodeResult  byte = 0x6a
 )
 
 // IsCompositeTypeOpcode returns true if the opcode is a composite type.
 func IsCompositeTypeOpcode(opcode byte) bool {
-	return opcode >= 0x6b && opcode <= 0x72
+	return opcode >= 0x6a && opcode <= 0x72
 }
