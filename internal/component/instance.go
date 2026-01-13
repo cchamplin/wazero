@@ -37,6 +37,7 @@ type ExportedFunc struct {
 	funcType  *FuncType
 	coreFunc  api.Function
 	canonical *CanonicalDef
+	component *Component // reference to parent component for type lookups
 }
 
 // Name returns the export name of this function.
@@ -85,6 +86,28 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 					return nil, fmt.Errorf("unsupported record field type: %s", field.Kind())
 				}
 			}
+		case ValKindOption:
+			// Flatten option to (discriminant: i32, payload: i32)
+			// discriminant: 0 = None, 1 = Some
+			opt := p.Option()
+			if opt == nil {
+				// None: discriminant = 0, payload = 0 (unused)
+				coreParams = append(coreParams, 0, 0)
+			} else {
+				// Some: discriminant = 1, payload = value
+				switch opt.Kind() {
+				case ValKindS32:
+					coreParams = append(coreParams, 1, uint64(uint32(opt.S32())))
+				case ValKindU32:
+					coreParams = append(coreParams, 1, uint64(opt.U32()))
+				case ValKindS64:
+					coreParams = append(coreParams, 1, uint64(opt.S64()))
+				case ValKindU64:
+					coreParams = append(coreParams, 1, opt.U64())
+				default:
+					return nil, fmt.Errorf("unsupported option payload type: %s", opt.Kind())
+				}
+			}
 		default:
 			return nil, fmt.Errorf("unsupported parameter type: %s", p.Kind())
 		}
@@ -97,14 +120,27 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 	}
 
 	// Convert core results back to component Vals
-	// Check if the result type is a record by examining the function type
+	// Check if the result type is a record or option by examining the function type
 	if f.funcType != nil && len(f.funcType.Results) == 1 {
 		resultType := f.funcType.Results[0].ValType
-		if !resultType.IsPrimitive {
-			// Result is a defined type (likely a record)
-			// For records, the core function returns multiple flat values
-			// that need to be reconstructed into a record
-			if len(coreResults) == 2 {
+		if !resultType.IsPrimitive && f.component != nil && resultType.TypeIdx < uint32(len(f.component.Types)) {
+			// Result is a defined type - look up the actual type definition
+			typeDef := &f.component.Types[resultType.TypeIdx]
+			if typeDef.Option != nil && len(coreResults) == 2 {
+				// Option type: first result is discriminant, second is payload
+				discriminant := coreResults[0]
+				if discriminant == 0 {
+					// None
+					return []Val{ValOption(nil)}, nil
+				}
+				// Some: currently assumes s32 payload
+				// TODO: In a full implementation, the payload type should be
+				// determined from the option type definition.
+				payload := ValS32(int32(coreResults[1]))
+				return []Val{ValOption(&payload)}, nil
+			} else if typeDef.Record != nil && len(coreResults) == 2 {
+				// Record type: For records, the core function returns multiple flat values
+				// that need to be reconstructed into a record
 				// TODO: Currently hardcodes field names "x" and "y". In a full implementation,
 				// field names should be looked up from the record type definition using
 				// resultType.TypeIdx to resolve the actual type and its field names.

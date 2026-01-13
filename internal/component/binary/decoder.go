@@ -156,6 +156,18 @@ func decodeTypeSection(c *component.Component, r *bytes.Reader) error {
 				Record: record,
 			}
 
+		case ValTypeOpcodeOption:
+			// Decode option type (opcode already consumed, decode inner type directly)
+			option, err := decodeOptionTypeDef(r)
+			if err != nil {
+				return fmt.Errorf("decode option type %d: %w", i, err)
+			}
+
+			c.Types[i] = component.TypeDef{
+				Kind:   component.TypeDefKindDefined,
+				Option: option,
+			}
+
 		default:
 			return fmt.Errorf("unsupported type opcode 0x%02x at index %d", opcode, i)
 		}
