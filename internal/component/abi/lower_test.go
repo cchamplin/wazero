@@ -191,6 +191,66 @@ func TestLowerFlatRecordMissingField(t *testing.T) {
 	require.Contains(t, err.Error(), "missing record field")
 }
 
+func TestLowerFlatVariant(t *testing.T) {
+	// variant { none, some(s32) }
+	varType := types.Variant{
+		Cases: []types.Case{
+			{Name: "none", Type: nil},
+			{Name: "some", Type: types.S32{}},
+		},
+	}
+	payload := component.ValS32(42)
+	val := component.ValVariant("some", &payload)
+
+	flat, err := LowerFlat(nil, varType, val)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{1, 42}, flat)
+}
+
+func TestLowerFlatVariantNoPayload(t *testing.T) {
+	varType := types.Variant{
+		Cases: []types.Case{
+			{Name: "none", Type: nil},
+			{Name: "some", Type: types.S32{}},
+		},
+	}
+	val := component.ValVariant("none", nil)
+
+	flat, err := LowerFlat(nil, varType, val)
+	require.NoError(t, err)
+	// Discriminant=0, then padding for the s32 payload slot
+	require.Equal(t, []uint64{0, 0}, flat)
+}
+
+func TestLowerFlatVariantUnknownCase(t *testing.T) {
+	varType := types.Variant{
+		Cases: []types.Case{
+			{Name: "none", Type: nil},
+			{Name: "some", Type: types.S32{}},
+		},
+	}
+	val := component.ValVariant("unknown", nil)
+
+	_, err := LowerFlat(nil, varType, val)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unknown variant case")
+}
+
+func TestLowerFlatVariantMissingPayload(t *testing.T) {
+	varType := types.Variant{
+		Cases: []types.Case{
+			{Name: "none", Type: nil},
+			{Name: "some", Type: types.S32{}},
+		},
+	}
+	// Case "some" requires a payload but none provided
+	val := component.ValVariant("some", nil)
+
+	_, err := LowerFlat(nil, varType, val)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "requires a payload")
+}
+
 // TestLowerFlatRoundTrip verifies that LiftFlat(LowerFlat(val)) == val for all primitive types
 func TestLowerFlatRoundTrip(t *testing.T) {
 	tests := []struct {
@@ -223,6 +283,17 @@ func TestLowerFlatRoundTrip(t *testing.T) {
 			"a": component.ValS32(42),
 			"b": component.ValU64(100),
 		})},
+		{"Variant some", types.Variant{Cases: []types.Case{
+			{Name: "none", Type: nil},
+			{Name: "some", Type: types.S32{}},
+		}}, func() component.Val {
+			p := component.ValS32(42)
+			return component.ValVariant("some", &p)
+		}()},
+		{"Variant none", types.Variant{Cases: []types.Case{
+			{Name: "none", Type: nil},
+			{Name: "some", Type: types.S32{}},
+		}}, component.ValVariant("none", nil)},
 	}
 
 	for _, tt := range tests {
@@ -272,6 +343,19 @@ func TestLowerFlatRoundTrip(t *testing.T) {
 						require.Equal(t, v.S32(), liftedRec[k].S32())
 					case component.ValKindU64:
 						require.Equal(t, v.U64(), liftedRec[k].U64())
+					}
+				}
+			case types.Variant:
+				origCase, origPayload := tt.val.Variant()
+				liftedCase, liftedPayload := lifted.Variant()
+				require.Equal(t, origCase, liftedCase)
+				if origPayload == nil {
+					require.Nil(t, liftedPayload)
+				} else {
+					require.NotNil(t, liftedPayload)
+					// For s32 payload
+					if origPayload.Kind() == component.ValKindS32 {
+						require.Equal(t, origPayload.S32(), liftedPayload.S32())
 					}
 				}
 			}
