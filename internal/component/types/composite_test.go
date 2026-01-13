@@ -362,3 +362,45 @@ func TestEnumType65537(t *testing.T) {
 	require.Equal(t, uint32(4), e.Size())
 	require.Equal(t, uint32(4), e.Align())
 }
+
+func TestTupleType(t *testing.T) {
+	// tuple<u32, u64>
+	// Same layout as record with positional fields
+	tup := Tuple{Types: []ValType{U32{}, U64{}}}
+
+	require.Equal(t, uint32(16), tup.Size())
+	require.Equal(t, uint32(8), tup.Align())
+	require.Equal(t, 2, tup.FlattenCount())
+}
+
+func TestTupleEmpty(t *testing.T) {
+	tup := Tuple{Types: []ValType{}}
+	require.Equal(t, uint32(0), tup.Size())
+	require.Equal(t, uint32(1), tup.Align())
+	require.Equal(t, 0, tup.FlattenCount())
+}
+
+func TestTupleSingle(t *testing.T) {
+	tup := Tuple{Types: []ValType{U32{}}}
+	require.Equal(t, uint32(4), tup.Size())
+	require.Equal(t, uint32(4), tup.Align())
+	require.Equal(t, 1, tup.FlattenCount())
+}
+
+func TestTupleComplex(t *testing.T) {
+	// tuple<u8, u32, u16>
+	// Same as record { 0: u8, 1: u32, 2: u16 }
+	tup := Tuple{Types: []ValType{U8{}, U32{}, U16{}}}
+
+	require.Equal(t, uint32(12), tup.Size())
+	require.Equal(t, uint32(4), tup.Align())
+}
+
+func TestTupleOffsets(t *testing.T) {
+	tup := Tuple{Types: []ValType{U8{}, U32{}, U16{}}}
+	offsets := tup.ElementOffsets()
+
+	require.Equal(t, uint32(0), offsets[0])  // u8 at 0
+	require.Equal(t, uint32(4), offsets[1])  // u32 at 4 (aligned)
+	require.Equal(t, uint32(8), offsets[2])  // u16 at 8
+}

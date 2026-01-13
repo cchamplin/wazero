@@ -4,6 +4,8 @@
 
 package types
 
+import "fmt"
+
 // Field represents a named field in a record.
 type Field struct {
 	Name string
@@ -305,4 +307,37 @@ func (f Flags) FlattenCount() int {
 	}
 	// Number of i32s needed
 	return (n + 31) / 32
+}
+
+// Tuple represents a tuple type (positional record).
+type Tuple struct {
+	Types []ValType
+}
+
+func (Tuple) valType() {}
+
+func (t Tuple) Size() uint32 {
+	return t.asRecord().Size()
+}
+
+func (t Tuple) Align() uint32 {
+	return t.asRecord().Align()
+}
+
+func (t Tuple) FlattenCount() int {
+	return t.asRecord().FlattenCount()
+}
+
+// ElementOffsets returns the byte offset of each element in memory.
+func (t Tuple) ElementOffsets() []uint32 {
+	return t.asRecord().FieldOffsets()
+}
+
+// asRecord returns the equivalent Record representation.
+func (t Tuple) asRecord() Record {
+	fields := make([]Field, len(t.Types))
+	for i, typ := range t.Types {
+		fields[i] = Field{Name: fmt.Sprintf("%d", i), Type: typ}
+	}
+	return Record{Fields: fields}
 }
