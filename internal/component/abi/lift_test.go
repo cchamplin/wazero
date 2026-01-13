@@ -4,6 +4,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
@@ -125,4 +126,82 @@ func TestFlatIterNextF64(t *testing.T) {
 	bits := math.Float64bits(2.5)
 	iter := &FlatIter{values: []uint64{bits}}
 	require.Equal(t, float64(2.5), iter.NextF64())
+}
+
+func TestLiftFlatRecord(t *testing.T) {
+	// Record { a: s32, b: u64 }
+	// Flat: [i32, i64]
+	iter := NewFlatIter([]uint64{42, 100})
+	recType := types.Record{
+		Fields: []types.Field{
+			{Name: "a", Type: types.S32{}},
+			{Name: "b", Type: types.U64{}},
+		},
+	}
+
+	val, err := LiftFlat(nil, recType, iter)
+	require.NoError(t, err)
+	require.Equal(t, component.ValKindRecord, val.Kind())
+
+	rec := val.Record()
+	require.Equal(t, int32(42), rec["a"].S32())
+	require.Equal(t, uint64(100), rec["b"].U64())
+}
+
+func TestLiftFlatRecordNested(t *testing.T) {
+	// Record { outer: Record { inner: s32 }, value: u64 }
+	// Flat: [i32, i64]
+	iter := NewFlatIter([]uint64{42, 100})
+	innerType := types.Record{
+		Fields: []types.Field{
+			{Name: "inner", Type: types.S32{}},
+		},
+	}
+	outerType := types.Record{
+		Fields: []types.Field{
+			{Name: "outer", Type: innerType},
+			{Name: "value", Type: types.U64{}},
+		},
+	}
+
+	val, err := LiftFlat(nil, outerType, iter)
+	require.NoError(t, err)
+	require.Equal(t, component.ValKindRecord, val.Kind())
+
+	rec := val.Record()
+	// Check outer field is a record
+	outerVal := rec["outer"]
+	require.Equal(t, component.ValKindRecord, outerVal.Kind())
+	innerRec := outerVal.Record()
+	require.Equal(t, int32(42), innerRec["inner"].S32())
+	// Check value field
+	require.Equal(t, uint64(100), rec["value"].U64())
+}
+
+func TestLiftFlatRecordEmpty(t *testing.T) {
+	// Record {} - no fields
+	iter := NewFlatIter([]uint64{})
+	recType := types.Record{
+		Fields: []types.Field{},
+	}
+
+	val, err := LiftFlat(nil, recType, iter)
+	require.NoError(t, err)
+	require.Equal(t, component.ValKindRecord, val.Kind())
+
+	rec := val.Record()
+	require.Equal(t, 0, len(rec))
+}
+
+func TestLiftFlatRecordFieldError(t *testing.T) {
+	// Record with an unsupported field type (String not yet supported for flat lift)
+	iter := NewFlatIter([]uint64{0, 0})
+	recType := types.Record{
+		Fields: []types.Field{
+			{Name: "unsupported", Type: types.String{}},
+		},
+	}
+	_, err := LiftFlat(nil, recType, iter)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "lift record field unsupported")
 }

@@ -74,6 +74,17 @@ func LiftFlat(ctx *LiftContext, typ types.ValType, iter *FlatIter) (component.Va
 		return component.ValF64(iter.NextF64()), nil
 	case types.Char:
 		return component.ValChar(rune(iter.NextI32())), nil
+	case types.Record:
+		t := typ.(types.Record)
+		fields := make(map[string]component.Val)
+		for _, f := range t.Fields {
+			fieldVal, err := LiftFlat(ctx, f.Type, iter)
+			if err != nil {
+				return component.Val{}, fmt.Errorf("lift record field %s: %w", f.Name, err)
+			}
+			fields[f.Name] = fieldVal
+		}
+		return component.ValRecord(fields), nil
 	default:
 		return component.Val{}, fmt.Errorf("unsupported flat lift for type: %T", typ)
 	}

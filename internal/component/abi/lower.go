@@ -47,6 +47,22 @@ func LowerFlat(ctx *LowerContext, typ types.ValType, val component.Val) ([]uint6
 		return []uint64{math.Float64bits(val.F64())}, nil
 	case types.Char:
 		return []uint64{uint64(val.Char())}, nil
+	case types.Record:
+		t := typ.(types.Record)
+		rec := val.Record()
+		result := []uint64{}
+		for _, f := range t.Fields {
+			fieldVal, ok := rec[f.Name]
+			if !ok {
+				return nil, fmt.Errorf("missing record field: %s", f.Name)
+			}
+			flat, err := LowerFlat(ctx, f.Type, fieldVal)
+			if err != nil {
+				return nil, fmt.Errorf("lower record field %s: %w", f.Name, err)
+			}
+			result = append(result, flat...)
+		}
+		return result, nil
 	default:
 		return nil, fmt.Errorf("unsupported flat lower for type: %T", typ)
 	}

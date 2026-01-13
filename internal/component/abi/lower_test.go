@@ -122,6 +122,75 @@ func TestLowerFlatUnsupportedType(t *testing.T) {
 	require.Contains(t, err.Error(), "unsupported flat lower")
 }
 
+func TestLowerFlatRecord(t *testing.T) {
+	recType := types.Record{
+		Fields: []types.Field{
+			{Name: "a", Type: types.S32{}},
+			{Name: "b", Type: types.U64{}},
+		},
+	}
+	val := component.ValRecord(map[string]component.Val{
+		"a": component.ValS32(42),
+		"b": component.ValU64(100),
+	})
+
+	flat, err := LowerFlat(nil, recType, val)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{42, 100}, flat)
+}
+
+func TestLowerFlatRecordNested(t *testing.T) {
+	innerType := types.Record{
+		Fields: []types.Field{
+			{Name: "inner", Type: types.S32{}},
+		},
+	}
+	outerType := types.Record{
+		Fields: []types.Field{
+			{Name: "outer", Type: innerType},
+			{Name: "value", Type: types.U64{}},
+		},
+	}
+	val := component.ValRecord(map[string]component.Val{
+		"outer": component.ValRecord(map[string]component.Val{
+			"inner": component.ValS32(42),
+		}),
+		"value": component.ValU64(100),
+	})
+
+	flat, err := LowerFlat(nil, outerType, val)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{42, 100}, flat)
+}
+
+func TestLowerFlatRecordEmpty(t *testing.T) {
+	recType := types.Record{
+		Fields: []types.Field{},
+	}
+	val := component.ValRecord(map[string]component.Val{})
+
+	flat, err := LowerFlat(nil, recType, val)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{}, flat)
+}
+
+func TestLowerFlatRecordMissingField(t *testing.T) {
+	recType := types.Record{
+		Fields: []types.Field{
+			{Name: "a", Type: types.S32{}},
+			{Name: "b", Type: types.U64{}},
+		},
+	}
+	// Missing field "b"
+	val := component.ValRecord(map[string]component.Val{
+		"a": component.ValS32(42),
+	})
+
+	_, err := LowerFlat(nil, recType, val)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "missing record field")
+}
+
 // TestLowerFlatRoundTrip verifies that LiftFlat(LowerFlat(val)) == val for all primitive types
 func TestLowerFlatRoundTrip(t *testing.T) {
 	tests := []struct {
@@ -147,6 +216,13 @@ func TestLowerFlatRoundTrip(t *testing.T) {
 		{"F64", types.F64{}, component.ValF64(3.14159265359)},
 		{"Char ASCII", types.Char{}, component.ValChar('A')},
 		{"Char Unicode", types.Char{}, component.ValChar(0x1F600)},
+		{"Record simple", types.Record{Fields: []types.Field{
+			{Name: "a", Type: types.S32{}},
+			{Name: "b", Type: types.U64{}},
+		}}, component.ValRecord(map[string]component.Val{
+			"a": component.ValS32(42),
+			"b": component.ValU64(100),
+		})},
 	}
 
 	for _, tt := range tests {
@@ -186,6 +262,18 @@ func TestLowerFlatRoundTrip(t *testing.T) {
 				require.Equal(t, tt.val.F64(), lifted.F64())
 			case types.Char:
 				require.Equal(t, tt.val.Char(), lifted.Char())
+			case types.Record:
+				origRec := tt.val.Record()
+				liftedRec := lifted.Record()
+				require.Equal(t, len(origRec), len(liftedRec))
+				for k, v := range origRec {
+					switch v.Kind() {
+					case component.ValKindS32:
+						require.Equal(t, v.S32(), liftedRec[k].S32())
+					case component.ValKindU64:
+						require.Equal(t, v.U64(), liftedRec[k].U64())
+					}
+				}
 			}
 		})
 	}
