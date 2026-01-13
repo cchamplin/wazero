@@ -1,6 +1,7 @@
 package abi
 
 import (
+	"fmt"
 	"math"
 	"testing"
 
@@ -251,6 +252,319 @@ func TestLowerFlatVariantMissingPayload(t *testing.T) {
 	require.Contains(t, err.Error(), "requires a payload")
 }
 
+// --- Tuple Tests ---
+
+func TestLowerFlatTuple(t *testing.T) {
+	tupleType := types.Tuple{
+		Types: []types.ValType{types.S32{}, types.U64{}},
+	}
+	val := component.ValTuple([]component.Val{
+		component.ValS32(42),
+		component.ValU64(100),
+	})
+
+	flat, err := LowerFlat(nil, tupleType, val)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{42, 100}, flat)
+}
+
+func TestLowerFlatTupleEmpty(t *testing.T) {
+	tupleType := types.Tuple{
+		Types: []types.ValType{},
+	}
+	val := component.ValTuple([]component.Val{})
+
+	flat, err := LowerFlat(nil, tupleType, val)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{}, flat)
+}
+
+func TestLowerFlatTupleNested(t *testing.T) {
+	innerTuple := types.Tuple{Types: []types.ValType{types.U64{}, types.Bool{}}}
+	outerTuple := types.Tuple{Types: []types.ValType{types.S32{}, innerTuple}}
+
+	val := component.ValTuple([]component.Val{
+		component.ValS32(42),
+		component.ValTuple([]component.Val{
+			component.ValU64(100),
+			component.ValBool(true),
+		}),
+	})
+
+	flat, err := LowerFlat(nil, outerTuple, val)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{42, 100, 1}, flat)
+}
+
+func TestLowerFlatTupleBoundsError(t *testing.T) {
+	tupleType := types.Tuple{
+		Types: []types.ValType{types.S32{}, types.U64{}},
+	}
+	// Tuple with only 1 element when 2 expected
+	val := component.ValTuple([]component.Val{component.ValS32(42)})
+	_, err := LowerFlat(nil, tupleType, val)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "expected 2")
+}
+
+// --- Option Tests ---
+
+func TestLowerFlatOptionSome(t *testing.T) {
+	optType := types.Option{Some: types.S32{}}
+	payload := component.ValS32(42)
+	val := component.ValOption(&payload)
+
+	flat, err := LowerFlat(nil, optType, val)
+	require.NoError(t, err)
+	// discriminant=1 (some), payload=42
+	require.Equal(t, []uint64{1, 42}, flat)
+}
+
+func TestLowerFlatOptionNone(t *testing.T) {
+	optType := types.Option{Some: types.S32{}}
+	val := component.ValOption(nil)
+
+	flat, err := LowerFlat(nil, optType, val)
+	require.NoError(t, err)
+	// discriminant=0 (none), padding for s32
+	require.Equal(t, []uint64{0, 0}, flat)
+}
+
+func TestLowerFlatOptionWithRecord(t *testing.T) {
+	recType := types.Record{
+		Fields: []types.Field{
+			{Name: "a", Type: types.S32{}},
+			{Name: "b", Type: types.U64{}},
+		},
+	}
+	optType := types.Option{Some: recType}
+	payload := component.ValRecord(map[string]component.Val{
+		"a": component.ValS32(10),
+		"b": component.ValU64(20),
+	})
+	val := component.ValOption(&payload)
+
+	flat, err := LowerFlat(nil, optType, val)
+	require.NoError(t, err)
+	// discriminant=1, a=10, b=20
+	require.Equal(t, []uint64{1, 10, 20}, flat)
+}
+
+// --- Result Tests ---
+
+func TestLowerFlatResultOk(t *testing.T) {
+	resType := types.Result{Ok: types.S32{}, Error: types.U32{}}
+	payload := component.ValS32(42)
+	val := component.ValResultOk(&payload)
+
+	flat, err := LowerFlat(nil, resType, val)
+	require.NoError(t, err)
+	// discriminant=0 (ok), payload=42
+	require.Equal(t, []uint64{0, 42}, flat)
+}
+
+func TestLowerFlatResultErr(t *testing.T) {
+	resType := types.Result{Ok: types.S32{}, Error: types.U32{}}
+	payload := component.ValU32(99)
+	val := component.ValResultError(&payload)
+
+	flat, err := LowerFlat(nil, resType, val)
+	require.NoError(t, err)
+	// discriminant=1 (error), payload=99
+	require.Equal(t, []uint64{1, 99}, flat)
+}
+
+func TestLowerFlatResultOkNoPayload(t *testing.T) {
+	resType := types.Result{Ok: nil, Error: types.U32{}}
+	val := component.ValResultOk(nil)
+
+	flat, err := LowerFlat(nil, resType, val)
+	require.NoError(t, err)
+	// discriminant=0, padding for error u32
+	require.Equal(t, []uint64{0, 0}, flat)
+}
+
+func TestLowerFlatResultErrNoPayload(t *testing.T) {
+	resType := types.Result{Ok: types.S32{}, Error: nil}
+	val := component.ValResultError(nil)
+
+	flat, err := LowerFlat(nil, resType, val)
+	require.NoError(t, err)
+	// discriminant=1, padding for ok s32
+	require.Equal(t, []uint64{1, 0}, flat)
+}
+
+func TestLowerFlatResultWithDifferentPayloadSizes(t *testing.T) {
+	// result<u64, u32> - ok is larger than error
+	resType := types.Result{Ok: types.U64{}, Error: types.U32{}}
+	payload := component.ValU64(12345678901234)
+	val := component.ValResultOk(&payload)
+
+	flat, err := LowerFlat(nil, resType, val)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{0, 12345678901234}, flat)
+}
+
+// --- Enum Tests ---
+
+func TestLowerFlatEnum(t *testing.T) {
+	enumType := types.Enum{Cases: []string{"a", "b", "c"}}
+	val := component.ValEnum("b")
+
+	flat, err := LowerFlat(nil, enumType, val)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{1}, flat) // "b" is index 1
+}
+
+func TestLowerFlatEnumFirstCase(t *testing.T) {
+	enumType := types.Enum{Cases: []string{"first", "second", "third"}}
+	val := component.ValEnum("first")
+
+	flat, err := LowerFlat(nil, enumType, val)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{0}, flat)
+}
+
+func TestLowerFlatEnumLastCase(t *testing.T) {
+	enumType := types.Enum{Cases: []string{"a", "b", "c"}}
+	val := component.ValEnum("c")
+
+	flat, err := LowerFlat(nil, enumType, val)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{2}, flat)
+}
+
+func TestLowerFlatEnumInvalidCase(t *testing.T) {
+	enumType := types.Enum{Cases: []string{"a", "b", "c"}}
+	val := component.ValEnum("unknown")
+
+	_, err := LowerFlat(nil, enumType, val)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unknown enum case")
+}
+
+// --- Flags Tests ---
+
+func TestLowerFlatFlags(t *testing.T) {
+	flagsType := types.Flags{Names: []string{"read", "write", "execute"}}
+	val := component.ValFlags(map[string]bool{
+		"read":    true,
+		"write":   false,
+		"execute": true,
+	})
+
+	flat, err := LowerFlat(nil, flagsType, val)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{0b101}, flat) // bits 0 and 2 set
+}
+
+func TestLowerFlatFlagsAllSet(t *testing.T) {
+	flagsType := types.Flags{Names: []string{"a", "b", "c"}}
+	val := component.ValFlags(map[string]bool{
+		"a": true,
+		"b": true,
+		"c": true,
+	})
+
+	flat, err := LowerFlat(nil, flagsType, val)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{0b111}, flat)
+}
+
+func TestLowerFlatFlagsNoneSet(t *testing.T) {
+	flagsType := types.Flags{Names: []string{"a", "b", "c"}}
+	val := component.ValFlags(map[string]bool{
+		"a": false,
+		"b": false,
+		"c": false,
+	})
+
+	flat, err := LowerFlat(nil, flagsType, val)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{0}, flat)
+}
+
+func TestLowerFlatFlagsEmpty(t *testing.T) {
+	flagsType := types.Flags{Names: []string{}}
+	val := component.ValFlags(map[string]bool{})
+
+	flat, err := LowerFlat(nil, flagsType, val)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{}, flat)
+}
+
+func TestLowerFlatFlagsMany(t *testing.T) {
+	// flags with 32 flags (uses single i32)
+	names := make([]string, 32)
+	for i := 0; i < 32; i++ {
+		names[i] = fmt.Sprintf("flag%d", i)
+	}
+	flagsType := types.Flags{Names: names}
+	flagMap := make(map[string]bool)
+	for _, n := range names {
+		flagMap[n] = false
+	}
+	// Set bits 0, 15, 31
+	flagMap["flag0"] = true
+	flagMap["flag15"] = true
+	flagMap["flag31"] = true
+	val := component.ValFlags(flagMap)
+
+	flat, err := LowerFlat(nil, flagsType, val)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{(1 << 0) | (1 << 15) | (1 << 31)}, flat)
+}
+
+func TestLowerFlatFlagsMoreThan32(t *testing.T) {
+	// flags with 64 flags (uses two i32s)
+	names := make([]string, 64)
+	for i := 0; i < 64; i++ {
+		names[i] = fmt.Sprintf("flag%d", i)
+	}
+	flagsType := types.Flags{Names: names}
+	flagMap := make(map[string]bool)
+	for _, n := range names {
+		flagMap[n] = false
+	}
+	// Set bits 0, 31 in first i32 and bit 0, 31 in second i32 (flags 32, 63)
+	flagMap["flag0"] = true
+	flagMap["flag31"] = true
+	flagMap["flag32"] = true
+	flagMap["flag63"] = true
+	val := component.ValFlags(flagMap)
+
+	flat, err := LowerFlat(nil, flagsType, val)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{(1 << 0) | (1 << 31), (1 << 0) | (1 << 31)}, flat)
+}
+
+// --- List Tests ---
+
+func TestLowerFlatList(t *testing.T) {
+	// For flat lower, list doesn't have actual ptr/len to return
+	// since we don't have heap allocation context
+	listType := types.List{Element: types.S32{}}
+	val := component.ValList([]component.Val{
+		component.ValS32(1),
+		component.ValS32(2),
+		component.ValS32(3),
+	})
+
+	flat, err := LowerFlat(nil, listType, val)
+	require.NoError(t, err)
+	// Returns ptr=0, len=0 since actual heap allocation is deferred
+	require.Equal(t, []uint64{0, 0}, flat)
+}
+
+func TestLowerFlatListEmpty(t *testing.T) {
+	listType := types.List{Element: types.U64{}}
+	val := component.ValList([]component.Val{})
+
+	flat, err := LowerFlat(nil, listType, val)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{0, 0}, flat)
+}
+
 // TestLowerFlatRoundTrip verifies that LiftFlat(LowerFlat(val)) == val for all primitive types
 func TestLowerFlatRoundTrip(t *testing.T) {
 	tests := []struct {
@@ -294,6 +608,35 @@ func TestLowerFlatRoundTrip(t *testing.T) {
 			{Name: "none", Type: nil},
 			{Name: "some", Type: types.S32{}},
 		}}, component.ValVariant("none", nil)},
+
+		// New composite types
+		{"Tuple simple", types.Tuple{Types: []types.ValType{
+			types.S32{}, types.U64{},
+		}}, component.ValTuple([]component.Val{
+			component.ValS32(42),
+			component.ValU64(100),
+		})},
+		{"Tuple empty", types.Tuple{Types: []types.ValType{}},
+			component.ValTuple([]component.Val{})},
+		{"Option some", types.Option{Some: types.S32{}}, func() component.Val {
+			p := component.ValS32(42)
+			return component.ValOption(&p)
+		}()},
+		{"Option none", types.Option{Some: types.S32{}}, component.ValOption(nil)},
+		{"Result ok", types.Result{Ok: types.S32{}, Error: types.U32{}}, func() component.Val {
+			p := component.ValS32(42)
+			return component.ValResultOk(&p)
+		}()},
+		{"Result err", types.Result{Ok: types.S32{}, Error: types.U32{}}, func() component.Val {
+			p := component.ValU32(99)
+			return component.ValResultError(&p)
+		}()},
+		{"Enum", types.Enum{Cases: []string{"a", "b", "c"}}, component.ValEnum("b")},
+		{"Flags", types.Flags{Names: []string{"read", "write", "execute"}}, component.ValFlags(map[string]bool{
+			"read":    true,
+			"write":   false,
+			"execute": true,
+		})},
 	}
 
 	for _, tt := range tests {
@@ -357,6 +700,61 @@ func TestLowerFlatRoundTrip(t *testing.T) {
 					if origPayload.Kind() == component.ValKindS32 {
 						require.Equal(t, origPayload.S32(), liftedPayload.S32())
 					}
+				}
+			case types.Tuple:
+				origElems := tt.val.Tuple()
+				liftedElems := lifted.Tuple()
+				require.Equal(t, len(origElems), len(liftedElems))
+				for i, origElem := range origElems {
+					switch origElem.Kind() {
+					case component.ValKindS32:
+						require.Equal(t, origElem.S32(), liftedElems[i].S32())
+					case component.ValKindU64:
+						require.Equal(t, origElem.U64(), liftedElems[i].U64())
+					}
+				}
+			case types.Option:
+				origPayload := tt.val.Option()
+				liftedPayload := lifted.Option()
+				if origPayload == nil {
+					require.Nil(t, liftedPayload)
+				} else {
+					require.NotNil(t, liftedPayload)
+					if origPayload.Kind() == component.ValKindS32 {
+						require.Equal(t, origPayload.S32(), liftedPayload.S32())
+					}
+				}
+			case types.Result:
+				origIsOk, origOk, origErr := tt.val.Result()
+				liftedIsOk, liftedOk, liftedErr := lifted.Result()
+				require.Equal(t, origIsOk, liftedIsOk)
+				if origIsOk {
+					if origOk == nil {
+						require.Nil(t, liftedOk)
+					} else {
+						require.NotNil(t, liftedOk)
+						if origOk.Kind() == component.ValKindS32 {
+							require.Equal(t, origOk.S32(), liftedOk.S32())
+						}
+					}
+				} else {
+					if origErr == nil {
+						require.Nil(t, liftedErr)
+					} else {
+						require.NotNil(t, liftedErr)
+						if origErr.Kind() == component.ValKindU32 {
+							require.Equal(t, origErr.U32(), liftedErr.U32())
+						}
+					}
+				}
+			case types.Enum:
+				require.Equal(t, tt.val.Enum(), lifted.Enum())
+			case types.Flags:
+				origFlags := tt.val.Flags()
+				liftedFlags := lifted.Flags()
+				require.Equal(t, len(origFlags), len(liftedFlags))
+				for name, value := range origFlags {
+					require.Equal(t, value, liftedFlags[name])
 				}
 			}
 		})
