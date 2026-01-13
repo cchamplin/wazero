@@ -138,3 +138,62 @@ func TestValOptionNone(t *testing.T) {
 	opt := v.Option()
 	require.Nil(t, opt)
 }
+
+func TestValList(t *testing.T) {
+	elements := []Val{ValS32(1), ValS32(2), ValS32(3)}
+	v := ValList(elements)
+
+	require.Equal(t, ValKindList, v.Kind())
+	require.Equal(t, elements, v.List())
+}
+
+func TestValTuple(t *testing.T) {
+	elements := []Val{ValS32(1), ValString("hello")}
+	v := ValTuple(elements)
+
+	require.Equal(t, ValKindTuple, v.Kind())
+	require.Equal(t, elements, v.Tuple())
+}
+
+func TestValResult(t *testing.T) {
+	// Ok(42)
+	okVal := ValS32(42)
+	v := ValResultOk(&okVal)
+
+	require.Equal(t, ValKindResult, v.Kind())
+	isOk, ok, err := v.Result()
+	require.True(t, isOk)
+	require.NotNil(t, ok)
+	require.Equal(t, int32(42), ok.S32())
+	require.Nil(t, err)
+}
+
+func TestValResultError(t *testing.T) {
+	// Error("oops")
+	errVal := ValString("oops")
+	v := ValResultError(&errVal)
+
+	isOk, ok, err := v.Result()
+	require.False(t, isOk)
+	require.Nil(t, ok)
+	require.NotNil(t, err)
+	require.Equal(t, "oops", err.StringVal())
+}
+
+func TestValFlags(t *testing.T) {
+	flags := map[string]bool{"read": true, "write": false, "execute": true}
+	v := ValFlags(flags)
+
+	require.Equal(t, ValKindFlags, v.Kind())
+	got := v.Flags()
+	require.True(t, got["read"])
+	require.False(t, got["write"])
+	require.True(t, got["execute"])
+}
+
+func TestValEnum(t *testing.T) {
+	v := ValEnum("green")
+
+	require.Equal(t, ValKindEnum, v.Kind())
+	require.Equal(t, "green", v.Enum())
+}
