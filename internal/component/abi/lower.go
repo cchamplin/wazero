@@ -112,6 +112,136 @@ func LowerFlat(ctx *LowerContext, typ types.ValType, val component.Val) ([]uint6
 		}
 
 		return result, nil
+
+	case types.Tuple:
+		t := typ.(types.Tuple)
+		elems := val.Tuple()
+		if len(elems) != len(t.Types) {
+			return nil, fmt.Errorf("tuple has %d elements, expected %d", len(elems), len(t.Types))
+		}
+		result := []uint64{}
+		for i, elemType := range t.Types {
+			flat, err := LowerFlat(ctx, elemType, elems[i])
+			if err != nil {
+				return nil, fmt.Errorf("lower tuple element %d: %w", i, err)
+			}
+			result = append(result, flat...)
+		}
+		return result, nil
+
+	case types.Option:
+		t := typ.(types.Option)
+		payload := val.Option()
+
+		// Calculate payload flatten count for padding
+		payloadFlat := 0
+		if t.Some != nil {
+			payloadFlat = t.Some.FlattenCount()
+		}
+
+		if payload == nil {
+			// None: discriminant=0, padding
+			result := []uint64{0}
+			for i := 0; i < payloadFlat; i++ {
+				result = append(result, 0)
+			}
+			return result, nil
+		}
+		// Some: discriminant=1, payload
+		result := []uint64{1}
+		if t.Some != nil {
+			flat, err := LowerFlat(ctx, t.Some, *payload)
+			if err != nil {
+				return nil, fmt.Errorf("lower option payload: %w", err)
+			}
+			result = append(result, flat...)
+		}
+		return result, nil
+
+	case types.Result:
+		t := typ.(types.Result)
+		isOk, okVal, errVal := val.Result()
+
+		// Calculate max payload for padding
+		okFlat, errFlat := 0, 0
+		if t.Ok != nil {
+			okFlat = t.Ok.FlattenCount()
+		}
+		if t.Error != nil {
+			errFlat = t.Error.FlattenCount()
+		}
+		maxFlat := okFlat
+		if errFlat > maxFlat {
+			maxFlat = errFlat
+		}
+
+		if isOk {
+			// Ok: discriminant=0, ok payload, padding
+			result := []uint64{0}
+			payloadCount := 0
+			if t.Ok != nil && okVal != nil {
+				flat, err := LowerFlat(ctx, t.Ok, *okVal)
+				if err != nil {
+					return nil, fmt.Errorf("lower result ok: %w", err)
+				}
+				result = append(result, flat...)
+				payloadCount = len(flat)
+			}
+			for i := payloadCount; i < maxFlat; i++ {
+				result = append(result, 0)
+			}
+			return result, nil
+		}
+		// Error: discriminant=1, error payload, padding
+		result := []uint64{1}
+		payloadCount := 0
+		if t.Error != nil && errVal != nil {
+			flat, err := LowerFlat(ctx, t.Error, *errVal)
+			if err != nil {
+				return nil, fmt.Errorf("lower result error: %w", err)
+			}
+			result = append(result, flat...)
+			payloadCount = len(flat)
+		}
+		for i := payloadCount; i < maxFlat; i++ {
+			result = append(result, 0)
+		}
+		return result, nil
+
+	case types.Enum:
+		t := typ.(types.Enum)
+		caseName := val.Enum()
+		for i, c := range t.Cases {
+			if c == caseName {
+				return []uint64{uint64(i)}, nil
+			}
+		}
+		return nil, fmt.Errorf("unknown enum case: %s", caseName)
+
+	case types.Flags:
+		t := typ.(types.Flags)
+		flags := val.Flags()
+		if len(t.Names) == 0 {
+			return []uint64{}, nil
+		}
+		// Calculate the number of i32s needed
+		numI32s := (len(t.Names) + 31) / 32
+		result := make([]uint64, numI32s)
+		for i, name := range t.Names {
+			if flags[name] {
+				i32Idx := i / 32
+				bit := i % 32
+				result[i32Idx] |= 1 << bit
+			}
+		}
+		return result, nil
+
+	case types.List:
+		// TODO: List flat representation is [ptr, len]. Actual element lowering
+		// requires heap allocation via LowerContext.Realloc. For now, return
+		// placeholder zeros. Full implementation in heap lower.
+		return []uint64{0, 0}, nil
+
 	default:
 		return nil, fmt.Errorf("unsupported flat lower for type: %T", typ)
 	}

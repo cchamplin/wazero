@@ -120,6 +120,131 @@ func LiftFlat(ctx *LiftContext, typ types.ValType, iter *FlatIter) (component.Va
 		}
 
 		return component.ValVariant(c.Name, payload), nil
+
+	case types.Tuple:
+		t := typ.(types.Tuple)
+		elems := make([]component.Val, len(t.Types))
+		for i, elemType := range t.Types {
+			elemVal, err := LiftFlat(ctx, elemType, iter)
+			if err != nil {
+				return component.Val{}, fmt.Errorf("lift tuple element %d: %w", i, err)
+			}
+			elems[i] = elemVal
+		}
+		return component.ValTuple(elems), nil
+
+	case types.Option:
+		t := typ.(types.Option)
+		disc := iter.NextI32()
+		payloadFlat := 0
+		if t.Some != nil {
+			payloadFlat = t.Some.FlattenCount()
+		}
+		if disc == 0 {
+			// None - skip payload slots
+			for i := 0; i < payloadFlat; i++ {
+				iter.NextI64()
+			}
+			return component.ValOption(nil), nil
+		}
+		// Some
+		if t.Some != nil {
+			payload, err := LiftFlat(ctx, t.Some, iter)
+			if err != nil {
+				return component.Val{}, fmt.Errorf("lift option payload: %w", err)
+			}
+			return component.ValOption(&payload), nil
+		}
+		// Unit option (Some with no payload type) - return empty Val as marker
+		emptyVal := component.Val{}
+		return component.ValOption(&emptyVal), nil
+
+	case types.Result:
+		t := typ.(types.Result)
+		disc := iter.NextI32()
+		// Calculate max payload for padding
+		okFlat, errFlat := 0, 0
+		if t.Ok != nil {
+			okFlat = t.Ok.FlattenCount()
+		}
+		if t.Error != nil {
+			errFlat = t.Error.FlattenCount()
+		}
+		maxFlat := okFlat
+		if errFlat > maxFlat {
+			maxFlat = errFlat
+		}
+
+		if disc == 0 {
+			// Ok
+			if t.Ok != nil {
+				okVal, err := LiftFlat(ctx, t.Ok, iter)
+				if err != nil {
+					return component.Val{}, fmt.Errorf("lift result ok: %w", err)
+				}
+				// Skip remaining padding
+				for i := okFlat; i < maxFlat; i++ {
+					iter.NextI64()
+				}
+				return component.ValResultOk(&okVal), nil
+			}
+			for i := 0; i < maxFlat; i++ {
+				iter.NextI64()
+			}
+			return component.ValResultOk(nil), nil
+		}
+		// Error
+		if t.Error != nil {
+			errVal, err := LiftFlat(ctx, t.Error, iter)
+			if err != nil {
+				return component.Val{}, fmt.Errorf("lift result error: %w", err)
+			}
+			for i := errFlat; i < maxFlat; i++ {
+				iter.NextI64()
+			}
+			return component.ValResultError(&errVal), nil
+		}
+		for i := 0; i < maxFlat; i++ {
+			iter.NextI64()
+		}
+		return component.ValResultError(nil), nil
+
+	case types.Enum:
+		t := typ.(types.Enum)
+		disc := iter.NextI32()
+		if int(disc) >= len(t.Cases) {
+			return component.Val{}, fmt.Errorf("invalid enum discriminant: %d", disc)
+		}
+		return component.ValEnum(t.Cases[disc]), nil
+
+	case types.Flags:
+		t := typ.(types.Flags)
+		flags := make(map[string]bool)
+		if len(t.Names) == 0 {
+			return component.ValFlags(flags), nil
+		}
+		// Read the required number of i32s
+		numI32s := (len(t.Names) + 31) / 32
+		for i32Idx := 0; i32Idx < numI32s; i32Idx++ {
+			bits := iter.NextI32()
+			for bit := 0; bit < 32; bit++ {
+				flagIdx := i32Idx*32 + bit
+				if flagIdx >= len(t.Names) {
+					break
+				}
+				flags[t.Names[flagIdx]] = (bits & (1 << bit)) != 0
+			}
+		}
+		return component.ValFlags(flags), nil
+
+	case types.List:
+		// TODO: List flat representation is [ptr, len]. Actual element lifting
+		// requires heap access via LiftContext.Memory. For now, consume the
+		// flat values and return an empty list. Full implementation in heap lift.
+		_ = iter.NextI32() // ptr (unused until heap lift)
+		_ = iter.NextI32() // len (unused until heap lift)
+		return component.ValList([]component.Val{}), nil
+
 	default:
 		return component.Val{}, fmt.Errorf("unsupported flat lift for type: %T", typ)
 	}
