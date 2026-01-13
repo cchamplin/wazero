@@ -68,8 +68,8 @@ func TestCompositeTypeOpcodes(t *testing.T) {
 		{0x6f, "tuple"},
 		{0x6e, "flags"},
 		{0x6d, "enum"},
-		{0x6c, "option"},
-		{0x6b, "result"},
+		{0x6b, "option"},
+		{0x6a, "result"},
 	}
 
 	for _, tc := range tests {
@@ -86,6 +86,6 @@ func TestNonCompositeTypeOpcodes(t *testing.T) {
 	}
 
 	// Other opcodes outside the range should not be composite
-	require.False(t, IsCompositeTypeOpcode(0x6a))
+	require.False(t, IsCompositeTypeOpcode(0x69)) // below result
 	require.False(t, IsCompositeTypeOpcode(0x40)) // function type opcode
 }
