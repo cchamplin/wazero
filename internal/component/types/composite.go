@@ -235,6 +235,33 @@ func (r Result) asVariant() Variant {
 	}
 }
 
+// Enum represents an enumeration type (discriminant-only variant).
+type Enum struct {
+	Cases []string
+}
+
+func (Enum) valType() {}
+
+func (e Enum) Size() uint32 {
+	n := len(e.Cases)
+	switch {
+	case n <= 0x100: // 256
+		return 1
+	case n <= 0x10000: // 65536
+		return 2
+	default:
+		return 4
+	}
+}
+
+func (e Enum) Align() uint32 {
+	return e.Size()
+}
+
+func (Enum) FlattenCount() int {
+	return 1
+}
+
 // Flags represents a flags (bitfield) type.
 type Flags struct {
 	Names []string
