@@ -144,6 +144,18 @@ func decodeTypeSection(c *component.Component, r *bytes.Reader) error {
 				Func: ft,
 			}
 
+		case ValTypeOpcodeRecord:
+			// Decode record type (opcode already consumed, decode fields directly)
+			record, err := decodeRecordTypeDef(r)
+			if err != nil {
+				return fmt.Errorf("decode record type %d: %w", i, err)
+			}
+
+			c.Types[i] = component.TypeDef{
+				Kind:   component.TypeDefKindDefined,
+				Record: record,
+			}
+
 		default:
 			return fmt.Errorf("unsupported type opcode 0x%02x at index %d", opcode, i)
 		}

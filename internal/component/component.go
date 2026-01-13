@@ -36,6 +36,11 @@ type TypeDef struct {
 
 	// For FuncType
 	Func *FuncType
+
+	// For Defined types (record, variant, etc.)
+	// These are stored as parsed structures from the binary package.
+	// Record holds the decoded record type definition.
+	Record interface{}
 }
 
 // TypeDefKind identifies the kind of type definition.
