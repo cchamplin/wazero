@@ -148,6 +148,39 @@ func (v Val) RecordField(name string) (Val, bool) {
 	return val, ok
 }
 
+// variantVal holds a variant's case name and optional payload.
+type variantVal struct {
+	caseName string
+	payload  *Val
+}
+
+// ValVariant creates a variant value with the given case and optional payload.
+func ValVariant(caseName string, payload *Val) Val {
+	return Val{kind: ValKindVariant, v: variantVal{caseName: caseName, payload: payload}}
+}
+
+// Variant returns the variant's case name and optional payload.
+func (v Val) Variant() (string, *Val) {
+	if v.kind != ValKindVariant {
+		panic("Val is not a variant")
+	}
+	vv := v.v.(variantVal)
+	return vv.caseName, vv.payload
+}
+
+// ValOption creates an option value (Some or None).
+func ValOption(payload *Val) Val {
+	return Val{kind: ValKindOption, v: payload}
+}
+
+// Option returns the option's payload (nil for None).
+func (v Val) Option() *Val {
+	if v.kind != ValKindOption {
+		panic("Val is not an option")
+	}
+	return v.v.(*Val)
+}
+
 // String returns a string representation of the ValKind for debugging.
 func (k ValKind) String() string {
 	switch k {

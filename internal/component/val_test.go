@@ -96,3 +96,45 @@ func TestValRecordField(t *testing.T) {
 	_, ok = v.RecordField("missing")
 	require.False(t, ok)
 }
+
+func TestValVariant(t *testing.T) {
+	// Create variant { some: 42 }
+	payload := ValS32(42)
+	v := ValVariant("some", &payload)
+
+	require.Equal(t, ValKindVariant, v.Kind())
+
+	caseName, casePayload := v.Variant()
+	require.Equal(t, "some", caseName)
+	require.NotNil(t, casePayload)
+	require.Equal(t, int32(42), casePayload.S32())
+}
+
+func TestValVariantNoPayload(t *testing.T) {
+	// Create variant { none }
+	v := ValVariant("none", nil)
+
+	caseName, casePayload := v.Variant()
+	require.Equal(t, "none", caseName)
+	require.Nil(t, casePayload)
+}
+
+func TestValOption(t *testing.T) {
+	// Some(42)
+	payload := ValS32(42)
+	v := ValOption(&payload)
+
+	require.Equal(t, ValKindOption, v.Kind())
+
+	opt := v.Option()
+	require.NotNil(t, opt)
+	require.Equal(t, int32(42), opt.S32())
+}
+
+func TestValOptionNone(t *testing.T) {
+	// None
+	v := ValOption(nil)
+
+	opt := v.Option()
+	require.Nil(t, opt)
+}
