@@ -47,6 +47,12 @@ func LowerFlat(ctx *LowerContext, typ types.ValType, val component.Val) ([]uint6
 		return []uint64{math.Float64bits(val.F64())}, nil
 	case types.Char:
 		return []uint64{uint64(val.Char())}, nil
+	case types.String:
+		ptr, taggedLen, err := LowerString(ctx, val.StringVal())
+		if err != nil {
+			return nil, err
+		}
+		return []uint64{uint64(ptr), uint64(taggedLen)}, nil
 	case types.Record:
 		t := typ.(types.Record)
 		rec := val.Record()
@@ -244,5 +250,61 @@ func LowerFlat(ctx *LowerContext, typ types.ValType, val component.Val) ([]uint6
 
 	default:
 		return nil, fmt.Errorf("unsupported flat lower for type: %T", typ)
+	}
+}
+
+// LowerHeap lowers a component Val to heap memory at the given offset.
+func LowerHeap(ctx *LowerContext, typ types.ValType, val component.Val, offset uint32) error {
+	switch typ.(type) {
+	case types.Bool:
+		if val.Bool() {
+			writeUint8(ctx.Memory, offset, 1)
+		} else {
+			writeUint8(ctx.Memory, offset, 0)
+		}
+		return nil
+	case types.S8:
+		writeUint8(ctx.Memory, offset, uint8(val.S8()))
+		return nil
+	case types.U8:
+		writeUint8(ctx.Memory, offset, val.U8())
+		return nil
+	case types.S16:
+		writeUint16Le(ctx.Memory, offset, uint16(val.S16()))
+		return nil
+	case types.U16:
+		writeUint16Le(ctx.Memory, offset, val.U16())
+		return nil
+	case types.S32:
+		writeUint32Le(ctx.Memory, offset, uint32(val.S32()))
+		return nil
+	case types.U32:
+		writeUint32Le(ctx.Memory, offset, val.U32())
+		return nil
+	case types.S64:
+		writeUint64Le(ctx.Memory, offset, uint64(val.S64()))
+		return nil
+	case types.U64:
+		writeUint64Le(ctx.Memory, offset, val.U64())
+		return nil
+	case types.F32:
+		writeUint32Le(ctx.Memory, offset, math.Float32bits(val.F32()))
+		return nil
+	case types.F64:
+		writeUint64Le(ctx.Memory, offset, math.Float64bits(val.F64()))
+		return nil
+	case types.Char:
+		writeUint32Le(ctx.Memory, offset, uint32(val.Char()))
+		return nil
+	case types.String:
+		ptr, taggedLen, err := LowerString(ctx, val.StringVal())
+		if err != nil {
+			return err
+		}
+		writeUint32Le(ctx.Memory, offset, ptr)
+		writeUint32Le(ctx.Memory, offset+4, taggedLen)
+		return nil
+	default:
+		return fmt.Errorf("unsupported heap lower for type: %T", typ)
 	}
 }

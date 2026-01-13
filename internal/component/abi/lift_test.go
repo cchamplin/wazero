@@ -195,17 +195,27 @@ func TestLiftFlatRecordEmpty(t *testing.T) {
 	require.Equal(t, 0, len(rec))
 }
 
-func TestLiftFlatRecordFieldError(t *testing.T) {
-	// Record with an unsupported field type (String not yet supported for flat lift)
-	iter := NewFlatIter([]uint64{0, 0})
+func TestLiftFlatRecordWithString(t *testing.T) {
+	// Record with a string field
+	data := make([]byte, 32)
+	copy(data[16:], "hello")
+
+	ctx := &LiftContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingUTF8},
+	}
+	// Flat: [ptr=16, len=5]
+	iter := NewFlatIter([]uint64{16, 5})
 	recType := types.Record{
 		Fields: []types.Field{
-			{Name: "unsupported", Type: types.String{}},
+			{Name: "message", Type: types.String{}},
 		},
 	}
-	_, err := LiftFlat(nil, recType, iter)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "lift record field unsupported")
+	val, err := LiftFlat(ctx, recType, iter)
+	require.NoError(t, err)
+	require.Equal(t, component.ValKindRecord, val.Kind())
+	rec := val.Record()
+	require.Equal(t, "hello", rec["message"].StringVal())
 }
 
 func TestLiftFlatVariant(t *testing.T) {
@@ -858,13 +868,29 @@ func TestLiftHeapRecordWithPadding(t *testing.T) {
 	require.Equal(t, uint64(0xDEADBEEFCAFEBABE), rec["b"].U64())
 }
 
-func TestLiftHeapUnsupportedType(t *testing.T) {
-	data := make([]byte, 16)
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
-	// Use String type which isn't supported in heap lift yet
-	_, err := LiftHeap(ctx, types.String{}, 0)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "unsupported heap lift")
+func TestLiftHeapStringInRecord(t *testing.T) {
+	// Record with a string field
+	// Record layout: string at offset 0 (ptr + len = 8 bytes)
+	// String ptr/len at record offset 0, actual string at memory offset 16
+	data := make([]byte, 32)
+	binary.LittleEndian.PutUint32(data[0:], 16) // ptr
+	binary.LittleEndian.PutUint32(data[4:], 5)  // len
+	copy(data[16:], "hello")
+
+	ctx := &LiftContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingUTF8},
+	}
+	recType := types.Record{
+		Fields: []types.Field{
+			{Name: "msg", Type: types.String{}},
+		},
+	}
+
+	val, err := LiftHeap(ctx, recType, 0)
+	require.NoError(t, err)
+	rec := val.Record()
+	require.Equal(t, "hello", rec["msg"].StringVal())
 }
 
 // --- LiftHeap Tuple Tests ---
@@ -1535,4 +1561,144 @@ func TestLiftHeapListBoundsError(t *testing.T) {
 	_, err := LiftHeap(ctx, listType, 0)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "exceeds memory bounds")
+}
+
+// --- LiftFlat String Tests ---
+
+func TestLiftFlatString(t *testing.T) {
+	// "hello" in UTF-8 at ptr=16
+	data := make([]byte, 32)
+	copy(data[16:], "hello")
+
+	ctx := &LiftContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingUTF8},
+	}
+	// Flat: [ptr=16, len=5]
+	iter := NewFlatIter([]uint64{16, 5})
+
+	val, err := LiftFlat(ctx, types.String{}, iter)
+	require.NoError(t, err)
+	require.Equal(t, component.ValKindString, val.Kind())
+	require.Equal(t, "hello", val.StringVal())
+}
+
+func TestLiftFlatStringEmpty(t *testing.T) {
+	data := make([]byte, 16)
+	ctx := &LiftContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingUTF8},
+	}
+	// Empty string: ptr=0, len=0
+	iter := NewFlatIter([]uint64{0, 0})
+
+	val, err := LiftFlat(ctx, types.String{}, iter)
+	require.NoError(t, err)
+	require.Equal(t, "", val.StringVal())
+}
+
+func TestLiftFlatStringUnicode(t *testing.T) {
+	// "日本語" (9 bytes in UTF-8)
+	data := make([]byte, 32)
+	copy(data[8:], "日本語")
+
+	ctx := &LiftContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingUTF8},
+	}
+	iter := NewFlatIter([]uint64{8, 9})
+
+	val, err := LiftFlat(ctx, types.String{}, iter)
+	require.NoError(t, err)
+	require.Equal(t, "日本語", val.StringVal())
+}
+
+func TestLiftFlatStringUTF16(t *testing.T) {
+	// "hello" in UTF-16 LE at ptr=16
+	data := make([]byte, 32)
+	binary.LittleEndian.PutUint16(data[16:], 0x0068) // h
+	binary.LittleEndian.PutUint16(data[18:], 0x0065) // e
+	binary.LittleEndian.PutUint16(data[20:], 0x006C) // l
+	binary.LittleEndian.PutUint16(data[22:], 0x006C) // l
+	binary.LittleEndian.PutUint16(data[24:], 0x006F) // o
+
+	ctx := &LiftContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingUTF16},
+	}
+	// Flat: [ptr=16, codeUnits=5]
+	iter := NewFlatIter([]uint64{16, 5})
+
+	val, err := LiftFlat(ctx, types.String{}, iter)
+	require.NoError(t, err)
+	require.Equal(t, "hello", val.StringVal())
+}
+
+// --- LiftHeap String Tests ---
+
+func TestLiftHeapString(t *testing.T) {
+	// String stored as (ptr, len) at offset 0, actual string at offset 16
+	data := make([]byte, 32)
+	binary.LittleEndian.PutUint32(data[0:], 16) // ptr
+	binary.LittleEndian.PutUint32(data[4:], 5)  // len
+	copy(data[16:], "hello")
+
+	ctx := &LiftContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingUTF8},
+	}
+
+	val, err := LiftHeap(ctx, types.String{}, 0)
+	require.NoError(t, err)
+	require.Equal(t, component.ValKindString, val.Kind())
+	require.Equal(t, "hello", val.StringVal())
+}
+
+func TestLiftHeapStringAtOffset(t *testing.T) {
+	// String ptr/len at offset 8, actual string at offset 24
+	data := make([]byte, 48)
+	binary.LittleEndian.PutUint32(data[8:], 24)  // ptr at offset 8
+	binary.LittleEndian.PutUint32(data[12:], 4)  // len at offset 12
+	copy(data[24:], "test")
+
+	ctx := &LiftContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingUTF8},
+	}
+
+	val, err := LiftHeap(ctx, types.String{}, 8)
+	require.NoError(t, err)
+	require.Equal(t, "test", val.StringVal())
+}
+
+func TestLiftHeapStringEmpty(t *testing.T) {
+	data := make([]byte, 16)
+	binary.LittleEndian.PutUint32(data[0:], 0)
+	binary.LittleEndian.PutUint32(data[4:], 0)
+
+	ctx := &LiftContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingUTF8},
+	}
+
+	val, err := LiftHeap(ctx, types.String{}, 0)
+	require.NoError(t, err)
+	require.Equal(t, "", val.StringVal())
+}
+
+func TestLiftHeapStringUnicode(t *testing.T) {
+	// "日本語" (9 bytes in UTF-8)
+	data := make([]byte, 32)
+	binary.LittleEndian.PutUint32(data[0:], 16)
+	binary.LittleEndian.PutUint32(data[4:], 9)
+	copy(data[16:], "日本語")
+
+	ctx := &LiftContext{
+		Memory: &mockMemory{data: data},
+		Opts:   &Options{StringEncoding: StringEncodingUTF8},
+	}
+
+	val, err := LiftHeap(ctx, types.String{}, 0)
+	require.NoError(t, err)
+	require.Equal(t, "日本語", val.StringVal())
 }
