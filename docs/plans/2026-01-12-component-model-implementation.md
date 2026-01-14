@@ -18,7 +18,7 @@
 |-------|------|--------|-------|-----------|
 | 1 | Binary Parser & Primitives | **COMPLETE** | 1-25 | [phase1-binary-parser.md](./2026-01-12-component-model-phase1-binary-parser.md) |
 | 2 | Complete Type System | **COMPLETE** | 31-70 | [phase2-type-system.md](./2026-01-12-component-model-phase2-type-system.md) |
-| 3 | Resources | NOT STARTED | 71-100 | [phase3-resources.md](./2026-01-12-component-model-phase3-resources.md) |
+| 3 | Resources | **COMPLETE** | 71-100 | [phase3-resources.md](./2026-01-12-component-model-phase3-resources.md) |
 | 4 | Full Instantiation & Linking | NOT STARTED | 101-150 | [phase4-linking.md](./2026-01-12-component-model-phase4-linking.md) |
 | 5 | WASI Preview 2 | NOT STARTED | 151-240 | [phase5-wasip2.md](./2026-01-12-component-model-phase5-wasip2.md) |
 | 6 | Polish & Conformance | NOT STARTED | 241-280 | [phase6-polish.md](./2026-01-12-component-model-phase6-polish.md) |
@@ -74,20 +74,25 @@ Implements all WIT composite types and their Canonical ABI lift/lower operations
 
 ---
 
-### Phase 3: Resources
+### Phase 3: Resources (COMPLETE)
 
 Implements the Component Model's resource system with generation-counted handle tables.
 
-**Milestones:**
-- Resource type parsing
-- Handle table with use-after-free protection
-- Own/borrow semantics
-- Destructor invocation
-- Call scope tracking
+**Completed:**
+- Resource type definitions (Own, Borrow types implementing ValType)
+- Generation-counted ResourceTable with use-after-free protection
+- BorrowScope and CallContext for call-scoped borrow tracking
+- Binary parsing for resource (0x3f), own (0x69), borrow (0x68) types
+- Canonical resource operations (resource.new, resource.rep, resource.drop)
+- LiftOwn, LowerOwn, LiftBorrow, LowerBorrow ABI operations
+- Destructor invocation for owned handles
+- ExportedFunc.Call integration with own/borrow parameter/result handling
 
-**Key files to create:**
+**Key files created:**
 - `internal/component/types/resource.go`
 - `internal/component/resource_table.go`
+- `internal/component/borrow_scope.go`
+- `internal/component/call_context.go`
 
 ---
 
