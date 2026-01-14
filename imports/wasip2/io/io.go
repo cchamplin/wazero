@@ -21,9 +21,6 @@ func Instantiate(linker *component.Linker) error {
 }
 
 // Placeholder implementations - will be replaced in subsequent tasks
-func instantiateError(linker *component.Linker) error {
-	return linker.DefineInstance("wasi:io/error@0.2.0").Build()
-}
 
 func instantiatePoll(linker *component.Linker) error {
 	return linker.DefineInstance("wasi:io/poll@0.2.0").Build()

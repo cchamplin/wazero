@@ -92,6 +92,19 @@ func (b *InstanceBuilder) Func(name string, typ *FuncType, fn HostFunc) *Instanc
 	return b
 }
 
+// Resource adds a resource type definition with its destructor to the instance.
+func (b *InstanceBuilder) Resource(name string, destructor func(rep uint32)) *InstanceBuilder {
+	b.exports[name] = &ResourceDef{Destructor: destructor}
+	return b
+}
+
+// FuncNoType adds a function export without explicit type info.
+// Useful for host functions that handle dynamic Val arguments.
+func (b *InstanceBuilder) FuncNoType(name string, fn HostFunc) *InstanceBuilder {
+	b.exports[name] = &FuncDef{Type: nil, Callback: fn}
+	return b
+}
+
 // Build finalizes the instance definition and registers it with the linker.
 func (b *InstanceBuilder) Build() error {
 	if _, exists := b.linker.definitions[b.namespace]; exists {
