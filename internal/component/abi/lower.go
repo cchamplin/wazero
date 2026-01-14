@@ -312,3 +312,21 @@ func LowerOwn(ctx *LowerContext, rep any) (uint32, error) {
 	h := ctx.ResourceTable.New(rep, true)
 	return h.Index(), nil
 }
+
+// LowerBorrow receives a borrowed resource into the component.
+// Creates a borrowed handle in the table and tracks it in CallContext.
+// This implements canon_lower for borrow<T> types.
+func LowerBorrow(ctx *LowerContext, rep any) (uint32, error) {
+	if ctx.ResourceTable == nil {
+		return 0, fmt.Errorf("lower_borrow: no resource table available")
+	}
+
+	h := ctx.ResourceTable.New(rep, false) // own=false for borrowed
+
+	// Track borrow in call context for return validation
+	if ctx.CallContext != nil {
+		ctx.CallContext.IncrementBorrows()
+	}
+
+	return h.Index(), nil
+}

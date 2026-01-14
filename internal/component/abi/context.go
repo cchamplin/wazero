@@ -83,6 +83,7 @@ type LowerContext struct {
 	Opts          *Options
 	Realloc       func(oldPtr, oldSize, align, newSize uint32) (uint32, error)
 	ResourceTable *component.ResourceTable
+	CallContext   *component.CallContext
 }
 
 // writeUint8 writes a uint8 to memory at the given offset.

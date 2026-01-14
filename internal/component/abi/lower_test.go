@@ -1080,3 +1080,171 @@ func TestLowerOwn_RoundTripWithLiftOwn(t *testing.T) {
 	_, err = table.Get(h)
 	require.Error(t, err)
 }
+
+// --- LowerBorrow Tests ---
+
+func TestLowerBorrow(t *testing.T) {
+	table := component.NewResourceTable()
+	callCtx := component.NewCallContext()
+
+	ctx := &LowerContext{
+		ResourceTable: table,
+		CallContext:   callCtx,
+	}
+
+	// Lower borrow creates a borrowed handle
+	handleIdx, err := LowerBorrow(ctx, "my-resource")
+	require.NoError(t, err)
+
+	// Should be in table as borrowed
+	h := component.MakeHandle(handleIdx, 0)
+	entry, err := table.Get(h)
+	require.NoError(t, err)
+	require.Equal(t, "my-resource", entry.Rep)
+	require.False(t, entry.Own) // Borrowed, not owned
+
+	// CallContext should track the borrow
+	require.Equal(t, 1, callCtx.NumBorrows())
+}
+
+func TestLowerBorrow_NoResourceTable(t *testing.T) {
+	ctx := &LowerContext{
+		ResourceTable: nil,
+	}
+
+	// Should error because no resource table
+	_, err := LowerBorrow(ctx, "my-resource")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no resource table")
+}
+
+func TestLowerBorrow_NoCallContext(t *testing.T) {
+	table := component.NewResourceTable()
+
+	ctx := &LowerContext{
+		ResourceTable: table,
+		CallContext:   nil, // No call context
+	}
+
+	// Should still work, just won't track borrows
+	handleIdx, err := LowerBorrow(ctx, "my-resource")
+	require.NoError(t, err)
+
+	// Should be in table as borrowed
+	h := component.MakeHandle(handleIdx, 0)
+	entry, err := table.Get(h)
+	require.NoError(t, err)
+	require.Equal(t, "my-resource", entry.Rep)
+	require.False(t, entry.Own)
+}
+
+func TestLowerBorrow_MultipleBorrows(t *testing.T) {
+	table := component.NewResourceTable()
+	callCtx := component.NewCallContext()
+
+	ctx := &LowerContext{
+		ResourceTable: table,
+		CallContext:   callCtx,
+	}
+
+	// Lower multiple borrowed resources
+	idx1, err := LowerBorrow(ctx, "resource-1")
+	require.NoError(t, err)
+	require.Equal(t, 1, callCtx.NumBorrows())
+
+	idx2, err := LowerBorrow(ctx, "resource-2")
+	require.NoError(t, err)
+	require.Equal(t, 2, callCtx.NumBorrows())
+
+	idx3, err := LowerBorrow(ctx, "resource-3")
+	require.NoError(t, err)
+	require.Equal(t, 3, callCtx.NumBorrows())
+
+	// All should have different indices
+	require.NotEqual(t, idx1, idx2)
+	require.NotEqual(t, idx2, idx3)
+	require.NotEqual(t, idx1, idx3)
+
+	// Verify all are in table as borrowed
+	h1 := component.MakeHandle(idx1, 0)
+	entry1, err := table.Get(h1)
+	require.NoError(t, err)
+	require.Equal(t, "resource-1", entry1.Rep)
+	require.False(t, entry1.Own)
+
+	h2 := component.MakeHandle(idx2, 0)
+	entry2, err := table.Get(h2)
+	require.NoError(t, err)
+	require.Equal(t, "resource-2", entry2.Rep)
+	require.False(t, entry2.Own)
+
+	h3 := component.MakeHandle(idx3, 0)
+	entry3, err := table.Get(h3)
+	require.NoError(t, err)
+	require.Equal(t, "resource-3", entry3.Rep)
+	require.False(t, entry3.Own)
+}
+
+func TestLowerBorrow_WithComplexRep(t *testing.T) {
+	// Test with a complex representation value (struct)
+	type MyResource struct {
+		Name  string
+		Value int
+	}
+	resource := &MyResource{Name: "test", Value: 42}
+
+	table := component.NewResourceTable()
+	callCtx := component.NewCallContext()
+
+	ctx := &LowerContext{
+		ResourceTable: table,
+		CallContext:   callCtx,
+	}
+
+	handleIdx, err := LowerBorrow(ctx, resource)
+	require.NoError(t, err)
+
+	// Verify we can get back the same struct
+	h := component.MakeHandle(handleIdx, 0)
+	entry, err := table.Get(h)
+	require.NoError(t, err)
+
+	result, ok := entry.Rep.(*MyResource)
+	require.True(t, ok)
+	require.Equal(t, "test", result.Name)
+	require.Equal(t, 42, result.Value)
+	require.False(t, entry.Own) // Should be borrowed
+	require.Equal(t, 1, callCtx.NumBorrows())
+}
+
+func TestLowerBorrow_RoundTripWithLiftBorrow(t *testing.T) {
+	table := component.NewResourceTable()
+	callCtx := component.NewCallContext()
+	borrowScope := component.NewBorrowScope(table)
+
+	lowerCtx := &LowerContext{
+		ResourceTable: table,
+		CallContext:   callCtx,
+	}
+
+	liftCtx := &LiftContext{
+		ResourceTable: table,
+		BorrowScope:   borrowScope,
+	}
+
+	// Lower a borrowed resource into the component
+	handleIdx, err := LowerBorrow(lowerCtx, "my-resource")
+	require.NoError(t, err)
+	require.Equal(t, 1, callCtx.NumBorrows())
+
+	// Lift it back out (should get the representation)
+	rep, err := LiftBorrow(liftCtx, handleIdx)
+	require.NoError(t, err)
+	require.Equal(t, "my-resource", rep)
+
+	// Handle should still be in table (borrows don't remove)
+	h := component.MakeHandle(handleIdx, 0)
+	entry, err := table.Get(h)
+	require.NoError(t, err)
+	require.Equal(t, "my-resource", entry.Rep)
+}
