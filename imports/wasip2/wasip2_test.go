@@ -16,3 +16,17 @@ func TestInstantiate(t *testing.T) {
 	_, err = linker.MatchImport("wasi:io/error@0.2.0")
 	require.NoError(t, err)
 }
+
+func TestInstantiate_IOInterfaces(t *testing.T) {
+	linker := component.NewLinker()
+	err := Instantiate(linker)
+	require.NoError(t, err)
+
+	// Verify io interfaces
+	_, err = linker.MatchImport("wasi:io/error@0.2.0")
+	require.NoError(t, err)
+	_, err = linker.MatchImport("wasi:io/poll@0.2.0")
+	require.NoError(t, err)
+	_, err = linker.MatchImport("wasi:io/streams@0.2.0")
+	require.NoError(t, err)
+}
