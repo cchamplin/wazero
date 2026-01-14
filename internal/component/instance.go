@@ -15,6 +15,11 @@ type Instance struct {
 	component     *Component
 	coreInstances []api.Module
 	exports       map[string]*ExportedFunc
+
+	// Resource management fields
+	resourceTable *ResourceTable          // Table for tracking resource handles
+	destructors   map[uint32]func(any)    // Destructor functions by resource type index
+	callContext   *CallContext            // Current call context for borrow tracking
 }
 
 // Component returns the component this instance was created from.
@@ -220,4 +225,77 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 	}
 
 	return results, nil
+}
+
+// ResourceNew implements canon resource.new.
+// Creates an owned handle from a representation value.
+func (i *Instance) ResourceNew(rep any) (uint32, error) {
+	if i.resourceTable == nil {
+		i.resourceTable = NewResourceTable()
+	}
+	h := i.resourceTable.New(rep, true)
+	return uint32(h), nil
+}
+
+// ResourceRep implements canon resource.rep.
+// Extracts the representation from a handle without removing it.
+func (i *Instance) ResourceRep(handleIdx uint32) (any, error) {
+	if i.resourceTable == nil {
+		return nil, fmt.Errorf("resource.rep: %w", ErrInvalidHandle)
+	}
+	h := Handle(handleIdx)
+	entry, err := i.resourceTable.Get(h)
+	if err != nil {
+		return nil, fmt.Errorf("resource.rep: %w", err)
+	}
+	return entry.Rep, nil
+}
+
+// ResourceDrop implements canon resource.drop.
+// Removes the handle and invokes destructor if owned.
+// For borrowed handles, decrements the call context borrow count instead.
+func (i *Instance) ResourceDrop(handleIdx uint32, resourceTypeIdx uint32) error {
+	if i.resourceTable == nil {
+		return fmt.Errorf("resource.drop: %w", ErrInvalidHandle)
+	}
+	h := Handle(handleIdx)
+	entry, err := i.resourceTable.Remove(h)
+	if err != nil {
+		return fmt.Errorf("resource.drop: %w", err)
+	}
+
+	if entry.Own {
+		// Call destructor for owned handles
+		if i.destructors != nil {
+			if dtor, ok := i.destructors[resourceTypeIdx]; ok {
+				dtor(entry.Rep)
+			}
+		}
+	} else {
+		// Decrement borrow count for borrowed handles
+		if i.callContext != nil {
+			i.callContext.DecrementBorrows()
+		}
+	}
+
+	return nil
+}
+
+// SetDestructor registers a destructor function for a resource type.
+// The destructor is called when an owned handle of this type is dropped.
+func (i *Instance) SetDestructor(resourceTypeIdx uint32, dtor func(any)) {
+	if i.destructors == nil {
+		i.destructors = make(map[uint32]func(any))
+	}
+	i.destructors[resourceTypeIdx] = dtor
+}
+
+// SetCallContext sets the current call context for borrow tracking.
+func (i *Instance) SetCallContext(ctx *CallContext) {
+	i.callContext = ctx
+}
+
+// CallContext returns the current call context.
+func (i *Instance) CallContext() *CallContext {
+	return i.callContext
 }
