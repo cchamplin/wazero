@@ -9,6 +9,7 @@
 package wasip2
 
 import (
+	"github.com/tetratelabs/wazero/imports/wasip2/cli"
 	"github.com/tetratelabs/wazero/imports/wasip2/clocks"
 	wasip2io "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/imports/wasip2/random"
@@ -32,6 +33,9 @@ func InstantiateWithConfig(linker *component.Linker, config *Config) error {
 	if err := random.Instantiate(linker); err != nil {
 		return err
 	}
-	// cli, filesystem, sockets, http will be added
+	if err := cli.Instantiate(linker); err != nil {
+		return err
+	}
+	// filesystem, sockets, http will be added
 	return nil
 }
