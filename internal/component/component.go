@@ -85,13 +85,17 @@ type ValTypeRef struct {
 	// Primitive is the primitive type opcode (if IsPrimitive).
 	Primitive byte
 
-	// TypeIdx is the type index (if !IsPrimitive and !IsOwn).
-	// For own handles, this is the resource type index.
+	// TypeIdx is the type index (if !IsPrimitive and !IsOwn and !IsBorrow).
+	// For own and borrow handles, this is the resource type index.
 	TypeIdx uint32
 
 	// IsOwn is true if this is an own<T> handle type.
 	// When true, TypeIdx contains the resource type index.
 	IsOwn bool
+
+	// IsBorrow is true if this is a borrow<T> handle type.
+	// When true, TypeIdx contains the resource type index.
+	IsBorrow bool
 }
 
 // CanonicalDef represents a canonical function definition.
