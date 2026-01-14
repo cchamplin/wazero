@@ -157,3 +157,19 @@ func TestImport_FuncImport(t *testing.T) {
 	require.Equal(t, ImportExternDescFunc, imp.ExternDesc.Kind)
 	require.Equal(t, uint32(5), imp.ExternDesc.TypeIdx)
 }
+
+func TestComponent_Imports(t *testing.T) {
+	c := &Component{
+		Imports: []Import{
+			{
+				Name: "wasi:io/streams@0.2.0",
+				ExternDesc: ImportExternDesc{
+					Kind:    ImportExternDescInstance,
+					TypeIdx: 3,
+				},
+			},
+		},
+	}
+	require.Equal(t, 1, len(c.Imports))
+	require.Equal(t, "wasi:io/streams@0.2.0", c.Imports[0].Name)
+}

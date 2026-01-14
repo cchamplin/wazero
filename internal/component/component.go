@@ -34,6 +34,9 @@ type Component struct {
 
 	// Aliases contains alias definitions (section ID 6).
 	Aliases []Alias
+
+	// Imports contains component imports (section ID 10).
+	Imports []Import
 }
 
 // TypeDef represents a component type definition.
