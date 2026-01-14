@@ -2,7 +2,11 @@
 
 package component
 
-import "github.com/tetratelabs/wazero/internal/wasm"
+import (
+	"fmt"
+
+	"github.com/tetratelabs/wazero/internal/wasm"
+)
 
 // Component represents a parsed WebAssembly component.
 // Unlike core wasm modules, components can contain nested modules
@@ -161,3 +165,68 @@ const (
 	ExportKindComponent
 	ExportKindInstance
 )
+
+// Sort identifies the kind of component-level item.
+type Sort uint8
+
+const (
+	SortCoreSort  Sort = 0x00 // Followed by CoreSort
+	SortFunc      Sort = 0x01
+	SortValue     Sort = 0x02
+	SortType      Sort = 0x03
+	SortComponent Sort = 0x04
+	SortInstance  Sort = 0x05
+)
+
+func (s Sort) String() string {
+	switch s {
+	case SortCoreSort:
+		return "core"
+	case SortFunc:
+		return "func"
+	case SortValue:
+		return "value"
+	case SortType:
+		return "type"
+	case SortComponent:
+		return "component"
+	case SortInstance:
+		return "instance"
+	default:
+		return fmt.Sprintf("unknown(%d)", s)
+	}
+}
+
+// CoreSort identifies the kind of core wasm item.
+type CoreSort uint8
+
+const (
+	CoreSortFunc     CoreSort = 0x00
+	CoreSortTable    CoreSort = 0x01
+	CoreSortMemory   CoreSort = 0x02
+	CoreSortGlobal   CoreSort = 0x03
+	CoreSortType     CoreSort = 0x10
+	CoreSortModule   CoreSort = 0x11
+	CoreSortInstance CoreSort = 0x12
+)
+
+func (s CoreSort) String() string {
+	switch s {
+	case CoreSortFunc:
+		return "func"
+	case CoreSortTable:
+		return "table"
+	case CoreSortMemory:
+		return "memory"
+	case CoreSortGlobal:
+		return "global"
+	case CoreSortType:
+		return "type"
+	case CoreSortModule:
+		return "module"
+	case CoreSortInstance:
+		return "instance"
+	default:
+		return fmt.Sprintf("unknown(%d)", s)
+	}
+}
