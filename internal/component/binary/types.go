@@ -61,6 +61,9 @@ type TypeDef struct {
 	Enum    *EnumTypeDef
 	Option  *OptionTypeDef
 	Result  *ResultTypeDef
+
+	// For resource types
+	Resource *ResourceTypeDef
 }
 
 // RecordTypeDef represents a decoded record type definition.
@@ -115,6 +118,13 @@ type OptionTypeDef struct {
 type ResultTypeDef struct {
 	Ok    *component.ValTypeRef // nil for result<_, E>
 	Error *component.ValTypeRef // nil for result<T, _>
+}
+
+// ResourceTypeDef represents a decoded resource type definition.
+// Resources have an optional destructor function that is called when the resource is dropped.
+type ResourceTypeDef struct {
+	// Destructor is the index of the destructor function, or nil if no destructor.
+	Destructor *uint32
 }
 
 // decodeValType reads a valtype from the reader.
@@ -570,6 +580,46 @@ func decodeResultTypeDef(r *bytes.Reader) (*ResultTypeDef, error) {
 		result.Error = &errorType
 	} else if errorFlag != 0x00 {
 		return nil, fmt.Errorf("invalid result error flag: 0x%02x", errorFlag)
+	}
+
+	return result, nil
+}
+
+// decodeResourceTypeDef reads a resource type definition from the reader.
+// Format: 0x7f dtor_flag [dtor_idx]
+// The 0x7f byte indicates i32 representation (always required).
+// dtor_flag: 0x00 = no destructor, 0x01 = has destructor followed by funcidx.
+func decodeResourceTypeDef(r *bytes.Reader) (*ResourceTypeDef, error) {
+	// Read rep type (must be 0x7f for i32)
+	repType, err := r.ReadByte()
+	if err != nil {
+		return nil, fmt.Errorf("read resource rep type: %w", err)
+	}
+	if repType != 0x7f {
+		return nil, fmt.Errorf("unsupported resource rep type: 0x%02x (expected 0x7f for i32)", repType)
+	}
+
+	// Read destructor flag
+	dtorFlag, err := r.ReadByte()
+	if err != nil {
+		return nil, fmt.Errorf("read resource destructor flag: %w", err)
+	}
+
+	result := &ResourceTypeDef{}
+
+	switch dtorFlag {
+	case 0x00:
+		// No destructor
+		result.Destructor = nil
+	case 0x01:
+		// Has destructor, read function index
+		dtorIdx, _, err := leb128.DecodeUint32(r)
+		if err != nil {
+			return nil, fmt.Errorf("read resource destructor index: %w", err)
+		}
+		result.Destructor = &dtorIdx
+	default:
+		return nil, fmt.Errorf("invalid resource destructor flag: 0x%02x (expected 0x00 or 0x01)", dtorFlag)
 	}
 
 	return result, nil
