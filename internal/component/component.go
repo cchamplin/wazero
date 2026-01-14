@@ -230,3 +230,43 @@ func (s CoreSort) String() string {
 		return fmt.Sprintf("unknown(%d)", s)
 	}
 }
+
+// AliasKind identifies the kind of alias.
+type AliasKind uint8
+
+const (
+	AliasKindExport     AliasKind = 0x00 // export alias from component instance
+	AliasKindCoreExport AliasKind = 0x01 // core export alias from core instance
+	AliasKindOuter      AliasKind = 0x02 // outer alias from enclosing scope
+)
+
+func (k AliasKind) String() string {
+	switch k {
+	case AliasKindExport:
+		return "export"
+	case AliasKindCoreExport:
+		return "core-export"
+	case AliasKindOuter:
+		return "outer"
+	default:
+		return fmt.Sprintf("unknown(%d)", k)
+	}
+}
+
+// Alias represents an alias definition in the component.
+// Aliases create references to items in other scopes.
+type Alias struct {
+	Kind AliasKind
+	Sort Sort // What kind of item is being aliased
+
+	// For export aliases (Kind == AliasKindExport or AliasKindCoreExport)
+	InstanceIdx uint32 // Instance to alias from
+	ExportName  string // Name of the export
+
+	// For outer aliases (Kind == AliasKindOuter)
+	OuterCount uint32 // Number of enclosing scopes to traverse
+	OuterIndex uint32 // Index within that scope
+
+	// For core export aliases, the core sort
+	CoreSort CoreSort
+}
