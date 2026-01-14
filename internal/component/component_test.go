@@ -243,3 +243,12 @@ func TestComponent_ComponentInstances(t *testing.T) {
 	}
 	require.Equal(t, 1, len(c.ComponentInstances))
 }
+
+func TestComponent_NestedComponents(t *testing.T) {
+	c := &Component{
+		Components: []*Component{
+			{}, // Empty nested component
+		},
+	}
+	require.Equal(t, 1, len(c.Components))
+}
