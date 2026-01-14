@@ -219,3 +219,70 @@ func TestLinker_MatchImport_DirectMatch(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, def)
 }
+
+func TestLinker_Instantiate_Basic(t *testing.T) {
+	l := NewLinker()
+
+	// Create a minimal component
+	c := &Component{
+		Exports: []Export{
+			{Name: "test", Kind: ExportKindFunc, Idx: 0},
+		},
+	}
+
+	// Instantiate without imports
+	inst, err := l.Instantiate(context.Background(), c)
+	require.NoError(t, err)
+	require.NotNil(t, inst)
+	require.Equal(t, c, inst.Component())
+}
+
+func TestLinker_Instantiate_WithImports(t *testing.T) {
+	l := NewLinker()
+	funcType := &FuncType{}
+
+	// Define the import
+	err := l.DefineFunc("test:api@1.0.0", "fn", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
+		return []Val{ValS32(42)}, nil
+	})
+	require.NoError(t, err)
+
+	// Create component with import
+	c := &Component{
+		Imports: []Import{
+			{
+				Name: "test:api@1.0.0/fn",
+				ExternDesc: ImportExternDesc{
+					Kind:    ImportExternDescFunc,
+					TypeIdx: 0,
+				},
+			},
+		},
+	}
+
+	// Instantiate - should resolve import
+	inst, err := l.Instantiate(context.Background(), c)
+	require.NoError(t, err)
+	require.NotNil(t, inst)
+}
+
+func TestLinker_Instantiate_MissingImport(t *testing.T) {
+	l := NewLinker()
+
+	// Create component with unresolved import
+	c := &Component{
+		Imports: []Import{
+			{
+				Name: "missing:api@1.0.0/fn",
+				ExternDesc: ImportExternDesc{
+					Kind:    ImportExternDescFunc,
+					TypeIdx: 0,
+				},
+			},
+		},
+	}
+
+	// Instantiate - should fail
+	_, err := l.Instantiate(context.Background(), c)
+	require.Error(t, err)
+}

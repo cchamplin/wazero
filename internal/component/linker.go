@@ -194,3 +194,29 @@ func semverGreater(a, b *Semver) bool {
 	}
 	return a.Patch > b.Patch
 }
+
+// Instantiate creates an instance of a component with resolved imports.
+func (l *Linker) Instantiate(ctx context.Context, c *Component) (*Instance, error) {
+	inst := &Instance{
+		component: c,
+		exports:   make(map[string]*ExportedFunc),
+	}
+
+	// Resolve imports
+	for _, imp := range c.Imports {
+		_, err := l.MatchImport(imp.Name)
+		if err != nil {
+			return nil, fmt.Errorf("import %q: %w", imp.Name, err)
+		}
+		// Store resolved import for later use during execution
+	}
+
+	// Build exports map
+	for _, exp := range c.Exports {
+		// For now, just track that we have the export
+		// Full implementation will wire up actual functions
+		inst.exports[exp.Name] = nil
+	}
+
+	return inst, nil
+}
