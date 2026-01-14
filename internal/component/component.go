@@ -50,6 +50,9 @@ type TypeDef struct {
 
 	// Result holds the decoded result type definition.
 	Result interface{}
+
+	// Resource holds the decoded resource type definition.
+	Resource interface{}
 }
 
 // TypeDefKind identifies the kind of type definition.

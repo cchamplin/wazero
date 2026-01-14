@@ -192,6 +192,18 @@ func decodeTypeSection(c *component.Component, r *bytes.Reader) error {
 				Result: result,
 			}
 
+		case TypeOpResourceSync:
+			// Decode resource type (opcode already consumed)
+			resourceDef, err := decodeResourceTypeDef(r)
+			if err != nil {
+				return fmt.Errorf("decode resource type %d: %w", i, err)
+			}
+
+			c.Types[i] = component.TypeDef{
+				Kind:     component.TypeDefKindResource,
+				Resource: resourceDef,
+			}
+
 		default:
 			return fmt.Errorf("unsupported type opcode 0x%02x at index %d", opcode, i)
 		}

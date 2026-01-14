@@ -191,6 +191,128 @@ func TestDecodeComponent_ExportSection(t *testing.T) {
 	require.Equal(t, component.ExportKindFunc, c.Exports[0].Kind)
 }
 
+func TestDecodeTypeSection_WithResource(t *testing.T) {
+	// Build a component with a type section containing a resource type
+	// Resource type format: 0x3f (opcode) + 0x7f (rep type i32) + dtor_flag [dtor_idx]
+
+	tests := []struct {
+		name            string
+		typeSection     []byte
+		hasDestructor   bool
+		destructorIndex uint32
+	}{
+		{
+			name: "resource without destructor",
+			typeSection: []byte{
+				0x01, // 1 type definition
+				0x3f, // resource type opcode
+				0x7f, // rep type i32
+				0x00, // no destructor
+			},
+			hasDestructor: false,
+		},
+		{
+			name: "resource with destructor",
+			typeSection: []byte{
+				0x01, // 1 type definition
+				0x3f, // resource type opcode
+				0x7f, // rep type i32
+				0x01, // has destructor
+				0x05, // destructor at func index 5
+			},
+			hasDestructor:   true,
+			destructorIndex: 5,
+		},
+		{
+			name: "resource with large destructor index",
+			typeSection: []byte{
+				0x01,       // 1 type definition
+				0x3f,       // resource type opcode
+				0x7f,       // rep type i32
+				0x01,       // has destructor
+				0x80, 0x01, // destructor at func index 128 (LEB128)
+			},
+			hasDestructor:   true,
+			destructorIndex: 128,
+		},
+	}
+
+	for _, tt := range tests {
+		tc := tt
+		t.Run(tc.name, func(t *testing.T) {
+			// Build component
+			input := append(append(Magic[:], Version[:]...), LayerComponent[:]...)
+			input = append(input, byte(SectionIDType))       // section ID = 7
+			input = append(input, byte(len(tc.typeSection))) // section size
+			input = append(input, tc.typeSection...)
+
+			c, err := DecodeComponent(input)
+			require.NoError(t, err)
+			require.NotNil(t, c)
+			require.Equal(t, 1, len(c.Types))
+			require.Equal(t, component.TypeDefKindResource, c.Types[0].Kind)
+			require.NotNil(t, c.Types[0].Resource)
+
+			// Type assert to access ResourceTypeDef fields
+			resourceDef, ok := c.Types[0].Resource.(*ResourceTypeDef)
+			require.True(t, ok, "Resource should be *ResourceTypeDef")
+
+			if tc.hasDestructor {
+				require.NotNil(t, resourceDef.Destructor)
+				require.Equal(t, tc.destructorIndex, *resourceDef.Destructor)
+			} else {
+				require.Nil(t, resourceDef.Destructor)
+			}
+		})
+	}
+}
+
+func TestDecodeTypeSection_WithResourceAndFunc(t *testing.T) {
+	// Test a type section with both a resource and a function type
+	typeSection := []byte{
+		0x02, // 2 type definitions
+
+		// Type 0: resource without destructor
+		0x3f, // resource type opcode
+		0x7f, // rep type i32
+		0x00, // no destructor
+
+		// Type 1: function (param "handle" own<0>) -> ()
+		0x40,            // sync functype
+		0x01,            // 1 param
+		0x06, 'h', 'a', 'n', 'd', 'l', 'e', // param name "handle"
+		0x69, 0x00, // own<type_0> (own handle to resource at index 0)
+		0x01,       // named results (vec)
+		0x00,       // 0 results
+	}
+
+	// Build component
+	input := append(append(Magic[:], Version[:]...), LayerComponent[:]...)
+	input = append(input, byte(SectionIDType))       // section ID = 7
+	input = append(input, byte(len(typeSection)))    // section size
+	input = append(input, typeSection...)
+
+	c, err := DecodeComponent(input)
+	require.NoError(t, err)
+	require.NotNil(t, c)
+	require.Equal(t, 2, len(c.Types))
+
+	// Verify resource type
+	require.Equal(t, component.TypeDefKindResource, c.Types[0].Kind)
+	require.NotNil(t, c.Types[0].Resource)
+	resourceDef, ok := c.Types[0].Resource.(*ResourceTypeDef)
+	require.True(t, ok)
+	require.Nil(t, resourceDef.Destructor)
+
+	// Verify function type
+	require.Equal(t, component.TypeDefKindFunc, c.Types[1].Kind)
+	require.NotNil(t, c.Types[1].Func)
+	require.Equal(t, 1, len(c.Types[1].Func.Params))
+	require.Equal(t, "handle", c.Types[1].Func.Params[0].Name)
+	require.True(t, c.Types[1].Func.Params[0].ValType.IsOwn)
+	require.Equal(t, uint32(0), c.Types[1].Func.Params[0].ValType.TypeIdx)
+}
+
 func TestDecodeComponent_AddS32Fixture(t *testing.T) {
 	// Use the embedded add_s32 test fixture
 	c, err := DecodeComponent(testdata.AddS32Component)
