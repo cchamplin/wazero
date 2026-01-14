@@ -31,6 +31,9 @@ type Component struct {
 	// Exports contains component exports (section ID 11).
 	// These expose functions and instances to the outside world.
 	Exports []Export
+
+	// Aliases contains alias definitions (section ID 6).
+	Aliases []Alias
 }
 
 // TypeDef represents a component type definition.

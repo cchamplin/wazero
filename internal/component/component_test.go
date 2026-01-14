@@ -117,3 +117,13 @@ func TestAlias_OuterAlias(t *testing.T) {
 	require.Equal(t, uint32(1), a.OuterCount)
 	require.Equal(t, uint32(5), a.OuterIndex)
 }
+
+func TestComponent_Aliases(t *testing.T) {
+	c := &Component{
+		Aliases: []Alias{
+			{Kind: AliasKindExport, Sort: SortFunc, InstanceIdx: 0, ExportName: "test"},
+		},
+	}
+	require.Equal(t, 1, len(c.Aliases))
+	require.Equal(t, AliasKindExport, c.Aliases[0].Kind)
+}
