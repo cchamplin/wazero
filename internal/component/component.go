@@ -43,6 +43,9 @@ type Component struct {
 
 	// ComponentInstances contains component instance definitions (section ID 5).
 	ComponentInstances []ComponentInstance
+
+	// Components contains nested component definitions (section ID 4).
+	Components []*Component
 }
 
 // TypeDef represents a component type definition.
