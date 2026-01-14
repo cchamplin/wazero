@@ -220,3 +220,27 @@ func (l *Linker) Instantiate(ctx context.Context, c *Component) (*Instance, erro
 
 	return inst, nil
 }
+
+// GetExportedFunc retrieves an exported function by name.
+// Returns nil if not found or if the export is not a function.
+func (i *Instance) GetExportedFunc(name string) *ExportedFunc {
+	for _, exp := range i.component.Exports {
+		if exp.Name == name && exp.Kind == ExportKindFunc {
+			var funcType *FuncType
+			if int(exp.Idx) < len(i.component.Types) {
+				funcType = i.component.Types[exp.Idx].Func
+			}
+			return &ExportedFunc{
+				name:     name,
+				funcType: funcType,
+				instance: i,
+			}
+		}
+	}
+	return nil
+}
+
+// Type returns the function's type.
+func (f *ExportedFunc) Type() *FuncType {
+	return f.funcType
+}

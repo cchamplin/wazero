@@ -286,3 +286,42 @@ func TestLinker_Instantiate_MissingImport(t *testing.T) {
 	_, err := l.Instantiate(context.Background(), c)
 	require.Error(t, err)
 }
+
+func TestInstance_GetExportedFunc(t *testing.T) {
+	l := NewLinker()
+	funcType := &FuncType{}
+
+	// Create component with exported function
+	c := &Component{
+		Types: []TypeDef{
+			{Kind: TypeDefKindFunc, Func: funcType},
+		},
+		Exports: []Export{
+			{Name: "add", Kind: ExportKindFunc, Idx: 0},
+		},
+	}
+
+	inst, err := l.Instantiate(context.Background(), c)
+	require.NoError(t, err)
+
+	// Get exported function
+	fn := inst.GetExportedFunc("add")
+	require.NotNil(t, fn)
+}
+
+func TestInstance_GetExportedFunc_NotFound(t *testing.T) {
+	l := NewLinker()
+
+	c := &Component{
+		Exports: []Export{
+			{Name: "add", Kind: ExportKindFunc, Idx: 0},
+		},
+	}
+
+	inst, err := l.Instantiate(context.Background(), c)
+	require.NoError(t, err)
+
+	// Non-existent export returns nil
+	fn := inst.GetExportedFunc("missing")
+	require.Nil(t, fn)
+}
