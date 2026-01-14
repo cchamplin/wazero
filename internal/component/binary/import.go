@@ -99,3 +99,41 @@ func decodeExternDesc(r *bytes.Reader) (component.ImportExternDesc, error) {
 
 	return desc, nil
 }
+
+// decodeImport decodes a single import.
+func decodeImport(r *bytes.Reader) (component.Import, error) {
+	var imp component.Import
+
+	name, err := decodeImportName(r)
+	if err != nil {
+		return imp, fmt.Errorf("decoding import name: %w", err)
+	}
+	imp.Name = name
+
+	desc, err := decodeExternDesc(r)
+	if err != nil {
+		return imp, fmt.Errorf("decoding externdesc: %w", err)
+	}
+	imp.ExternDesc = desc
+
+	return imp, nil
+}
+
+// decodeImportSection parses the import section (section ID 10).
+func decodeImportSection(c *component.Component, r *bytes.Reader) error {
+	count, _, err := leb128.DecodeUint32(r)
+	if err != nil {
+		return fmt.Errorf("reading import count: %w", err)
+	}
+
+	c.Imports = make([]component.Import, count)
+	for i := uint32(0); i < count; i++ {
+		imp, err := decodeImport(r)
+		if err != nil {
+			return fmt.Errorf("decoding import %d: %w", i, err)
+		}
+		c.Imports[i] = imp
+	}
+
+	return nil
+}
