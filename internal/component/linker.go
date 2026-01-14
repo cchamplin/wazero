@@ -99,3 +99,9 @@ func (b *InstanceBuilder) Build() error {
 	b.linker.definitions[b.namespace] = &InstanceDef{Exports: b.exports}
 	return nil
 }
+
+// Get retrieves a definition by its full key.
+func (l *Linker) Get(key string) (Definition, bool) {
+	def, ok := l.definitions[key]
+	return def, ok
+}
