@@ -3,9 +3,12 @@
 package component
 
 import (
+	"context"
 	"errors"
 	"testing"
 
+	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/internal/internalapi"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -291,4 +294,311 @@ func TestCanonResourceNew_StructRepresentation(t *testing.T) {
 	rep, err := inst.ResourceRep(handleIdx)
 	require.NoError(t, err)
 	require.Same(t, resource, rep.(*FileResource))
+}
+
+// mockFunction implements api.Function for testing ExportedFunc.Call
+type mockFunction struct {
+	internalapi.WazeroOnlyType
+	callFn func(ctx context.Context, params ...uint64) ([]uint64, error)
+}
+
+func (m *mockFunction) Definition() api.FunctionDefinition { return nil }
+func (m *mockFunction) Call(ctx context.Context, params ...uint64) ([]uint64, error) {
+	return m.callFn(ctx, params...)
+}
+func (m *mockFunction) CallWithStack(ctx context.Context, stack []uint64) error { return nil }
+
+// TestExportedFuncCall_OwnArgument tests calling a function with own<T> argument.
+func TestExportedFuncCall_OwnArgument(t *testing.T) {
+	// Track what was passed to the core function
+	var capturedParams []uint64
+
+	coreFunc := &mockFunction{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			capturedParams = params
+			return []uint64{42}, nil
+		},
+	}
+
+	inst := &Instance{
+		resourceTable: NewResourceTable(),
+	}
+
+	// Create function type with own<T> parameter
+	funcType := &FuncType{
+		Params: []NamedValType{
+			{Name: "handle", ValType: ValTypeRef{IsOwn: true, TypeIdx: 0}},
+		},
+		Results: []NamedValType{
+			{Name: "", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7f}}, // s32
+		},
+	}
+
+	f := &ExportedFunc{
+		name:     "take_ownership",
+		funcType: funcType,
+		coreFunc: coreFunc,
+		instance: inst,
+	}
+
+	// Call with an own handle - the uint32 value is the representation
+	// that will be turned into a handle via LowerOwn
+	results, err := f.Call(context.Background(), ValOwn(123))
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+	require.Equal(t, ValKindS32, results[0].Kind())
+	require.Equal(t, int32(42), results[0].S32())
+
+	// The LowerOwn should have created a handle at index 0
+	require.Equal(t, 1, len(capturedParams))
+	require.Equal(t, uint64(0), capturedParams[0]) // First handle is at index 0
+}
+
+// TestExportedFuncCall_BorrowArgument tests calling a function with borrow<T> argument.
+func TestExportedFuncCall_BorrowArgument(t *testing.T) {
+	// Track what was passed to the core function
+	var capturedParams []uint64
+	var capturedInst *Instance
+
+	inst := &Instance{
+		resourceTable: NewResourceTable(),
+	}
+	capturedInst = inst
+
+	coreFunc := &mockFunction{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			capturedParams = params
+			// Simulate the callee properly dropping the borrowed handle
+			if len(params) > 0 {
+				handleIdx := uint32(params[0])
+				_ = capturedInst.ResourceDrop(handleIdx, 0)
+			}
+			return []uint64{99}, nil
+		},
+	}
+
+	funcType := &FuncType{
+		Params: []NamedValType{
+			{Name: "handle", ValType: ValTypeRef{IsBorrow: true, TypeIdx: 0}},
+		},
+		Results: []NamedValType{
+			{Name: "", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7f}}, // s32
+		},
+	}
+
+	f := &ExportedFunc{
+		name:     "borrow_resource",
+		funcType: funcType,
+		coreFunc: coreFunc,
+		instance: inst,
+	}
+
+	// Call with a borrow handle - the callee drops it before return
+	results, err := f.Call(context.Background(), ValBorrow(456))
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+	require.Equal(t, int32(99), results[0].S32())
+
+	// The LowerBorrow should have created a borrowed handle at index 0
+	require.Equal(t, 1, len(capturedParams))
+	require.Equal(t, uint64(0), capturedParams[0])
+}
+
+// TestExportedFuncCall_OwnResult tests returning own<T> from a function.
+func TestExportedFuncCall_OwnResult(t *testing.T) {
+	inst := &Instance{
+		resourceTable: NewResourceTable(),
+	}
+
+	// Pre-create an owned handle that the "callee" will return
+	h := inst.resourceTable.New("my-resource-rep", true)
+
+	coreFunc := &mockFunction{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			// Return the handle index
+			return []uint64{uint64(h.Index())}, nil
+		},
+	}
+
+	funcType := &FuncType{
+		Params:  []NamedValType{},
+		Results: []NamedValType{
+			{Name: "", ValType: ValTypeRef{IsOwn: true, TypeIdx: 0}},
+		},
+	}
+
+	f := &ExportedFunc{
+		name:     "create_resource",
+		funcType: funcType,
+		coreFunc: coreFunc,
+		instance: inst,
+	}
+
+	results, err := f.Call(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+	require.Equal(t, ValKindOwn, results[0].Kind())
+}
+
+// TestExportedFuncCall_OutstandingBorrowTrap tests that outstanding borrows cause a trap.
+func TestExportedFuncCall_OutstandingBorrowTrap(t *testing.T) {
+	inst := &Instance{
+		resourceTable: NewResourceTable(),
+	}
+
+	coreFunc := &mockFunction{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			// The borrow was created, but won't be dropped before return
+			// (simulating callee not dropping the borrowed handle)
+			return []uint64{42}, nil
+		},
+	}
+
+	funcType := &FuncType{
+		Params: []NamedValType{
+			{Name: "handle", ValType: ValTypeRef{IsBorrow: true, TypeIdx: 0}},
+		},
+		Results: []NamedValType{
+			{Name: "", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7f}}, // s32
+		},
+	}
+
+	f := &ExportedFunc{
+		name:     "borrow_and_forget",
+		funcType: funcType,
+		coreFunc: coreFunc,
+		instance: inst,
+	}
+
+	// Call with a borrow - the LowerBorrow will increment borrow count,
+	// and since the "callee" doesn't drop it, ValidateReturn should trap
+	_, err := f.Call(context.Background(), ValBorrow(789))
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrOutstandingBorrows))
+}
+
+// TestExportedFuncCall_BorrowDroppedBeforeReturn tests that dropping borrows allows return.
+func TestExportedFuncCall_BorrowDroppedBeforeReturn(t *testing.T) {
+	inst := &Instance{
+		resourceTable: NewResourceTable(),
+	}
+
+	// Track the instance to drop the borrow during call
+	var capturedInst *Instance
+
+	coreFunc := &mockFunction{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			// Simulate the callee dropping the borrowed handle
+			// The handle index is params[0]
+			if len(params) > 0 {
+				handleIdx := uint32(params[0])
+				// Drop the borrowed handle (this decrements the borrow count)
+				_ = capturedInst.ResourceDrop(handleIdx, 0)
+			}
+			return []uint64{42}, nil
+		},
+	}
+
+	capturedInst = inst
+
+	funcType := &FuncType{
+		Params: []NamedValType{
+			{Name: "handle", ValType: ValTypeRef{IsBorrow: true, TypeIdx: 0}},
+		},
+		Results: []NamedValType{
+			{Name: "", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7f}}, // s32
+		},
+	}
+
+	f := &ExportedFunc{
+		name:     "borrow_and_drop",
+		funcType: funcType,
+		coreFunc: coreFunc,
+		instance: inst,
+	}
+
+	// Call with a borrow - the callee drops it, so ValidateReturn succeeds
+	results, err := f.Call(context.Background(), ValBorrow(789))
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+	require.Equal(t, int32(42), results[0].S32())
+}
+
+// TestExportedFuncCall_MultipleOwnBorrowParams tests multiple own/borrow parameters.
+func TestExportedFuncCall_MultipleOwnBorrowParams(t *testing.T) {
+	var capturedParams []uint64
+
+	coreFunc := &mockFunction{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			capturedParams = params
+			return []uint64{100}, nil
+		},
+	}
+
+	inst := &Instance{
+		resourceTable: NewResourceTable(),
+	}
+
+	funcType := &FuncType{
+		Params: []NamedValType{
+			{Name: "owned1", ValType: ValTypeRef{IsOwn: true, TypeIdx: 0}},
+			{Name: "borrowed", ValType: ValTypeRef{IsBorrow: true, TypeIdx: 0}},
+			{Name: "owned2", ValType: ValTypeRef{IsOwn: true, TypeIdx: 0}},
+		},
+		Results: []NamedValType{
+			{Name: "", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7f}},
+		},
+	}
+
+	f := &ExportedFunc{
+		name:     "multi_handles",
+		funcType: funcType,
+		coreFunc: coreFunc,
+		instance: inst,
+	}
+
+	// The call will fail with outstanding borrow since we don't drop it
+	_, err := f.Call(context.Background(), ValOwn(1), ValBorrow(2), ValOwn(3))
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrOutstandingBorrows))
+
+	// Verify that all three parameters were passed as handles
+	require.Equal(t, 3, len(capturedParams))
+}
+
+// TestExportedFuncCall_CallContextRestored tests that call context is restored after call.
+func TestExportedFuncCall_CallContextRestored(t *testing.T) {
+	coreFunc := &mockFunction{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			return []uint64{42}, nil
+		},
+	}
+
+	inst := &Instance{
+		resourceTable: NewResourceTable(),
+	}
+
+	// Set a pre-existing call context
+	prevCtx := NewCallContext()
+	inst.SetCallContext(prevCtx)
+
+	funcType := &FuncType{
+		Params:  []NamedValType{},
+		Results: []NamedValType{
+			{Name: "", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7f}},
+		},
+	}
+
+	f := &ExportedFunc{
+		name:     "simple",
+		funcType: funcType,
+		coreFunc: coreFunc,
+		instance: inst,
+	}
+
+	_, err := f.Call(context.Background())
+	require.NoError(t, err)
+
+	// The previous call context should be restored
+	require.Same(t, prevCtx, inst.CallContext())
 }
