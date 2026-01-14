@@ -20,8 +20,3 @@ func Instantiate(linker *component.Linker) error {
 	return nil
 }
 
-// Placeholder implementations - will be replaced in subsequent tasks
-
-func instantiateStreams(linker *component.Linker) error {
-	return linker.DefineInstance("wasi:io/streams@0.2.0").Build()
-}
