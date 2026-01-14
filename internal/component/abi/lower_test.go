@@ -955,3 +955,128 @@ func TestLowerHeapPrimitives(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint32(0x1F600), binary.LittleEndian.Uint32(data[48:]))
 }
+
+// --- LowerOwn Tests ---
+
+func TestLowerOwn(t *testing.T) {
+	table := component.NewResourceTable()
+
+	ctx := &LowerContext{
+		ResourceTable: table,
+	}
+
+	// Lower creates a new handle in the table
+	handleIdx, err := LowerOwn(ctx, "my-resource")
+	require.NoError(t, err)
+
+	// Should be in table now
+	h := component.MakeHandle(handleIdx, 0)
+	entry, err := table.Get(h)
+	require.NoError(t, err)
+	require.Equal(t, "my-resource", entry.Rep)
+	require.True(t, entry.Own)
+}
+
+func TestLowerOwn_NoResourceTable(t *testing.T) {
+	ctx := &LowerContext{
+		ResourceTable: nil,
+	}
+
+	// Should error because no resource table
+	_, err := LowerOwn(ctx, "my-resource")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no resource table")
+}
+
+func TestLowerOwn_MultipleResources(t *testing.T) {
+	table := component.NewResourceTable()
+
+	ctx := &LowerContext{
+		ResourceTable: table,
+	}
+
+	// Lower multiple resources
+	idx1, err := LowerOwn(ctx, "resource-1")
+	require.NoError(t, err)
+
+	idx2, err := LowerOwn(ctx, "resource-2")
+	require.NoError(t, err)
+
+	idx3, err := LowerOwn(ctx, "resource-3")
+	require.NoError(t, err)
+
+	// All should have different indices
+	require.NotEqual(t, idx1, idx2)
+	require.NotEqual(t, idx2, idx3)
+	require.NotEqual(t, idx1, idx3)
+
+	// Verify all are in table
+	h1 := component.MakeHandle(idx1, 0)
+	entry1, err := table.Get(h1)
+	require.NoError(t, err)
+	require.Equal(t, "resource-1", entry1.Rep)
+
+	h2 := component.MakeHandle(idx2, 0)
+	entry2, err := table.Get(h2)
+	require.NoError(t, err)
+	require.Equal(t, "resource-2", entry2.Rep)
+
+	h3 := component.MakeHandle(idx3, 0)
+	entry3, err := table.Get(h3)
+	require.NoError(t, err)
+	require.Equal(t, "resource-3", entry3.Rep)
+}
+
+func TestLowerOwn_WithComplexRep(t *testing.T) {
+	// Test with a complex representation value (struct)
+	type MyResource struct {
+		Name  string
+		Value int
+	}
+	resource := &MyResource{Name: "test", Value: 42}
+
+	table := component.NewResourceTable()
+
+	ctx := &LowerContext{
+		ResourceTable: table,
+	}
+
+	handleIdx, err := LowerOwn(ctx, resource)
+	require.NoError(t, err)
+
+	// Verify we can get back the same struct
+	h := component.MakeHandle(handleIdx, 0)
+	entry, err := table.Get(h)
+	require.NoError(t, err)
+
+	result, ok := entry.Rep.(*MyResource)
+	require.True(t, ok)
+	require.Equal(t, "test", result.Name)
+	require.Equal(t, 42, result.Value)
+}
+
+func TestLowerOwn_RoundTripWithLiftOwn(t *testing.T) {
+	table := component.NewResourceTable()
+
+	lowerCtx := &LowerContext{
+		ResourceTable: table,
+	}
+
+	liftCtx := &LiftContext{
+		ResourceTable: table,
+	}
+
+	// Lower a resource into the component
+	handleIdx, err := LowerOwn(lowerCtx, "my-resource")
+	require.NoError(t, err)
+
+	// Lift it back out (transfers ownership out)
+	rep, err := LiftOwn(liftCtx, handleIdx)
+	require.NoError(t, err)
+	require.Equal(t, "my-resource", rep)
+
+	// Handle should be removed from table now
+	h := component.MakeHandle(handleIdx, 0)
+	_, err = table.Get(h)
+	require.Error(t, err)
+}
