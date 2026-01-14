@@ -265,3 +265,69 @@ func TestDecodeResourceType_InvalidDestructorFlag(t *testing.T) {
 	_, err := decodeResourceTypeDef(r)
 	require.Error(t, err)
 }
+
+func TestDecodeOwnType(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []byte
+		expected component.ValTypeRef
+	}{
+		{
+			name:  "own<resource_type_3>",
+			input: []byte{0x69, 0x03}, // own<T> with type index 3
+			expected: component.ValTypeRef{
+				IsPrimitive: false,
+				IsOwn:       true,
+				TypeIdx:     3,
+			},
+		},
+		{
+			name:  "own<resource_type_0>",
+			input: []byte{0x69, 0x00}, // own<T> with type index 0
+			expected: component.ValTypeRef{
+				IsPrimitive: false,
+				IsOwn:       true,
+				TypeIdx:     0,
+			},
+		},
+		{
+			name:  "own<resource_type_128>",
+			input: []byte{0x69, 0x80, 0x01}, // own<T> with type index 128 (multi-byte LEB128)
+			expected: component.ValTypeRef{
+				IsPrimitive: false,
+				IsOwn:       true,
+				TypeIdx:     128,
+			},
+		},
+		{
+			name:  "own<resource_type_255>",
+			input: []byte{0x69, 0xff, 0x01}, // own<T> with type index 255 (multi-byte LEB128)
+			expected: component.ValTypeRef{
+				IsPrimitive: false,
+				IsOwn:       true,
+				TypeIdx:     255,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		tc := tt
+		t.Run(tc.name, func(t *testing.T) {
+			r := bytes.NewReader(tc.input)
+			result, err := decodeValType(r)
+			require.NoError(t, err)
+			require.Equal(t, tc.expected.IsPrimitive, result.IsPrimitive, "IsPrimitive mismatch")
+			require.Equal(t, tc.expected.IsOwn, result.IsOwn, "IsOwn mismatch")
+			require.Equal(t, tc.expected.TypeIdx, result.TypeIdx, "TypeIdx mismatch")
+		})
+	}
+}
+
+func TestDecodeOwnType_Error(t *testing.T) {
+	// Missing type index after 0x69 opcode
+	data := []byte{0x69}
+	r := bytes.NewReader(data)
+
+	_, err := decodeValType(r)
+	require.Error(t, err)
+}
