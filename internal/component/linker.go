@@ -223,21 +223,134 @@ func (l *Linker) Instantiate(ctx context.Context, c *Component) (*Instance, erro
 
 // GetExportedFunc retrieves an exported function by name.
 // Returns nil if not found or if the export is not a function.
+// Supports semver-compatible matching for versioned export names.
+// When multiple compatible versions exist, returns the highest compatible version.
 func (i *Instance) GetExportedFunc(name string) *ExportedFunc {
-	for _, exp := range i.component.Exports {
-		if exp.Name == name && exp.Kind == ExportKindFunc {
-			var funcType *FuncType
-			if int(exp.Idx) < len(i.component.Types) {
-				funcType = i.component.Types[exp.Idx].Func
-			}
-			return &ExportedFunc{
-				name:     name,
-				funcType: funcType,
-				instance: i,
+	// Parse requested name into namespace/name format
+	lastSlash := strings.LastIndex(name, "/")
+	if lastSlash == -1 {
+		// No slash - try exact match only (non-versioned name)
+		for _, exp := range i.component.Exports {
+			if exp.Name == name && exp.Kind == ExportKindFunc {
+				var funcType *FuncType
+				if int(exp.Idx) < len(i.component.Types) {
+					funcType = i.component.Types[exp.Idx].Func
+				}
+				return &ExportedFunc{
+					name:     name,
+					funcType: funcType,
+					instance: i,
+				}
 			}
 		}
+		return nil
 	}
-	return nil
+
+	namespace := name[:lastSlash]
+	funcName := name[lastSlash+1:]
+
+	// Split namespace into base and version
+	baseNamespace, reqVersionStr, hasReqVersion := SplitVersion(namespace)
+	if !hasReqVersion {
+		// No version in requested name - try exact match only
+		for _, exp := range i.component.Exports {
+			if exp.Name == name && exp.Kind == ExportKindFunc {
+				var funcType *FuncType
+				if int(exp.Idx) < len(i.component.Types) {
+					funcType = i.component.Types[exp.Idx].Func
+				}
+				return &ExportedFunc{
+					name:     name,
+					funcType: funcType,
+					instance: i,
+				}
+			}
+		}
+		return nil
+	}
+
+	reqVersion, err := ParseSemver(reqVersionStr)
+	if err != nil {
+		// Invalid version - try exact match only
+		for _, exp := range i.component.Exports {
+			if exp.Name == name && exp.Kind == ExportKindFunc {
+				var funcType *FuncType
+				if int(exp.Idx) < len(i.component.Types) {
+					funcType = i.component.Types[exp.Idx].Func
+				}
+				return &ExportedFunc{
+					name:     name,
+					funcType: funcType,
+					instance: i,
+				}
+			}
+		}
+		return nil
+	}
+
+	// Find best compatible match (highest compatible version)
+	var bestExport *Export
+	var bestVersion *Semver
+
+	for idx := range i.component.Exports {
+		exp := &i.component.Exports[idx]
+		if exp.Kind != ExportKindFunc {
+			continue
+		}
+
+		// Parse export name
+		expLastSlash := strings.LastIndex(exp.Name, "/")
+		if expLastSlash == -1 {
+			continue
+		}
+		expNamespace := exp.Name[:expLastSlash]
+		expFuncName := exp.Name[expLastSlash+1:]
+
+		if expFuncName != funcName {
+			continue
+		}
+
+		// Check namespace compatibility
+		expBase, expVersionStr, hasExpVersion := SplitVersion(expNamespace)
+		if expBase != baseNamespace {
+			continue
+		}
+		if !hasExpVersion {
+			continue
+		}
+
+		expVersion, err := ParseSemver(expVersionStr)
+		if err != nil {
+			continue
+		}
+
+		// For exports, check bidirectional semver compatibility:
+		// - Requested old, export new: SemverCompatible(reqVersion, expVersion)
+		// - Requested new, export old: SemverCompatible(expVersion, reqVersion)
+		if !SemverCompatible(reqVersion, expVersion) && !SemverCompatible(expVersion, reqVersion) {
+			continue
+		}
+
+		// Select highest compatible version
+		if bestVersion == nil || semverGreater(expVersion, bestVersion) {
+			bestExport = exp
+			bestVersion = expVersion
+		}
+	}
+
+	if bestExport == nil {
+		return nil
+	}
+
+	var funcType *FuncType
+	if int(bestExport.Idx) < len(i.component.Types) {
+		funcType = i.component.Types[bestExport.Idx].Func
+	}
+	return &ExportedFunc{
+		name:     bestExport.Name,
+		funcType: funcType,
+		instance: i,
+	}
 }
 
 // Type returns the function's type.
