@@ -5,8 +5,19 @@
 **Parent Plan:** [2026-01-12-component-model-implementation.md](./2026-01-12-component-model-implementation.md)
 **Design Doc:** [2026-01-12-component-model-design.md](./2026-01-12-component-model-design.md)
 **Previous Phase:** [Phase 2: Complete Type System](./2026-01-12-component-model-phase2-type-system.md)
-**Status:** NOT STARTED
+**Status:** COMPLETE
 **Tasks:** 71-100
+
+**Completed:**
+- Resource type definitions (Own, Borrow types with ValType interface)
+- Generation-counted ResourceTable preventing use-after-free
+- BorrowScope and CallContext for call-scoped borrow tracking
+- Binary parsing for resource (0x3f), own (0x69), borrow (0x68) types
+- Canonical resource operations (resource.new, resource.rep, resource.drop)
+- LiftOwn, LowerOwn, LiftBorrow, LowerBorrow ABI operations
+- Destructor invocation for owned handles
+- ExportedFunc.Call integration with own/borrow parameter/result handling
+- Comprehensive unit tests (60+ resource-related tests)
 
 ---
 
