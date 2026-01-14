@@ -49,3 +49,26 @@ func TestLinker_DefineFunc_Duplicate(t *testing.T) {
 	})
 	require.Error(t, err)
 }
+
+func TestLinker_DefineInstance(t *testing.T) {
+	l := NewLinker()
+
+	funcType := &FuncType{}
+
+	err := l.DefineInstance("wasi:io/streams@0.2.0").
+		Func("read", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
+			return nil, nil
+		}).
+		Func("write", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
+			return nil, nil
+		}).
+		Build()
+	require.NoError(t, err)
+
+	// Check it was added
+	def, ok := l.definitions["wasi:io/streams@0.2.0"]
+	require.True(t, ok)
+	instDef, ok := def.(*InstanceDef)
+	require.True(t, ok)
+	require.Equal(t, 2, len(instDef.Exports))
+}

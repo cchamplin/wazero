@@ -58,3 +58,34 @@ func (l *Linker) DefineFunc(namespace, name string, typ *FuncType, fn HostFunc) 
 	l.definitions[key] = &FuncDef{Type: typ, Callback: fn}
 	return nil
 }
+
+// InstanceBuilder builds an instance definition with multiple exports.
+type InstanceBuilder struct {
+	linker    *Linker
+	namespace string
+	exports   map[string]Definition
+}
+
+// DefineInstance starts building an instance definition.
+func (l *Linker) DefineInstance(namespace string) *InstanceBuilder {
+	return &InstanceBuilder{
+		linker:    l,
+		namespace: namespace,
+		exports:   make(map[string]Definition),
+	}
+}
+
+// Func adds a function export to the instance.
+func (b *InstanceBuilder) Func(name string, typ *FuncType, fn HostFunc) *InstanceBuilder {
+	b.exports[name] = &FuncDef{Type: typ, Callback: fn}
+	return b
+}
+
+// Build finalizes the instance definition and registers it with the linker.
+func (b *InstanceBuilder) Build() error {
+	if _, exists := b.linker.definitions[b.namespace]; exists {
+		return fmt.Errorf("definition already exists: %s", b.namespace)
+	}
+	b.linker.definitions[b.namespace] = &InstanceDef{Exports: b.exports}
+	return nil
+}
