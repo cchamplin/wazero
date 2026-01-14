@@ -77,7 +77,7 @@ type NamedValType struct {
 }
 
 // ValTypeRef is a reference to a value type.
-// Either a primitive type opcode or a type index.
+// Either a primitive type opcode, a type index, or a handle type.
 type ValTypeRef struct {
 	// IsPrimitive is true if this is a primitive type (0x73-0x7f).
 	IsPrimitive bool
@@ -85,8 +85,13 @@ type ValTypeRef struct {
 	// Primitive is the primitive type opcode (if IsPrimitive).
 	Primitive byte
 
-	// TypeIdx is the type index (if !IsPrimitive).
+	// TypeIdx is the type index (if !IsPrimitive and !IsOwn).
+	// For own handles, this is the resource type index.
 	TypeIdx uint32
+
+	// IsOwn is true if this is an own<T> handle type.
+	// When true, TypeIdx contains the resource type index.
+	IsOwn bool
 }
 
 // CanonicalDef represents a canonical function definition.

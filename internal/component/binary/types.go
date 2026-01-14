@@ -128,7 +128,8 @@ type ResourceTypeDef struct {
 }
 
 // decodeValType reads a valtype from the reader.
-// valtypes are either primitive opcodes (0x73-0x7f) or type indices (LEB128).
+// valtypes are either primitive opcodes (0x73-0x7f), handle types (0x69 for own),
+// or type indices (LEB128).
 func decodeValType(r *bytes.Reader) (component.ValTypeRef, error) {
 	b, err := r.ReadByte()
 	if err != nil {
@@ -140,6 +141,19 @@ func decodeValType(r *bytes.Reader) (component.ValTypeRef, error) {
 		return component.ValTypeRef{
 			IsPrimitive: true,
 			Primitive:   b,
+		}, nil
+	}
+
+	// Check if it's an own handle type (0x69)
+	if b == ValTypeOpcodeOwn {
+		typeIdx, _, err := leb128.DecodeUint32(r)
+		if err != nil {
+			return component.ValTypeRef{}, fmt.Errorf("decode own handle type index: %w", err)
+		}
+		return component.ValTypeRef{
+			IsPrimitive: false,
+			IsOwn:       true,
+			TypeIdx:     typeIdx,
 		}, nil
 	}
 
