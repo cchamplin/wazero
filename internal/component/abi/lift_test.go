@@ -1702,3 +1702,121 @@ func TestLiftHeapStringUnicode(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "日本語", val.StringVal())
 }
+
+// --- LiftOwn Tests ---
+
+func TestLiftOwn(t *testing.T) {
+	table := component.NewResourceTable()
+	h := table.New("my-resource", true)
+
+	ctx := &LiftContext{
+		ResourceTable: table,
+	}
+
+	// Lift the handle (transfers ownership out)
+	rep, err := LiftOwn(ctx, h.Index())
+	require.NoError(t, err)
+	require.Equal(t, "my-resource", rep)
+
+	// Handle should be removed from table
+	_, err = table.Get(h)
+	require.Error(t, err)
+}
+
+func TestLiftOwn_WithActiveBorrows(t *testing.T) {
+	table := component.NewResourceTable()
+	h := table.New("my-resource", true)
+	err := table.IncrementLends(h) // Active borrow
+	require.NoError(t, err)
+
+	ctx := &LiftContext{
+		ResourceTable: table,
+	}
+
+	// Should trap because handle has active borrows
+	_, err = LiftOwn(ctx, h.Index())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "active borrows")
+}
+
+func TestLiftOwn_NotOwned(t *testing.T) {
+	table := component.NewResourceTable()
+	// Create a borrow handle (own=false)
+	h := table.New("borrowed-resource", false)
+
+	ctx := &LiftContext{
+		ResourceTable: table,
+	}
+
+	// Should trap because handle is not owned
+	_, err := LiftOwn(ctx, h.Index())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not owned")
+}
+
+func TestLiftOwn_InvalidHandle(t *testing.T) {
+	table := component.NewResourceTable()
+
+	ctx := &LiftContext{
+		ResourceTable: table,
+	}
+
+	// Try to lift a handle that doesn't exist
+	_, err := LiftOwn(ctx, 999)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid handle")
+}
+
+func TestLiftOwn_NoResourceTable(t *testing.T) {
+	ctx := &LiftContext{
+		ResourceTable: nil,
+	}
+
+	// Should error because no resource table
+	_, err := LiftOwn(ctx, 0)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no resource table")
+}
+
+func TestLiftOwn_MultipleTimes(t *testing.T) {
+	table := component.NewResourceTable()
+	h := table.New("my-resource", true)
+
+	ctx := &LiftContext{
+		ResourceTable: table,
+	}
+
+	// First lift should succeed
+	rep, err := LiftOwn(ctx, h.Index())
+	require.NoError(t, err)
+	require.Equal(t, "my-resource", rep)
+
+	// Second lift should fail - handle already removed
+	_, err = LiftOwn(ctx, h.Index())
+	require.Error(t, err)
+}
+
+func TestLiftOwn_WithComplexRep(t *testing.T) {
+	// Test with a complex representation value (struct)
+	type MyResource struct {
+		Name  string
+		Value int
+	}
+	resource := &MyResource{Name: "test", Value: 42}
+
+	table := component.NewResourceTable()
+	h := table.New(resource, true)
+
+	ctx := &LiftContext{
+		ResourceTable: table,
+	}
+
+	rep, err := LiftOwn(ctx, h.Index())
+	require.NoError(t, err)
+
+	// Verify we got back the same struct
+	result, ok := rep.(*MyResource)
+	require.True(t, ok)
+	require.Equal(t, "test", result.Name)
+	require.Equal(t, 42, result.Value)
+}

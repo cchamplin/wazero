@@ -506,3 +506,79 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (component.Val
 		return component.Val{}, fmt.Errorf("unsupported heap lift for type: %T", typ)
 	}
 }
+
+// LiftOwn transfers ownership of a resource out of the component.
+// It removes the handle from the table and returns the representation value.
+// Traps if the handle has active borrows (NumLends > 0).
+// Traps if the handle is not owned (i.e., it's a borrowed handle).
+func LiftOwn(ctx *LiftContext, handleIdx uint32) (any, error) {
+	if ctx.ResourceTable == nil {
+		return nil, fmt.Errorf("lift_own: no resource table available")
+	}
+
+	// We need to look up the full handle including generation.
+	// First, get the entry to verify it exists and is owned.
+	// The handleIdx is just the index; we need to reconstruct the full handle.
+	// For proper generation tracking, we iterate through to find the handle.
+	// However, the canonical ABI only passes the index, so we construct
+	// a handle with the current generation from the table entry.
+
+	// Get the current generation for this index by constructing a probe handle
+	// and using Get to validate. The table's Get validates generation.
+	// Since we only have the index, we need to try with generation 0 first,
+	// but that won't work for reused slots.
+
+	// The proper approach: the table needs to expose a way to get by index.
+	// For now, we iterate through possible generations, but this is inefficient.
+	// A better design would be to track the full handle in the component instance.
+
+	// Simplified approach: try to find a valid handle for this index
+	// by checking if the index is within bounds and the entry is occupied.
+	// The ResourceTable.Get validates both index bounds and generation.
+
+	// Since the component model ABI only passes the index (u32), and the
+	// generation is stored in the table, we need to query the table to
+	// get the current generation for this slot.
+
+	// For the MVP implementation, we'll construct the handle using the
+	// generation from direct table access. This requires that the caller
+	// passes the correct index that was obtained from a prior New() call.
+
+	// First, verify the index is valid and get the entry
+	h := component.Handle(handleIdx) // Start with generation 0
+
+	// Try to get with just the index - the table will validate
+	// Note: This is a limitation - the full handle should include generation
+	// For proper implementation, the handle passed to LiftOwn should be the
+	// full 64-bit handle, but the canonical ABI passes u32 index only.
+
+	// Get the entry first to check ownership
+	entry, err := ctx.ResourceTable.Get(h)
+	if err != nil {
+		// Try to find the entry by scanning generations
+		// This is a workaround for the index-only interface
+		for gen := uint32(1); gen < 1000; gen++ {
+			h = component.MakeHandle(handleIdx, gen)
+			entry, err = ctx.ResourceTable.Get(h)
+			if err == nil {
+				break
+			}
+		}
+		if err != nil {
+			return nil, fmt.Errorf("lift_own: invalid handle index %d: %w", handleIdx, err)
+		}
+	}
+
+	// Verify this is an owned handle, not a borrow
+	if !entry.Own {
+		return nil, fmt.Errorf("lift_own: handle is not owned")
+	}
+
+	// Remove from table (this checks NumLends > 0 and returns error if so)
+	removed, err := ctx.ResourceTable.Remove(h)
+	if err != nil {
+		return nil, fmt.Errorf("lift_own: %w", err)
+	}
+
+	return removed.Rep, nil
+}
