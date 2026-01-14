@@ -37,3 +37,10 @@ func (Borrow) Align() uint32 { return 4 }
 
 // FlattenCount returns 1 because a handle is a single i32.
 func (Borrow) FlattenCount() int { return 1 }
+
+// ResourceType represents a resource type definition.
+// Resources have an optional destructor that is called when the resource is dropped.
+type ResourceType struct {
+	// Destructor is the index of the destructor function (nil if no destructor).
+	Destructor *uint32
+}
