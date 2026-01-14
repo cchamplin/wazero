@@ -40,6 +40,9 @@ type Component struct {
 
 	// CoreInstances contains core instance definitions (section ID 2).
 	CoreInstances []CoreInstance
+
+	// ComponentInstances contains component instance definitions (section ID 5).
+	ComponentInstances []ComponentInstance
 }
 
 // TypeDef represents a component type definition.
