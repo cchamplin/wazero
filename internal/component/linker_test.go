@@ -72,3 +72,34 @@ func TestLinker_DefineInstance(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, 2, len(instDef.Exports))
 }
+
+func TestLinker_DefineResource(t *testing.T) {
+	l := NewLinker()
+
+	destroyed := false
+	err := l.DefineResource("wasi:io/streams@0.2.0", "input-stream", func(rep uint32) {
+		destroyed = true
+	})
+	require.NoError(t, err)
+
+	// Check it was added
+	def, ok := l.definitions["wasi:io/streams@0.2.0/input-stream"]
+	require.True(t, ok)
+	resDef, ok := def.(*ResourceDef)
+	require.True(t, ok)
+
+	// Call destructor to verify it works
+	resDef.Destructor(0)
+	require.True(t, destroyed)
+}
+
+func TestLinker_DefineResource_Duplicate(t *testing.T) {
+	l := NewLinker()
+
+	err := l.DefineResource("test", "res", func(rep uint32) {})
+	require.NoError(t, err)
+
+	// Duplicate should error
+	err = l.DefineResource("test", "res", func(rep uint32) {})
+	require.Error(t, err)
+}

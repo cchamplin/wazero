@@ -59,6 +59,16 @@ func (l *Linker) DefineFunc(namespace, name string, typ *FuncType, fn HostFunc) 
 	return nil
 }
 
+// DefineResource adds a resource type definition with its destructor.
+func (l *Linker) DefineResource(namespace, name string, destructor func(rep uint32)) error {
+	key := namespace + "/" + name
+	if _, exists := l.definitions[key]; exists {
+		return fmt.Errorf("definition already exists: %s", key)
+	}
+	l.definitions[key] = &ResourceDef{Destructor: destructor}
+	return nil
+}
+
 // InstanceBuilder builds an instance definition with multiple exports.
 type InstanceBuilder struct {
 	linker    *Linker
