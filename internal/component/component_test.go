@@ -127,3 +127,33 @@ func TestComponent_Aliases(t *testing.T) {
 	require.Equal(t, 1, len(c.Aliases))
 	require.Equal(t, AliasKindExport, c.Aliases[0].Kind)
 }
+
+func TestImportExternDescKind(t *testing.T) {
+	tests := []struct {
+		kind     ImportExternDescKind
+		expected string
+	}{
+		{ImportExternDescCoreModule, "core-module"},
+		{ImportExternDescFunc, "func"},
+		{ImportExternDescValue, "value"},
+		{ImportExternDescType, "type"},
+		{ImportExternDescComponent, "component"},
+		{ImportExternDescInstance, "instance"},
+	}
+	for _, tt := range tests {
+		require.Equal(t, tt.expected, tt.kind.String())
+	}
+}
+
+func TestImport_FuncImport(t *testing.T) {
+	imp := Import{
+		Name: "wasi:cli/environment@0.2.0",
+		ExternDesc: ImportExternDesc{
+			Kind:    ImportExternDescFunc,
+			TypeIdx: 5,
+		},
+	}
+	require.Equal(t, "wasi:cli/environment@0.2.0", imp.Name)
+	require.Equal(t, ImportExternDescFunc, imp.ExternDesc.Kind)
+	require.Equal(t, uint32(5), imp.ExternDesc.TypeIdx)
+}
