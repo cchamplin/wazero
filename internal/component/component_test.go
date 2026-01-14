@@ -234,3 +234,12 @@ func TestComponentInstance_Instantiate(t *testing.T) {
 	require.Equal(t, uint32(0), ci.ComponentIdx)
 	require.Equal(t, 1, len(ci.Args))
 }
+
+func TestComponent_ComponentInstances(t *testing.T) {
+	c := &Component{
+		ComponentInstances: []ComponentInstance{
+			{Kind: ComponentInstanceExprInstantiate, ComponentIdx: 0},
+		},
+	}
+	require.Equal(t, 1, len(c.ComponentInstances))
+}
