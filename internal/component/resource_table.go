@@ -8,9 +8,10 @@ import (
 )
 
 var (
-	ErrInvalidHandle  = errors.New("invalid resource handle")
-	ErrHandleNotOwned = errors.New("handle is not owned")
-	ErrResourceInUse  = errors.New("resource has active borrows")
+	ErrInvalidHandle       = errors.New("invalid resource handle")
+	ErrHandleNotOwned      = errors.New("handle is not owned")
+	ErrResourceInUse       = errors.New("resource has active borrows")
+	ErrNoBorrowsToDecrement = errors.New("no active borrows to decrement")
 )
 
 // Handle is a 64-bit resource handle: upper 32 bits = generation, lower 32 = index.
@@ -142,4 +143,47 @@ func (t *ResourceTable) Remove(h Handle) (*HandleEntry, error) {
 	t.freeHead = int32(idx)
 
 	return &result, nil
+}
+
+// IncrementLends increments the borrow count for a handle.
+// Called during lift_borrow to track active borrows.
+func (t *ResourceTable) IncrementLends(h Handle) error {
+	idx := h.Index()
+	if idx >= uint32(len(t.entries)) {
+		return ErrInvalidHandle
+	}
+
+	entry := &t.entries[idx]
+	if entry.generation != h.Generation() {
+		return fmt.Errorf("%w: generation mismatch", ErrInvalidHandle)
+	}
+	if entry.state == entryFree {
+		return ErrInvalidHandle
+	}
+
+	entry.entry.NumLends++
+	return nil
+}
+
+// DecrementLends decrements the borrow count for a handle.
+// Called when a borrow scope completes.
+func (t *ResourceTable) DecrementLends(h Handle) error {
+	idx := h.Index()
+	if idx >= uint32(len(t.entries)) {
+		return ErrInvalidHandle
+	}
+
+	entry := &t.entries[idx]
+	if entry.generation != h.Generation() {
+		return fmt.Errorf("%w: generation mismatch", ErrInvalidHandle)
+	}
+	if entry.state == entryFree {
+		return ErrInvalidHandle
+	}
+	if entry.entry.NumLends == 0 {
+		return ErrNoBorrowsToDecrement
+	}
+
+	entry.entry.NumLends--
+	return nil
 }
