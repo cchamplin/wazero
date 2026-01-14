@@ -35,3 +35,16 @@ func TestCallContext_CanReturn(t *testing.T) {
 	ctx.DecrementBorrows()
 	require.True(t, ctx.CanReturn())
 }
+
+func TestCallContext_ValidateReturn_Success(t *testing.T) {
+	ctx := NewCallContext()
+	require.NoError(t, ctx.ValidateReturn())
+}
+
+func TestCallContext_ValidateReturn_WithBorrows(t *testing.T) {
+	ctx := NewCallContext()
+	ctx.IncrementBorrows()
+
+	err := ctx.ValidateReturn()
+	require.ErrorIs(t, err, ErrOutstandingBorrows)
+}

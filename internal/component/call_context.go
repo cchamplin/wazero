@@ -2,6 +2,10 @@
 
 package component
 
+import "errors"
+
+var ErrOutstandingBorrows = errors.New("cannot return: borrow handles still remain")
+
 // CallContext tracks state for a single component function call.
 // Implements the Canonical ABI's Task tracking for borrow validation.
 type CallContext struct {
@@ -34,4 +38,13 @@ func (c *CallContext) NumBorrows() int {
 // Per spec, returning with outstanding borrows is a trap.
 func (c *CallContext) CanReturn() bool {
 	return c.numBorrows == 0
+}
+
+// ValidateReturn checks if returning is allowed.
+// Returns an error if there are outstanding borrowed handles.
+func (c *CallContext) ValidateReturn() error {
+	if c.numBorrows > 0 {
+		return ErrOutstandingBorrows
+	}
+	return nil
 }
