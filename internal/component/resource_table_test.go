@@ -170,3 +170,24 @@ func TestResourceTable_DecrementUnderflow(t *testing.T) {
 	err := table.DecrementLends(h)
 	require.ErrorIs(t, err, ErrNoBorrowsToDecrement)
 }
+
+func TestResourceTable_BorrowedHandle(t *testing.T) {
+	table := NewResourceTable()
+
+	// Create borrowed handle (own=false)
+	h := table.New("resource", false)
+
+	entry, err := table.Get(h)
+	require.NoError(t, err)
+	require.False(t, entry.Own)
+	require.Equal(t, "resource", entry.Rep)
+}
+
+func TestResourceTable_RemoveBorrowedMustNotCallDestructor(t *testing.T) {
+	table := NewResourceTable()
+	h := table.New("resource", false) // borrowed
+
+	entry, err := table.Remove(h)
+	require.NoError(t, err)
+	require.False(t, entry.Own) // Caller checks Own to decide on destructor
+}
