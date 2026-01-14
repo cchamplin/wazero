@@ -215,3 +215,53 @@ func TestDecodeName(t *testing.T) {
 		})
 	}
 }
+
+func TestDecodeResourceType(t *testing.T) {
+	// 0x7f = rep type i32, 0x00 = no destructor
+	data := []byte{0x7f, 0x00}
+	r := bytes.NewReader(data)
+
+	typeDef, err := decodeResourceTypeDef(r)
+	require.NoError(t, err)
+	require.Nil(t, typeDef.Destructor)
+}
+
+func TestDecodeResourceType_WithDestructor(t *testing.T) {
+	// 0x7f = rep type i32, 0x01 = has destructor, 0x05 = destructor at func index 5
+	data := []byte{0x7f, 0x01, 0x05}
+	r := bytes.NewReader(data)
+
+	typeDef, err := decodeResourceTypeDef(r)
+	require.NoError(t, err)
+	require.NotNil(t, typeDef.Destructor)
+	require.Equal(t, uint32(5), *typeDef.Destructor)
+}
+
+func TestDecodeResourceType_WithLargeDestructorIndex(t *testing.T) {
+	// 0x7f = rep type i32, 0x01 = has destructor, 0x80 0x01 = destructor at func index 128
+	data := []byte{0x7f, 0x01, 0x80, 0x01}
+	r := bytes.NewReader(data)
+
+	typeDef, err := decodeResourceTypeDef(r)
+	require.NoError(t, err)
+	require.NotNil(t, typeDef.Destructor)
+	require.Equal(t, uint32(128), *typeDef.Destructor)
+}
+
+func TestDecodeResourceType_InvalidRepType(t *testing.T) {
+	// 0x7e = s8 (not i32), should fail
+	data := []byte{0x7e, 0x00}
+	r := bytes.NewReader(data)
+
+	_, err := decodeResourceTypeDef(r)
+	require.Error(t, err)
+}
+
+func TestDecodeResourceType_InvalidDestructorFlag(t *testing.T) {
+	// 0x7f = rep type i32, 0x02 = invalid flag (not 0x00 or 0x01)
+	data := []byte{0x7f, 0x02}
+	r := bytes.NewReader(data)
+
+	_, err := decodeResourceTypeDef(r)
+	require.Error(t, err)
+}
