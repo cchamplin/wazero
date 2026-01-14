@@ -113,3 +113,60 @@ func TestResourceTable_RemoveWithActiveBorrows(t *testing.T) {
 	_, err := table.Remove(h)
 	require.ErrorIs(t, err, ErrResourceInUse)
 }
+
+func TestResourceTable_BorrowTracking(t *testing.T) {
+	table := NewResourceTable()
+	h := table.New("resource", true)
+
+	// Increment lends (for lift_borrow)
+	err := table.IncrementLends(h)
+	require.NoError(t, err)
+
+	entry, _ := table.Get(h)
+	require.Equal(t, uint32(1), entry.NumLends)
+
+	// Cannot remove while borrowed
+	_, err = table.Remove(h)
+	require.ErrorIs(t, err, ErrResourceInUse)
+
+	// Decrement lends
+	err = table.DecrementLends(h)
+	require.NoError(t, err)
+
+	entry, _ = table.Get(h)
+	require.Equal(t, uint32(0), entry.NumLends)
+
+	// Now can remove
+	_, err = table.Remove(h)
+	require.NoError(t, err)
+}
+
+func TestResourceTable_MultipleBorrows(t *testing.T) {
+	table := NewResourceTable()
+	h := table.New("resource", true)
+
+	// Multiple concurrent borrows
+	require.NoError(t, table.IncrementLends(h))
+	require.NoError(t, table.IncrementLends(h))
+	require.NoError(t, table.IncrementLends(h))
+
+	entry, _ := table.Get(h)
+	require.Equal(t, uint32(3), entry.NumLends)
+
+	// Decrement all
+	require.NoError(t, table.DecrementLends(h))
+	require.NoError(t, table.DecrementLends(h))
+	require.NoError(t, table.DecrementLends(h))
+
+	entry, _ = table.Get(h)
+	require.Equal(t, uint32(0), entry.NumLends)
+}
+
+func TestResourceTable_DecrementUnderflow(t *testing.T) {
+	table := NewResourceTable()
+	h := table.New("resource", true)
+
+	// Decrement without increment should error
+	err := table.DecrementLends(h)
+	require.ErrorIs(t, err, ErrNoBorrowsToDecrement)
+}
