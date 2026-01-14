@@ -60,3 +60,31 @@ func TestSplitVersion(t *testing.T) {
 		require.Equal(t, tt.hasVersion, hasVer)
 	}
 }
+
+func TestSemverCompatible(t *testing.T) {
+	tests := []struct {
+		required   *Semver
+		available  *Semver
+		compatible bool
+	}{
+		// Same version is compatible
+		{&Semver{1, 0, 0}, &Semver{1, 0, 0}, true},
+		// Newer patch is compatible
+		{&Semver{1, 0, 0}, &Semver{1, 0, 1}, true},
+		// Newer minor is compatible
+		{&Semver{1, 0, 0}, &Semver{1, 1, 0}, true},
+		// Different major is not compatible
+		{&Semver{1, 0, 0}, &Semver{2, 0, 0}, false},
+		// Older version is not compatible
+		{&Semver{1, 1, 0}, &Semver{1, 0, 0}, false},
+		// Pre-1.0 versions: same minor required
+		{&Semver{0, 2, 0}, &Semver{0, 2, 1}, true},
+		{&Semver{0, 2, 0}, &Semver{0, 3, 0}, false},
+	}
+
+	for _, tt := range tests {
+		result := SemverCompatible(tt.required, tt.available)
+		require.Equal(t, tt.compatible, result,
+			"required=%v available=%v", tt.required, tt.available)
+	}
+}
