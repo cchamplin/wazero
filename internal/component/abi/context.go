@@ -3,6 +3,8 @@ package abi
 import (
 	"encoding/binary"
 	"math"
+
+	"github.com/tetratelabs/wazero/internal/component"
 )
 
 // StringEncoding specifies the string encoding for Canonical ABI.
@@ -31,8 +33,9 @@ type Memory interface {
 
 // LiftContext provides context for lifting operations.
 type LiftContext struct {
-	Memory Memory
-	Opts   *Options
+	Memory        Memory
+	Opts          *Options
+	ResourceTable *component.ResourceTable
 }
 
 // ReadU8 reads a u8 from memory at the given offset.
