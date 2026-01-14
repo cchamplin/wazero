@@ -12,15 +12,6 @@ import (
 	"github.com/tetratelabs/wazero/internal/component"
 )
 
-// Config holds configuration for WASI Preview 2 interfaces.
-// This will be expanded in subsequent tasks.
-type Config struct{}
-
-// DefaultConfig returns the default configuration for WASI Preview 2.
-func DefaultConfig() *Config {
-	return &Config{}
-}
-
 // Instantiate registers all WASI Preview 2 interfaces with the linker.
 // Uses default configuration backed by os package.
 func Instantiate(linker *component.Linker) error {
