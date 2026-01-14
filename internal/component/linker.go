@@ -221,6 +221,24 @@ func (l *Linker) Instantiate(ctx context.Context, c *Component) (*Instance, erro
 	return inst, nil
 }
 
+// getExactExportedFunc finds an exported function by exact name match.
+func (i *Instance) getExactExportedFunc(name string) *ExportedFunc {
+	for _, exp := range i.component.Exports {
+		if exp.Name == name && exp.Kind == ExportKindFunc {
+			var funcType *FuncType
+			if int(exp.Idx) < len(i.component.Types) {
+				funcType = i.component.Types[exp.Idx].Func
+			}
+			return &ExportedFunc{
+				name:     name,
+				funcType: funcType,
+				instance: i,
+			}
+		}
+	}
+	return nil
+}
+
 // GetExportedFunc retrieves an exported function by name.
 // Returns nil if not found or if the export is not a function.
 // Supports semver-compatible matching for versioned export names.
@@ -230,20 +248,7 @@ func (i *Instance) GetExportedFunc(name string) *ExportedFunc {
 	lastSlash := strings.LastIndex(name, "/")
 	if lastSlash == -1 {
 		// No slash - try exact match only (non-versioned name)
-		for _, exp := range i.component.Exports {
-			if exp.Name == name && exp.Kind == ExportKindFunc {
-				var funcType *FuncType
-				if int(exp.Idx) < len(i.component.Types) {
-					funcType = i.component.Types[exp.Idx].Func
-				}
-				return &ExportedFunc{
-					name:     name,
-					funcType: funcType,
-					instance: i,
-				}
-			}
-		}
-		return nil
+		return i.getExactExportedFunc(name)
 	}
 
 	namespace := name[:lastSlash]
@@ -253,39 +258,13 @@ func (i *Instance) GetExportedFunc(name string) *ExportedFunc {
 	baseNamespace, reqVersionStr, hasReqVersion := SplitVersion(namespace)
 	if !hasReqVersion {
 		// No version in requested name - try exact match only
-		for _, exp := range i.component.Exports {
-			if exp.Name == name && exp.Kind == ExportKindFunc {
-				var funcType *FuncType
-				if int(exp.Idx) < len(i.component.Types) {
-					funcType = i.component.Types[exp.Idx].Func
-				}
-				return &ExportedFunc{
-					name:     name,
-					funcType: funcType,
-					instance: i,
-				}
-			}
-		}
-		return nil
+		return i.getExactExportedFunc(name)
 	}
 
 	reqVersion, err := ParseSemver(reqVersionStr)
 	if err != nil {
 		// Invalid version - try exact match only
-		for _, exp := range i.component.Exports {
-			if exp.Name == name && exp.Kind == ExportKindFunc {
-				var funcType *FuncType
-				if int(exp.Idx) < len(i.component.Types) {
-					funcType = i.component.Types[exp.Idx].Func
-				}
-				return &ExportedFunc{
-					name:     name,
-					funcType: funcType,
-					instance: i,
-				}
-			}
-		}
-		return nil
+		return i.getExactExportedFunc(name)
 	}
 
 	// Find best compatible match (highest compatible version)
