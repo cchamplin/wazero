@@ -111,3 +111,35 @@ func (t *ResourceTable) Get(h Handle) (*HandleEntry, error) {
 
 	return &entry.entry, nil
 }
+
+// Remove removes a handle from the table and returns its entry.
+// Used for lift_own to transfer ownership out of the component.
+// Traps if the handle has active borrows (NumLends > 0).
+func (t *ResourceTable) Remove(h Handle) (*HandleEntry, error) {
+	idx := h.Index()
+	if idx >= uint32(len(t.entries)) {
+		return nil, ErrInvalidHandle
+	}
+
+	entry := &t.entries[idx]
+	if entry.generation != h.Generation() {
+		return nil, fmt.Errorf("%w: generation mismatch", ErrInvalidHandle)
+	}
+	if entry.state == entryFree {
+		return nil, ErrInvalidHandle
+	}
+	if entry.entry.NumLends > 0 {
+		return nil, ErrResourceInUse
+	}
+
+	// Copy the entry before clearing
+	result := entry.entry
+
+	// Mark as free and add to free list
+	entry.state = entryFree
+	entry.entry = HandleEntry{}
+	entry.nextFree = t.freeHead
+	t.freeHead = int32(idx)
+
+	return &result, nil
+}
