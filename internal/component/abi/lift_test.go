@@ -1820,3 +1820,190 @@ func TestLiftOwn_WithComplexRep(t *testing.T) {
 	require.Equal(t, "test", result.Name)
 	require.Equal(t, 42, result.Value)
 }
+
+// --- LiftBorrow Tests ---
+
+func TestLiftBorrow(t *testing.T) {
+	table := component.NewResourceTable()
+	h := table.New("my-resource", true)
+	scope := component.NewBorrowScope(table)
+
+	ctx := &LiftContext{
+		ResourceTable: table,
+		BorrowScope:   scope,
+	}
+
+	// Lift borrow (reads but doesn't remove)
+	rep, err := LiftBorrow(ctx, h.Index())
+	require.NoError(t, err)
+	require.Equal(t, "my-resource", rep)
+
+	// Handle should still be in table
+	entry, err := table.Get(h)
+	require.NoError(t, err)
+	require.Equal(t, "my-resource", entry.Rep)
+
+	// NumLends should be incremented
+	require.Equal(t, uint32(1), entry.NumLends)
+
+	// Release scope
+	scope.Release()
+
+	entry, _ = table.Get(h)
+	require.Equal(t, uint32(0), entry.NumLends)
+}
+
+func TestLiftBorrow_MultipleBorrows(t *testing.T) {
+	table := component.NewResourceTable()
+	h := table.New("shared-resource", true)
+	scope := component.NewBorrowScope(table)
+
+	ctx := &LiftContext{
+		ResourceTable: table,
+		BorrowScope:   scope,
+	}
+
+	// Borrow multiple times
+	_, err := LiftBorrow(ctx, h.Index())
+	require.NoError(t, err)
+	_, err = LiftBorrow(ctx, h.Index())
+	require.NoError(t, err)
+	_, err = LiftBorrow(ctx, h.Index())
+	require.NoError(t, err)
+
+	// NumLends should be 3
+	entry, err := table.Get(h)
+	require.NoError(t, err)
+	require.Equal(t, uint32(3), entry.NumLends)
+
+	// Release scope
+	scope.Release()
+
+	entry, _ = table.Get(h)
+	require.Equal(t, uint32(0), entry.NumLends)
+}
+
+func TestLiftBorrow_NoBorrowScope(t *testing.T) {
+	table := component.NewResourceTable()
+	h := table.New("my-resource", true)
+
+	ctx := &LiftContext{
+		ResourceTable: table,
+		BorrowScope:   nil, // No borrow scope
+	}
+
+	// Should still work, just doesn't track
+	rep, err := LiftBorrow(ctx, h.Index())
+	require.NoError(t, err)
+	require.Equal(t, "my-resource", rep)
+
+	// Handle should still be in table
+	entry, err := table.Get(h)
+	require.NoError(t, err)
+	require.Equal(t, "my-resource", entry.Rep)
+	// NumLends is not incremented when no scope
+	require.Equal(t, uint32(0), entry.NumLends)
+}
+
+func TestLiftBorrow_InvalidHandle(t *testing.T) {
+	table := component.NewResourceTable()
+	scope := component.NewBorrowScope(table)
+
+	ctx := &LiftContext{
+		ResourceTable: table,
+		BorrowScope:   scope,
+	}
+
+	// Try to borrow a handle that doesn't exist
+	_, err := LiftBorrow(ctx, 999)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid handle")
+}
+
+func TestLiftBorrow_NoResourceTable(t *testing.T) {
+	ctx := &LiftContext{
+		ResourceTable: nil,
+	}
+
+	// Should error because no resource table
+	_, err := LiftBorrow(ctx, 0)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no resource table")
+}
+
+func TestLiftBorrow_PreventsLiftOwnWhileBorrowed(t *testing.T) {
+	table := component.NewResourceTable()
+	h := table.New("my-resource", true)
+	scope := component.NewBorrowScope(table)
+
+	ctx := &LiftContext{
+		ResourceTable: table,
+		BorrowScope:   scope,
+	}
+
+	// Borrow the resource
+	_, err := LiftBorrow(ctx, h.Index())
+	require.NoError(t, err)
+
+	// Try to transfer ownership - should fail because of active borrow
+	_, err = LiftOwn(ctx, h.Index())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "active borrows")
+
+	// Release the borrow scope
+	scope.Release()
+
+	// Now LiftOwn should succeed
+	rep, err := LiftOwn(ctx, h.Index())
+	require.NoError(t, err)
+	require.Equal(t, "my-resource", rep)
+}
+
+func TestLiftBorrow_WithComplexRep(t *testing.T) {
+	// Test with a complex representation value (struct)
+	type MyResource struct {
+		Name  string
+		Value int
+	}
+	resource := &MyResource{Name: "borrowed", Value: 100}
+
+	table := component.NewResourceTable()
+	h := table.New(resource, true)
+	scope := component.NewBorrowScope(table)
+
+	ctx := &LiftContext{
+		ResourceTable: table,
+		BorrowScope:   scope,
+	}
+
+	rep, err := LiftBorrow(ctx, h.Index())
+	require.NoError(t, err)
+
+	// Verify we got back the same struct
+	result, ok := rep.(*MyResource)
+	require.True(t, ok)
+	require.Equal(t, "borrowed", result.Name)
+	require.Equal(t, 100, result.Value)
+
+	// Resource should still be in table
+	entry, err := table.Get(h)
+	require.NoError(t, err)
+	require.Equal(t, resource, entry.Rep)
+}
+
+func TestLiftBorrow_BorrowedHandle(t *testing.T) {
+	// Test borrowing from a handle that is itself a borrow (own=false)
+	table := component.NewResourceTable()
+	h := table.New("borrowed-resource", false) // Not owned
+	scope := component.NewBorrowScope(table)
+
+	ctx := &LiftContext{
+		ResourceTable: table,
+		BorrowScope:   scope,
+	}
+
+	// Should still be able to borrow from a borrowed handle
+	rep, err := LiftBorrow(ctx, h.Index())
+	require.NoError(t, err)
+	require.Equal(t, "borrowed-resource", rep)
+}

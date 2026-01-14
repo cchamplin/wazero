@@ -582,3 +582,40 @@ func LiftOwn(ctx *LiftContext, handleIdx uint32) (any, error) {
 
 	return removed.Rep, nil
 }
+
+// LiftBorrow reads a resource representation for borrowing.
+// Unlike LiftOwn, it does NOT remove the handle from the table.
+// It tracks the lend in the BorrowScope to prevent ownership transfer while borrowed.
+func LiftBorrow(ctx *LiftContext, handleIdx uint32) (any, error) {
+	if ctx.ResourceTable == nil {
+		return nil, fmt.Errorf("lift_borrow: no resource table available")
+	}
+
+	// Construct handle from index - similar approach to LiftOwn
+	h := component.Handle(handleIdx)
+
+	// Try to get the entry
+	entry, err := ctx.ResourceTable.Get(h)
+	if err != nil {
+		// Try to find the entry by scanning generations
+		for gen := uint32(1); gen < 1000; gen++ {
+			h = component.MakeHandle(handleIdx, gen)
+			entry, err = ctx.ResourceTable.Get(h)
+			if err == nil {
+				break
+			}
+		}
+		if err != nil {
+			return nil, fmt.Errorf("lift_borrow: invalid handle index %d: %w", handleIdx, err)
+		}
+	}
+
+	// Track the lend in the borrow scope
+	if ctx.BorrowScope != nil {
+		if err := ctx.BorrowScope.AddLender(h); err != nil {
+			return nil, fmt.Errorf("lift_borrow: tracking lend: %w", err)
+		}
+	}
+
+	return entry.Rep, nil
+}
