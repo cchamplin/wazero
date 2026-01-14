@@ -5,6 +5,7 @@ package component
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 // HostFunc is a host function that can be called from a component.
@@ -104,4 +105,92 @@ func (b *InstanceBuilder) Build() error {
 func (l *Linker) Get(key string) (Definition, bool) {
 	def, ok := l.definitions[key]
 	return def, ok
+}
+
+// MatchImport finds a definition that satisfies the import name.
+// Supports semver-compatible matching per component model spec.
+func (l *Linker) MatchImport(importName string) (Definition, error) {
+	// Parse import name into namespace/name format
+	// e.g., "test:api@1.0.0/fn" -> namespace="test:api@1.0.0", name="fn"
+	lastSlash := strings.LastIndex(importName, "/")
+	if lastSlash == -1 {
+		return nil, fmt.Errorf("import not found: %s", importName)
+	}
+
+	namespace := importName[:lastSlash]
+	name := importName[lastSlash+1:]
+
+	// Split namespace into base and version
+	baseNamespace, reqVersionStr, hasReqVersion := SplitVersion(namespace)
+	if !hasReqVersion {
+		// No version - try direct match only
+		if def, ok := l.definitions[importName]; ok {
+			return def, nil
+		}
+		return nil, fmt.Errorf("import not found: %s", importName)
+	}
+
+	reqVersion, err := ParseSemver(reqVersionStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid version in import: %w", err)
+	}
+
+	// Find best compatible match
+	var bestDef Definition
+	var bestVersion *Semver
+
+	for defName, def := range l.definitions {
+		// Check if it's the same function name
+		defLastSlash := strings.LastIndex(defName, "/")
+		if defLastSlash == -1 {
+			continue
+		}
+		defNamespace := defName[:defLastSlash]
+		defFuncName := defName[defLastSlash+1:]
+
+		if defFuncName != name {
+			continue
+		}
+
+		// Check namespace compatibility
+		defBase, defVersionStr, hasDefVersion := SplitVersion(defNamespace)
+		if defBase != baseNamespace {
+			continue
+		}
+		if !hasDefVersion {
+			continue
+		}
+
+		defVersion, err := ParseSemver(defVersionStr)
+		if err != nil {
+			continue
+		}
+
+		// Check semver compatibility
+		if !SemverCompatible(reqVersion, defVersion) {
+			continue
+		}
+
+		// Select highest compatible version
+		if bestVersion == nil || semverGreater(defVersion, bestVersion) {
+			bestDef = def
+			bestVersion = defVersion
+		}
+	}
+
+	if bestDef == nil {
+		return nil, fmt.Errorf("no compatible definition for: %s", importName)
+	}
+
+	return bestDef, nil
+}
+
+func semverGreater(a, b *Semver) bool {
+	if a.Major != b.Major {
+		return a.Major > b.Major
+	}
+	if a.Minor != b.Minor {
+		return a.Minor > b.Minor
+	}
+	return a.Patch > b.Patch
 }
