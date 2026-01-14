@@ -52,3 +52,29 @@ func SplitVersion(name string) (baseName, version string, hasVersion bool) {
 	}
 	return name[:idx], name[idx+1:], true
 }
+
+// SemverCompatible checks if available version satisfies required version.
+// For major > 0: same major, available minor.patch >= required minor.patch
+// For major == 0: same major.minor, available patch >= required patch
+func SemverCompatible(required, available *Semver) bool {
+	if required.Major != available.Major {
+		return false
+	}
+
+	// Pre-1.0: breaking changes allowed in minor bumps
+	if required.Major == 0 {
+		if required.Minor != available.Minor {
+			return false
+		}
+		return available.Patch >= required.Patch
+	}
+
+	// 1.0+: breaking changes only in major bumps
+	if available.Minor > required.Minor {
+		return true
+	}
+	if available.Minor == required.Minor {
+		return available.Patch >= required.Patch
+	}
+	return false
+}
