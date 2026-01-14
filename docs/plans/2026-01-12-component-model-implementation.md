@@ -19,7 +19,7 @@
 | 1 | Binary Parser & Primitives | **COMPLETE** | 1-25 | [phase1-binary-parser.md](./2026-01-12-component-model-phase1-binary-parser.md) |
 | 2 | Complete Type System | **COMPLETE** | 31-70 | [phase2-type-system.md](./2026-01-12-component-model-phase2-type-system.md) |
 | 3 | Resources | **COMPLETE** | 71-100 | [phase3-resources.md](./2026-01-12-component-model-phase3-resources.md) |
-| 4 | Full Instantiation & Linking | NOT STARTED | 101-150 | [phase4-linking.md](./2026-01-12-component-model-phase4-linking.md) |
+| 4 | Full Instantiation & Linking | **COMPLETE** | 101-150 | [phase4-linking.md](./2026-01-12-component-model-phase4-linking.md) |
 | 5 | WASI Preview 2 | NOT STARTED | 151-240 | [phase5-wasip2.md](./2026-01-12-component-model-phase5-wasip2.md) |
 | 6 | Polish & Conformance | NOT STARTED | 241-280 | [phase6-polish.md](./2026-01-12-component-model-phase6-polish.md) |
 
