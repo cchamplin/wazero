@@ -327,3 +327,47 @@ type Import struct {
 	Name       string           // Import name (kebab-name with optional version)
 	ExternDesc ImportExternDesc // What is being imported
 }
+
+// CoreInstanceExprKind identifies how a core instance is created.
+type CoreInstanceExprKind uint8
+
+const (
+	CoreInstanceExprInstantiate CoreInstanceExprKind = 0x00 // Instantiate a module
+	CoreInstanceExprInline      CoreInstanceExprKind = 0x01 // Inline exports
+)
+
+func (k CoreInstanceExprKind) String() string {
+	switch k {
+	case CoreInstanceExprInstantiate:
+		return "instantiate"
+	case CoreInstanceExprInline:
+		return "inline"
+	default:
+		return fmt.Sprintf("unknown(%d)", k)
+	}
+}
+
+// CoreInstantiateArg is an argument for core module instantiation.
+type CoreInstantiateArg struct {
+	Name        string // Import name
+	InstanceIdx uint32 // Instance to import from (prefixed with 0x12)
+}
+
+// CoreInlineExport is an inline export for a core instance.
+type CoreInlineExport struct {
+	Name string
+	Sort CoreSort
+	Idx  uint32
+}
+
+// CoreInstance represents a core instance definition (section ID 2).
+type CoreInstance struct {
+	Kind CoreInstanceExprKind
+
+	// For Instantiate
+	ModuleIdx uint32
+	Args      []CoreInstantiateArg
+
+	// For Inline
+	InlineExports []CoreInlineExport
+}

@@ -173,3 +173,29 @@ func TestComponent_Imports(t *testing.T) {
 	require.Equal(t, 1, len(c.Imports))
 	require.Equal(t, "wasi:io/streams@0.2.0", c.Imports[0].Name)
 }
+
+func TestCoreInstanceExprKind(t *testing.T) {
+	tests := []struct {
+		kind     CoreInstanceExprKind
+		expected string
+	}{
+		{CoreInstanceExprInstantiate, "instantiate"},
+		{CoreInstanceExprInline, "inline"},
+	}
+	for _, tt := range tests {
+		require.Equal(t, tt.expected, tt.kind.String())
+	}
+}
+
+func TestCoreInstance_Instantiate(t *testing.T) {
+	ci := CoreInstance{
+		Kind:      CoreInstanceExprInstantiate,
+		ModuleIdx: 0,
+		Args: []CoreInstantiateArg{
+			{Name: "memory", InstanceIdx: 1},
+		},
+	}
+	require.Equal(t, CoreInstanceExprInstantiate, ci.Kind)
+	require.Equal(t, uint32(0), ci.ModuleIdx)
+	require.Equal(t, 1, len(ci.Args))
+}
