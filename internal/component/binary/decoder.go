@@ -84,6 +84,10 @@ func DecodeComponent(binary []byte) (*component.Component, error) {
 			if err := decodeExportSection(c, bytes.NewReader(sectionContent)); err != nil {
 				return nil, fmt.Errorf("section %s: %w", sectionID, err)
 			}
+		case SectionIDAlias:
+			if err := decodeAliasSection(c, bytes.NewReader(sectionContent)); err != nil {
+				return nil, fmt.Errorf("section %s: %w", sectionID, err)
+			}
 		default:
 			// Skip unknown sections for now
 		}
