@@ -42,3 +42,17 @@ func TestInstantiate_ClocksInterfaces(t *testing.T) {
 	_, err = linker.MatchImport("wasi:clocks/monotonic-clock@0.2.0")
 	require.NoError(t, err)
 }
+
+func TestInstantiate_RandomInterfaces(t *testing.T) {
+	linker := component.NewLinker()
+	err := Instantiate(linker)
+	require.NoError(t, err)
+
+	// Verify random interfaces
+	_, err = linker.MatchImport("wasi:random/random@0.2.0")
+	require.NoError(t, err)
+	_, err = linker.MatchImport("wasi:random/insecure@0.2.0")
+	require.NoError(t, err)
+	_, err = linker.MatchImport("wasi:random/insecure-seed@0.2.0")
+	require.NoError(t, err)
+}
