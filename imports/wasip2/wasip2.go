@@ -9,6 +9,7 @@
 package wasip2
 
 import (
+	wasip2io "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
 )
 
@@ -20,7 +21,9 @@ func Instantiate(linker *component.Linker) error {
 
 // InstantiateWithConfig registers all WASI Preview 2 interfaces with custom configuration.
 func InstantiateWithConfig(linker *component.Linker, config *Config) error {
-	// Phase 5.2-5.10 will add each interface
-	// For now, register a placeholder for io/error
-	return linker.DefineInstance("wasi:io/error@0.2.0").Build()
+	if err := wasip2io.Instantiate(linker); err != nil {
+		return err
+	}
+	// clocks, random, cli, filesystem, sockets, http will be added
+	return nil
 }
