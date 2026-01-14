@@ -36,6 +36,7 @@ type LiftContext struct {
 	Memory        Memory
 	Opts          *Options
 	ResourceTable *component.ResourceTable
+	BorrowScope   *component.BorrowScope
 }
 
 // ReadU8 reads a u8 from memory at the given offset.
