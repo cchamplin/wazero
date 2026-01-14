@@ -103,3 +103,43 @@ func TestLinker_DefineResource_Duplicate(t *testing.T) {
 	err = l.DefineResource("test", "res", func(rep uint32) {})
 	require.Error(t, err)
 }
+
+func TestLinker_Get_Direct(t *testing.T) {
+	l := NewLinker()
+	funcType := &FuncType{}
+
+	l.DefineFunc("test:api", "fn", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
+		return nil, nil
+	})
+
+	// Direct lookup
+	def, ok := l.Get("test:api/fn")
+	require.True(t, ok)
+	require.NotNil(t, def)
+}
+
+func TestLinker_Get_NotFound(t *testing.T) {
+	l := NewLinker()
+
+	def, ok := l.Get("nonexistent")
+	require.False(t, ok)
+	require.Nil(t, def)
+}
+
+func TestLinker_Get_Instance(t *testing.T) {
+	l := NewLinker()
+	funcType := &FuncType{}
+
+	l.DefineInstance("wasi:io/streams@0.2.0").
+		Func("read", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
+			return nil, nil
+		}).
+		Build()
+
+	// Get the instance
+	def, ok := l.Get("wasi:io/streams@0.2.0")
+	require.True(t, ok)
+	instDef, ok := def.(*InstanceDef)
+	require.True(t, ok)
+	require.NotNil(t, instDef.Exports["read"])
+}
