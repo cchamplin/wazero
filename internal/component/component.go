@@ -273,3 +273,54 @@ type Alias struct {
 	// For core export aliases, the core sort
 	CoreSort CoreSort
 }
+
+// ImportExternDescKind identifies the kind of imported item.
+type ImportExternDescKind uint8
+
+const (
+	ImportExternDescCoreModule ImportExternDescKind = 0x00
+	ImportExternDescFunc       ImportExternDescKind = 0x01
+	ImportExternDescValue      ImportExternDescKind = 0x02
+	ImportExternDescType       ImportExternDescKind = 0x03
+	ImportExternDescComponent  ImportExternDescKind = 0x04
+	ImportExternDescInstance   ImportExternDescKind = 0x05
+)
+
+func (k ImportExternDescKind) String() string {
+	switch k {
+	case ImportExternDescCoreModule:
+		return "core-module"
+	case ImportExternDescFunc:
+		return "func"
+	case ImportExternDescValue:
+		return "value"
+	case ImportExternDescType:
+		return "type"
+	case ImportExternDescComponent:
+		return "component"
+	case ImportExternDescInstance:
+		return "instance"
+	default:
+		return fmt.Sprintf("unknown(%d)", k)
+	}
+}
+
+// ImportExternDesc describes the type of an import.
+type ImportExternDesc struct {
+	Kind ImportExternDescKind
+
+	// For func, component, instance: type index
+	TypeIdx uint32
+
+	// For core module: core type index (after 0x11 prefix)
+	CoreTypeIdx uint32
+
+	// For value: value bound
+	// For type: type bound
+}
+
+// Import represents a component import.
+type Import struct {
+	Name       string           // Import name (kebab-name with optional version)
+	ExternDesc ImportExternDesc // What is being imported
+}
