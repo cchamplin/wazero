@@ -37,3 +37,19 @@ func TestOwnAndBorrowDistinct(t *testing.T) {
 	var _ ValType = o
 	var _ ValType = b
 }
+
+func TestResourceType(t *testing.T) {
+	// Resource with destructor
+	dtorIdx := uint32(42)
+	r := ResourceType{
+		Destructor: &dtorIdx,
+	}
+	require.NotNil(t, r.Destructor)
+	require.Equal(t, uint32(42), *r.Destructor)
+
+	// Resource without destructor
+	r2 := ResourceType{
+		Destructor: nil,
+	}
+	require.Nil(t, r2.Destructor)
+}
