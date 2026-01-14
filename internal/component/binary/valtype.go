@@ -81,7 +81,8 @@ const (
 // Handle type opcodes
 // See: https://github.com/WebAssembly/component-model/blob/main/design/mvp/Binary.md
 const (
-	ValTypeOpcodeOwn byte = 0x69 // own<T> handle type
+	ValTypeOpcodeBorrow byte = 0x68 // borrow<T> handle type
+	ValTypeOpcodeOwn    byte = 0x69 // own<T> handle type
 )
 
 // IsCompositeTypeOpcode returns true if the opcode is a composite type.

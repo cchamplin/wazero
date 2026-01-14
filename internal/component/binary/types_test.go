@@ -331,3 +331,69 @@ func TestDecodeOwnType_Error(t *testing.T) {
 	_, err := decodeValType(r)
 	require.Error(t, err)
 }
+
+func TestDecodeBorrowType(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []byte
+		expected component.ValTypeRef
+	}{
+		{
+			name:  "borrow<resource_type_7>",
+			input: []byte{0x68, 0x07}, // borrow<T> with type index 7
+			expected: component.ValTypeRef{
+				IsPrimitive: false,
+				IsBorrow:    true,
+				TypeIdx:     7,
+			},
+		},
+		{
+			name:  "borrow<resource_type_0>",
+			input: []byte{0x68, 0x00}, // borrow<T> with type index 0
+			expected: component.ValTypeRef{
+				IsPrimitive: false,
+				IsBorrow:    true,
+				TypeIdx:     0,
+			},
+		},
+		{
+			name:  "borrow<resource_type_128>",
+			input: []byte{0x68, 0x80, 0x01}, // borrow<T> with type index 128 (multi-byte LEB128)
+			expected: component.ValTypeRef{
+				IsPrimitive: false,
+				IsBorrow:    true,
+				TypeIdx:     128,
+			},
+		},
+		{
+			name:  "borrow<resource_type_255>",
+			input: []byte{0x68, 0xff, 0x01}, // borrow<T> with type index 255 (multi-byte LEB128)
+			expected: component.ValTypeRef{
+				IsPrimitive: false,
+				IsBorrow:    true,
+				TypeIdx:     255,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		tc := tt
+		t.Run(tc.name, func(t *testing.T) {
+			r := bytes.NewReader(tc.input)
+			result, err := decodeValType(r)
+			require.NoError(t, err)
+			require.Equal(t, tc.expected.IsPrimitive, result.IsPrimitive, "IsPrimitive mismatch")
+			require.Equal(t, tc.expected.IsBorrow, result.IsBorrow, "IsBorrow mismatch")
+			require.Equal(t, tc.expected.TypeIdx, result.TypeIdx, "TypeIdx mismatch")
+		})
+	}
+}
+
+func TestDecodeBorrowType_Error(t *testing.T) {
+	// Missing type index after 0x68 opcode
+	data := []byte{0x68}
+	r := bytes.NewReader(data)
+
+	_, err := decodeValType(r)
+	require.Error(t, err)
+}
