@@ -197,3 +197,27 @@ func TestValEnum(t *testing.T) {
 	require.Equal(t, ValKindEnum, v.Kind())
 	require.Equal(t, "green", v.Enum())
 }
+
+func TestValOwn(t *testing.T) {
+	v := ValOwn(42)
+	require.Equal(t, ValKindOwn, v.Kind())
+	require.Equal(t, uint32(42), v.Own())
+}
+
+func TestValBorrow(t *testing.T) {
+	v := ValBorrow(99)
+	require.Equal(t, ValKindBorrow, v.Kind())
+	require.Equal(t, uint32(99), v.Borrow())
+}
+
+func TestValOwnWrongKind(t *testing.T) {
+	v := ValS32(5)
+	err := require.CapturePanic(func() { v.Own() })
+	require.Error(t, err)
+}
+
+func TestValBorrowWrongKind(t *testing.T) {
+	v := ValS32(5)
+	err := require.CapturePanic(func() { v.Borrow() })
+	require.Error(t, err)
+}

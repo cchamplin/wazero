@@ -264,6 +264,34 @@ func (v Val) Enum() string {
 	return v.v.(string)
 }
 
+// ValOwn creates a Val containing an owning handle.
+func ValOwn(handle uint32) Val {
+	return Val{kind: ValKindOwn, v: handle}
+}
+
+// ValBorrow creates a Val containing a borrowed handle.
+func ValBorrow(handle uint32) Val {
+	return Val{kind: ValKindBorrow, v: handle}
+}
+
+// Own returns the handle index for an own handle.
+// Panics if Kind() != ValKindOwn.
+func (v Val) Own() uint32 {
+	if v.kind != ValKindOwn {
+		panic("Val is not an own handle")
+	}
+	return v.v.(uint32)
+}
+
+// Borrow returns the handle index for a borrowed handle.
+// Panics if Kind() != ValKindBorrow.
+func (v Val) Borrow() uint32 {
+	if v.kind != ValKindBorrow {
+		panic("Val is not a borrowed handle")
+	}
+	return v.v.(uint32)
+}
+
 // String returns a string representation of the ValKind for debugging.
 func (k ValKind) String() string {
 	switch k {
