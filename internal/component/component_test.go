@@ -63,3 +63,57 @@ func TestCoreSortString(t *testing.T) {
 		require.Equal(t, tt.expected, tt.sort.String())
 	}
 }
+
+func TestAliasKindString(t *testing.T) {
+	tests := []struct {
+		kind     AliasKind
+		expected string
+	}{
+		{AliasKindExport, "export"},
+		{AliasKindCoreExport, "core-export"},
+		{AliasKindOuter, "outer"},
+		{AliasKind(255), "unknown(255)"},
+	}
+	for _, tt := range tests {
+		require.Equal(t, tt.expected, tt.kind.String())
+	}
+}
+
+func TestAlias_ExportAlias(t *testing.T) {
+	a := Alias{
+		Kind:        AliasKindExport,
+		Sort:        SortFunc,
+		InstanceIdx: 1,
+		ExportName:  "my-func",
+	}
+	require.Equal(t, AliasKindExport, a.Kind)
+	require.Equal(t, SortFunc, a.Sort)
+	require.Equal(t, uint32(1), a.InstanceIdx)
+	require.Equal(t, "my-func", a.ExportName)
+}
+
+func TestAlias_CoreExportAlias(t *testing.T) {
+	a := Alias{
+		Kind:        AliasKindCoreExport,
+		CoreSort:    CoreSortMemory,
+		InstanceIdx: 0,
+		ExportName:  "memory",
+	}
+	require.Equal(t, AliasKindCoreExport, a.Kind)
+	require.Equal(t, CoreSortMemory, a.CoreSort)
+	require.Equal(t, uint32(0), a.InstanceIdx)
+	require.Equal(t, "memory", a.ExportName)
+}
+
+func TestAlias_OuterAlias(t *testing.T) {
+	a := Alias{
+		Kind:       AliasKindOuter,
+		Sort:       SortType,
+		OuterCount: 1,
+		OuterIndex: 5,
+	}
+	require.Equal(t, AliasKindOuter, a.Kind)
+	require.Equal(t, SortType, a.Sort)
+	require.Equal(t, uint32(1), a.OuterCount)
+	require.Equal(t, uint32(5), a.OuterIndex)
+}
