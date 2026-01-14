@@ -72,6 +72,10 @@ func DecodeComponent(binary []byte) (*component.Component, error) {
 			if err := decodeCoreModuleSection(c, sectionContent); err != nil {
 				return nil, fmt.Errorf("section %s: %w", sectionID, err)
 			}
+		case SectionIDCoreInstance:
+			if err := decodeCoreInstanceSection(c, bytes.NewReader(sectionContent)); err != nil {
+				return nil, fmt.Errorf("section %s: %w", sectionID, err)
+			}
 		case SectionIDType:
 			if err := decodeTypeSection(c, bytes.NewReader(sectionContent)); err != nil {
 				return nil, fmt.Errorf("section %s: %w", sectionID, err)
