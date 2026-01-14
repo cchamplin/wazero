@@ -8,15 +8,6 @@ import (
 	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
-// LowerContext provides context for lowering operations.
-// For primitive types, the context is not used, but it will be required
-// for composite types (strings, lists, records) that need memory allocation.
-type LowerContext struct {
-	Memory  Memory
-	Opts    *Options
-	Realloc func(oldPtr, oldSize, align, newSize uint32) (uint32, error)
-}
-
 // LowerFlat lowers a component Val to flat core wasm values.
 func LowerFlat(ctx *LowerContext, typ types.ValType, val component.Val) ([]uint64, error) {
 	switch typ.(type) {
@@ -307,4 +298,17 @@ func LowerHeap(ctx *LowerContext, typ types.ValType, val component.Val, offset u
 	default:
 		return fmt.Errorf("unsupported heap lower for type: %T", typ)
 	}
+}
+
+// LowerOwn receives ownership of a resource into the component.
+// Creates a new owned handle in the table and returns its index.
+// This is the opposite of LiftOwn - it takes a representation value
+// and creates a new handle in the component's resource table.
+func LowerOwn(ctx *LowerContext, rep any) (uint32, error) {
+	if ctx.ResourceTable == nil {
+		return 0, fmt.Errorf("lower_own: no resource table available")
+	}
+
+	h := ctx.ResourceTable.New(rep, true)
+	return h.Index(), nil
 }

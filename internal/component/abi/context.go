@@ -74,6 +74,16 @@ func (c *LiftContext) ReadF64(offset uint32) float64 {
 	return math.Float64frombits(bits)
 }
 
+// LowerContext provides context for lowering operations.
+// For primitive types, the context is not used, but it will be required
+// for composite types (strings, lists, records) that need memory allocation.
+type LowerContext struct {
+	Memory        Memory
+	Opts          *Options
+	Realloc       func(oldPtr, oldSize, align, newSize uint32) (uint32, error)
+	ResourceTable *component.ResourceTable
+}
+
 // writeUint8 writes a uint8 to memory at the given offset.
 func writeUint8(m Memory, offset uint32, val uint8) {
 	m.Write(offset, []byte{val})
