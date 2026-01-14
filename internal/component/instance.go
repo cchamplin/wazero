@@ -52,12 +52,31 @@ func (f *ExportedFunc) Name() string {
 }
 
 // Call invokes the exported function with the given arguments.
-// Supports primitive types and records (flattened to their fields).
+// Supports primitive types, records (flattened to their fields), and resource handles.
+// For resource handles (own/borrow), it uses the Canonical ABI lift/lower operations.
 func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
+	// Set up call context and borrow scope for resource tracking
+	callCtx := NewCallContext()
+	var borrowScope *BorrowScope
+
+	// Initialize resource table if needed
+	if f.instance != nil {
+		if f.instance.resourceTable == nil {
+			f.instance.resourceTable = NewResourceTable()
+		}
+		borrowScope = NewBorrowScope(f.instance.resourceTable)
+		// Set the call context for this invocation
+		prevCallCtx := f.instance.callContext
+		f.instance.callContext = callCtx
+		defer func() {
+			f.instance.callContext = prevCallCtx
+		}()
+	}
+
 	// Convert component Vals to core wasm values
 	// Records are flattened into their constituent fields
 	var coreParams []uint64
-	for _, p := range params {
+	for i, p := range params {
 		switch p.Kind() {
 		case ValKindS32:
 			coreParams = append(coreParams, uint64(uint32(p.S32())))
@@ -135,16 +154,16 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 			// Currently using a simple allocation strategy: write at offset 0
 			// TODO: In a full implementation, use realloc for proper allocation
 			ptr := uint32(0)
-			for i, elem := range list {
-				offset := ptr + uint32(i*4)
+			for j, elem := range list {
+				offset := ptr + uint32(j*4)
 				switch elem.Kind() {
 				case ValKindS32:
 					if !mem.WriteUint32Le(offset, uint32(elem.S32())) {
-						return nil, fmt.Errorf("failed to write list element %d to memory", i)
+						return nil, fmt.Errorf("failed to write list element %d to memory", j)
 					}
 				case ValKindU32:
 					if !mem.WriteUint32Le(offset, elem.U32()) {
-						return nil, fmt.Errorf("failed to write list element %d to memory", i)
+						return nil, fmt.Errorf("failed to write list element %d to memory", j)
 					}
 				default:
 					return nil, fmt.Errorf("unsupported list element type: %s", elem.Kind())
@@ -153,6 +172,28 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 
 			// Pass (ptr, len) to core function
 			coreParams = append(coreParams, uint64(ptr), uint64(len(list)))
+		case ValKindOwn:
+			// own<T> argument: Create a new owned handle from the representation
+			// The Val contains a representation value that we turn into a handle
+			// When caller passes own<T>, ownership transfers to callee
+			rep := p.Own()
+			if f.instance == nil || f.instance.resourceTable == nil {
+				return nil, fmt.Errorf("lower own param %d: no resource table available", i)
+			}
+			h := f.instance.resourceTable.New(rep, true)
+			coreParams = append(coreParams, uint64(h.Index()))
+		case ValKindBorrow:
+			// borrow<T> argument: Create a borrowed handle from the representation
+			// The Val contains a representation value that we turn into a handle
+			// Borrowed handles must be dropped before return
+			rep := p.Borrow()
+			if f.instance == nil || f.instance.resourceTable == nil {
+				return nil, fmt.Errorf("lower borrow param %d: no resource table available", i)
+			}
+			h := f.instance.resourceTable.New(rep, false) // own=false for borrowed
+			// Track borrow in call context for return validation
+			callCtx.IncrementBorrows()
+			coreParams = append(coreParams, uint64(h.Index()))
 		default:
 			return nil, fmt.Errorf("unsupported parameter type: %s", p.Kind())
 		}
@@ -165,9 +206,62 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 	}
 
 	// Convert core results back to component Vals
-	// Check if the result type is a record or option by examining the function type
+	// Check if the result type is a record, option, or handle by examining the function type
 	if f.funcType != nil && len(f.funcType.Results) == 1 {
 		resultType := f.funcType.Results[0].ValType
+
+		// Check for own<T> result
+		if resultType.IsOwn && len(coreResults) == 1 {
+			// own<T> result: Extract rep and transfer ownership out of component
+			handleIdx := uint32(coreResults[0])
+			rep, err := f.liftOwn(handleIdx, borrowScope)
+			if err != nil {
+				return nil, fmt.Errorf("lift own result: %w", err)
+			}
+			// Release borrow scope before return
+			if borrowScope != nil {
+				if err := borrowScope.Release(); err != nil {
+					return nil, fmt.Errorf("release borrow scope: %w", err)
+				}
+			}
+			// Validate no outstanding borrows
+			if err := callCtx.ValidateReturn(); err != nil {
+				return nil, err
+			}
+			// Return the representation as the handle value
+			// The rep is any, so we extract uint32 if it's a handle index
+			if handleVal, ok := rep.(uint32); ok {
+				return []Val{ValOwn(handleVal)}, nil
+			}
+			// If rep is not uint32, return it wrapped in ValOwn with index 0
+			// This is a simplification; proper implementation would track the actual handle
+			return []Val{ValOwn(0)}, nil
+		}
+
+		// Check for borrow<T> result (rare, but possible)
+		if resultType.IsBorrow && len(coreResults) == 1 {
+			// borrow<T> result: Read the rep without removing from table
+			handleIdx := uint32(coreResults[0])
+			rep, err := f.liftBorrow(handleIdx, borrowScope)
+			if err != nil {
+				return nil, fmt.Errorf("lift borrow result: %w", err)
+			}
+			// Release borrow scope before return
+			if borrowScope != nil {
+				if err := borrowScope.Release(); err != nil {
+					return nil, fmt.Errorf("release borrow scope: %w", err)
+				}
+			}
+			// Validate no outstanding borrows
+			if err := callCtx.ValidateReturn(); err != nil {
+				return nil, err
+			}
+			if handleVal, ok := rep.(uint32); ok {
+				return []Val{ValBorrow(handleVal)}, nil
+			}
+			return []Val{ValBorrow(0)}, nil
+		}
+
 		if !resultType.IsPrimitive && f.component != nil && resultType.TypeIdx < uint32(len(f.component.Types)) {
 			// Result is a defined type - look up the actual type definition
 			typeDef := &f.component.Types[resultType.TypeIdx]
@@ -176,12 +270,30 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 				discriminant := coreResults[0]
 				if discriminant == 0 {
 					// None
+					// Release borrow scope and validate before return
+					if borrowScope != nil {
+						if err := borrowScope.Release(); err != nil {
+							return nil, fmt.Errorf("release borrow scope: %w", err)
+						}
+					}
+					if err := callCtx.ValidateReturn(); err != nil {
+						return nil, err
+					}
 					return []Val{ValOption(nil)}, nil
 				}
 				// Some: currently assumes s32 payload
 				// TODO: In a full implementation, the payload type should be
 				// determined from the option type definition.
 				payload := ValS32(int32(coreResults[1]))
+				// Release borrow scope and validate before return
+				if borrowScope != nil {
+					if err := borrowScope.Release(); err != nil {
+						return nil, fmt.Errorf("release borrow scope: %w", err)
+					}
+				}
+				if err := callCtx.ValidateReturn(); err != nil {
+					return nil, err
+				}
 				return []Val{ValOption(&payload)}, nil
 			} else if typeDef.Record != nil && len(coreResults) == 2 {
 				// Record type: For records, the core function returns multiple flat values
@@ -195,6 +307,15 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 					"x": ValS32(int32(coreResults[0])),
 					"y": ValS32(int32(coreResults[1])),
 				}
+				// Release borrow scope and validate before return
+				if borrowScope != nil {
+					if err := borrowScope.Release(); err != nil {
+						return nil, fmt.Errorf("release borrow scope: %w", err)
+					}
+				}
+				if err := callCtx.ValidateReturn(); err != nil {
+					return nil, err
+				}
 				return []Val{ValRecord(rec)}, nil
 			} else if typeDef.Result != nil && len(coreResults) == 2 {
 				// Result type: first result is discriminant, second is payload
@@ -205,15 +326,45 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 					// TODO: In a full implementation, the payload type should be
 					// determined from the result type definition.
 					payload := ValS32(int32(coreResults[1]))
+					// Release borrow scope and validate before return
+					if borrowScope != nil {
+						if err := borrowScope.Release(); err != nil {
+							return nil, fmt.Errorf("release borrow scope: %w", err)
+						}
+					}
+					if err := callCtx.ValidateReturn(); err != nil {
+						return nil, err
+					}
 					return []Val{ValResultOk(&payload)}, nil
 				}
 				// Error: return error result with error value
 				// TODO: In a full implementation, the error type should be
 				// determined from the result type definition.
 				errVal := ValS32(int32(coreResults[1]))
+				// Release borrow scope and validate before return
+				if borrowScope != nil {
+					if err := borrowScope.Release(); err != nil {
+						return nil, fmt.Errorf("release borrow scope: %w", err)
+					}
+				}
+				if err := callCtx.ValidateReturn(); err != nil {
+					return nil, err
+				}
 				return []Val{ValResultError(&errVal)}, nil
 			}
 		}
+	}
+
+	// Release borrow scope before returning
+	if borrowScope != nil {
+		if err := borrowScope.Release(); err != nil {
+			return nil, fmt.Errorf("release borrow scope: %w", err)
+		}
+	}
+
+	// Validate that all borrowed handles have been dropped
+	if err := callCtx.ValidateReturn(); err != nil {
+		return nil, err
 	}
 
 	// Default: treat results as primitives (s32)
@@ -225,6 +376,85 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 	}
 
 	return results, nil
+}
+
+// liftOwn transfers ownership of a resource out of the component.
+// It removes the handle from the table and returns the representation value.
+// Traps if the handle has active borrows (NumLends > 0).
+// Traps if the handle is not owned (i.e., it's a borrowed handle).
+func (f *ExportedFunc) liftOwn(handleIdx uint32, borrowScope *BorrowScope) (any, error) {
+	if f.instance == nil || f.instance.resourceTable == nil {
+		return nil, fmt.Errorf("lift_own: no resource table available")
+	}
+
+	// Construct handle from index - try to find the valid generation
+	h := Handle(handleIdx)
+
+	// Get the entry first to check ownership
+	entry, err := f.instance.resourceTable.Get(h)
+	if err != nil {
+		// Try to find the entry by scanning generations
+		for gen := uint32(1); gen < 1000; gen++ {
+			h = MakeHandle(handleIdx, gen)
+			entry, err = f.instance.resourceTable.Get(h)
+			if err == nil {
+				break
+			}
+		}
+		if err != nil {
+			return nil, fmt.Errorf("lift_own: invalid handle index %d: %w", handleIdx, err)
+		}
+	}
+
+	// Verify this is an owned handle, not a borrow
+	if !entry.Own {
+		return nil, fmt.Errorf("lift_own: handle is not owned")
+	}
+
+	// Remove from table (this checks NumLends > 0 and returns error if so)
+	removed, err := f.instance.resourceTable.Remove(h)
+	if err != nil {
+		return nil, fmt.Errorf("lift_own: %w", err)
+	}
+
+	return removed.Rep, nil
+}
+
+// liftBorrow reads a resource representation for borrowing.
+// Unlike liftOwn, it does NOT remove the handle from the table.
+// It tracks the lend in the BorrowScope to prevent ownership transfer while borrowed.
+func (f *ExportedFunc) liftBorrow(handleIdx uint32, borrowScope *BorrowScope) (any, error) {
+	if f.instance == nil || f.instance.resourceTable == nil {
+		return nil, fmt.Errorf("lift_borrow: no resource table available")
+	}
+
+	// Construct handle from index
+	h := Handle(handleIdx)
+
+	// Try to get the entry
+	entry, err := f.instance.resourceTable.Get(h)
+	if err != nil {
+		// Try to find the entry by scanning generations
+		for gen := uint32(1); gen < 1000; gen++ {
+			h = MakeHandle(handleIdx, gen)
+			entry, err = f.instance.resourceTable.Get(h)
+			if err == nil {
+				break
+			}
+		}
+		if err != nil {
+			return nil, fmt.Errorf("lift_borrow: invalid handle index %d: %w", handleIdx, err)
+		}
+	}
+
+	// Track the lend in the borrow scope
+	if borrowScope != nil {
+		if err := borrowScope.AddLender(h); err != nil {
+			return nil, fmt.Errorf("lift_borrow: tracking lend: %w", err)
+		}
+	}
+
+	return entry.Rep, nil
 }
 
 // ResourceNew implements canon resource.new.
