@@ -325,3 +325,75 @@ func TestInstance_GetExportedFunc_NotFound(t *testing.T) {
 	fn := inst.GetExportedFunc("missing")
 	require.Nil(t, fn)
 }
+
+func TestInstance_GetExportedFunc_ExportOldGetNew(t *testing.T) {
+	// Wasmtime test: export_old_get_new
+	// Component exports v1.0.0, caller requests v1.0.1
+	l := NewLinker()
+	funcType := &FuncType{}
+
+	c := &Component{
+		Types: []TypeDef{
+			{Kind: TypeDefKindFunc, Func: funcType},
+		},
+		Exports: []Export{
+			{Name: "test:api@1.0.0/fn", Kind: ExportKindFunc, Idx: 0},
+		},
+	}
+
+	inst, err := l.Instantiate(context.Background(), c)
+	require.NoError(t, err)
+
+	// Request v1.0.1 - should match v1.0.0 (backward compatible)
+	fn := inst.GetExportedFunc("test:api@1.0.1/fn")
+	require.NotNil(t, fn)
+}
+
+func TestInstance_GetExportedFunc_ExportNewGetOld(t *testing.T) {
+	// Wasmtime test: export_new_get_old
+	// Component exports v1.0.1, caller requests v1.0.0
+	l := NewLinker()
+	funcType := &FuncType{}
+
+	c := &Component{
+		Types: []TypeDef{
+			{Kind: TypeDefKindFunc, Func: funcType},
+		},
+		Exports: []Export{
+			{Name: "test:api@1.0.1/fn", Kind: ExportKindFunc, Idx: 0},
+		},
+	}
+
+	inst, err := l.Instantiate(context.Background(), c)
+	require.NoError(t, err)
+
+	// Request v1.0.0 - should match v1.0.1 (forward compatible)
+	fn := inst.GetExportedFunc("test:api@1.0.0/fn")
+	require.NotNil(t, fn)
+}
+
+func TestInstance_GetExportedFunc_SelectsMax(t *testing.T) {
+	// Wasmtime test: export_missing_get_max
+	l := NewLinker()
+	funcType := &FuncType{}
+
+	c := &Component{
+		Types: []TypeDef{
+			{Kind: TypeDefKindFunc, Func: funcType},
+		},
+		Exports: []Export{
+			{Name: "test:api@1.0.0/fn", Kind: ExportKindFunc, Idx: 0},
+			{Name: "test:api@1.0.2/fn", Kind: ExportKindFunc, Idx: 0},
+			{Name: "test:api@1.0.1/fn", Kind: ExportKindFunc, Idx: 0},
+		},
+	}
+
+	inst, err := l.Instantiate(context.Background(), c)
+	require.NoError(t, err)
+
+	// Request v1.0.0 - should match highest compatible (v1.0.2)
+	fn := inst.GetExportedFunc("test:api@1.0.0/fn")
+	require.NotNil(t, fn)
+	// Verify we got the right one by checking the name
+	require.Equal(t, "test:api@1.0.2/fn", fn.name)
+}
