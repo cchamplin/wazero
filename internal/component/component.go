@@ -374,3 +374,50 @@ type CoreInstance struct {
 	// For Inline
 	InlineExports []CoreInlineExport
 }
+
+// ComponentInstanceExprKind identifies how a component instance is created.
+type ComponentInstanceExprKind uint8
+
+const (
+	ComponentInstanceExprInstantiate ComponentInstanceExprKind = 0x00 // Instantiate a component
+	ComponentInstanceExprInline      ComponentInstanceExprKind = 0x01 // Inline exports
+)
+
+func (k ComponentInstanceExprKind) String() string {
+	switch k {
+	case ComponentInstanceExprInstantiate:
+		return "instantiate"
+	case ComponentInstanceExprInline:
+		return "inline"
+	default:
+		return fmt.Sprintf("unknown(%d)", k)
+	}
+}
+
+// ComponentInstantiateArg is an argument for component instantiation.
+// Format: n:<name> si:<sortidx>
+// sortidx ::= sort:<sort> idx:<u32>
+type ComponentInstantiateArg struct {
+	Name string // Argument name
+	Sort Sort   // What kind of item
+	Idx  uint32 // Index of the item
+}
+
+// ComponentInlineExport is an inline export for a component instance.
+type ComponentInlineExport struct {
+	Name string
+	Sort Sort
+	Idx  uint32
+}
+
+// ComponentInstance represents a component instance definition (section ID 5).
+type ComponentInstance struct {
+	Kind ComponentInstanceExprKind
+
+	// For Instantiate
+	ComponentIdx uint32
+	Args         []ComponentInstantiateArg
+
+	// For Inline
+	InlineExports []ComponentInlineExport
+}

@@ -208,3 +208,29 @@ func TestComponent_CoreInstances(t *testing.T) {
 	}
 	require.Equal(t, 1, len(c.CoreInstances))
 }
+
+func TestComponentInstanceExprKind(t *testing.T) {
+	tests := []struct {
+		kind     ComponentInstanceExprKind
+		expected string
+	}{
+		{ComponentInstanceExprInstantiate, "instantiate"},
+		{ComponentInstanceExprInline, "inline"},
+	}
+	for _, tt := range tests {
+		require.Equal(t, tt.expected, tt.kind.String())
+	}
+}
+
+func TestComponentInstance_Instantiate(t *testing.T) {
+	ci := ComponentInstance{
+		Kind:         ComponentInstanceExprInstantiate,
+		ComponentIdx: 0,
+		Args: []ComponentInstantiateArg{
+			{Name: "streams", Sort: SortInstance, Idx: 1},
+		},
+	}
+	require.Equal(t, ComponentInstanceExprInstantiate, ci.Kind)
+	require.Equal(t, uint32(0), ci.ComponentIdx)
+	require.Equal(t, 1, len(ci.Args))
+}
