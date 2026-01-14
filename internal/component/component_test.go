@@ -199,3 +199,12 @@ func TestCoreInstance_Instantiate(t *testing.T) {
 	require.Equal(t, uint32(0), ci.ModuleIdx)
 	require.Equal(t, 1, len(ci.Args))
 }
+
+func TestComponent_CoreInstances(t *testing.T) {
+	c := &Component{
+		CoreInstances: []CoreInstance{
+			{Kind: CoreInstanceExprInstantiate, ModuleIdx: 0},
+		},
+	}
+	require.Equal(t, 1, len(c.CoreInstances))
+}

@@ -37,6 +37,9 @@ type Component struct {
 
 	// Imports contains component imports (section ID 10).
 	Imports []Import
+
+	// CoreInstances contains core instance definitions (section ID 2).
+	CoreInstances []CoreInstance
 }
 
 // TypeDef represents a component type definition.
