@@ -4,7 +4,12 @@ package http
 
 import (
 	"context"
+	goio "io"
+	gohttp "net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/testing/require"
@@ -1159,4 +1164,396 @@ func TestFutureTrailers(t *testing.T) {
 func TestResponseOutparam(t *testing.T) {
 	param := NewResponseOutparam()
 	require.NotNil(t, param)
+}
+
+// ====================
+// HTTP Client Integration Tests
+// ====================
+
+// TestOutgoingRequest_Build tests building an HTTP request from OutgoingRequest.
+func TestOutgoingRequest_Build(t *testing.T) {
+	headers := NewFields()
+	headers.Set("Content-Type", [][]byte{[]byte("application/json")})
+	headers.Set("Accept", [][]byte{[]byte("*/*")})
+
+	req := NewOutgoingRequest(headers)
+	req.SetMethod(MethodPost)
+
+	path := "/api/test?foo=bar"
+	req.SetPathWithQuery(&path)
+
+	scheme := NewSchemeHTTPS()
+	req.SetScheme(&scheme)
+
+	authority := "example.com:8080"
+	req.SetAuthority(&authority)
+
+	// Get the body and write to it
+	body, err := req.Body()
+	require.NoError(t, err)
+	require.NotNil(t, body)
+
+	stream, err := body.Write()
+	require.NoError(t, err)
+	require.NotNil(t, stream)
+
+	// Write some data
+	writeErr := stream.Write([]byte(`{"test": "data"}`))
+	require.Nil(t, writeErr)
+
+	body.Finish()
+
+	// Convert to Go HTTP request
+	httpReq, err := req.ToHTTPRequest(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, httpReq)
+
+	// Verify the request properties
+	require.Equal(t, "POST", httpReq.Method)
+	require.Equal(t, "https://example.com:8080/api/test?foo=bar", httpReq.URL.String())
+	require.Equal(t, "application/json", httpReq.Header.Get("Content-Type"))
+	require.Equal(t, "*/*", httpReq.Header.Get("Accept"))
+}
+
+// TestOutgoingHandler_Get tests sending a GET request to a test server.
+func TestOutgoingHandler_Get(t *testing.T) {
+	// Create a test server
+	server := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, r *gohttp.Request) {
+		require.Equal(t, "GET", r.Method)
+		require.Equal(t, "/test/path", r.URL.Path)
+
+		w.Header().Set("X-Test-Header", "test-value")
+		w.WriteHeader(200)
+		w.Write([]byte("Hello, World!"))
+	}))
+	defer server.Close()
+
+	// Build the request directly (bypassing resource table for request setup)
+	headers := NewFields()
+	req := NewOutgoingRequest(headers)
+	req.SetMethod(MethodGet)
+
+	path := "/test/path"
+	req.SetPathWithQuery(&path)
+
+	scheme := NewSchemeHTTP()
+	req.SetScheme(&scheme)
+
+	// Parse server URL for authority
+	authority := strings.TrimPrefix(server.URL, "http://")
+	req.SetAuthority(&authority)
+
+	// Convert to HTTP request and execute directly
+	httpReq, err := req.ToHTTPRequest(context.Background())
+	require.NoError(t, err)
+
+	resp, err := gohttp.DefaultClient.Do(httpReq)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	// Verify response
+	require.Equal(t, 200, resp.StatusCode)
+	require.Equal(t, "test-value", resp.Header.Get("X-Test-Header"))
+
+	// Read body
+	body, err := goio.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.Equal(t, "Hello, World!", string(body))
+}
+
+// TestOutgoingHandler_Post tests sending a POST request with body.
+func TestOutgoingHandler_Post(t *testing.T) {
+	// Create a test server
+	server := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, r *gohttp.Request) {
+		require.Equal(t, "POST", r.Method)
+		require.Equal(t, "application/json", r.Header.Get("Content-Type"))
+
+		// Read request body
+		body, err := goio.ReadAll(r.Body)
+		require.NoError(t, err)
+		require.Equal(t, `{"message": "hello"}`, string(body))
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		w.Write([]byte(`{"status": "created"}`))
+	}))
+	defer server.Close()
+
+	// Build the request directly
+	headers := NewFields()
+	headers.Set("Content-Type", [][]byte{[]byte("application/json")})
+	req := NewOutgoingRequest(headers)
+	req.SetMethod(MethodPost)
+
+	path := "/api/resource"
+	req.SetPathWithQuery(&path)
+
+	scheme := NewSchemeHTTP()
+	req.SetScheme(&scheme)
+
+	authority := strings.TrimPrefix(server.URL, "http://")
+	req.SetAuthority(&authority)
+
+	// Write request body
+	reqBody, err := req.Body()
+	require.NoError(t, err)
+
+	stream, err := reqBody.Write()
+	require.NoError(t, err)
+
+	writeErr := stream.Write([]byte(`{"message": "hello"}`))
+	require.Nil(t, writeErr)
+
+	reqBody.Finish()
+
+	// Convert to HTTP request and execute directly
+	httpReq, err := req.ToHTTPRequest(context.Background())
+	require.NoError(t, err)
+
+	resp, err := gohttp.DefaultClient.Do(httpReq)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	// Verify response
+	require.Equal(t, 201, resp.StatusCode)
+
+	// Read response body
+	respData, err := goio.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.Equal(t, `{"status": "created"}`, string(respData))
+}
+
+// TestFutureIncomingResponse_Subscribe tests async polling behavior.
+func TestFutureIncomingResponse_Subscribe_Async(t *testing.T) {
+	future := NewFutureIncomingResponse()
+
+	// Subscribe should return a pollable
+	pollable := future.Subscribe()
+	require.NotNil(t, pollable)
+
+	// Should not be ready yet
+	require.False(t, pollable.Ready())
+
+	// Set response in background
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		future.SetResponse(NewIncomingResponse(200, NewFields()))
+	}()
+
+	// Block should wait until ready
+	pollable.Block()
+
+	// Now should be ready
+	require.True(t, future.IsReady())
+
+	// Get should return response
+	resp, errCode, ready := future.Get()
+	require.True(t, ready)
+	require.Nil(t, errCode)
+	require.NotNil(t, resp)
+	require.Equal(t, uint16(200), resp.Status())
+
+	// Second Get should return nothing (already consumed)
+	resp2, errCode2, ready2 := future.Get()
+	require.False(t, ready2)
+	require.Nil(t, errCode2)
+	require.Nil(t, resp2)
+}
+
+// TestFutureIncomingResponse_Error tests error handling.
+func TestFutureIncomingResponse_Error_Handling(t *testing.T) {
+	future := NewFutureIncomingResponse()
+
+	// Set an error
+	future.SetError(ErrorCodeConnectionRefused)
+
+	// Should be ready
+	require.True(t, future.IsReady())
+
+	// Get should return error
+	resp, errCode, ready := future.Get()
+	require.True(t, ready)
+	require.NotNil(t, errCode)
+	require.Equal(t, ErrorCodeConnectionRefused, *errCode)
+	require.Nil(t, resp)
+}
+
+// TestOutgoingHandler_Timeout tests timeout handling.
+func TestOutgoingHandler_Timeout(t *testing.T) {
+	// Create a slow server
+	server := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, r *gohttp.Request) {
+		time.Sleep(2 * time.Second)
+		w.WriteHeader(200)
+	}))
+	defer server.Close()
+
+	// Build request directly
+	headers := NewFields()
+	req := NewOutgoingRequest(headers)
+
+	path := "/slow"
+	req.SetPathWithQuery(&path)
+
+	scheme := NewSchemeHTTP()
+	req.SetScheme(&scheme)
+
+	authority := strings.TrimPrefix(server.URL, "http://")
+	req.SetAuthority(&authority)
+
+	// Convert to HTTP request
+	httpReq, err := req.ToHTTPRequest(context.Background())
+	require.NoError(t, err)
+
+	// Create client with short timeout
+	client := &gohttp.Client{
+		Timeout: 100 * time.Millisecond,
+	}
+
+	// Execute - should timeout
+	_, err = client.Do(httpReq)
+	require.Error(t, err)
+
+	// Verify the error is a timeout (message could contain "timeout" or "deadline exceeded")
+	errMsg := err.Error()
+	isTimeout := strings.Contains(errMsg, "timeout") || strings.Contains(errMsg, "deadline exceeded")
+	require.True(t, isTimeout, "expected timeout error, got: %s", errMsg)
+}
+
+// TestErrorCodeFromError tests error code mapping.
+func TestErrorCodeFromError_Mapping(t *testing.T) {
+	tests := []struct {
+		errMsg   string
+		expected ErrorCode
+	}{
+		{"connection refused", ErrorCodeConnectionRefused},
+		{"dial tcp: connection timeout", ErrorCodeConnectionTimeout},
+		{"no such host", ErrorCodeDNSError},
+		{"connection reset by peer", ErrorCodeConnectionTerminated},
+		{"x509: certificate has expired", ErrorCodeTLSCertificateError},
+		{"context deadline exceeded", ErrorCodeHTTPResponseTimeout},
+		{"unknown error", ErrorCodeInternalError},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.errMsg, func(t *testing.T) {
+			err := gohttp.ProtocolError{ErrorString: tc.errMsg}
+			code := ErrorCodeFromError(&err)
+			require.Equal(t, tc.expected, code)
+		})
+	}
+}
+
+// TestMethodHTTPMethod tests HTTP method conversion.
+func TestMethodHTTPMethod(t *testing.T) {
+	require.Equal(t, gohttp.MethodGet, MethodGet.HTTPMethod())
+	require.Equal(t, gohttp.MethodPost, MethodPost.HTTPMethod())
+	require.Equal(t, gohttp.MethodPut, MethodPut.HTTPMethod())
+	require.Equal(t, gohttp.MethodDelete, MethodDelete.HTTPMethod())
+	require.Equal(t, gohttp.MethodHead, MethodHead.HTTPMethod())
+	require.Equal(t, gohttp.MethodOptions, MethodOptions.HTTPMethod())
+	require.Equal(t, gohttp.MethodPatch, MethodPatch.HTTPMethod())
+	require.Equal(t, gohttp.MethodConnect, MethodConnect.HTTPMethod())
+	require.Equal(t, gohttp.MethodTrace, MethodTrace.HTTPMethod())
+}
+
+// TestIncomingResponseFromHTTP tests creating IncomingResponse from net/http response.
+func TestIncomingResponseFromHTTP(t *testing.T) {
+	// Create a test server
+	server := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, r *gohttp.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Add("X-Custom", "value1")
+		w.Header().Add("X-Custom", "value2")
+		w.WriteHeader(201)
+		w.Write([]byte(`{"data": "test"}`))
+	}))
+	defer server.Close()
+
+	// Make a request
+	resp, err := gohttp.Get(server.URL)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	// Convert to IncomingResponse
+	incomingResp := NewIncomingResponseFromHTTP(resp)
+	require.NotNil(t, incomingResp)
+	require.Equal(t, uint16(201), incomingResp.Status())
+
+	// Check headers
+	headers := incomingResp.Headers()
+	require.NotNil(t, headers)
+
+	contentType := headers.Get("Content-Type")
+	require.Equal(t, 1, len(contentType))
+	require.Equal(t, "application/json", string(contentType[0]))
+
+	customHeaders := headers.Get("X-Custom")
+	require.Equal(t, 2, len(customHeaders))
+
+	// Check body
+	body, err := incomingResp.Consume()
+	require.NoError(t, err)
+
+	stream, err := body.Stream()
+	require.NoError(t, err)
+
+	data, streamErr := stream.Read(1024)
+	require.Nil(t, streamErr)
+	require.Equal(t, `{"data": "test"}`, string(data))
+}
+
+// TestOutgoingBody_WriteAndFinish tests writing to outgoing body.
+func TestOutgoingBody_WriteAndFinish(t *testing.T) {
+	body := NewOutgoingBody()
+	require.NotNil(t, body)
+
+	// Get write stream
+	stream, err := body.Write()
+	require.NoError(t, err)
+	require.NotNil(t, stream)
+
+	// Write data
+	writeErr := stream.Write([]byte("part1"))
+	require.Nil(t, writeErr)
+
+	writeErr = stream.Write([]byte("part2"))
+	require.Nil(t, writeErr)
+
+	// Finish
+	err = body.Finish()
+	require.NoError(t, err)
+
+	// Verify bytes
+	data := body.Bytes()
+	require.Equal(t, "part1part2", string(data))
+
+	// Second Write() call should fail
+	_, err = body.Write()
+	require.Error(t, err)
+
+	// Second Finish() call should fail
+	err = body.Finish()
+	require.Error(t, err)
+}
+
+// TestIncomingBody_Stream tests reading from incoming body.
+func TestIncomingBody_StreamRead(t *testing.T) {
+	// Create body with data
+	data := []byte("test body content")
+	reader := goio.NopCloser(strings.NewReader(string(data)))
+	body := NewIncomingBodyFromReader(reader)
+	require.NotNil(t, body)
+
+	// Get stream
+	stream, err := body.Stream()
+	require.NoError(t, err)
+	require.NotNil(t, stream)
+
+	// Read data
+	readData, streamErr := stream.Read(1024)
+	require.Nil(t, streamErr)
+	require.Equal(t, "test body content", string(readData))
+
+	// Second Stream() call should fail
+	_, err = body.Stream()
+	require.Error(t, err)
 }

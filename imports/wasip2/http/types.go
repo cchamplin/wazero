@@ -4,6 +4,18 @@
 // It provides HTTP client and server capabilities.
 package http
 
+import (
+	"bytes"
+	"context"
+	"fmt"
+	goio "io"
+	gohttp "net/http"
+	"strings"
+	"time"
+
+	"github.com/tetratelabs/wazero/imports/wasip2/io"
+)
+
 // Method represents HTTP methods.
 // Matches wasi:http/types method variant.
 type Method uint8
@@ -46,6 +58,32 @@ func (m Method) String() string {
 		return "other"
 	default:
 		return "get"
+	}
+}
+
+// HTTPMethod returns the Go net/http method string (uppercase).
+func (m Method) HTTPMethod() string {
+	switch m {
+	case MethodGet:
+		return gohttp.MethodGet
+	case MethodHead:
+		return gohttp.MethodHead
+	case MethodPost:
+		return gohttp.MethodPost
+	case MethodPut:
+		return gohttp.MethodPut
+	case MethodDelete:
+		return gohttp.MethodDelete
+	case MethodConnect:
+		return gohttp.MethodConnect
+	case MethodOptions:
+		return gohttp.MethodOptions
+	case MethodTrace:
+		return gohttp.MethodTrace
+	case MethodPatch:
+		return gohttp.MethodPatch
+	default:
+		return gohttp.MethodGet
 	}
 }
 
@@ -186,10 +224,13 @@ func (f *Fields) Clone() *Fields {
 // Matches wasi:http/types outgoing-request resource.
 type OutgoingRequest struct {
 	method        Method
+	otherMethod   string // For MethodOther
 	scheme        *Scheme
 	authority     *string
 	pathWithQuery *string
 	headers       *Fields
+	body          *OutgoingBody
+	bodyConsumed  bool // Track if body was already obtained
 }
 
 // NewOutgoingRequest creates a new outgoing request with the given headers.
@@ -243,6 +284,76 @@ func (r *OutgoingRequest) SetPathWithQuery(path *string) {
 // Headers returns the request headers.
 func (r *OutgoingRequest) Headers() *Fields {
 	return r.headers
+}
+
+// Body returns the outgoing body for writing request content.
+// Can only be called once per request.
+func (r *OutgoingRequest) Body() (*OutgoingBody, error) {
+	if r.bodyConsumed {
+		return nil, fmt.Errorf("body already consumed")
+	}
+	if r.body == nil {
+		r.body = NewOutgoingBody()
+	}
+	r.bodyConsumed = true
+	return r.body, nil
+}
+
+// ToHTTPRequest converts the OutgoingRequest to a Go net/http Request.
+func (r *OutgoingRequest) ToHTTPRequest(ctx context.Context) (*gohttp.Request, error) {
+	// Build the URL
+	var scheme string
+	if r.scheme != nil {
+		scheme = r.scheme.String()
+	} else {
+		scheme = "http" // Default to http
+	}
+
+	var authority string
+	if r.authority != nil {
+		authority = *r.authority
+	} else {
+		return nil, fmt.Errorf("authority is required")
+	}
+
+	var pathWithQuery string
+	if r.pathWithQuery != nil {
+		pathWithQuery = *r.pathWithQuery
+	} else {
+		pathWithQuery = "/"
+	}
+
+	// Construct URL
+	urlStr := fmt.Sprintf("%s://%s%s", scheme, authority, pathWithQuery)
+
+	// Get the HTTP method
+	method := r.method.HTTPMethod()
+	if r.method == MethodOther && r.otherMethod != "" {
+		method = strings.ToUpper(r.otherMethod)
+	}
+
+	// Get body reader
+	var bodyReader goio.Reader
+	if r.body != nil && r.body.buffer != nil {
+		bodyReader = bytes.NewReader(r.body.buffer.Bytes())
+	}
+
+	// Create the request
+	req, err := gohttp.NewRequestWithContext(ctx, method, urlStr, bodyReader)
+	if err != nil {
+		return nil, err
+	}
+
+	// Copy headers
+	if r.headers != nil {
+		for name, values := range r.headers.entries {
+			for _, value := range values {
+				req.Header.Add(name, string(value))
+			}
+		}
+	}
+
+	return req, nil
 }
 
 // IncomingRequest represents an incoming HTTP request.
@@ -324,8 +435,11 @@ func (r *OutgoingResponse) Headers() *Fields {
 // IncomingResponse represents an incoming HTTP response.
 // Matches wasi:http/types incoming-response resource.
 type IncomingResponse struct {
-	statusCode uint16
-	headers    *Fields
+	statusCode   uint16
+	headers      *Fields
+	httpResponse *gohttp.Response // Original Go HTTP response
+	body         *IncomingBody
+	bodyConsumed bool
 }
 
 // NewIncomingResponse creates a new incoming response.
@@ -333,6 +447,23 @@ func NewIncomingResponse(statusCode uint16, headers *Fields) *IncomingResponse {
 	return &IncomingResponse{
 		statusCode: statusCode,
 		headers:    headers,
+	}
+}
+
+// NewIncomingResponseFromHTTP creates an IncomingResponse from a Go http.Response.
+func NewIncomingResponseFromHTTP(resp *gohttp.Response) *IncomingResponse {
+	// Convert headers
+	headers := NewFields()
+	for name, values := range resp.Header {
+		for _, v := range values {
+			headers.Append(name, []byte(v))
+		}
+	}
+
+	return &IncomingResponse{
+		statusCode:   uint16(resp.StatusCode),
+		headers:      headers,
+		httpResponse: resp,
 	}
 }
 
@@ -346,10 +477,29 @@ func (r *IncomingResponse) Headers() *Fields {
 	return r.headers
 }
 
+// Consume returns the body of the response.
+// Can only be called once per response.
+func (r *IncomingResponse) Consume() (*IncomingBody, error) {
+	if r.bodyConsumed {
+		return nil, fmt.Errorf("body already consumed")
+	}
+	if r.body == nil {
+		if r.httpResponse != nil && r.httpResponse.Body != nil {
+			r.body = NewIncomingBodyFromReader(r.httpResponse.Body)
+		} else {
+			r.body = NewIncomingBody()
+		}
+	}
+	r.bodyConsumed = true
+	return r.body, nil
+}
+
 // IncomingBody represents the body of an incoming HTTP message.
 // Matches wasi:http/types incoming-body resource.
 type IncomingBody struct {
-	consumed bool
+	reader         goio.ReadCloser
+	stream         *io.InputStream
+	streamConsumed bool
 }
 
 // NewIncomingBody creates a new incoming body.
@@ -357,28 +507,156 @@ func NewIncomingBody() *IncomingBody {
 	return &IncomingBody{}
 }
 
+// NewIncomingBodyFromReader creates an incoming body from a reader.
+func NewIncomingBodyFromReader(r goio.ReadCloser) *IncomingBody {
+	return &IncomingBody{reader: r}
+}
+
+// Stream returns an InputStream for reading the body.
+// Can only be called once per body.
+func (b *IncomingBody) Stream() (*io.InputStream, error) {
+	if b.streamConsumed {
+		return nil, fmt.Errorf("stream already consumed")
+	}
+	if b.stream == nil {
+		if b.reader != nil {
+			b.stream = io.NewInputStream(b.reader)
+		} else {
+			// Empty body
+			b.stream = io.NewInputStream(goio.NopCloser(bytes.NewReader(nil)))
+		}
+	}
+	b.streamConsumed = true
+	return b.stream, nil
+}
+
+// Close closes the body and releases resources.
+func (b *IncomingBody) Close() {
+	if b.reader != nil {
+		b.reader.Close()
+	}
+}
+
 // OutgoingBody represents the body of an outgoing HTTP message.
 // Matches wasi:http/types outgoing-body resource.
 type OutgoingBody struct {
-	written bool
+	buffer         *bytes.Buffer
+	stream         *io.OutputStream
+	streamConsumed bool
+	finished       bool
 }
 
 // NewOutgoingBody creates a new outgoing body.
 func NewOutgoingBody() *OutgoingBody {
-	return &OutgoingBody{}
+	return &OutgoingBody{
+		buffer: &bytes.Buffer{},
+	}
+}
+
+// Write returns an OutputStream for writing the body.
+// Can only be called once per body.
+func (b *OutgoingBody) Write() (*io.OutputStream, error) {
+	if b.streamConsumed {
+		return nil, fmt.Errorf("stream already consumed")
+	}
+	if b.finished {
+		return nil, fmt.Errorf("body already finished")
+	}
+	if b.stream == nil {
+		b.stream = io.NewOutputStream(b.buffer)
+	}
+	b.streamConsumed = true
+	return b.stream, nil
+}
+
+// Finish marks the body as complete.
+func (b *OutgoingBody) Finish() error {
+	if b.finished {
+		return fmt.Errorf("body already finished")
+	}
+	b.finished = true
+	return nil
+}
+
+// Bytes returns the written bytes.
+func (b *OutgoingBody) Bytes() []byte {
+	if b.buffer != nil {
+		return b.buffer.Bytes()
+	}
+	return nil
 }
 
 // FutureIncomingResponse represents an async incoming response.
 // Matches wasi:http/types future-incoming-response resource.
 type FutureIncomingResponse struct {
-	ready    bool
-	response *IncomingResponse
-	err      *ErrorCode
+	done      chan struct{}
+	response  *IncomingResponse
+	errorCode *ErrorCode
+	retrieved bool // Track if Get() returned the result
 }
 
 // NewFutureIncomingResponse creates a new future incoming response.
 func NewFutureIncomingResponse() *FutureIncomingResponse {
-	return &FutureIncomingResponse{}
+	return &FutureIncomingResponse{
+		done: make(chan struct{}),
+	}
+}
+
+// SetResponse sets the successful response and signals completion.
+func (f *FutureIncomingResponse) SetResponse(resp *IncomingResponse) {
+	f.response = resp
+	close(f.done)
+}
+
+// SetError sets the error and signals completion.
+func (f *FutureIncomingResponse) SetError(code ErrorCode) {
+	f.errorCode = &code
+	close(f.done)
+}
+
+// Subscribe returns a Pollable that is ready when the response is available.
+func (f *FutureIncomingResponse) Subscribe() *io.Pollable {
+	return io.NewPollable(
+		func() bool {
+			select {
+			case <-f.done:
+				return true
+			default:
+				return false
+			}
+		},
+		func() {
+			<-f.done
+		},
+	)
+}
+
+// Get returns the response if ready, otherwise returns nil, nil, false.
+// Once the response is returned, subsequent calls return nil, nil, false.
+// Returns: (response, errorCode, ready)
+func (f *FutureIncomingResponse) Get() (*IncomingResponse, *ErrorCode, bool) {
+	// If already retrieved, return nothing per WASI spec
+	if f.retrieved {
+		return nil, nil, false
+	}
+
+	select {
+	case <-f.done:
+		f.retrieved = true
+		return f.response, f.errorCode, true
+	default:
+		return nil, nil, false
+	}
+}
+
+// IsReady returns true if the response is available.
+func (f *FutureIncomingResponse) IsReady() bool {
+	select {
+	case <-f.done:
+		return true
+	default:
+		return false
+	}
 }
 
 // FutureTrailers represents async trailers.
@@ -516,3 +794,74 @@ const (
 	HeaderErrorForbidden     HeaderError = "forbidden"
 	HeaderErrorImmutable     HeaderError = "immutable"
 )
+
+// ErrorCodeFromError maps a Go error to a WASI HTTP error code.
+func ErrorCodeFromError(err error) ErrorCode {
+	if err == nil {
+		return ErrorCodeInternalError
+	}
+
+	errStr := err.Error()
+
+	// Check for timeout errors
+	if strings.Contains(errStr, "timeout") || strings.Contains(errStr, "deadline exceeded") {
+		if strings.Contains(errStr, "dial") || strings.Contains(errStr, "connect") {
+			return ErrorCodeConnectionTimeout
+		}
+		return ErrorCodeHTTPResponseTimeout
+	}
+
+	// Check for DNS errors
+	if strings.Contains(errStr, "no such host") || strings.Contains(errStr, "DNS") {
+		return ErrorCodeDNSError
+	}
+
+	// Check for connection errors
+	if strings.Contains(errStr, "connection refused") {
+		return ErrorCodeConnectionRefused
+	}
+	if strings.Contains(errStr, "connection reset") {
+		return ErrorCodeConnectionTerminated
+	}
+
+	// Check for TLS errors
+	if strings.Contains(errStr, "certificate") || strings.Contains(errStr, "x509") {
+		return ErrorCodeTLSCertificateError
+	}
+	if strings.Contains(errStr, "tls") || strings.Contains(errStr, "TLS") {
+		return ErrorCodeTLSProtocolError
+	}
+
+	// Check for URL errors
+	if strings.Contains(errStr, "invalid URL") || strings.Contains(errStr, "malformed") {
+		return ErrorCodeHTTPRequestURIInvalid
+	}
+
+	// Default to internal error
+	return ErrorCodeInternalError
+}
+
+// MakeHTTPClient creates an HTTP client configured with the given RequestOptions.
+func MakeHTTPClient(opts *RequestOptions) *gohttp.Client {
+	client := &gohttp.Client{}
+
+	transport := &gohttp.Transport{}
+
+	if opts != nil {
+		// Connect timeout applies to the dial timeout
+		if opts.connectTimeout != nil {
+			transport.DialContext = (&gohttp.Transport{}).DialContext
+			timeout := time.Duration(*opts.connectTimeout)
+			transport.ResponseHeaderTimeout = timeout
+		}
+	}
+
+	client.Transport = transport
+
+	// Apply overall timeout based on first byte timeout
+	if opts != nil && opts.firstByteTimeout != nil {
+		client.Timeout = time.Duration(*opts.firstByteTimeout)
+	}
+
+	return client
+}
