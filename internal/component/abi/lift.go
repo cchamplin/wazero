@@ -73,7 +73,11 @@ func LiftFlat(ctx *LiftContext, typ types.ValType, iter *FlatIter) (component.Va
 	case types.F64:
 		return component.ValF64(iter.NextF64()), nil
 	case types.Char:
-		return component.ValChar(rune(iter.NextI32())), nil
+		c := iter.NextI32()
+		if !isValidUnicodeScalar(c) {
+			return component.Val{}, fmt.Errorf("invalid char value: U+%04X is not a valid Unicode scalar value", c)
+		}
+		return component.ValChar(rune(c)), nil
 	case types.String:
 		ptr := iter.NextI32()
 		taggedLen := iter.NextI32()
@@ -287,7 +291,11 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (component.Val
 	case types.F64:
 		return component.ValF64(ctx.ReadF64(offset)), nil
 	case types.Char:
-		return component.ValChar(rune(ctx.ReadU32(offset))), nil
+		c := ctx.ReadU32(offset)
+		if !isValidUnicodeScalar(c) {
+			return component.Val{}, fmt.Errorf("invalid char value: U+%04X is not a valid Unicode scalar value", c)
+		}
+		return component.ValChar(rune(c)), nil
 	case types.String:
 		s, err := LiftString(ctx, offset)
 		if err != nil {
@@ -618,4 +626,19 @@ func LiftBorrow(ctx *LiftContext, handleIdx uint32) (any, error) {
 	}
 
 	return entry.Rep, nil
+}
+
+// isValidUnicodeScalar checks if a value is a valid Unicode scalar value.
+// Unicode scalar values are any code point except high-surrogate and low-surrogate code points.
+// Valid ranges: U+0000 to U+D7FF and U+E000 to U+10FFFF
+func isValidUnicodeScalar(v uint32) bool {
+	// Check for surrogates (U+D800 to U+DFFF)
+	if v >= 0xD800 && v <= 0xDFFF {
+		return false
+	}
+	// Check for values above maximum Unicode code point
+	if v > 0x10FFFF {
+		return false
+	}
+	return true
 }

@@ -526,29 +526,61 @@ func TestPrimitivesChars(t *testing.T) {
 		// The char type should only accept valid Unicode scalar values
 		// Note: In Go, rune can hold these values but they're not valid Unicode scalars
 		// The Component Model specification requires char to be a Unicode scalar value
-		surrogates := []rune{
-			0xD800, // First high surrogate
-			0xDBFF, // Last high surrogate
-			0xDC00, // First low surrogate
-			0xDFFF, // Last low surrogate
+		surrogates := []struct {
+			name  string
+			value rune
+		}{
+			{"first_high_surrogate", 0xD800},
+			{"last_high_surrogate", 0xDBFF},
+			{"first_low_surrogate", 0xDC00},
+			{"last_low_surrogate", 0xDFFF},
 		}
 
-		// Creating a Val with a surrogate is allowed in our implementation
-		// (we follow Go's permissive rune handling), but these are technically
-		// invalid Unicode scalar values per the Component Model spec
-		for _, s := range surrogates {
-			val := component.ValChar(s)
-			require.Equal(t, s, val.Char())
+		// The ABI must reject surrogates per the Component Model spec
+		for _, tc := range surrogates {
+			t.Run(tc.name, func(t *testing.T) {
+				val := component.ValChar(tc.value)
 
-			// The flat representation works, but real Component Model validation
-			// would reject these values. We test that roundtrip preserves the value.
-			flat, err := abi.LowerFlat(nil, types.Char{}, val)
-			require.NoError(t, err)
+				// LowerFlat must reject surrogate values
+				_, err := abi.LowerFlat(nil, types.Char{}, val)
+				require.Error(t, err, "LowerFlat should reject surrogate U+%04X", tc.value)
+				require.Contains(t, err.Error(), "not a valid Unicode scalar value")
 
-			iter := abi.NewFlatIter(flat)
-			lifted, err := abi.LiftFlat(nil, types.Char{}, iter)
-			require.NoError(t, err)
-			require.Equal(t, s, lifted.Char())
+				// LiftFlat must reject surrogate values when reading from flat representation
+				// Simulate what would happen if invalid data came from wasm
+				iter := abi.NewFlatIter([]uint64{uint64(tc.value)})
+				_, err = abi.LiftFlat(nil, types.Char{}, iter)
+				require.Error(t, err, "LiftFlat should reject surrogate U+%04X", tc.value)
+				require.Contains(t, err.Error(), "not a valid Unicode scalar value")
+			})
+		}
+	})
+
+	t.Run("invalid_char_above_max_unicode", func(t *testing.T) {
+		// Values above U+10FFFF are not valid Unicode code points
+		invalidValues := []struct {
+			name  string
+			value rune
+		}{
+			{"above_max_unicode", 0x110000},
+			{"way_above_max", 0x1FFFFF},
+		}
+
+		for _, tc := range invalidValues {
+			t.Run(tc.name, func(t *testing.T) {
+				val := component.ValChar(tc.value)
+
+				// LowerFlat must reject values above U+10FFFF
+				_, err := abi.LowerFlat(nil, types.Char{}, val)
+				require.Error(t, err, "LowerFlat should reject value U+%04X above max Unicode", tc.value)
+				require.Contains(t, err.Error(), "not a valid Unicode scalar value")
+
+				// LiftFlat must reject values above U+10FFFF
+				iter := abi.NewFlatIter([]uint64{uint64(tc.value)})
+				_, err = abi.LiftFlat(nil, types.Char{}, iter)
+				require.Error(t, err, "LiftFlat should reject value U+%04X above max Unicode", tc.value)
+				require.Contains(t, err.Error(), "not a valid Unicode scalar value")
+			})
 		}
 	})
 
