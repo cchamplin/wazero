@@ -7,6 +7,19 @@ import (
 	"github.com/tetratelabs/wazero/internal/component"
 )
 
+// Flat ABI limits as defined by the Component Model specification.
+// These determine when values are passed in registers (flat) vs. memory (heap).
+const (
+	// MaxFlatParams is the maximum number of flattened parameter values
+	// that can be passed directly. Beyond this, parameters spill to memory.
+	MaxFlatParams = 16
+
+	// MaxFlatResults is the maximum number of flattened result values
+	// that can be returned directly (for synchronous calls).
+	// Beyond this, results spill to memory via a return pointer.
+	MaxFlatResults = 1
+)
+
 // StringEncoding specifies the string encoding for Canonical ABI.
 type StringEncoding uint8
 
