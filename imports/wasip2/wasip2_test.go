@@ -112,3 +112,17 @@ func TestInstantiate_SocketsInterfaces(t *testing.T) {
 	_, err = linker.MatchImport("wasi:sockets/udp-create-socket@0.2.0")
 	require.NoError(t, err)
 }
+
+func TestInstantiate_HTTPInterfaces(t *testing.T) {
+	linker := component.NewLinker()
+	err := Instantiate(linker)
+	require.NoError(t, err)
+
+	// Verify http interfaces
+	_, err = linker.MatchImport("wasi:http/types@0.2.0")
+	require.NoError(t, err)
+	_, err = linker.MatchImport("wasi:http/outgoing-handler@0.2.0")
+	require.NoError(t, err)
+	_, err = linker.MatchImport("wasi:http/incoming-handler@0.2.0")
+	require.NoError(t, err)
+}

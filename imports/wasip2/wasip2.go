@@ -12,6 +12,7 @@ import (
 	"github.com/tetratelabs/wazero/imports/wasip2/cli"
 	"github.com/tetratelabs/wazero/imports/wasip2/clocks"
 	"github.com/tetratelabs/wazero/imports/wasip2/filesystem"
+	wasip2http "github.com/tetratelabs/wazero/imports/wasip2/http"
 	wasip2io "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/imports/wasip2/random"
 	"github.com/tetratelabs/wazero/imports/wasip2/sockets"
@@ -44,6 +45,8 @@ func InstantiateWithConfig(linker *component.Linker, config *Config) error {
 	if err := sockets.Instantiate(linker); err != nil {
 		return err
 	}
-	// http will be added
+	if err := wasip2http.Instantiate(linker); err != nil {
+		return err
+	}
 	return nil
 }
