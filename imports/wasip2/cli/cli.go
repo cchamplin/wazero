@@ -4,9 +4,25 @@ package cli
 
 import (
 	"context"
+	"os"
+	"strings"
 
+	wasip2io "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
 )
+
+// ExitError is returned when a WASI program calls exit with an error status.
+type ExitError struct {
+	// Code is the exit code. 0 means success, non-zero means failure.
+	Code int
+}
+
+func (e *ExitError) Error() string {
+	if e.Code == 0 {
+		return "exit: success"
+	}
+	return "exit: failure"
+}
 
 // Instantiate registers all wasi:cli interfaces with the linker.
 func Instantiate(linker *component.Linker) error {
@@ -47,23 +63,56 @@ func instantiateEnvironment(linker *component.Linker) error {
 
 // getEnvironment returns the environment variables as list<tuple<string, string>>
 func getEnvironment(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return empty list as placeholder
-	// Full implementation will get environment from config
-	return []component.Val{component.ValList([]component.Val{})}, nil
+	config := component.WASIConfigFromContext(ctx)
+	if config == nil {
+		// No config, return empty list
+		return []component.Val{component.ValList([]component.Val{})}, nil
+	}
+
+	environ := config.Environ()
+	tuples := make([]component.Val, 0, len(environ))
+	for _, env := range environ {
+		// Split "KEY=value" into (key, value) tuple
+		parts := strings.SplitN(env, "=", 2)
+		if len(parts) == 2 {
+			tuple := component.ValTuple([]component.Val{
+				component.ValString(parts[0]),
+				component.ValString(parts[1]),
+			})
+			tuples = append(tuples, tuple)
+		}
+	}
+
+	return []component.Val{component.ValList(tuples)}, nil
 }
 
 // getArguments returns command line arguments as list<string>
 func getArguments(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return empty list as placeholder
-	// Full implementation will get arguments from config
-	return []component.Val{component.ValList([]component.Val{})}, nil
+	config := component.WASIConfigFromContext(ctx)
+	if config == nil {
+		// No config, return empty list
+		return []component.Val{component.ValList([]component.Val{})}, nil
+	}
+
+	configArgs := config.Args()
+	stringVals := make([]component.Val, len(configArgs))
+	for i, arg := range configArgs {
+		stringVals[i] = component.ValString(arg)
+	}
+
+	return []component.Val{component.ValList(stringVals)}, nil
 }
 
 // initialCwd returns the initial working directory as option<string>
 func initialCwd(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return None as placeholder
-	// Full implementation will get cwd from config or os
-	return []component.Val{component.ValOption(nil)}, nil
+	cwd, err := os.Getwd()
+	if err != nil {
+		// Unable to get cwd, return None
+		return []component.Val{component.ValOption(nil)}, nil
+	}
+
+	cwdVal := component.ValString(cwd)
+	return []component.Val{component.ValOption(&cwdVal)}, nil
 }
 
 // instantiateExit registers wasi:cli/exit@0.2.0
@@ -77,10 +126,16 @@ func instantiateExit(linker *component.Linker) error {
 
 // exit handles program termination with result<_, _>
 func exit(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// For now, this is a no-op stub
-	// Full implementation may panic or signal the runtime
-	// The argument is result<_, _> where ok means success, error means failure
-	return []component.Val{}, nil
+	// The argument is result<_, _> where ok (discriminant 0) means success, error (discriminant 1) means failure
+	if len(args) > 0 {
+		isOk, _, _ := args[0].Result()
+		if !isOk {
+			// Exit with error - return an error that the runtime can catch
+			return nil, &ExitError{Code: 1}
+		}
+	}
+	// Exit with success - also signal via error for consistency
+	return nil, &ExitError{Code: 0}
 }
 
 // instantiateStdin registers wasi:cli/stdin@0.2.0
@@ -94,8 +149,21 @@ func instantiateStdin(linker *component.Linker) error {
 
 // getStdin returns stdin as own<input-stream>
 func getStdin(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return handle 0 as placeholder for stdin
-	return []component.Val{component.ValOwn(0)}, nil
+	table := component.ResourceTableFromContext(ctx)
+	config := component.WASIConfigFromContext(ctx)
+
+	if table == nil || config == nil || config.Stdin() == nil {
+		// No table or config, return placeholder handle 0
+		return []component.Val{component.ValOwn(0)}, nil
+	}
+
+	// Create an InputStream from the config's stdin reader
+	stream := wasip2io.NewInputStream(config.Stdin())
+
+	// Register in resource table and get handle
+	handle := table.New(stream, true)
+
+	return []component.Val{component.ValOwn(uint32(handle))}, nil
 }
 
 // instantiateStdout registers wasi:cli/stdout@0.2.0
@@ -109,8 +177,21 @@ func instantiateStdout(linker *component.Linker) error {
 
 // getStdout returns stdout as own<output-stream>
 func getStdout(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return handle 1 as placeholder for stdout
-	return []component.Val{component.ValOwn(1)}, nil
+	table := component.ResourceTableFromContext(ctx)
+	config := component.WASIConfigFromContext(ctx)
+
+	if table == nil || config == nil || config.Stdout() == nil {
+		// No table or config, return placeholder handle 1
+		return []component.Val{component.ValOwn(1)}, nil
+	}
+
+	// Create an OutputStream from the config's stdout writer
+	stream := wasip2io.NewOutputStream(config.Stdout())
+
+	// Register in resource table and get handle
+	handle := table.New(stream, true)
+
+	return []component.Val{component.ValOwn(uint32(handle))}, nil
 }
 
 // instantiateStderr registers wasi:cli/stderr@0.2.0
@@ -124,8 +205,21 @@ func instantiateStderr(linker *component.Linker) error {
 
 // getStderr returns stderr as own<output-stream>
 func getStderr(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return handle 2 as placeholder for stderr
-	return []component.Val{component.ValOwn(2)}, nil
+	table := component.ResourceTableFromContext(ctx)
+	config := component.WASIConfigFromContext(ctx)
+
+	if table == nil || config == nil || config.Stderr() == nil {
+		// No table or config, return placeholder handle 2
+		return []component.Val{component.ValOwn(2)}, nil
+	}
+
+	// Create an OutputStream from the config's stderr writer
+	stream := wasip2io.NewOutputStream(config.Stderr())
+
+	// Register in resource table and get handle
+	handle := table.New(stream, true)
+
+	return []component.Val{component.ValOwn(uint32(handle))}, nil
 }
 
 // instantiateTerminalInput registers wasi:cli/terminal-input@0.2.0

@@ -4,11 +4,32 @@
 package wasip2
 
 import (
+	"context"
 	"io"
 	"os"
+
+	"github.com/tetratelabs/wazero/internal/component"
 )
 
+// WithConfig returns a new context with the given Config stored.
+// The Config is stored as a component.WASIConfig interface.
+func WithConfig(ctx context.Context, config *Config) context.Context {
+	return component.WithWASIConfig(ctx, config)
+}
+
+// ConfigFromContext retrieves the Config from the context.
+// Returns nil if no Config is set.
+func ConfigFromContext(ctx context.Context) *Config {
+	wasiConfig := component.WASIConfigFromContext(ctx)
+	if wasiConfig == nil {
+		return nil
+	}
+	config, _ := wasiConfig.(*Config)
+	return config
+}
+
 // Config configures WASI Preview 2 behavior.
+// It implements the component.WASIConfig interface.
 type Config struct {
 	stdin   io.Reader
 	stdout  io.Writer

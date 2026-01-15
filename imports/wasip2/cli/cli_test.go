@@ -3,12 +3,32 @@
 package cli
 
 import (
+	"bytes"
 	"context"
+	"io"
+	"os"
+	"strings"
 	"testing"
 
+	wasip2io "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
+
+// testConfig implements component.WASIConfig for testing
+type testConfig struct {
+	stdin   io.Reader
+	stdout  io.Writer
+	stderr  io.Writer
+	environ []string
+	args    []string
+}
+
+func (c *testConfig) Stdin() io.Reader  { return c.stdin }
+func (c *testConfig) Stdout() io.Writer { return c.stdout }
+func (c *testConfig) Stderr() io.Writer { return c.stderr }
+func (c *testConfig) Environ() []string { return c.environ }
+func (c *testConfig) Args() []string    { return c.args }
 
 func TestInstantiate(t *testing.T) {
 	linker := component.NewLinker()
@@ -69,34 +89,97 @@ func TestInstantiateEnvironment(t *testing.T) {
 	require.True(t, hasInitialCwd, "initial-cwd function should be defined")
 }
 
-func TestGetEnvironment(t *testing.T) {
+func TestGetEnvironment_NoConfig(t *testing.T) {
+	// Without config, returns empty list
 	result, err := getEnvironment(context.Background(), []component.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, component.ValKindList, result[0].Kind())
-	// Returns empty list as placeholder
 	list := result[0].List()
 	require.NotNil(t, list)
+	require.Equal(t, 0, len(list))
 }
 
-func TestGetArguments(t *testing.T) {
+func TestGetEnvironment_WithConfig(t *testing.T) {
+	// Create config with environment variables
+	config := &testConfig{
+		environ: []string{"FOO=bar", "BAZ=qux", "EMPTY="},
+	}
+
+	ctx := component.WithWASIConfig(context.Background(), config)
+
+	result, err := getEnvironment(ctx, []component.Val{})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(result))
+	require.Equal(t, component.ValKindList, result[0].Kind())
+
+	list := result[0].List()
+	require.Equal(t, 3, len(list))
+
+	// Check first tuple (FOO, bar)
+	tuple0 := list[0].Tuple()
+	require.Equal(t, 2, len(tuple0))
+	require.Equal(t, "FOO", tuple0[0].StringVal())
+	require.Equal(t, "bar", tuple0[1].StringVal())
+
+	// Check second tuple (BAZ, qux)
+	tuple1 := list[1].Tuple()
+	require.Equal(t, 2, len(tuple1))
+	require.Equal(t, "BAZ", tuple1[0].StringVal())
+	require.Equal(t, "qux", tuple1[1].StringVal())
+
+	// Check third tuple (EMPTY, "")
+	tuple2 := list[2].Tuple()
+	require.Equal(t, 2, len(tuple2))
+	require.Equal(t, "EMPTY", tuple2[0].StringVal())
+	require.Equal(t, "", tuple2[1].StringVal())
+}
+
+func TestGetArguments_NoConfig(t *testing.T) {
+	// Without config, returns empty list
 	result, err := getArguments(context.Background(), []component.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, component.ValKindList, result[0].Kind())
-	// Returns empty list as placeholder
 	list := result[0].List()
 	require.NotNil(t, list)
+	require.Equal(t, 0, len(list))
+}
+
+func TestGetArguments_WithConfig(t *testing.T) {
+	// Create config with arguments
+	config := &testConfig{
+		args: []string{"prog", "--flag", "value"},
+	}
+
+	ctx := component.WithWASIConfig(context.Background(), config)
+
+	result, err := getArguments(ctx, []component.Val{})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(result))
+	require.Equal(t, component.ValKindList, result[0].Kind())
+
+	list := result[0].List()
+	require.Equal(t, 3, len(list))
+	require.Equal(t, "prog", list[0].StringVal())
+	require.Equal(t, "--flag", list[1].StringVal())
+	require.Equal(t, "value", list[2].StringVal())
 }
 
 func TestInitialCwd(t *testing.T) {
+	// initialCwd uses os.Getwd(), so it should return a real directory
 	result, err := initialCwd(context.Background(), []component.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, component.ValKindOption, result[0].Kind())
-	// Returns None as placeholder
+
 	opt := result[0].Option()
-	require.Nil(t, opt, "initial-cwd returns None as placeholder")
+	require.NotNil(t, opt, "initial-cwd should return Some with current directory")
+
+	cwd := opt.StringVal()
+	expectedCwd, err := os.Getwd()
+	require.NoError(t, err)
+	require.Equal(t, expectedCwd, cwd)
 }
 
 // Exit interface tests
@@ -115,18 +198,28 @@ func TestInstantiateExit(t *testing.T) {
 	require.True(t, hasExit, "exit function should be defined")
 }
 
-func TestExit(t *testing.T) {
-	// With ok result - should not error
+func TestExit_Success(t *testing.T) {
+	// With ok result - should return ExitError with code 0
 	okResult := component.ValResultOk(nil)
 	result, err := exit(context.Background(), []component.Val{okResult})
-	require.NoError(t, err)
-	require.Equal(t, 0, len(result), "exit returns nothing")
+	require.Nil(t, result)
 
-	// With error result - for now also should not error (just a stub)
+	exitErr, ok := err.(*ExitError)
+	require.True(t, ok, "expected ExitError")
+	require.Equal(t, 0, exitErr.Code)
+	require.Equal(t, "exit: success", exitErr.Error())
+}
+
+func TestExit_Failure(t *testing.T) {
+	// With error result - should return ExitError with code 1
 	errResult := component.ValResultError(nil)
-	result, err = exit(context.Background(), []component.Val{errResult})
-	require.NoError(t, err)
-	require.Equal(t, 0, len(result), "exit returns nothing")
+	result, err := exit(context.Background(), []component.Val{errResult})
+	require.Nil(t, result)
+
+	exitErr, ok := err.(*ExitError)
+	require.True(t, ok, "expected ExitError")
+	require.Equal(t, 1, exitErr.Code)
+	require.Equal(t, "exit: failure", exitErr.Error())
 }
 
 // Stdin interface tests
@@ -145,14 +238,45 @@ func TestInstantiateStdin(t *testing.T) {
 	require.True(t, hasGetStdin, "get-stdin function should be defined")
 }
 
-func TestGetStdin(t *testing.T) {
+func TestGetStdin_NoConfig(t *testing.T) {
+	// Without config or table, returns placeholder handle 0
 	result, err := getStdin(context.Background(), []component.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, component.ValKindOwn, result[0].Kind())
-	// Returns handle 0 as placeholder for stdin
 	handle := result[0].Own()
 	require.Equal(t, uint32(0), handle)
+}
+
+func TestGetStdin_WithConfig(t *testing.T) {
+	// Create config with stdin
+	stdinData := bytes.NewReader([]byte("hello world"))
+	config := &testConfig{stdin: stdinData}
+
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+	ctx = component.WithWASIConfig(ctx, config)
+
+	result, err := getStdin(ctx, []component.Val{})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(result))
+	require.Equal(t, component.ValKindOwn, result[0].Kind())
+
+	handle := result[0].Own()
+	// Should have created a real handle (not placeholder 0)
+	entry, err := table.Get(component.Handle(handle))
+	require.NoError(t, err)
+	require.NotNil(t, entry)
+
+	// Verify it's an InputStream
+	stream, ok := entry.Rep.(*wasip2io.InputStream)
+	require.True(t, ok, "expected InputStream resource")
+	require.NotNil(t, stream)
+
+	// Read from the stream to verify it works
+	data, streamErr := stream.Read(1024)
+	require.Nil(t, streamErr)
+	require.Equal(t, "hello world", string(data))
 }
 
 // Stdout interface tests
@@ -171,14 +295,45 @@ func TestInstantiateStdout(t *testing.T) {
 	require.True(t, hasGetStdout, "get-stdout function should be defined")
 }
 
-func TestGetStdout(t *testing.T) {
+func TestGetStdout_NoConfig(t *testing.T) {
+	// Without config or table, returns placeholder handle 1
 	result, err := getStdout(context.Background(), []component.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, component.ValKindOwn, result[0].Kind())
-	// Returns handle 1 as placeholder for stdout
 	handle := result[0].Own()
 	require.Equal(t, uint32(1), handle)
+}
+
+func TestGetStdout_WithConfig(t *testing.T) {
+	// Create config with stdout
+	var stdoutBuf bytes.Buffer
+	config := &testConfig{stdout: &stdoutBuf}
+
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+	ctx = component.WithWASIConfig(ctx, config)
+
+	result, err := getStdout(ctx, []component.Val{})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(result))
+	require.Equal(t, component.ValKindOwn, result[0].Kind())
+
+	handle := result[0].Own()
+	// Should have created a real handle
+	entry, err := table.Get(component.Handle(handle))
+	require.NoError(t, err)
+	require.NotNil(t, entry)
+
+	// Verify it's an OutputStream
+	stream, ok := entry.Rep.(*wasip2io.OutputStream)
+	require.True(t, ok, "expected OutputStream resource")
+	require.NotNil(t, stream)
+
+	// Write to the stream to verify it works
+	streamErr := stream.Write([]byte("hello stdout"))
+	require.Nil(t, streamErr)
+	require.Equal(t, "hello stdout", stdoutBuf.String())
 }
 
 // Stderr interface tests
@@ -197,14 +352,45 @@ func TestInstantiateStderr(t *testing.T) {
 	require.True(t, hasGetStderr, "get-stderr function should be defined")
 }
 
-func TestGetStderr(t *testing.T) {
+func TestGetStderr_NoConfig(t *testing.T) {
+	// Without config or table, returns placeholder handle 2
 	result, err := getStderr(context.Background(), []component.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, component.ValKindOwn, result[0].Kind())
-	// Returns handle 2 as placeholder for stderr
 	handle := result[0].Own()
 	require.Equal(t, uint32(2), handle)
+}
+
+func TestGetStderr_WithConfig(t *testing.T) {
+	// Create config with stderr
+	var stderrBuf bytes.Buffer
+	config := &testConfig{stderr: &stderrBuf}
+
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+	ctx = component.WithWASIConfig(ctx, config)
+
+	result, err := getStderr(ctx, []component.Val{})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(result))
+	require.Equal(t, component.ValKindOwn, result[0].Kind())
+
+	handle := result[0].Own()
+	// Should have created a real handle
+	entry, err := table.Get(component.Handle(handle))
+	require.NoError(t, err)
+	require.NotNil(t, entry)
+
+	// Verify it's an OutputStream
+	stream, ok := entry.Rep.(*wasip2io.OutputStream)
+	require.True(t, ok, "expected OutputStream resource")
+	require.NotNil(t, stream)
+
+	// Write to the stream to verify it works
+	streamErr := stream.Write([]byte("hello stderr"))
+	require.Nil(t, streamErr)
+	require.Equal(t, "hello stderr", stderrBuf.String())
 }
 
 // Terminal input interface tests
@@ -239,4 +425,18 @@ func TestInstantiateTerminalOutput(t *testing.T) {
 	// Verify resource is defined
 	_, hasResource := instDef.Exports["terminal-output"]
 	require.True(t, hasResource, "terminal-output resource should be defined")
+}
+
+// Test ExitError type
+func TestExitError(t *testing.T) {
+	successErr := &ExitError{Code: 0}
+	require.Equal(t, "exit: success", successErr.Error())
+
+	failureErr := &ExitError{Code: 1}
+	require.Equal(t, "exit: failure", failureErr.Error())
+
+	// Test that it implements error interface
+	var err error = successErr
+	require.NotNil(t, err)
+	require.True(t, strings.HasPrefix(err.Error(), "exit:"))
 }
