@@ -4,6 +4,7 @@ package io
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/tetratelabs/wazero/internal/component"
 )
@@ -42,6 +43,23 @@ func (p *Pollable) Block() {
 	}
 }
 
+// getPollable retrieves a Pollable from the ResourceTable using a borrow handle.
+func getPollable(ctx context.Context, handle uint32) (*Pollable, error) {
+	table := component.ResourceTableFromContext(ctx)
+	if table == nil {
+		return nil, fmt.Errorf("no resource table in context")
+	}
+	entry, err := table.Get(component.Handle(handle))
+	if err != nil {
+		return nil, fmt.Errorf("invalid handle %d: %w", handle, err)
+	}
+	pollable, ok := entry.Rep.(*Pollable)
+	if !ok {
+		return nil, fmt.Errorf("handle %d is not a Pollable", handle)
+	}
+	return pollable, nil
+}
+
 func instantiatePoll(linker *component.Linker) error {
 	inst := linker.DefineInstance("wasi:io/poll@0.2.0")
 
@@ -63,28 +81,82 @@ func instantiatePoll(linker *component.Linker) error {
 }
 
 func pollableReady(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// args[0] is borrow<pollable> - the handle
-	// For now return true (ready) as placeholder
-	// Full implementation will look up handle and call Ready()
-	return []component.Val{component.ValBool(true)}, nil
+	handle := args[0].Borrow()
+
+	pollable, err := getPollable(ctx, handle)
+	if err != nil {
+		return nil, err
+	}
+
+	return []component.Val{component.ValBool(pollable.Ready())}, nil
 }
 
 func pollableBlock(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// args[0] is borrow<pollable> - the handle
-	// For now do nothing as placeholder
-	// Full implementation will look up handle and call Block()
+	handle := args[0].Borrow()
+
+	pollable, err := getPollable(ctx, handle)
+	if err != nil {
+		return nil, err
+	}
+
+	pollable.Block()
 	return nil, nil
 }
 
 func pollPoll(ctx context.Context, args []component.Val) ([]component.Val, error) {
 	// args[0] is list<borrow<pollable>>
-	// For now return all indices as ready (placeholder)
-	// Real implementation would check each pollable
+	handles := args[0].List()
 
-	pollables := args[0].List()
-	result := make([]component.Val, len(pollables))
-	for i := range pollables {
-		result[i] = component.ValU32(uint32(i))
+	if len(handles) == 0 {
+		// Empty list - return empty result
+		return []component.Val{component.ValList(nil)}, nil
 	}
-	return []component.Val{component.ValList(result)}, nil
+
+	// Resolve all pollables first
+	pollables := make([]*Pollable, len(handles))
+	for i, h := range handles {
+		handle := h.Borrow()
+		pollable, err := getPollable(ctx, handle)
+		if err != nil {
+			return nil, err
+		}
+		pollables[i] = pollable
+	}
+
+	// Check which pollables are ready
+	for {
+		var readyIndices []component.Val
+		for i, p := range pollables {
+			if p.Ready() {
+				readyIndices = append(readyIndices, component.ValU32(uint32(i)))
+			}
+		}
+
+		// If at least one is ready, return the ready indices
+		if len(readyIndices) > 0 {
+			return []component.Val{component.ValList(readyIndices)}, nil
+		}
+
+		// None are ready - block on the first pollable that has a block function
+		// Per WASI spec: "If none of the pollables are ready, the function blocks
+		// until at least one pollable becomes ready."
+		//
+		// In a real implementation, we'd use a more sophisticated approach
+		// (select on channels, etc.) but for now we block on each pollable in turn
+		blocked := false
+		for _, p := range pollables {
+			if p.blockFn != nil {
+				p.Block()
+				blocked = true
+				break
+			}
+		}
+
+		// If no pollable has a block function but none are ready,
+		// we'd spin-wait. For safety, if we can't block and none are ready,
+		// just return an empty list (this shouldn't happen in correct usage).
+		if !blocked {
+			return []component.Val{component.ValList(nil)}, nil
+		}
+	}
 }

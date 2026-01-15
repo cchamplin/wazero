@@ -3,7 +3,10 @@
 package io
 
 import (
+	"context"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/testing/require"
@@ -96,4 +99,359 @@ func TestInstantiatePoll_Duplicate(t *testing.T) {
 	// Second registration should fail
 	err = instantiatePoll(linker)
 	require.Error(t, err)
+}
+
+// Tests for host functions with ResourceTable
+
+func TestPollableReady_HostFunction(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	// Create a pollable that is ready
+	pollable := NewReadyPollable()
+	handle := table.New(pollable, true)
+
+	args := []component.Val{
+		component.ValBorrow(uint32(handle)),
+	}
+	results, err := pollableReady(ctx, args)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+	require.True(t, results[0].Bool())
+}
+
+func TestPollableReady_HostFunction_NotReady(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	// Create a pollable that is not ready
+	pollable := NewPollable(func() bool { return false }, nil)
+	handle := table.New(pollable, true)
+
+	args := []component.Val{
+		component.ValBorrow(uint32(handle)),
+	}
+	results, err := pollableReady(ctx, args)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+	require.False(t, results[0].Bool())
+}
+
+func TestPollableReady_HostFunction_InvalidHandle(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	args := []component.Val{
+		component.ValBorrow(999), // Invalid handle
+	}
+	_, err := pollableReady(ctx, args)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid handle")
+}
+
+func TestPollableReady_HostFunction_NoResourceTable(t *testing.T) {
+	ctx := context.Background() // No resource table
+
+	args := []component.Val{
+		component.ValBorrow(0),
+	}
+	_, err := pollableReady(ctx, args)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no resource table")
+}
+
+func TestPollableReady_HostFunction_WrongType(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	// Add something that's not a Pollable
+	handle := table.New("not a pollable", true)
+
+	args := []component.Val{
+		component.ValBorrow(uint32(handle)),
+	}
+	_, err := pollableReady(ctx, args)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not a Pollable")
+}
+
+func TestPollableBlock_HostFunction(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	// Create a pollable that blocks and then becomes ready
+	blocked := false
+	pollable := NewPollable(
+		func() bool { return blocked },
+		func() { blocked = true },
+	)
+	handle := table.New(pollable, true)
+
+	// Verify not ready before block
+	require.False(t, pollable.Ready())
+
+	args := []component.Val{
+		component.ValBorrow(uint32(handle)),
+	}
+	results, err := pollableBlock(ctx, args)
+	require.NoError(t, err)
+	require.Nil(t, results) // block returns no values
+
+	// Verify ready after block
+	require.True(t, pollable.Ready())
+}
+
+func TestPollableBlock_HostFunction_NilBlockFn(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	// Create a pollable with no block function
+	pollable := NewReadyPollable()
+	handle := table.New(pollable, true)
+
+	args := []component.Val{
+		component.ValBorrow(uint32(handle)),
+	}
+	// Should not panic even with nil blockFn
+	results, err := pollableBlock(ctx, args)
+	require.NoError(t, err)
+	require.Nil(t, results)
+}
+
+func TestPollableBlock_HostFunction_InvalidHandle(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	args := []component.Val{
+		component.ValBorrow(999),
+	}
+	_, err := pollableBlock(ctx, args)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid handle")
+}
+
+func TestPoll_AllReady(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	// Create three ready pollables
+	p1 := NewReadyPollable()
+	p2 := NewReadyPollable()
+	p3 := NewReadyPollable()
+	h1 := table.New(p1, true)
+	h2 := table.New(p2, true)
+	h3 := table.New(p3, true)
+
+	args := []component.Val{
+		component.ValList([]component.Val{
+			component.ValBorrow(uint32(h1)),
+			component.ValBorrow(uint32(h2)),
+			component.ValBorrow(uint32(h3)),
+		}),
+	}
+	results, err := pollPoll(ctx, args)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+
+	// All indices should be returned
+	indices := results[0].List()
+	require.Equal(t, 3, len(indices))
+	require.Equal(t, uint32(0), indices[0].U32())
+	require.Equal(t, uint32(1), indices[1].U32())
+	require.Equal(t, uint32(2), indices[2].U32())
+}
+
+func TestPoll_SomeReady(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	// Create pollables: first ready, second not ready, third ready
+	p1 := NewReadyPollable()
+	p2 := NewPollable(func() bool { return false }, nil)
+	p3 := NewReadyPollable()
+	h1 := table.New(p1, true)
+	h2 := table.New(p2, true)
+	h3 := table.New(p3, true)
+
+	args := []component.Val{
+		component.ValList([]component.Val{
+			component.ValBorrow(uint32(h1)),
+			component.ValBorrow(uint32(h2)),
+			component.ValBorrow(uint32(h3)),
+		}),
+	}
+	results, err := pollPoll(ctx, args)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+
+	// Only indices 0 and 2 should be returned
+	indices := results[0].List()
+	require.Equal(t, 2, len(indices))
+	require.Equal(t, uint32(0), indices[0].U32())
+	require.Equal(t, uint32(2), indices[1].U32())
+}
+
+func TestPoll_NoneReady_WithBlock(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	// Create pollables that are initially not ready but become ready after block
+	ready := false
+	p1 := NewPollable(
+		func() bool { return ready },
+		func() { ready = true },
+	)
+	h1 := table.New(p1, true)
+
+	args := []component.Val{
+		component.ValList([]component.Val{
+			component.ValBorrow(uint32(h1)),
+		}),
+	}
+	results, err := pollPoll(ctx, args)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+
+	// After blocking, index 0 should be returned
+	indices := results[0].List()
+	require.Equal(t, 1, len(indices))
+	require.Equal(t, uint32(0), indices[0].U32())
+}
+
+func TestPoll_NoneReady_NoBlockFn(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	// Create pollable that is not ready and has no block function
+	// This is an edge case - in practice, pollables should either be ready
+	// or have a way to become ready via blocking
+	p1 := NewPollable(func() bool { return false }, nil)
+	h1 := table.New(p1, true)
+
+	args := []component.Val{
+		component.ValList([]component.Val{
+			component.ValBorrow(uint32(h1)),
+		}),
+	}
+	results, err := pollPoll(ctx, args)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+
+	// Should return empty list since no pollable can become ready
+	indices := results[0].List()
+	require.Equal(t, 0, len(indices))
+}
+
+func TestPoll_EmptyList(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	args := []component.Val{
+		component.ValList([]component.Val{}),
+	}
+	results, err := pollPoll(ctx, args)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+
+	// Should return empty list
+	indices := results[0].List()
+	require.Equal(t, 0, len(indices))
+}
+
+func TestPoll_InvalidHandle(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	args := []component.Val{
+		component.ValList([]component.Val{
+			component.ValBorrow(999), // Invalid handle
+		}),
+	}
+	_, err := pollPoll(ctx, args)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid handle")
+}
+
+func TestPoll_BlockConcurrent(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	// Create a pollable that becomes ready from another goroutine
+	var mu sync.Mutex
+	ready := false
+	p1 := NewPollable(
+		func() bool {
+			mu.Lock()
+			defer mu.Unlock()
+			return ready
+		},
+		func() {
+			// This simulates waiting for an external event
+			time.Sleep(10 * time.Millisecond)
+			mu.Lock()
+			ready = true
+			mu.Unlock()
+		},
+	)
+	h1 := table.New(p1, true)
+
+	args := []component.Val{
+		component.ValList([]component.Val{
+			component.ValBorrow(uint32(h1)),
+		}),
+	}
+
+	start := time.Now()
+	results, err := pollPoll(ctx, args)
+	elapsed := time.Since(start)
+
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+
+	// Should have blocked for at least a short time
+	require.True(t, elapsed >= 5*time.Millisecond, "poll should have blocked")
+
+	indices := results[0].List()
+	require.Equal(t, 1, len(indices))
+	require.Equal(t, uint32(0), indices[0].U32())
+}
+
+func TestGetPollable(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	pollable := NewReadyPollable()
+	handle := table.New(pollable, true)
+
+	retrieved, err := getPollable(ctx, uint32(handle))
+	require.NoError(t, err)
+	require.Equal(t, pollable, retrieved)
+}
+
+func TestGetPollable_NoTable(t *testing.T) {
+	ctx := context.Background()
+
+	_, err := getPollable(ctx, 0)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no resource table")
+}
+
+func TestGetPollable_InvalidHandle(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	_, err := getPollable(ctx, 999)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid handle")
+}
+
+func TestGetPollable_WrongType(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	handle := table.New("not a pollable", true)
+
+	_, err := getPollable(ctx, uint32(handle))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not a Pollable")
 }
