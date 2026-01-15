@@ -250,12 +250,37 @@ func LiftFlat(ctx *LiftContext, typ types.ValType, iter *FlatIter) (component.Va
 		return component.ValFlags(flags), nil
 
 	case types.List:
-		// TODO: List flat representation is [ptr, len]. Actual element lifting
-		// requires heap access via LiftContext.Memory. For now, consume the
-		// flat values and return an empty list. Full implementation in heap lift.
-		_ = iter.NextI32() // ptr (unused until heap lift)
-		_ = iter.NextI32() // len (unused until heap lift)
-		return component.ValList([]component.Val{}), nil
+		t := typ.(types.List)
+		ptr := iter.NextI32()
+		length := iter.NextI32()
+
+		// Empty list case - no memory access needed
+		if length == 0 {
+			return component.ValList([]component.Val{}), nil
+		}
+
+		// Need memory context for non-empty lists
+		if ctx == nil || ctx.Memory == nil {
+			return component.Val{}, fmt.Errorf("lift list: memory context required for non-empty list")
+		}
+
+		// Validate bounds
+		elemSize := t.Element.Size()
+		maxOffset := uint64(ptr) + uint64(length)*uint64(elemSize)
+		if maxOffset > uint64(ctx.Memory.Size()) {
+			return component.Val{}, fmt.Errorf("list data exceeds memory bounds: ptr=%d, len=%d, elemSize=%d", ptr, length, elemSize)
+		}
+
+		// Lift each element from heap
+		elems := make([]component.Val, length)
+		for i := uint32(0); i < length; i++ {
+			elem, err := LiftHeap(ctx, t.Element, ptr+i*elemSize)
+			if err != nil {
+				return component.Val{}, fmt.Errorf("lift list element %d: %w", i, err)
+			}
+			elems[i] = elem
+		}
+		return component.ValList(elems), nil
 
 	default:
 		return component.Val{}, fmt.Errorf("unsupported flat lift for type: %T", typ)

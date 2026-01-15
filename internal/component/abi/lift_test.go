@@ -598,25 +598,58 @@ func TestLiftFlatFlagsMoreThan32(t *testing.T) {
 
 func TestLiftFlatList(t *testing.T) {
 	// list<s32> with ptr=100, len=5
+	// Now requires memory context for non-empty lists
+	data := make([]byte, 200)
+	// Write 5 s32 elements at offset 100: [1, 2, 3, 4, 5]
+	for i := 0; i < 5; i++ {
+		binary.LittleEndian.PutUint32(data[100+i*4:], uint32(i+1))
+	}
+	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+
 	iter := NewFlatIter([]uint64{100, 5})
 	listType := types.List{Element: types.S32{}}
-	val, err := LiftFlat(nil, listType, iter)
+	val, err := LiftFlat(ctx, listType, iter)
 	require.NoError(t, err)
-	// For flat lift, we return an empty list placeholder
-	// The actual elements need heap access (to be implemented later)
 	require.Equal(t, component.ValKindList, val.Kind())
+
+	list := val.List()
+	require.Equal(t, 5, len(list))
+	for i := 0; i < 5; i++ {
+		require.Equal(t, int32(i+1), list[i].S32())
+	}
 }
 
 func TestLiftFlatListPtrAndLen(t *testing.T) {
-	// list<u64> with ptr=0x1000, len=10
-	iter := NewFlatIter([]uint64{0x1000, 10})
+	// list<u64> with ptr=0x100, len=3
+	// Now requires memory context for non-empty lists
+	data := make([]byte, 512)
+	// Write 3 u64 elements at offset 0x100: [100, 200, 300]
+	binary.LittleEndian.PutUint64(data[0x100:], 100)
+	binary.LittleEndian.PutUint64(data[0x108:], 200)
+	binary.LittleEndian.PutUint64(data[0x110:], 300)
+	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+
+	iter := NewFlatIter([]uint64{0x100, 3})
 	listType := types.List{Element: types.U64{}}
+	val, err := LiftFlat(ctx, listType, iter)
+	require.NoError(t, err)
+	require.Equal(t, component.ValKindList, val.Kind())
+
+	list := val.List()
+	require.Equal(t, 3, len(list))
+	require.Equal(t, uint64(100), list[0].U64())
+	require.Equal(t, uint64(200), list[1].U64())
+	require.Equal(t, uint64(300), list[2].U64())
+}
+
+func TestLiftFlatListEmpty(t *testing.T) {
+	// Empty list doesn't require memory context
+	iter := NewFlatIter([]uint64{0, 0})
+	listType := types.List{Element: types.S32{}}
 	val, err := LiftFlat(nil, listType, iter)
 	require.NoError(t, err)
 	require.Equal(t, component.ValKindList, val.Kind())
-	// Empty list for now (elements deferred to heap lift)
-	list := val.List()
-	require.Equal(t, 0, len(list))
+	require.Equal(t, 0, len(val.List()))
 }
 
 // --- LiftHeap Primitive Tests ---

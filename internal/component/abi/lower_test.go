@@ -595,8 +595,18 @@ func TestLowerFlatFlagsMoreThan32(t *testing.T) {
 // --- List Tests ---
 
 func TestLowerFlatList(t *testing.T) {
-	// For flat lower, list doesn't have actual ptr/len to return
-	// since we don't have heap allocation context
+	// Non-empty lists now require memory context for proper allocation
+	data := make([]byte, 1024)
+	allocPtr := uint32(256)
+	ctx := &LowerContext{
+		Memory: &mockMemory{data: data},
+		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+			result := allocPtr
+			allocPtr += newSize
+			return result, nil
+		},
+	}
+
 	listType := types.List{Element: types.S32{}}
 	val := component.ValList([]component.Val{
 		component.ValS32(1),
@@ -604,19 +614,38 @@ func TestLowerFlatList(t *testing.T) {
 		component.ValS32(3),
 	})
 
-	flat, err := LowerFlat(nil, listType, val)
+	flat, err := LowerFlat(ctx, listType, val)
 	require.NoError(t, err)
-	// Returns ptr=0, len=0 since actual heap allocation is deferred
-	require.Equal(t, []uint64{0, 0}, flat)
+	// Now returns actual ptr and len
+	require.Equal(t, uint64(256), flat[0], "ptr should be 256")
+	require.Equal(t, uint64(3), flat[1], "len should be 3")
+
+	// Verify elements were written to memory
+	for i := 0; i < 3; i++ {
+		offset := 256 + i*4
+		v := int32(binary.LittleEndian.Uint32(data[offset : offset+4]))
+		require.Equal(t, int32(i+1), v)
+	}
 }
 
 func TestLowerFlatListEmpty(t *testing.T) {
+	// Empty list doesn't require memory context
 	listType := types.List{Element: types.U64{}}
 	val := component.ValList([]component.Val{})
 
 	flat, err := LowerFlat(nil, listType, val)
 	require.NoError(t, err)
 	require.Equal(t, []uint64{0, 0}, flat)
+}
+
+func TestLowerFlatListNoContextError(t *testing.T) {
+	// Non-empty list without context should error
+	listType := types.List{Element: types.S32{}}
+	val := component.ValList([]component.Val{component.ValS32(42)})
+
+	_, err := LowerFlat(nil, listType, val)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "realloc function required")
 }
 
 // TestLowerFlatRoundTrip verifies that LiftFlat(LowerFlat(val)) == val for all primitive types

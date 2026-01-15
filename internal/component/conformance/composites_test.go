@@ -3,6 +3,7 @@
 package conformance
 
 import (
+	"encoding/binary"
 	"fmt"
 	"math"
 	"testing"
@@ -1657,5 +1658,741 @@ func TestVariantUnknownCaseName(t *testing.T) {
 		_, err := abi.LowerFlat(nil, variantType, val)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "unknown variant case")
+	})
+}
+
+// =============================================================================
+// List Tests
+// Tests for list<T> types using LowerFlat/LiftFlat and LowerHeap/LiftHeap
+// =============================================================================
+
+// listTestMemory implements abi.Memory for list tests.
+type listTestMemory struct {
+	data []byte
+}
+
+func (m *listTestMemory) Read(offset, size uint32) ([]byte, bool) {
+	end := uint64(offset) + uint64(size)
+	if end > uint64(len(m.data)) {
+		return nil, false
+	}
+	return m.data[offset : offset+size], true
+}
+
+func (m *listTestMemory) Write(offset uint32, data []byte) bool {
+	end := uint64(offset) + uint64(len(data))
+	if end > uint64(len(m.data)) {
+		return false
+	}
+	copy(m.data[offset:], data)
+	return true
+}
+
+func (m *listTestMemory) Size() uint32 {
+	return uint32(len(m.data))
+}
+
+func newListTestMemory(size int) *listTestMemory {
+	return &listTestMemory{data: make([]byte, size)}
+}
+
+// TestListEmpty tests list<s32> with empty list.
+// Empty list: ptr=0, len=0. No allocation should happen.
+func TestListEmpty(t *testing.T) {
+	listType := types.List{Element: types.S32{}}
+
+	t.Run("type_properties", func(t *testing.T) {
+		// List is represented as (ptr, len), both i32
+		require.Equal(t, uint32(8), listType.Size(), "list should have size 8 (ptr + len)")
+		require.Equal(t, uint32(4), listType.Align(), "list should have align 4")
+		require.Equal(t, 2, listType.FlattenCount(), "list should flatten to 2 values")
+		require.Equal(t, uint32(4), listType.ElementSize(), "s32 element should have size 4")
+		require.Equal(t, uint32(4), listType.ElementAlign(), "s32 element should have align 4")
+	})
+
+	t.Run("lower_flat_empty", func(t *testing.T) {
+		val := component.ValList([]component.Val{})
+
+		// No realloc should be called for empty list
+		reallocCalled := false
+		mem := newListTestMemory(1024)
+		ctx := &abi.LowerContext{
+			Memory: mem,
+			Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+				reallocCalled = true
+				return 0, nil
+			},
+		}
+
+		flat, err := abi.LowerFlat(ctx, listType, val)
+		require.NoError(t, err)
+		require.Equal(t, 2, len(flat), "empty list should lower to 2 flat values")
+		require.Equal(t, uint64(0), flat[0], "empty list ptr should be 0")
+		require.Equal(t, uint64(0), flat[1], "empty list len should be 0")
+		require.False(t, reallocCalled, "realloc should not be called for empty list")
+	})
+
+	t.Run("lift_flat_empty", func(t *testing.T) {
+		// Create flat values representing empty list
+		flat := []uint64{0, 0}
+
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(nil, listType, iter)
+		require.NoError(t, err)
+		require.Equal(t, component.ValKindList, lifted.Kind())
+
+		elems := lifted.List()
+		require.Equal(t, 0, len(elems), "empty list should have 0 elements")
+	})
+
+	t.Run("heap_roundtrip_empty", func(t *testing.T) {
+		mem := newListTestMemory(1024)
+
+		lowerCtx := &abi.LowerContext{
+			Memory: mem,
+			Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+				return 256, nil
+			},
+		}
+
+		val := component.ValList([]component.Val{})
+		err := abi.LowerHeap(lowerCtx, listType, val, 0)
+		require.NoError(t, err)
+
+		// Verify ptr=0, len=0 were written
+		ptr := binary.LittleEndian.Uint32(mem.data[0:4])
+		length := binary.LittleEndian.Uint32(mem.data[4:8])
+		require.Equal(t, uint32(0), ptr)
+		require.Equal(t, uint32(0), length)
+
+		// Lift back
+		liftCtx := &abi.LiftContext{Memory: mem}
+		lifted, err := abi.LiftHeap(liftCtx, listType, 0)
+		require.NoError(t, err)
+		require.Equal(t, 0, len(lifted.List()))
+	})
+}
+
+// TestListSingleElement tests list<s32> with one element [42].
+func TestListSingleElement(t *testing.T) {
+	listType := types.List{Element: types.S32{}}
+
+	t.Run("flat_roundtrip", func(t *testing.T) {
+		mem := newListTestMemory(1024)
+		allocPtr := uint32(256)
+
+		lowerCtx := &abi.LowerContext{
+			Memory: mem,
+			Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+				result := allocPtr
+				allocPtr += newSize
+				return result, nil
+			},
+		}
+
+		val := component.ValList([]component.Val{component.ValS32(42)})
+		flat, err := abi.LowerFlat(lowerCtx, listType, val)
+		require.NoError(t, err)
+		require.Equal(t, 2, len(flat))
+		require.Equal(t, uint64(256), flat[0], "ptr should be 256")
+		require.Equal(t, uint64(1), flat[1], "len should be 1")
+
+		// Verify element was written to memory
+		elemVal := int32(binary.LittleEndian.Uint32(mem.data[256:260]))
+		require.Equal(t, int32(42), elemVal)
+
+		// Lift back
+		liftCtx := &abi.LiftContext{Memory: mem}
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(liftCtx, listType, iter)
+		require.NoError(t, err)
+
+		elems := lifted.List()
+		require.Equal(t, 1, len(elems))
+		require.Equal(t, int32(42), elems[0].S32())
+	})
+
+	t.Run("heap_roundtrip", func(t *testing.T) {
+		mem := newListTestMemory(1024)
+		allocPtr := uint32(256)
+
+		lowerCtx := &abi.LowerContext{
+			Memory: mem,
+			Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+				result := allocPtr
+				allocPtr += newSize
+				return result, nil
+			},
+		}
+
+		val := component.ValList([]component.Val{component.ValS32(42)})
+		err := abi.LowerHeap(lowerCtx, listType, val, 0)
+		require.NoError(t, err)
+
+		// Verify ptr/len header was written
+		ptr := binary.LittleEndian.Uint32(mem.data[0:4])
+		length := binary.LittleEndian.Uint32(mem.data[4:8])
+		require.Equal(t, uint32(256), ptr)
+		require.Equal(t, uint32(1), length)
+
+		// Lift back
+		liftCtx := &abi.LiftContext{Memory: mem}
+		lifted, err := abi.LiftHeap(liftCtx, listType, 0)
+		require.NoError(t, err)
+
+		elems := lifted.List()
+		require.Equal(t, 1, len(elems))
+		require.Equal(t, int32(42), elems[0].S32())
+	})
+
+	t.Run("negative_value", func(t *testing.T) {
+		mem := newListTestMemory(1024)
+		allocPtr := uint32(256)
+
+		lowerCtx := &abi.LowerContext{
+			Memory: mem,
+			Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+				result := allocPtr
+				allocPtr += newSize
+				return result, nil
+			},
+		}
+
+		val := component.ValList([]component.Val{component.ValS32(-123)})
+		flat, err := abi.LowerFlat(lowerCtx, listType, val)
+		require.NoError(t, err)
+
+		liftCtx := &abi.LiftContext{Memory: mem}
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(liftCtx, listType, iter)
+		require.NoError(t, err)
+
+		elems := lifted.List()
+		require.Equal(t, int32(-123), elems[0].S32())
+	})
+}
+
+// TestListMultipleElements tests list<s32> with [1, 2, 3, 4, 5].
+func TestListMultipleElements(t *testing.T) {
+	listType := types.List{Element: types.S32{}}
+
+	t.Run("flat_roundtrip", func(t *testing.T) {
+		mem := newListTestMemory(1024)
+		allocPtr := uint32(256)
+
+		lowerCtx := &abi.LowerContext{
+			Memory: mem,
+			Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+				result := allocPtr
+				allocPtr += newSize
+				return result, nil
+			},
+		}
+
+		expected := []int32{1, 2, 3, 4, 5}
+		elements := make([]component.Val, len(expected))
+		for i, v := range expected {
+			elements[i] = component.ValS32(v)
+		}
+		val := component.ValList(elements)
+
+		flat, err := abi.LowerFlat(lowerCtx, listType, val)
+		require.NoError(t, err)
+		require.Equal(t, uint64(256), flat[0], "ptr should be 256")
+		require.Equal(t, uint64(5), flat[1], "len should be 5")
+
+		// Verify all elements in memory
+		for i, exp := range expected {
+			offset := 256 + uint32(i*4)
+			actual := int32(binary.LittleEndian.Uint32(mem.data[offset : offset+4]))
+			require.Equal(t, exp, actual, "element %d should match", i)
+		}
+
+		// Lift back
+		liftCtx := &abi.LiftContext{Memory: mem}
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(liftCtx, listType, iter)
+		require.NoError(t, err)
+
+		elems := lifted.List()
+		require.Equal(t, len(expected), len(elems))
+		for i, exp := range expected {
+			require.Equal(t, exp, elems[i].S32(), "element %d should match after roundtrip", i)
+		}
+	})
+
+	t.Run("iteration_over_lifted", func(t *testing.T) {
+		mem := newListTestMemory(1024)
+		allocPtr := uint32(256)
+
+		lowerCtx := &abi.LowerContext{
+			Memory: mem,
+			Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+				result := allocPtr
+				allocPtr += newSize
+				return result, nil
+			},
+		}
+
+		elements := []component.Val{
+			component.ValS32(10),
+			component.ValS32(20),
+			component.ValS32(30),
+		}
+		val := component.ValList(elements)
+
+		flat, err := abi.LowerFlat(lowerCtx, listType, val)
+		require.NoError(t, err)
+
+		liftCtx := &abi.LiftContext{Memory: mem}
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(liftCtx, listType, iter)
+		require.NoError(t, err)
+
+		// Test iteration
+		sum := int32(0)
+		for _, elem := range lifted.List() {
+			sum += elem.S32()
+		}
+		require.Equal(t, int32(60), sum)
+	})
+}
+
+// TestListNested tests list<list<s32>> (nested lists).
+func TestListNested(t *testing.T) {
+	innerListType := types.List{Element: types.S32{}}
+	outerListType := types.List{Element: innerListType}
+
+	t.Run("type_properties", func(t *testing.T) {
+		// Inner list element type is (ptr, len) = 8 bytes, align 4
+		require.Equal(t, uint32(8), innerListType.Size())
+		require.Equal(t, uint32(4), innerListType.Align())
+
+		// Outer list of inner lists
+		require.Equal(t, uint32(8), outerListType.Size())
+		require.Equal(t, uint32(4), outerListType.Align())
+		require.Equal(t, uint32(8), outerListType.ElementSize(), "element of outer list is inner list (8 bytes)")
+		require.Equal(t, uint32(4), outerListType.ElementAlign())
+	})
+
+	t.Run("heap_roundtrip_nested", func(t *testing.T) {
+		mem := newListTestMemory(4096)
+		allocPtr := uint32(512)
+
+		lowerCtx := &abi.LowerContext{
+			Memory: mem,
+			Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+				// Align the allocation
+				if allocPtr%align != 0 {
+					allocPtr += align - (allocPtr % align)
+				}
+				result := allocPtr
+				allocPtr += newSize
+				return result, nil
+			},
+		}
+
+		// Create nested list: [[1, 2], [3, 4, 5]]
+		inner1 := component.ValList([]component.Val{
+			component.ValS32(1),
+			component.ValS32(2),
+		})
+		inner2 := component.ValList([]component.Val{
+			component.ValS32(3),
+			component.ValS32(4),
+			component.ValS32(5),
+		})
+		outer := component.ValList([]component.Val{inner1, inner2})
+
+		err := abi.LowerHeap(lowerCtx, outerListType, outer, 0)
+		require.NoError(t, err)
+
+		// Lift back
+		liftCtx := &abi.LiftContext{Memory: mem}
+		lifted, err := abi.LiftHeap(liftCtx, outerListType, 0)
+		require.NoError(t, err)
+
+		outerElems := lifted.List()
+		require.Equal(t, 2, len(outerElems), "outer list should have 2 elements")
+
+		// Check first inner list
+		inner1Elems := outerElems[0].List()
+		require.Equal(t, 2, len(inner1Elems))
+		require.Equal(t, int32(1), inner1Elems[0].S32())
+		require.Equal(t, int32(2), inner1Elems[1].S32())
+
+		// Check second inner list
+		inner2Elems := outerElems[1].List()
+		require.Equal(t, 3, len(inner2Elems))
+		require.Equal(t, int32(3), inner2Elems[0].S32())
+		require.Equal(t, int32(4), inner2Elems[1].S32())
+		require.Equal(t, int32(5), inner2Elems[2].S32())
+	})
+
+	t.Run("empty_inner_lists", func(t *testing.T) {
+		mem := newListTestMemory(4096)
+		allocPtr := uint32(512)
+
+		lowerCtx := &abi.LowerContext{
+			Memory: mem,
+			Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+				if allocPtr%align != 0 {
+					allocPtr += align - (allocPtr % align)
+				}
+				result := allocPtr
+				allocPtr += newSize
+				return result, nil
+			},
+		}
+
+		// Create nested list with empty inner list: [[], [1]]
+		inner1 := component.ValList([]component.Val{})
+		inner2 := component.ValList([]component.Val{component.ValS32(1)})
+		outer := component.ValList([]component.Val{inner1, inner2})
+
+		err := abi.LowerHeap(lowerCtx, outerListType, outer, 0)
+		require.NoError(t, err)
+
+		liftCtx := &abi.LiftContext{Memory: mem}
+		lifted, err := abi.LiftHeap(liftCtx, outerListType, 0)
+		require.NoError(t, err)
+
+		outerElems := lifted.List()
+		require.Equal(t, 2, len(outerElems))
+		require.Equal(t, 0, len(outerElems[0].List()), "first inner list should be empty")
+		require.Equal(t, 1, len(outerElems[1].List()), "second inner list should have 1 element")
+		require.Equal(t, int32(1), outerElems[1].List()[0].S32())
+	})
+}
+
+// TestListMaxLength tests with 1000 elements.
+func TestListMaxLength(t *testing.T) {
+	listType := types.List{Element: types.S32{}}
+
+	t.Run("large_list_roundtrip", func(t *testing.T) {
+		mem := newListTestMemory(64 * 1024) // 64KB
+		allocPtr := uint32(1024)
+
+		lowerCtx := &abi.LowerContext{
+			Memory: mem,
+			Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+				result := allocPtr
+				allocPtr += newSize
+				return result, nil
+			},
+		}
+
+		// Create list with 1000 elements
+		numElements := 1000
+		elements := make([]component.Val, numElements)
+		for i := 0; i < numElements; i++ {
+			elements[i] = component.ValS32(int32(i * 2)) // 0, 2, 4, 6, ...
+		}
+		val := component.ValList(elements)
+
+		flat, err := abi.LowerFlat(lowerCtx, listType, val)
+		require.NoError(t, err)
+		require.Equal(t, uint64(numElements), flat[1], "len should be 1000")
+
+		// Lift back
+		liftCtx := &abi.LiftContext{Memory: mem}
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(liftCtx, listType, iter)
+		require.NoError(t, err)
+
+		elems := lifted.List()
+		require.Equal(t, numElements, len(elems))
+
+		// Verify all elements
+		for i := 0; i < numElements; i++ {
+			require.Equal(t, int32(i*2), elems[i].S32(), "element %d should be %d", i, i*2)
+		}
+	})
+}
+
+// TestListDifferentElementTypes tests lists with various element types.
+func TestListDifferentElementTypes(t *testing.T) {
+	t.Run("list_u8", func(t *testing.T) {
+		listType := types.List{Element: types.U8{}}
+		require.Equal(t, uint32(1), listType.ElementSize())
+		require.Equal(t, uint32(1), listType.ElementAlign())
+
+		mem := newListTestMemory(1024)
+		allocPtr := uint32(256)
+
+		lowerCtx := &abi.LowerContext{
+			Memory: mem,
+			Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+				result := allocPtr
+				allocPtr += newSize
+				return result, nil
+			},
+		}
+
+		val := component.ValList([]component.Val{
+			component.ValU8(0),
+			component.ValU8(127),
+			component.ValU8(255),
+		})
+
+		flat, err := abi.LowerFlat(lowerCtx, listType, val)
+		require.NoError(t, err)
+
+		liftCtx := &abi.LiftContext{Memory: mem}
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(liftCtx, listType, iter)
+		require.NoError(t, err)
+
+		elems := lifted.List()
+		require.Equal(t, 3, len(elems))
+		require.Equal(t, uint8(0), elems[0].U8())
+		require.Equal(t, uint8(127), elems[1].U8())
+		require.Equal(t, uint8(255), elems[2].U8())
+	})
+
+	t.Run("list_u64", func(t *testing.T) {
+		listType := types.List{Element: types.U64{}}
+		require.Equal(t, uint32(8), listType.ElementSize())
+		require.Equal(t, uint32(8), listType.ElementAlign())
+
+		mem := newListTestMemory(1024)
+		allocPtr := uint32(256)
+
+		lowerCtx := &abi.LowerContext{
+			Memory: mem,
+			Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+				if allocPtr%align != 0 {
+					allocPtr += align - (allocPtr % align)
+				}
+				result := allocPtr
+				allocPtr += newSize
+				return result, nil
+			},
+		}
+
+		val := component.ValList([]component.Val{
+			component.ValU64(0),
+			component.ValU64(math.MaxUint64),
+			component.ValU64(0xDEADBEEFCAFEBABE),
+		})
+
+		flat, err := abi.LowerFlat(lowerCtx, listType, val)
+		require.NoError(t, err)
+
+		liftCtx := &abi.LiftContext{Memory: mem}
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(liftCtx, listType, iter)
+		require.NoError(t, err)
+
+		elems := lifted.List()
+		require.Equal(t, 3, len(elems))
+		require.Equal(t, uint64(0), elems[0].U64())
+		require.Equal(t, uint64(math.MaxUint64), elems[1].U64())
+		require.Equal(t, uint64(0xDEADBEEFCAFEBABE), elems[2].U64())
+	})
+
+	t.Run("list_f32", func(t *testing.T) {
+		listType := types.List{Element: types.F32{}}
+
+		mem := newListTestMemory(1024)
+		allocPtr := uint32(256)
+
+		lowerCtx := &abi.LowerContext{
+			Memory: mem,
+			Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+				result := allocPtr
+				allocPtr += newSize
+				return result, nil
+			},
+		}
+
+		val := component.ValList([]component.Val{
+			component.ValF32(0.0),
+			component.ValF32(3.14159),
+			component.ValF32(-1.5),
+		})
+
+		flat, err := abi.LowerFlat(lowerCtx, listType, val)
+		require.NoError(t, err)
+
+		liftCtx := &abi.LiftContext{Memory: mem}
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(liftCtx, listType, iter)
+		require.NoError(t, err)
+
+		elems := lifted.List()
+		require.Equal(t, 3, len(elems))
+		require.Equal(t, float32(0.0), elems[0].F32())
+		require.Equal(t, math.Float32bits(3.14159), math.Float32bits(elems[1].F32()))
+		require.Equal(t, float32(-1.5), elems[2].F32())
+	})
+
+	t.Run("list_bool", func(t *testing.T) {
+		listType := types.List{Element: types.Bool{}}
+
+		mem := newListTestMemory(1024)
+		allocPtr := uint32(256)
+
+		lowerCtx := &abi.LowerContext{
+			Memory: mem,
+			Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+				result := allocPtr
+				allocPtr += newSize
+				return result, nil
+			},
+		}
+
+		val := component.ValList([]component.Val{
+			component.ValBool(true),
+			component.ValBool(false),
+			component.ValBool(true),
+		})
+
+		flat, err := abi.LowerFlat(lowerCtx, listType, val)
+		require.NoError(t, err)
+
+		liftCtx := &abi.LiftContext{Memory: mem}
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(liftCtx, listType, iter)
+		require.NoError(t, err)
+
+		elems := lifted.List()
+		require.Equal(t, 3, len(elems))
+		require.True(t, elems[0].Bool())
+		require.False(t, elems[1].Bool())
+		require.True(t, elems[2].Bool())
+	})
+}
+
+// TestListOfRecords tests list<record { x: s32, y: s32 }>.
+func TestListOfRecords(t *testing.T) {
+	pointRecord := types.Record{
+		Fields: []types.Field{
+			{Name: "x", Type: types.S32{}},
+			{Name: "y", Type: types.S32{}},
+		},
+	}
+	listType := types.List{Element: pointRecord}
+
+	t.Run("type_properties", func(t *testing.T) {
+		require.Equal(t, uint32(8), listType.ElementSize(), "point record should be 8 bytes")
+		require.Equal(t, uint32(4), listType.ElementAlign(), "point record should have align 4")
+	})
+
+	t.Run("roundtrip", func(t *testing.T) {
+		mem := newListTestMemory(1024)
+		allocPtr := uint32(256)
+
+		lowerCtx := &abi.LowerContext{
+			Memory: mem,
+			Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+				result := allocPtr
+				allocPtr += newSize
+				return result, nil
+			},
+		}
+
+		// Create list of points: [(1, 2), (3, 4), (5, 6)]
+		points := []component.Val{
+			component.ValRecord(map[string]component.Val{
+				"x": component.ValS32(1),
+				"y": component.ValS32(2),
+			}),
+			component.ValRecord(map[string]component.Val{
+				"x": component.ValS32(3),
+				"y": component.ValS32(4),
+			}),
+			component.ValRecord(map[string]component.Val{
+				"x": component.ValS32(5),
+				"y": component.ValS32(6),
+			}),
+		}
+		val := component.ValList(points)
+
+		err := abi.LowerHeap(lowerCtx, listType, val, 0)
+		require.NoError(t, err)
+
+		liftCtx := &abi.LiftContext{Memory: mem}
+		lifted, err := abi.LiftHeap(liftCtx, listType, 0)
+		require.NoError(t, err)
+
+		elems := lifted.List()
+		require.Equal(t, 3, len(elems))
+
+		for i, elem := range elems {
+			xVal, ok := elem.RecordField("x")
+			require.True(t, ok)
+			yVal, ok := elem.RecordField("y")
+			require.True(t, ok)
+			require.Equal(t, int32(i*2+1), xVal.S32())
+			require.Equal(t, int32(i*2+2), yVal.S32())
+		}
+	})
+}
+
+// TestListBoundsChecking tests that out-of-bounds access is handled.
+func TestListBoundsChecking(t *testing.T) {
+	listType := types.List{Element: types.S32{}}
+
+	t.Run("lift_out_of_bounds", func(t *testing.T) {
+		mem := newListTestMemory(64)
+
+		// Set up ptr/len that would go beyond memory
+		binary.LittleEndian.PutUint32(mem.data[0:], 100) // ptr beyond 64-byte memory
+		binary.LittleEndian.PutUint32(mem.data[4:], 10)  // 10 elements
+
+		liftCtx := &abi.LiftContext{Memory: mem}
+		_, err := abi.LiftHeap(liftCtx, listType, 0)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "exceeds memory bounds")
+	})
+
+	t.Run("lift_ptr_plus_size_overflow", func(t *testing.T) {
+		mem := newListTestMemory(64)
+
+		// Set up valid ptr but len would overflow when multiplied by element size
+		binary.LittleEndian.PutUint32(mem.data[0:], 32)
+		binary.LittleEndian.PutUint32(mem.data[4:], 20) // 20 * 4 = 80, 32 + 80 > 64
+
+		liftCtx := &abi.LiftContext{Memory: mem}
+		_, err := abi.LiftHeap(liftCtx, listType, 0)
+		require.Error(t, err)
+	})
+
+	t.Run("lift_flat_no_memory_for_nonempty", func(t *testing.T) {
+		// Non-empty list requires memory context
+		flat := []uint64{256, 5} // ptr=256, len=5
+
+		iter := abi.NewFlatIter(flat)
+		_, err := abi.LiftFlat(nil, listType, iter)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "memory context required")
+	})
+}
+
+// TestListNoReallocError tests that lowering non-empty lists without realloc fails.
+func TestListNoReallocError(t *testing.T) {
+	listType := types.List{Element: types.S32{}}
+
+	t.Run("lower_flat_no_realloc", func(t *testing.T) {
+		val := component.ValList([]component.Val{component.ValS32(42)})
+
+		// No realloc function provided
+		_, err := abi.LowerFlat(nil, listType, val)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "realloc function required")
+	})
+
+	t.Run("lower_heap_no_realloc", func(t *testing.T) {
+		mem := newListTestMemory(1024)
+		lowerCtx := &abi.LowerContext{
+			Memory:  mem,
+			Realloc: nil, // No realloc
+		}
+
+		val := component.ValList([]component.Val{component.ValS32(42)})
+		err := abi.LowerHeap(lowerCtx, listType, val, 0)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "realloc function required")
 	})
 }
