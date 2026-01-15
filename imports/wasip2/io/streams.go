@@ -4,6 +4,7 @@ package io
 
 import (
 	"context"
+	"fmt"
 	goio "io"
 
 	"github.com/tetratelabs/wazero/internal/component"
@@ -259,6 +260,96 @@ func minUint64(a, b uint64) uint64 {
 	return b
 }
 
+// bytesToListU8 converts a Go byte slice to a component.Val list<u8>.
+func bytesToListU8(data []byte) component.Val {
+	vals := make([]component.Val, len(data))
+	for i, b := range data {
+		vals[i] = component.ValU8(b)
+	}
+	return component.ValList(vals)
+}
+
+// listU8ToBytes converts a component.Val list<u8> to a Go byte slice.
+func listU8ToBytes(listVal component.Val) []byte {
+	list := listVal.List()
+	data := make([]byte, len(list))
+	for i, v := range list {
+		data[i] = v.U8()
+	}
+	return data
+}
+
+// streamErrorToResultVal converts a StreamError to a result error Val.
+// The stream-error variant has two cases:
+//   - closed: discriminant 1, no payload
+//   - last-operation-failed(error): discriminant 0, with Error resource handle
+func streamErrorToResultVal(ctx context.Context, err *StreamError) component.Val {
+	if err.IsClosed() {
+		// closed variant - just the variant discriminant "closed" with no payload
+		return component.ValResultError(&component.Val{})
+	}
+	// last-operation-failed - needs to create an Error resource handle
+	// For now, we create a simple variant representation
+	// In a full implementation, we would create an Error resource in the table
+	// and include its handle in the variant payload
+	table := component.ResourceTableFromContext(ctx)
+	if table != nil && err.Error() != nil {
+		// Create an Error resource in the table
+		handle := table.New(err.Error(), true)
+		handleVal := component.ValOwn(uint32(handle))
+		errVariant := component.ValVariant("last-operation-failed", &handleVal)
+		return component.ValResultError(&errVariant)
+	}
+	// No table or no error, return closed
+	closedVariant := component.ValVariant("closed", nil)
+	return component.ValResultError(&closedVariant)
+}
+
+// getInputStream retrieves an InputStream from the ResourceTable using a borrow handle.
+func getInputStream(ctx context.Context, handle uint32) (*InputStream, error) {
+	table := component.ResourceTableFromContext(ctx)
+	if table == nil {
+		return nil, fmt.Errorf("no resource table in context")
+	}
+	entry, err := table.Get(component.Handle(handle))
+	if err != nil {
+		return nil, fmt.Errorf("invalid handle %d: %w", handle, err)
+	}
+	stream, ok := entry.Rep.(*InputStream)
+	if !ok {
+		return nil, fmt.Errorf("handle %d is not an InputStream", handle)
+	}
+	return stream, nil
+}
+
+// getOutputStream retrieves an OutputStream from the ResourceTable using a borrow handle.
+func getOutputStream(ctx context.Context, handle uint32) (*OutputStream, error) {
+	table := component.ResourceTableFromContext(ctx)
+	if table == nil {
+		return nil, fmt.Errorf("no resource table in context")
+	}
+	entry, err := table.Get(component.Handle(handle))
+	if err != nil {
+		return nil, fmt.Errorf("invalid handle %d: %w", handle, err)
+	}
+	stream, ok := entry.Rep.(*OutputStream)
+	if !ok {
+		return nil, fmt.Errorf("handle %d is not an OutputStream", handle)
+	}
+	return stream, nil
+}
+
+// createPollableHandle creates a new Pollable resource in the table and returns its handle.
+func createPollableHandle(ctx context.Context, pollable *Pollable) component.Val {
+	table := component.ResourceTableFromContext(ctx)
+	if table == nil {
+		// No table, return placeholder handle 0
+		return component.ValOwn(0)
+	}
+	handle := table.New(pollable, true)
+	return component.ValOwn(uint32(handle))
+}
+
 func instantiateStreams(linker *component.Linker) error {
 	inst := linker.DefineInstance("wasi:io/streams@0.2.0")
 
@@ -286,77 +377,295 @@ func instantiateStreams(linker *component.Linker) error {
 	return inst.Build()
 }
 
-// Host function implementations - return success results as placeholders
-// Full implementations will integrate with ResourceTable for handle lookup
+// Host function implementations - use ResourceTable to look up stream handles
 
+// inputStreamRead implements [method]input-stream.read
+// Signature: func(self: borrow<input-stream>, len: u64) -> result<list<u8>, stream-error>
 func inputStreamRead(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Returns result<list<u8>, stream-error> - ok with empty list
-	emptyList := component.ValList([]component.Val{})
-	return []component.Val{component.ValResultOk(&emptyList)}, nil
+	handle := args[0].Borrow()
+	maxLen := args[1].U64()
+
+	stream, err := getInputStream(ctx, handle)
+	if err != nil {
+		return nil, err
+	}
+
+	data, streamErr := stream.Read(maxLen)
+	if streamErr != nil {
+		return []component.Val{streamErrorToResultVal(ctx, streamErr)}, nil
+	}
+
+	listVal := bytesToListU8(data)
+	return []component.Val{component.ValResultOk(&listVal)}, nil
 }
 
+// inputStreamBlockingRead implements [method]input-stream.blocking-read
+// Signature: func(self: borrow<input-stream>, len: u64) -> result<list<u8>, stream-error>
 func inputStreamBlockingRead(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	emptyList := component.ValList([]component.Val{})
-	return []component.Val{component.ValResultOk(&emptyList)}, nil
+	handle := args[0].Borrow()
+	maxLen := args[1].U64()
+
+	stream, err := getInputStream(ctx, handle)
+	if err != nil {
+		return nil, err
+	}
+
+	data, streamErr := stream.BlockingRead(maxLen)
+	if streamErr != nil {
+		return []component.Val{streamErrorToResultVal(ctx, streamErr)}, nil
+	}
+
+	listVal := bytesToListU8(data)
+	return []component.Val{component.ValResultOk(&listVal)}, nil
 }
 
+// inputStreamSkip implements [method]input-stream.skip
+// Signature: func(self: borrow<input-stream>, len: u64) -> result<u64, stream-error>
 func inputStreamSkip(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Returns result<u64, stream-error> - ok with 0
-	zero := component.ValU64(0)
-	return []component.Val{component.ValResultOk(&zero)}, nil
+	handle := args[0].Borrow()
+	length := args[1].U64()
+
+	stream, err := getInputStream(ctx, handle)
+	if err != nil {
+		return nil, err
+	}
+
+	skipped, streamErr := stream.Skip(length)
+	if streamErr != nil {
+		return []component.Val{streamErrorToResultVal(ctx, streamErr)}, nil
+	}
+
+	result := component.ValU64(skipped)
+	return []component.Val{component.ValResultOk(&result)}, nil
 }
 
+// inputStreamBlockingSkip implements [method]input-stream.blocking-skip
+// Signature: func(self: borrow<input-stream>, len: u64) -> result<u64, stream-error>
 func inputStreamBlockingSkip(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	zero := component.ValU64(0)
-	return []component.Val{component.ValResultOk(&zero)}, nil
+	handle := args[0].Borrow()
+	length := args[1].U64()
+
+	stream, err := getInputStream(ctx, handle)
+	if err != nil {
+		return nil, err
+	}
+
+	skipped, streamErr := stream.BlockingSkip(length)
+	if streamErr != nil {
+		return []component.Val{streamErrorToResultVal(ctx, streamErr)}, nil
+	}
+
+	result := component.ValU64(skipped)
+	return []component.Val{component.ValResultOk(&result)}, nil
 }
 
+// inputStreamSubscribe implements [method]input-stream.subscribe
+// Signature: func(self: borrow<input-stream>) -> own<pollable>
 func inputStreamSubscribe(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Returns own<pollable>
-	return []component.Val{component.ValOwn(0)}, nil
+	handle := args[0].Borrow()
+
+	stream, err := getInputStream(ctx, handle)
+	if err != nil {
+		return nil, err
+	}
+
+	pollable := stream.Subscribe()
+	return []component.Val{createPollableHandle(ctx, pollable)}, nil
 }
 
+// outputStreamCheckWrite implements [method]output-stream.check-write
+// Signature: func(self: borrow<output-stream>) -> result<u64, stream-error>
 func outputStreamCheckWrite(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Returns result<u64, stream-error> - ok with 64KB
-	size := component.ValU64(64 * 1024)
-	return []component.Val{component.ValResultOk(&size)}, nil
+	handle := args[0].Borrow()
+
+	stream, err := getOutputStream(ctx, handle)
+	if err != nil {
+		return nil, err
+	}
+
+	size, streamErr := stream.CheckWrite()
+	if streamErr != nil {
+		return []component.Val{streamErrorToResultVal(ctx, streamErr)}, nil
+	}
+
+	result := component.ValU64(size)
+	return []component.Val{component.ValResultOk(&result)}, nil
 }
 
+// outputStreamWrite implements [method]output-stream.write
+// Signature: func(self: borrow<output-stream>, contents: list<u8>) -> result<_, stream-error>
 func outputStreamWrite(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Returns result<_, stream-error> - ok with unit
+	handle := args[0].Borrow()
+	contents := listU8ToBytes(args[1])
+
+	stream, err := getOutputStream(ctx, handle)
+	if err != nil {
+		return nil, err
+	}
+
+	streamErr := stream.Write(contents)
+	if streamErr != nil {
+		return []component.Val{streamErrorToResultVal(ctx, streamErr)}, nil
+	}
+
 	return []component.Val{component.ValResultOk(nil)}, nil
 }
 
+// outputStreamBlockingWriteAndFlush implements [method]output-stream.blocking-write-and-flush
+// Signature: func(self: borrow<output-stream>, contents: list<u8>) -> result<_, stream-error>
 func outputStreamBlockingWriteAndFlush(ctx context.Context, args []component.Val) ([]component.Val, error) {
+	handle := args[0].Borrow()
+	contents := listU8ToBytes(args[1])
+
+	stream, err := getOutputStream(ctx, handle)
+	if err != nil {
+		return nil, err
+	}
+
+	streamErr := stream.BlockingWriteAndFlush(contents)
+	if streamErr != nil {
+		return []component.Val{streamErrorToResultVal(ctx, streamErr)}, nil
+	}
+
 	return []component.Val{component.ValResultOk(nil)}, nil
 }
 
+// outputStreamFlush implements [method]output-stream.flush
+// Signature: func(self: borrow<output-stream>) -> result<_, stream-error>
 func outputStreamFlush(ctx context.Context, args []component.Val) ([]component.Val, error) {
+	handle := args[0].Borrow()
+
+	stream, err := getOutputStream(ctx, handle)
+	if err != nil {
+		return nil, err
+	}
+
+	streamErr := stream.Flush()
+	if streamErr != nil {
+		return []component.Val{streamErrorToResultVal(ctx, streamErr)}, nil
+	}
+
 	return []component.Val{component.ValResultOk(nil)}, nil
 }
 
+// outputStreamBlockingFlush implements [method]output-stream.blocking-flush
+// Signature: func(self: borrow<output-stream>) -> result<_, stream-error>
 func outputStreamBlockingFlush(ctx context.Context, args []component.Val) ([]component.Val, error) {
+	handle := args[0].Borrow()
+
+	stream, err := getOutputStream(ctx, handle)
+	if err != nil {
+		return nil, err
+	}
+
+	streamErr := stream.BlockingFlush()
+	if streamErr != nil {
+		return []component.Val{streamErrorToResultVal(ctx, streamErr)}, nil
+	}
+
 	return []component.Val{component.ValResultOk(nil)}, nil
 }
 
+// outputStreamSubscribe implements [method]output-stream.subscribe
+// Signature: func(self: borrow<output-stream>) -> own<pollable>
 func outputStreamSubscribe(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	return []component.Val{component.ValOwn(0)}, nil
+	handle := args[0].Borrow()
+
+	stream, err := getOutputStream(ctx, handle)
+	if err != nil {
+		return nil, err
+	}
+
+	pollable := stream.Subscribe()
+	return []component.Val{createPollableHandle(ctx, pollable)}, nil
 }
 
+// outputStreamWriteZeroes implements [method]output-stream.write-zeroes
+// Signature: func(self: borrow<output-stream>, len: u64) -> result<_, stream-error>
 func outputStreamWriteZeroes(ctx context.Context, args []component.Val) ([]component.Val, error) {
+	handle := args[0].Borrow()
+	length := args[1].U64()
+
+	stream, err := getOutputStream(ctx, handle)
+	if err != nil {
+		return nil, err
+	}
+
+	streamErr := stream.WriteZeroes(length)
+	if streamErr != nil {
+		return []component.Val{streamErrorToResultVal(ctx, streamErr)}, nil
+	}
+
 	return []component.Val{component.ValResultOk(nil)}, nil
 }
 
+// outputStreamBlockingWriteZeroesAndFlush implements [method]output-stream.blocking-write-zeroes-and-flush
+// Signature: func(self: borrow<output-stream>, len: u64) -> result<_, stream-error>
 func outputStreamBlockingWriteZeroesAndFlush(ctx context.Context, args []component.Val) ([]component.Val, error) {
+	handle := args[0].Borrow()
+	length := args[1].U64()
+
+	stream, err := getOutputStream(ctx, handle)
+	if err != nil {
+		return nil, err
+	}
+
+	streamErr := stream.BlockingWriteZeroesAndFlush(length)
+	if streamErr != nil {
+		return []component.Val{streamErrorToResultVal(ctx, streamErr)}, nil
+	}
+
 	return []component.Val{component.ValResultOk(nil)}, nil
 }
 
+// outputStreamSplice implements [method]output-stream.splice
+// Signature: func(self: borrow<output-stream>, src: borrow<input-stream>, len: u64) -> result<u64, stream-error>
 func outputStreamSplice(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	zero := component.ValU64(0)
-	return []component.Val{component.ValResultOk(&zero)}, nil
+	dstHandle := args[0].Borrow()
+	srcHandle := args[1].Borrow()
+	length := args[2].U64()
+
+	dstStream, err := getOutputStream(ctx, dstHandle)
+	if err != nil {
+		return nil, err
+	}
+
+	srcStream, err := getInputStream(ctx, srcHandle)
+	if err != nil {
+		return nil, err
+	}
+
+	copied, streamErr := dstStream.Splice(srcStream, length)
+	if streamErr != nil {
+		return []component.Val{streamErrorToResultVal(ctx, streamErr)}, nil
+	}
+
+	result := component.ValU64(copied)
+	return []component.Val{component.ValResultOk(&result)}, nil
 }
 
+// outputStreamBlockingSplice implements [method]output-stream.blocking-splice
+// Signature: func(self: borrow<output-stream>, src: borrow<input-stream>, len: u64) -> result<u64, stream-error>
 func outputStreamBlockingSplice(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	zero := component.ValU64(0)
-	return []component.Val{component.ValResultOk(&zero)}, nil
+	dstHandle := args[0].Borrow()
+	srcHandle := args[1].Borrow()
+	length := args[2].U64()
+
+	dstStream, err := getOutputStream(ctx, dstHandle)
+	if err != nil {
+		return nil, err
+	}
+
+	srcStream, err := getInputStream(ctx, srcHandle)
+	if err != nil {
+		return nil, err
+	}
+
+	copied, streamErr := dstStream.BlockingSplice(srcStream, length)
+	if streamErr != nil {
+		return []component.Val{streamErrorToResultVal(ctx, streamErr)}, nil
+	}
+
+	result := component.ValU64(copied)
+	return []component.Val{component.ValResultOk(&result)}, nil
 }
