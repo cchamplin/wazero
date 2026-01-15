@@ -78,3 +78,15 @@ func TestInstantiate_CLIInterfaces(t *testing.T) {
 	_, err = linker.MatchImport("wasi:cli/terminal-output@0.2.0")
 	require.NoError(t, err)
 }
+
+func TestInstantiate_FilesystemInterfaces(t *testing.T) {
+	linker := component.NewLinker()
+	err := Instantiate(linker)
+	require.NoError(t, err)
+
+	// Verify filesystem interfaces
+	_, err = linker.MatchImport("wasi:filesystem/types@0.2.0")
+	require.NoError(t, err)
+	_, err = linker.MatchImport("wasi:filesystem/preopens@0.2.0")
+	require.NoError(t, err)
+}
