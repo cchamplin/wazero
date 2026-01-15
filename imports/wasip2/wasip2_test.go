@@ -90,3 +90,25 @@ func TestInstantiate_FilesystemInterfaces(t *testing.T) {
 	_, err = linker.MatchImport("wasi:filesystem/preopens@0.2.0")
 	require.NoError(t, err)
 }
+
+func TestInstantiate_SocketsInterfaces(t *testing.T) {
+	linker := component.NewLinker()
+	err := Instantiate(linker)
+	require.NoError(t, err)
+
+	// Verify sockets interfaces
+	_, err = linker.MatchImport("wasi:sockets/network@0.2.0")
+	require.NoError(t, err)
+	_, err = linker.MatchImport("wasi:sockets/instance-network@0.2.0")
+	require.NoError(t, err)
+	_, err = linker.MatchImport("wasi:sockets/ip-name-lookup@0.2.0")
+	require.NoError(t, err)
+	_, err = linker.MatchImport("wasi:sockets/tcp@0.2.0")
+	require.NoError(t, err)
+	_, err = linker.MatchImport("wasi:sockets/tcp-create-socket@0.2.0")
+	require.NoError(t, err)
+	_, err = linker.MatchImport("wasi:sockets/udp@0.2.0")
+	require.NoError(t, err)
+	_, err = linker.MatchImport("wasi:sockets/udp-create-socket@0.2.0")
+	require.NoError(t, err)
+}
