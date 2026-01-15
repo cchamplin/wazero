@@ -4,9 +4,163 @@ package filesystem
 
 import (
 	"context"
+	"errors"
+	"io"
+	"os"
+	"path/filepath"
+	"syscall"
 
 	"github.com/tetratelabs/wazero/internal/component"
 )
+
+// getDescriptor retrieves a Descriptor from the ResourceTable using a handle.
+func getDescriptor(ctx context.Context, handle uint32) (*Descriptor, error) {
+	table := component.ResourceTableFromContext(ctx)
+	if table == nil {
+		return nil, errors.New("no resource table in context")
+	}
+	entry, err := table.Get(component.Handle(handle))
+	if err != nil {
+		return nil, err
+	}
+	desc, ok := entry.Rep.(*Descriptor)
+	if !ok {
+		return nil, errors.New("handle is not a Descriptor")
+	}
+	return desc, nil
+}
+
+// getDirEntryStream retrieves a DirectoryEntryStream from the ResourceTable using a handle.
+func getDirEntryStream(ctx context.Context, handle uint32) (*DirectoryEntryStream, error) {
+	table := component.ResourceTableFromContext(ctx)
+	if table == nil {
+		return nil, errors.New("no resource table in context")
+	}
+	entry, err := table.Get(component.Handle(handle))
+	if err != nil {
+		return nil, err
+	}
+	stream, ok := entry.Rep.(*DirectoryEntryStream)
+	if !ok {
+		return nil, errors.New("handle is not a DirectoryEntryStream")
+	}
+	return stream, nil
+}
+
+// mapOSError maps OS errors to WASI error codes.
+func mapOSError(err error) ErrorCode {
+	if err == nil {
+		return ErrorCodeIO
+	}
+	if os.IsNotExist(err) {
+		return ErrorCodeNoEntry
+	}
+	if os.IsPermission(err) {
+		return ErrorCodeAccess
+	}
+	if os.IsExist(err) {
+		return ErrorCodeExist
+	}
+	// Check for specific syscall errors
+	var pathErr *os.PathError
+	if errors.As(err, &pathErr) {
+		if errors.Is(pathErr.Err, syscall.ENOTDIR) {
+			return ErrorCodeNotDirectory
+		}
+		if errors.Is(pathErr.Err, syscall.EISDIR) {
+			return ErrorCodeIsDirectory
+		}
+		if errors.Is(pathErr.Err, syscall.ENOTEMPTY) {
+			return ErrorCodeNotEmpty
+		}
+		if errors.Is(pathErr.Err, syscall.ELOOP) {
+			return ErrorCodeLoop
+		}
+		if errors.Is(pathErr.Err, syscall.ENAMETOOLONG) {
+			return ErrorCodeNameTooLong
+		}
+		if errors.Is(pathErr.Err, syscall.ENOSPC) {
+			return ErrorCodeInsufficientSpace
+		}
+		if errors.Is(pathErr.Err, syscall.EROFS) {
+			return ErrorCodeReadOnly
+		}
+		if errors.Is(pathErr.Err, syscall.EBUSY) {
+			return ErrorCodeBusy
+		}
+	}
+	return ErrorCodeIO
+}
+
+// errorResult creates a result<_, error-code> error value.
+func errorResult(code ErrorCode) []component.Val {
+	errVal := component.ValEnum(string(code))
+	return []component.Val{component.ValResultError(&errVal)}
+}
+
+// bytesToListU8 converts a byte slice to a component.Val list of u8.
+func bytesToListU8(data []byte) component.Val {
+	vals := make([]component.Val, len(data))
+	for i, b := range data {
+		vals[i] = component.ValU8(b)
+	}
+	return component.ValList(vals)
+}
+
+// listU8ToBytes converts a component.Val list of u8 to a byte slice.
+func listU8ToBytes(list component.Val) []byte {
+	vals := list.List()
+	data := make([]byte, len(vals))
+	for i, v := range vals {
+		data[i] = v.U8()
+	}
+	return data
+}
+
+// fileInfoToDescriptorType converts os.FileInfo mode to DescriptorType.
+func fileInfoToDescriptorType(info os.FileInfo) DescriptorType {
+	mode := info.Mode()
+	switch {
+	case mode.IsDir():
+		return DescriptorTypeDirectory
+	case mode.IsRegular():
+		return DescriptorTypeRegularFile
+	case mode&os.ModeSymlink != 0:
+		return DescriptorTypeSymbolicLink
+	case mode&os.ModeDevice != 0:
+		if mode&os.ModeCharDevice != 0 {
+			return DescriptorTypeCharacterDevice
+		}
+		return DescriptorTypeBlockDevice
+	case mode&os.ModeNamedPipe != 0:
+		return DescriptorTypeFifo
+	case mode&os.ModeSocket != 0:
+		return DescriptorTypeSocket
+	default:
+		return DescriptorTypeUnknown
+	}
+}
+
+// fileInfoToStat converts os.FileInfo to a descriptor-stat record Val.
+func fileInfoToStat(info os.FileInfo) component.Val {
+	descType := fileInfoToDescriptorType(info)
+	modTime := info.ModTime()
+	modTimestamp := component.ValRecord(map[string]component.Val{
+		"seconds":     component.ValU64(uint64(modTime.Unix())),
+		"nanoseconds": component.ValU32(uint32(modTime.Nanosecond())),
+	})
+	modOpt := component.ValOption(&modTimestamp)
+
+	stat := component.ValRecord(map[string]component.Val{
+		"type":                        component.ValEnum(descType.String()),
+		"link-count":                  component.ValU64(1), // Not easily available on all platforms
+		"size":                        component.ValU64(uint64(info.Size())),
+		"data-access-timestamp":       component.ValOption(nil), // Not easily available
+		"data-modification-timestamp": modOpt,
+		"status-change-timestamp":     component.ValOption(nil), // Not easily available
+	})
+	return stat
+}
 
 // Instantiate registers all wasi:filesystem interfaces with the linker.
 func Instantiate(linker *component.Linker) error {
@@ -104,17 +258,40 @@ func descriptorAdvise(ctx context.Context, args []component.Val) ([]component.Va
 // descriptorSyncData synchronizes file data to storage.
 // Signature: func(self: borrow<descriptor>) -> result<_, error-code>
 func descriptorSyncData(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Stub - return success
+	handle := args[0].Borrow()
+
+	desc, err := getDescriptor(ctx, handle)
+	if err != nil {
+		return errorResult(ErrorCodeBadDescriptor), nil
+	}
+
+	if desc.File() != nil {
+		if syncErr := desc.File().Sync(); syncErr != nil {
+			return errorResult(mapOSError(syncErr)), nil
+		}
+	}
 	return []component.Val{component.ValResultOk(nil)}, nil
 }
 
 // descriptorGetFlags returns the flags of a descriptor.
 // Signature: func(self: borrow<descriptor>) -> result<descriptor-flags, error-code>
 func descriptorGetFlags(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return placeholder flags (read + write)
+	handle := args[0].Borrow()
+
+	desc, err := getDescriptor(ctx, handle)
+	if err != nil {
+		return errorResult(ErrorCodeBadDescriptor), nil
+	}
+
+	// Convert descriptor flags to component flags
+	descFlags := desc.Flags()
 	flags := component.ValFlags(map[string]bool{
-		"read":  true,
-		"write": true,
+		"read":                 descFlags.HasRead(),
+		"write":                descFlags.HasWrite(),
+		"file-integrity-sync":  descFlags&DescriptorFlagFileIntegritySync != 0,
+		"data-integrity-sync":  descFlags&DescriptorFlagDataIntegritySync != 0,
+		"requested-write-sync": descFlags&DescriptorFlagRequestedWriteSync != 0,
+		"mutate-directory":     descFlags&DescriptorFlagMutateDirectory != 0,
 	})
 	return []component.Val{component.ValResultOk(&flags)}, nil
 }
@@ -122,8 +299,21 @@ func descriptorGetFlags(ctx context.Context, args []component.Val) ([]component.
 // descriptorGetType returns the type of a descriptor.
 // Signature: func(self: borrow<descriptor>) -> result<descriptor-type, error-code>
 func descriptorGetType(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return "directory" as default placeholder
-	dt := component.ValEnum("directory")
+	handle := args[0].Borrow()
+
+	desc, err := getDescriptor(ctx, handle)
+	if err != nil {
+		return errorResult(ErrorCodeBadDescriptor), nil
+	}
+
+	// Get file info
+	info, statErr := desc.File().Stat()
+	if statErr != nil {
+		return errorResult(mapOSError(statErr)), nil
+	}
+
+	descType := fileInfoToDescriptorType(info)
+	dt := component.ValEnum(descType.String())
 	return []component.Val{component.ValResultOk(&dt)}, nil
 }
 
@@ -144,75 +334,252 @@ func descriptorSetTimes(ctx context.Context, args []component.Val) ([]component.
 // descriptorRead reads bytes from a file at an offset.
 // Signature: func(self: borrow<descriptor>, length: u64, offset: u64) -> result<tuple<list<u8>, bool>, error-code>
 func descriptorRead(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return empty bytes + EOF as placeholder
-	emptyList := component.ValList([]component.Val{})
-	eof := component.ValBool(true)
-	tuple := component.ValTuple([]component.Val{emptyList, eof})
+	handle := args[0].Borrow()
+	length := args[1].U64()
+	offset := args[2].U64()
+
+	desc, err := getDescriptor(ctx, handle)
+	if err != nil {
+		return errorResult(ErrorCodeBadDescriptor), nil
+	}
+
+	// Check if this is a directory
+	if desc.IsDir() {
+		return errorResult(ErrorCodeIsDirectory), nil
+	}
+
+	// Check read permission
+	if !desc.Flags().HasRead() {
+		return errorResult(ErrorCodeAccess), nil
+	}
+
+	// Read from file at offset
+	buf := make([]byte, length)
+	n, readErr := desc.File().ReadAt(buf, int64(offset))
+
+	// Determine EOF status
+	eof := false
+	if readErr != nil {
+		if readErr == io.EOF {
+			eof = true
+		} else {
+			return errorResult(mapOSError(readErr)), nil
+		}
+	}
+	// Also EOF if we read less than requested
+	if uint64(n) < length {
+		eof = true
+	}
+
+	// Return result<tuple<list<u8>, bool>, error-code>
+	bytesVal := bytesToListU8(buf[:n])
+	eofVal := component.ValBool(eof)
+	tuple := component.ValTuple([]component.Val{bytesVal, eofVal})
 	return []component.Val{component.ValResultOk(&tuple)}, nil
 }
 
 // descriptorWrite writes bytes to a file at an offset.
 // Signature: func(self: borrow<descriptor>, buffer: list<u8>, offset: u64) -> result<u64, error-code>
 func descriptorWrite(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return the length written (pretend success)
-	// args[1] is the buffer list
-	var length uint64 = 0
-	if len(args) > 1 && args[1].Kind() == component.ValKindList {
-		length = uint64(len(args[1].List()))
+	handle := args[0].Borrow()
+	buffer := args[1]
+	offset := args[2].U64()
+
+	desc, err := getDescriptor(ctx, handle)
+	if err != nil {
+		return errorResult(ErrorCodeBadDescriptor), nil
 	}
-	written := component.ValU64(length)
+
+	// Check if this is a directory
+	if desc.IsDir() {
+		return errorResult(ErrorCodeIsDirectory), nil
+	}
+
+	// Check write permission
+	if !desc.Flags().HasWrite() {
+		return errorResult(ErrorCodeAccess), nil
+	}
+
+	// Convert buffer to bytes
+	data := listU8ToBytes(buffer)
+
+	// Write to file at offset
+	n, writeErr := desc.File().WriteAt(data, int64(offset))
+	if writeErr != nil {
+		return errorResult(mapOSError(writeErr)), nil
+	}
+
+	// Return result<u64, error-code>
+	written := component.ValU64(uint64(n))
 	return []component.Val{component.ValResultOk(&written)}, nil
 }
 
 // descriptorReadDirectory returns a directory entry stream for reading directory contents.
 // Signature: func(self: borrow<descriptor>) -> result<own<directory-entry-stream>, error-code>
 func descriptorReadDirectory(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return placeholder directory-entry-stream handle
-	handle := component.ValOwn(0)
-	return []component.Val{component.ValResultOk(&handle)}, nil
+	handle := args[0].Borrow()
+
+	desc, err := getDescriptor(ctx, handle)
+	if err != nil {
+		return errorResult(ErrorCodeBadDescriptor), nil
+	}
+
+	// Must be a directory
+	if !desc.IsDir() {
+		return errorResult(ErrorCodeNotDirectory), nil
+	}
+
+	// Read directory entries
+	entries, readErr := os.ReadDir(desc.Path())
+	if readErr != nil {
+		return errorResult(mapOSError(readErr)), nil
+	}
+
+	// Convert to DirectoryEntry slice
+	dirEntries := make([]DirectoryEntry, len(entries))
+	for i, entry := range entries {
+		info, err := entry.Info()
+		var entryType DescriptorType
+		if err != nil {
+			entryType = DescriptorTypeUnknown
+		} else {
+			entryType = fileInfoToDescriptorType(info)
+		}
+		dirEntries[i] = DirectoryEntry{
+			Type: entryType,
+			Name: entry.Name(),
+		}
+	}
+
+	// Create directory entry stream
+	stream := NewDirectoryEntryStream(dirEntries)
+
+	// Add to resource table
+	table := component.ResourceTableFromContext(ctx)
+	if table == nil {
+		return errorResult(ErrorCodeIO), nil
+	}
+
+	newHandle := table.New(stream, true)
+	handleVal := component.ValOwn(uint32(newHandle.Index()))
+	return []component.Val{component.ValResultOk(&handleVal)}, nil
 }
 
 // descriptorSync synchronizes file data and metadata to storage.
 // Signature: func(self: borrow<descriptor>) -> result<_, error-code>
 func descriptorSync(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Stub - return success
+	handle := args[0].Borrow()
+
+	desc, err := getDescriptor(ctx, handle)
+	if err != nil {
+		return errorResult(ErrorCodeBadDescriptor), nil
+	}
+
+	if desc.File() != nil {
+		if syncErr := desc.File().Sync(); syncErr != nil {
+			return errorResult(mapOSError(syncErr)), nil
+		}
+	}
 	return []component.Val{component.ValResultOk(nil)}, nil
 }
 
 // descriptorCreateDirectoryAt creates a directory relative to a descriptor.
 // Signature: func(self: borrow<descriptor>, path: string) -> result<_, error-code>
 func descriptorCreateDirectoryAt(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Stub - return success
+	handle := args[0].Borrow()
+	path := args[1].StringVal()
+
+	desc, err := getDescriptor(ctx, handle)
+	if err != nil {
+		return errorResult(ErrorCodeBadDescriptor), nil
+	}
+
+	// Parent must be a directory
+	if !desc.IsDir() {
+		return errorResult(ErrorCodeNotDirectory), nil
+	}
+
+	// Build the full path
+	fullPath := filepath.Join(desc.Path(), path)
+
+	// Security check
+	cleanPath := filepath.Clean(fullPath)
+	basePath := filepath.Clean(desc.Path())
+	if len(cleanPath) < len(basePath) || cleanPath[:len(basePath)] != basePath {
+		return errorResult(ErrorCodeAccess), nil
+	}
+
+	// Create the directory
+	if mkdirErr := os.Mkdir(cleanPath, 0755); mkdirErr != nil {
+		return errorResult(mapOSError(mkdirErr)), nil
+	}
+
 	return []component.Val{component.ValResultOk(nil)}, nil
 }
 
 // descriptorStat returns metadata about a descriptor.
 // Signature: func(self: borrow<descriptor>) -> result<descriptor-stat, error-code>
 func descriptorStat(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return zeroed metadata as placeholder
-	stat := component.ValRecord(map[string]component.Val{
-		"type":                        component.ValEnum("directory"),
-		"link-count":                  component.ValU64(1),
-		"size":                        component.ValU64(0),
-		"data-access-timestamp":       component.ValOption(nil),
-		"data-modification-timestamp": component.ValOption(nil),
-		"status-change-timestamp":     component.ValOption(nil),
-	})
+	handle := args[0].Borrow()
+
+	desc, err := getDescriptor(ctx, handle)
+	if err != nil {
+		return errorResult(ErrorCodeBadDescriptor), nil
+	}
+
+	// Get file info
+	info, statErr := desc.File().Stat()
+	if statErr != nil {
+		return errorResult(mapOSError(statErr)), nil
+	}
+
+	stat := fileInfoToStat(info)
 	return []component.Val{component.ValResultOk(&stat)}, nil
 }
 
 // descriptorStatAt returns metadata about a file relative to a descriptor.
 // Signature: func(self: borrow<descriptor>, path-flags: path-flags, path: string) -> result<descriptor-stat, error-code>
 func descriptorStatAt(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return zeroed metadata as placeholder
-	stat := component.ValRecord(map[string]component.Val{
-		"type":                        component.ValEnum("regular-file"),
-		"link-count":                  component.ValU64(1),
-		"size":                        component.ValU64(0),
-		"data-access-timestamp":       component.ValOption(nil),
-		"data-modification-timestamp": component.ValOption(nil),
-		"status-change-timestamp":     component.ValOption(nil),
-	})
+	handle := args[0].Borrow()
+	pathFlags := args[1].Flags()
+	path := args[2].StringVal()
+
+	desc, err := getDescriptor(ctx, handle)
+	if err != nil {
+		return errorResult(ErrorCodeBadDescriptor), nil
+	}
+
+	// Parent must be a directory
+	if !desc.IsDir() {
+		return errorResult(ErrorCodeNotDirectory), nil
+	}
+
+	// Build the full path relative to the descriptor's path
+	fullPath := filepath.Join(desc.Path(), path)
+
+	// Security check: ensure the path doesn't escape
+	cleanPath := filepath.Clean(fullPath)
+	basePath := filepath.Clean(desc.Path())
+	if len(cleanPath) < len(basePath) || cleanPath[:len(basePath)] != basePath {
+		return errorResult(ErrorCodeAccess), nil
+	}
+
+	// Determine symlink handling
+	followSymlinks := pathFlags["symlink-follow"]
+
+	// Get file info
+	var info os.FileInfo
+	var statErr error
+	if followSymlinks {
+		info, statErr = os.Stat(cleanPath)
+	} else {
+		info, statErr = os.Lstat(cleanPath)
+	}
+	if statErr != nil {
+		return errorResult(mapOSError(statErr)), nil
+	}
+
+	stat := fileInfoToStat(info)
 	return []component.Val{component.ValResultOk(&stat)}, nil
 }
 
@@ -233,44 +600,334 @@ func descriptorLinkAt(ctx context.Context, args []component.Val) ([]component.Va
 // descriptorOpenAt opens a file relative to a descriptor.
 // Signature: func(self: borrow<descriptor>, path-flags: path-flags, path: string, open-flags: open-flags, descriptor-flags: descriptor-flags) -> result<own<descriptor>, error-code>
 func descriptorOpenAt(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return placeholder descriptor handle
-	handle := component.ValOwn(0)
-	return []component.Val{component.ValResultOk(&handle)}, nil
+	handle := args[0].Borrow()
+	pathFlags := args[1].Flags()
+	path := args[2].StringVal()
+	openFlags := args[3].Flags()
+	descFlags := args[4].Flags()
+
+	desc, err := getDescriptor(ctx, handle)
+	if err != nil {
+		return errorResult(ErrorCodeBadDescriptor), nil
+	}
+
+	// Parent must be a directory
+	if !desc.IsDir() {
+		return errorResult(ErrorCodeNotDirectory), nil
+	}
+
+	// Build the full path relative to the descriptor's path
+	fullPath := filepath.Join(desc.Path(), path)
+
+	// Security check: ensure the path doesn't escape the preopened directory
+	// by checking that the cleaned path is still under the descriptor's path
+	cleanPath := filepath.Clean(fullPath)
+	basePath := filepath.Clean(desc.Path())
+	if len(cleanPath) < len(basePath) || cleanPath[:len(basePath)] != basePath {
+		return errorResult(ErrorCodeAccess), nil
+	}
+
+	// Determine symlink handling
+	followSymlinks := pathFlags["symlink-follow"]
+
+	// Check if the path exists and get info
+	var info os.FileInfo
+	var statErr error
+	if followSymlinks {
+		info, statErr = os.Stat(cleanPath)
+	} else {
+		info, statErr = os.Lstat(cleanPath)
+	}
+
+	// Determine open mode flags
+	create := openFlags["create"]
+	exclusive := openFlags["exclusive"]
+	truncate := openFlags["truncate"]
+	directory := openFlags["directory"]
+
+	// Convert descriptor flags
+	read := descFlags["read"]
+	write := descFlags["write"]
+
+	var osFlags int
+	if read && write {
+		osFlags = os.O_RDWR
+	} else if write {
+		osFlags = os.O_WRONLY
+	} else {
+		osFlags = os.O_RDONLY
+	}
+
+	if create {
+		osFlags |= os.O_CREATE
+	}
+	if exclusive {
+		osFlags |= os.O_EXCL
+	}
+	if truncate {
+		osFlags |= os.O_TRUNC
+	}
+
+	// Handle directory open flag
+	if directory {
+		// Must open a directory
+		if statErr == nil && !info.IsDir() {
+			return errorResult(ErrorCodeNotDirectory), nil
+		}
+	}
+
+	// If file doesn't exist and create flag isn't set, return error
+	if os.IsNotExist(statErr) && !create {
+		return errorResult(ErrorCodeNoEntry), nil
+	}
+
+	// Open the file
+	var file *os.File
+	var openErr error
+	if directory || (statErr == nil && info.IsDir()) {
+		// Open directory
+		file, openErr = os.Open(cleanPath)
+	} else {
+		// Open regular file
+		file, openErr = os.OpenFile(cleanPath, osFlags, 0644)
+	}
+	if openErr != nil {
+		return errorResult(mapOSError(openErr)), nil
+	}
+
+	// Get file info after open
+	fileInfo, statErr := file.Stat()
+	if statErr != nil {
+		file.Close()
+		return errorResult(mapOSError(statErr)), nil
+	}
+
+	// Build descriptor flags
+	var newDescFlags DescriptorFlags
+	if read {
+		newDescFlags |= DescriptorFlagRead
+	}
+	if write {
+		newDescFlags |= DescriptorFlagWrite
+	}
+
+	// Create new descriptor
+	newDesc := NewDescriptor(file, fileInfo.IsDir(), cleanPath, newDescFlags)
+
+	// Add to resource table
+	table := component.ResourceTableFromContext(ctx)
+	if table == nil {
+		file.Close()
+		return errorResult(ErrorCodeIO), nil
+	}
+
+	newHandle := table.New(newDesc, true)
+	handleVal := component.ValOwn(uint32(newHandle.Index()))
+	return []component.Val{component.ValResultOk(&handleVal)}, nil
 }
 
 // descriptorReadlinkAt reads the target of a symbolic link.
 // Signature: func(self: borrow<descriptor>, path: string) -> result<string, error-code>
 func descriptorReadlinkAt(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return empty string as placeholder
-	target := component.ValString("")
+	handle := args[0].Borrow()
+	path := args[1].StringVal()
+
+	desc, err := getDescriptor(ctx, handle)
+	if err != nil {
+		return errorResult(ErrorCodeBadDescriptor), nil
+	}
+
+	// Parent must be a directory
+	if !desc.IsDir() {
+		return errorResult(ErrorCodeNotDirectory), nil
+	}
+
+	// Build the full path
+	fullPath := filepath.Join(desc.Path(), path)
+
+	// Security check
+	cleanPath := filepath.Clean(fullPath)
+	basePath := filepath.Clean(desc.Path())
+	if len(cleanPath) < len(basePath) || cleanPath[:len(basePath)] != basePath {
+		return errorResult(ErrorCodeAccess), nil
+	}
+
+	// Read the symlink target
+	targetPath, readErr := os.Readlink(cleanPath)
+	if readErr != nil {
+		return errorResult(mapOSError(readErr)), nil
+	}
+
+	target := component.ValString(targetPath)
 	return []component.Val{component.ValResultOk(&target)}, nil
 }
 
 // descriptorRemoveDirectoryAt removes a directory relative to a descriptor.
 // Signature: func(self: borrow<descriptor>, path: string) -> result<_, error-code>
 func descriptorRemoveDirectoryAt(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Stub - return success
+	handle := args[0].Borrow()
+	path := args[1].StringVal()
+
+	desc, err := getDescriptor(ctx, handle)
+	if err != nil {
+		return errorResult(ErrorCodeBadDescriptor), nil
+	}
+
+	// Parent must be a directory
+	if !desc.IsDir() {
+		return errorResult(ErrorCodeNotDirectory), nil
+	}
+
+	// Build the full path
+	fullPath := filepath.Join(desc.Path(), path)
+
+	// Security check
+	cleanPath := filepath.Clean(fullPath)
+	basePath := filepath.Clean(desc.Path())
+	if len(cleanPath) < len(basePath) || cleanPath[:len(basePath)] != basePath {
+		return errorResult(ErrorCodeAccess), nil
+	}
+
+	// Check that it's a directory
+	info, statErr := os.Stat(cleanPath)
+	if statErr != nil {
+		return errorResult(mapOSError(statErr)), nil
+	}
+	if !info.IsDir() {
+		return errorResult(ErrorCodeNotDirectory), nil
+	}
+
+	// Remove the directory (must be empty)
+	if rmErr := os.Remove(cleanPath); rmErr != nil {
+		return errorResult(mapOSError(rmErr)), nil
+	}
+
 	return []component.Val{component.ValResultOk(nil)}, nil
 }
 
 // descriptorRenameAt renames a file or directory.
 // Signature: func(self: borrow<descriptor>, old-path: string, new-descriptor: borrow<descriptor>, new-path: string) -> result<_, error-code>
 func descriptorRenameAt(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Stub - return success
+	handle := args[0].Borrow()
+	oldPath := args[1].StringVal()
+	newHandle := args[2].Borrow()
+	newPath := args[3].StringVal()
+
+	desc, err := getDescriptor(ctx, handle)
+	if err != nil {
+		return errorResult(ErrorCodeBadDescriptor), nil
+	}
+
+	newDesc, err := getDescriptor(ctx, newHandle)
+	if err != nil {
+		return errorResult(ErrorCodeBadDescriptor), nil
+	}
+
+	// Both must be directories
+	if !desc.IsDir() || !newDesc.IsDir() {
+		return errorResult(ErrorCodeNotDirectory), nil
+	}
+
+	// Build full paths
+	oldFullPath := filepath.Join(desc.Path(), oldPath)
+	newFullPath := filepath.Join(newDesc.Path(), newPath)
+
+	// Security checks
+	oldCleanPath := filepath.Clean(oldFullPath)
+	oldBasePath := filepath.Clean(desc.Path())
+	if len(oldCleanPath) < len(oldBasePath) || oldCleanPath[:len(oldBasePath)] != oldBasePath {
+		return errorResult(ErrorCodeAccess), nil
+	}
+
+	newCleanPath := filepath.Clean(newFullPath)
+	newBasePath := filepath.Clean(newDesc.Path())
+	if len(newCleanPath) < len(newBasePath) || newCleanPath[:len(newBasePath)] != newBasePath {
+		return errorResult(ErrorCodeAccess), nil
+	}
+
+	// Rename
+	if renameErr := os.Rename(oldCleanPath, newCleanPath); renameErr != nil {
+		return errorResult(mapOSError(renameErr)), nil
+	}
+
 	return []component.Val{component.ValResultOk(nil)}, nil
 }
 
 // descriptorSymlinkAt creates a symbolic link.
 // Signature: func(self: borrow<descriptor>, old-path: string, new-path: string) -> result<_, error-code>
 func descriptorSymlinkAt(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Stub - return success
+	handle := args[0].Borrow()
+	oldPath := args[1].StringVal() // target
+	newPath := args[2].StringVal() // link name
+
+	desc, err := getDescriptor(ctx, handle)
+	if err != nil {
+		return errorResult(ErrorCodeBadDescriptor), nil
+	}
+
+	// Parent must be a directory
+	if !desc.IsDir() {
+		return errorResult(ErrorCodeNotDirectory), nil
+	}
+
+	// Build the full path for the link (newPath is relative to descriptor)
+	linkPath := filepath.Join(desc.Path(), newPath)
+
+	// Security check
+	cleanPath := filepath.Clean(linkPath)
+	basePath := filepath.Clean(desc.Path())
+	if len(cleanPath) < len(basePath) || cleanPath[:len(basePath)] != basePath {
+		return errorResult(ErrorCodeAccess), nil
+	}
+
+	// Create symlink (oldPath is the target, which can be relative or absolute)
+	if symlinkErr := os.Symlink(oldPath, cleanPath); symlinkErr != nil {
+		return errorResult(mapOSError(symlinkErr)), nil
+	}
+
 	return []component.Val{component.ValResultOk(nil)}, nil
 }
 
 // descriptorUnlinkFileAt removes a file.
 // Signature: func(self: borrow<descriptor>, path: string) -> result<_, error-code>
 func descriptorUnlinkFileAt(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Stub - return success
+	handle := args[0].Borrow()
+	path := args[1].StringVal()
+
+	desc, err := getDescriptor(ctx, handle)
+	if err != nil {
+		return errorResult(ErrorCodeBadDescriptor), nil
+	}
+
+	// Parent must be a directory
+	if !desc.IsDir() {
+		return errorResult(ErrorCodeNotDirectory), nil
+	}
+
+	// Build the full path
+	fullPath := filepath.Join(desc.Path(), path)
+
+	// Security check
+	cleanPath := filepath.Clean(fullPath)
+	basePath := filepath.Clean(desc.Path())
+	if len(cleanPath) < len(basePath) || cleanPath[:len(basePath)] != basePath {
+		return errorResult(ErrorCodeAccess), nil
+	}
+
+	// Check that it's not a directory
+	info, statErr := os.Lstat(cleanPath)
+	if statErr != nil {
+		return errorResult(mapOSError(statErr)), nil
+	}
+	if info.IsDir() {
+		return errorResult(ErrorCodeIsDirectory), nil
+	}
+
+	// Remove the file
+	if rmErr := os.Remove(cleanPath); rmErr != nil {
+		return errorResult(mapOSError(rmErr)), nil
+	}
+
 	return []component.Val{component.ValResultOk(nil)}, nil
 }
 
@@ -318,7 +975,26 @@ func filesystemErrorCode(ctx context.Context, args []component.Val) ([]component
 // directoryEntryStreamReadEntry reads the next entry from a directory stream.
 // Signature: func(self: borrow<directory-entry-stream>) -> result<option<directory-entry>, error-code>
 func directoryEntryStreamReadEntry(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return None - no more entries (empty directory placeholder)
-	none := component.ValOption(nil)
-	return []component.Val{component.ValResultOk(&none)}, nil
+	handle := args[0].Borrow()
+
+	stream, err := getDirEntryStream(ctx, handle)
+	if err != nil {
+		return errorResult(ErrorCodeBadDescriptor), nil
+	}
+
+	// Read next entry
+	entry, ok := stream.ReadEntry()
+	if !ok {
+		// No more entries
+		none := component.ValOption(nil)
+		return []component.Val{component.ValResultOk(&none)}, nil
+	}
+
+	// Build directory-entry record
+	dirEntry := component.ValRecord(map[string]component.Val{
+		"type": component.ValEnum(entry.Type.String()),
+		"name": component.ValString(entry.Name),
+	})
+	opt := component.ValOption(&dirEntry)
+	return []component.Val{component.ValResultOk(&opt)}, nil
 }
