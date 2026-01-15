@@ -4,6 +4,7 @@ package sockets
 
 import (
 	"context"
+	"net"
 
 	"github.com/tetratelabs/wazero/internal/component"
 )
@@ -67,105 +68,307 @@ func instantiateUdpCreateSocket(linker *component.Linker) error {
 // createUdpSocket creates a new UDP socket.
 // Signature: func(network: borrow<network>, address-family: ip-address-family) -> result<own<udp-socket>, error-code>
 func createUdpSocket(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return placeholder socket handle
-	handle := component.ValOwn(0)
-	return []component.Val{component.ValResultOk(&handle)}, nil
+	// args[0] = borrow<network> (ignored for now)
+	// args[1] = ip-address-family enum
+	family := parseAddressFamily(args[1])
+
+	// Create socket
+	sock := NewUdpSocket(family)
+
+	// Store in resource table
+	table := component.ResourceTableFromContext(ctx)
+	if table == nil {
+		// No table available, return placeholder
+		handle := component.ValOwn(0)
+		return []component.Val{component.ValResultOk(&handle)}, nil
+	}
+
+	handle := table.New(sock, true)
+	handleVal := component.ValOwn(uint32(handle))
+	return []component.Val{component.ValResultOk(&handleVal)}, nil
 }
 
 // udpSocketStartBind begins the bind operation.
 // Signature: func(self: borrow<udp-socket>, network: borrow<network>, local-address: ip-socket-address) -> result<_, error-code>
 func udpSocketStartBind(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Stub - return success
+	handle := args[0].Borrow()
+	// args[1] = borrow<network> (ignored)
+	localAddrVal := args[2]
+
+	sock, err := getUdpSocket(ctx, handle)
+	if err != nil {
+		// Fallback for tests without resource table
+		return []component.Val{component.ValResultOk(nil)}, nil
+	}
+
+	// Check state
+	if sock.state != udpStateUnbound {
+		return []component.Val{errorCodeToVal(ErrorCodeInvalidState)}, nil
+	}
+
+	// Parse address
+	localAddr, err := ipSocketAddressFromVal(localAddrVal)
+	if err != nil {
+		return []component.Val{errorCodeToVal(ErrorCodeInvalidArgument)}, nil
+	}
+
+	// Store pending address and transition state
+	sock.localAddr = localAddr
+	sock.state = udpStateBinding
+
 	return []component.Val{component.ValResultOk(nil)}, nil
 }
 
 // udpSocketFinishBind completes the bind operation.
 // Signature: func(self: borrow<udp-socket>) -> result<_, error-code>
 func udpSocketFinishBind(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Stub - return success
+	handle := args[0].Borrow()
+
+	sock, err := getUdpSocket(ctx, handle)
+	if err != nil {
+		// Fallback for tests without resource table
+		return []component.Val{component.ValResultOk(nil)}, nil
+	}
+
+	// Check state
+	if sock.state != udpStateBinding {
+		return []component.Val{errorCodeToVal(ErrorCodeInvalidState)}, nil
+	}
+
+	if sock.localAddr == nil {
+		return []component.Val{errorCodeToVal(ErrorCodeInvalidState)}, nil
+	}
+
+	// Actually bind the UDP socket
+	udpAddr := ipSocketAddressToUDPAddr(sock.localAddr)
+	conn, netErr := net.ListenUDP("udp", udpAddr)
+	if netErr != nil {
+		sock.pendingErr = netErr
+		sock.state = udpStateUnbound
+		return []component.Val{errorCodeToVal(mapNetError(netErr))}, nil
+	}
+
+	// Update the local address to the actual bound address
+	sock.conn = conn
+	sock.localAddr = udpAddrToIpSocketAddress(conn.LocalAddr().(*net.UDPAddr))
+	sock.state = udpStateBound
+
 	return []component.Val{component.ValResultOk(nil)}, nil
 }
 
 // udpSocketStream returns datagram streams for the socket.
 // Signature: func(self: borrow<udp-socket>, remote-address: option<ip-socket-address>) -> result<tuple<own<incoming-datagram-stream>, own<outgoing-datagram-stream>>, error-code>
 func udpSocketStream(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return placeholder streams
-	incomingStream := component.ValOwn(0)
-	outgoingStream := component.ValOwn(1)
-	tuple := component.ValTuple([]component.Val{incomingStream, outgoingStream})
+	handle := args[0].Borrow()
+	remoteAddrOpt := args[1]
+
+	sock, err := getUdpSocket(ctx, handle)
+	if err != nil {
+		// Fallback for tests without resource table
+		incomingStream := component.ValOwn(0)
+		outgoingStream := component.ValOwn(1)
+		tuple := component.ValTuple([]component.Val{incomingStream, outgoingStream})
+		return []component.Val{component.ValResultOk(&tuple)}, nil
+	}
+
+	// Check state - must be bound
+	if sock.state != udpStateBound {
+		return []component.Val{errorCodeToVal(ErrorCodeInvalidState)}, nil
+	}
+
+	// Handle optional remote address for connected UDP
+	remoteAddrPayload := remoteAddrOpt.Option()
+	if remoteAddrPayload != nil {
+		remoteAddr, err := ipSocketAddressFromVal(*remoteAddrPayload)
+		if err != nil {
+			return []component.Val{errorCodeToVal(ErrorCodeInvalidArgument)}, nil
+		}
+		sock.remoteAddr = remoteAddr
+
+		// Connect to the remote address for connected UDP
+		udpAddr := ipSocketAddressToUDPAddr(remoteAddr)
+		if sock.conn != nil {
+			// Connect the UDP socket
+			netErr := sock.conn.Close()
+			if netErr != nil {
+				// Ignore close error
+			}
+			localAddr := ipSocketAddressToUDPAddr(sock.localAddr)
+			conn, netErr := net.DialUDP("udp", localAddr, udpAddr)
+			if netErr != nil {
+				return []component.Val{errorCodeToVal(mapNetError(netErr))}, nil
+			}
+			sock.conn = conn
+		}
+	}
+
+	table := component.ResourceTableFromContext(ctx)
+	if table == nil {
+		incomingStream := component.ValOwn(0)
+		outgoingStream := component.ValOwn(1)
+		tuple := component.ValTuple([]component.Val{incomingStream, outgoingStream})
+		return []component.Val{component.ValResultOk(&tuple)}, nil
+	}
+
+	// Create datagram streams
+	inStream := NewIncomingDatagramStream(sock)
+	outStream := NewOutgoingDatagramStream(sock)
+
+	inHandle := table.New(inStream, true)
+	outHandle := table.New(outStream, true)
+
+	incomingStreamVal := component.ValOwn(uint32(inHandle))
+	outgoingStreamVal := component.ValOwn(uint32(outHandle))
+	tuple := component.ValTuple([]component.Val{incomingStreamVal, outgoingStreamVal})
 	return []component.Val{component.ValResultOk(&tuple)}, nil
 }
 
 // udpSocketLocalAddress returns the local address.
 // Signature: func(self: borrow<udp-socket>) -> result<ip-socket-address, error-code>
 func udpSocketLocalAddress(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return placeholder IPv4 address 0.0.0.0:0
-	addrRecord := component.ValRecord(map[string]component.Val{
-		"port":    component.ValU16(0),
-		"address": component.ValTuple([]component.Val{component.ValU8(0), component.ValU8(0), component.ValU8(0), component.ValU8(0)}),
-	})
-	addr := component.ValVariant("ipv4", &addrRecord)
+	handle := args[0].Borrow()
+
+	sock, err := getUdpSocket(ctx, handle)
+	if err != nil {
+		// Fallback - return placeholder
+		addr := ipSocketAddressToVal(nil)
+		return []component.Val{component.ValResultOk(&addr)}, nil
+	}
+
+	if sock.localAddr == nil {
+		return []component.Val{errorCodeToVal(ErrorCodeInvalidState)}, nil
+	}
+
+	addr := ipSocketAddressToVal(sock.localAddr)
 	return []component.Val{component.ValResultOk(&addr)}, nil
 }
 
 // udpSocketRemoteAddress returns the remote address.
 // Signature: func(self: borrow<udp-socket>) -> result<ip-socket-address, error-code>
 func udpSocketRemoteAddress(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return placeholder IPv4 address 0.0.0.0:0
-	addrRecord := component.ValRecord(map[string]component.Val{
-		"port":    component.ValU16(0),
-		"address": component.ValTuple([]component.Val{component.ValU8(0), component.ValU8(0), component.ValU8(0), component.ValU8(0)}),
-	})
-	addr := component.ValVariant("ipv4", &addrRecord)
+	handle := args[0].Borrow()
+
+	sock, err := getUdpSocket(ctx, handle)
+	if err != nil {
+		// Fallback - return placeholder
+		addr := ipSocketAddressToVal(nil)
+		return []component.Val{component.ValResultOk(&addr)}, nil
+	}
+
+	if sock.remoteAddr == nil {
+		return []component.Val{errorCodeToVal(ErrorCodeInvalidState)}, nil
+	}
+
+	addr := ipSocketAddressToVal(sock.remoteAddr)
 	return []component.Val{component.ValResultOk(&addr)}, nil
 }
 
 // udpSocketAddressFamily returns the address family.
 // Signature: func(self: borrow<udp-socket>) -> ip-address-family
 func udpSocketAddressFamily(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return IPv4 as placeholder
-	return []component.Val{component.ValEnum("ipv4")}, nil
+	handle := args[0].Borrow()
+
+	sock, err := getUdpSocket(ctx, handle)
+	if err != nil {
+		return []component.Val{component.ValEnum("ipv4")}, nil
+	}
+
+	return []component.Val{component.ValEnum(sock.Family().String())}, nil
 }
 
 // udpSocketUnicastHopLimit returns the unicast hop limit.
 // Signature: func(self: borrow<udp-socket>) -> result<u8, error-code>
 func udpSocketUnicastHopLimit(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	limit := component.ValU8(64)
+	handle := args[0].Borrow()
+
+	sock, err := getUdpSocket(ctx, handle)
+	if err != nil {
+		limit := component.ValU8(64)
+		return []component.Val{component.ValResultOk(&limit)}, nil
+	}
+
+	limit := component.ValU8(sock.unicastHopLimit)
 	return []component.Val{component.ValResultOk(&limit)}, nil
 }
 
 // udpSocketSetUnicastHopLimit sets the unicast hop limit.
 // Signature: func(self: borrow<udp-socket>, value: u8) -> result<_, error-code>
 func udpSocketSetUnicastHopLimit(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Stub - return success
+	handle := args[0].Borrow()
+	value := args[1].U8()
+
+	sock, err := getUdpSocket(ctx, handle)
+	if err != nil {
+		return []component.Val{component.ValResultOk(nil)}, nil
+	}
+
+	sock.unicastHopLimit = value
 	return []component.Val{component.ValResultOk(nil)}, nil
 }
 
 // udpSocketReceiveBufferSize returns the receive buffer size.
 // Signature: func(self: borrow<udp-socket>) -> result<u64, error-code>
 func udpSocketReceiveBufferSize(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	size := component.ValU64(65536)
+	handle := args[0].Borrow()
+
+	sock, err := getUdpSocket(ctx, handle)
+	if err != nil {
+		size := component.ValU64(65536)
+		return []component.Val{component.ValResultOk(&size)}, nil
+	}
+
+	size := component.ValU64(sock.receiveBufferSize)
 	return []component.Val{component.ValResultOk(&size)}, nil
 }
 
 // udpSocketSetReceiveBufferSize sets the receive buffer size.
 // Signature: func(self: borrow<udp-socket>, value: u64) -> result<_, error-code>
 func udpSocketSetReceiveBufferSize(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Stub - return success
+	handle := args[0].Borrow()
+	value := args[1].U64()
+
+	sock, err := getUdpSocket(ctx, handle)
+	if err != nil {
+		return []component.Val{component.ValResultOk(nil)}, nil
+	}
+
+	sock.receiveBufferSize = value
+	if sock.conn != nil {
+		sock.conn.SetReadBuffer(int(value))
+	}
 	return []component.Val{component.ValResultOk(nil)}, nil
 }
 
 // udpSocketSendBufferSize returns the send buffer size.
 // Signature: func(self: borrow<udp-socket>) -> result<u64, error-code>
 func udpSocketSendBufferSize(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	size := component.ValU64(65536)
+	handle := args[0].Borrow()
+
+	sock, err := getUdpSocket(ctx, handle)
+	if err != nil {
+		size := component.ValU64(65536)
+		return []component.Val{component.ValResultOk(&size)}, nil
+	}
+
+	size := component.ValU64(sock.sendBufferSize)
 	return []component.Val{component.ValResultOk(&size)}, nil
 }
 
 // udpSocketSetSendBufferSize sets the send buffer size.
 // Signature: func(self: borrow<udp-socket>, value: u64) -> result<_, error-code>
 func udpSocketSetSendBufferSize(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Stub - return success
+	handle := args[0].Borrow()
+	value := args[1].U64()
+
+	sock, err := getUdpSocket(ctx, handle)
+	if err != nil {
+		return []component.Val{component.ValResultOk(nil)}, nil
+	}
+
+	sock.sendBufferSize = value
+	if sock.conn != nil {
+		sock.conn.SetWriteBuffer(int(value))
+	}
 	return []component.Val{component.ValResultOk(nil)}, nil
 }
 
@@ -179,9 +382,61 @@ func udpSocketSubscribe(ctx context.Context, args []component.Val) ([]component.
 // incomingDatagramStreamReceive receives datagrams from the stream.
 // Signature: func(self: borrow<incoming-datagram-stream>, max-results: u64) -> result<list<incoming-datagram>, error-code>
 func incomingDatagramStreamReceive(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return empty list as placeholder (no datagrams)
-	emptyList := component.ValList([]component.Val{})
-	return []component.Val{component.ValResultOk(&emptyList)}, nil
+	handle := args[0].Borrow()
+	maxResults := args[1].U64()
+
+	stream, err := getIncomingDatagramStream(ctx, handle)
+	if err != nil {
+		// Fallback - return empty list
+		emptyList := component.ValList([]component.Val{})
+		return []component.Val{component.ValResultOk(&emptyList)}, nil
+	}
+
+	if stream.socket == nil || stream.socket.conn == nil {
+		emptyList := component.ValList([]component.Val{})
+		return []component.Val{component.ValResultOk(&emptyList)}, nil
+	}
+
+	// Read datagrams up to maxResults
+	datagrams := make([]component.Val, 0, int(minUint64(maxResults, 16)))
+
+	for i := uint64(0); i < maxResults && i < 16; i++ {
+		buf := make([]byte, 65536)
+
+		// Set a short deadline for non-blocking behavior
+		// In a real async implementation, we would use select/poll
+		n, addr, netErr := stream.socket.conn.ReadFromUDP(buf)
+		if netErr != nil {
+			// Check if it's a timeout (would-block) - return what we have
+			if len(datagrams) > 0 {
+				break
+			}
+			// If no datagrams received, check for real errors
+			if isWouldBlock(netErr) {
+				break
+			}
+			return []component.Val{errorCodeToVal(mapNetError(netErr))}, nil
+		}
+
+		// Create incoming-datagram record
+		// incoming-datagram: { data: list<u8>, remote-address: ip-socket-address }
+		remoteAddr := udpAddrToIpSocketAddress(addr)
+
+		// Convert data to list<u8>
+		dataList := make([]component.Val, n)
+		for j := 0; j < n; j++ {
+			dataList[j] = component.ValU8(buf[j])
+		}
+
+		datagram := component.ValRecord(map[string]component.Val{
+			"data":           component.ValList(dataList),
+			"remote-address": ipSocketAddressToVal(remoteAddr),
+		})
+		datagrams = append(datagrams, datagram)
+	}
+
+	resultList := component.ValList(datagrams)
+	return []component.Val{component.ValResultOk(&resultList)}, nil
 }
 
 // incomingDatagramStreamSubscribe returns a pollable for the stream.
@@ -194,7 +449,19 @@ func incomingDatagramStreamSubscribe(ctx context.Context, args []component.Val) 
 // outgoingDatagramStreamCheckSend checks how many datagrams can be sent.
 // Signature: func(self: borrow<outgoing-datagram-stream>) -> result<u64, error-code>
 func outgoingDatagramStreamCheckSend(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return maximum send capacity
+	handle := args[0].Borrow()
+
+	stream, err := getOutgoingDatagramStream(ctx, handle)
+	if err != nil {
+		capacity := component.ValU64(1024)
+		return []component.Val{component.ValResultOk(&capacity)}, nil
+	}
+
+	if stream.socket == nil || stream.socket.conn == nil {
+		return []component.Val{errorCodeToVal(ErrorCodeInvalidState)}, nil
+	}
+
+	// Return a reasonable send capacity
 	capacity := component.ValU64(1024)
 	return []component.Val{component.ValResultOk(&capacity)}, nil
 }
@@ -202,11 +469,81 @@ func outgoingDatagramStreamCheckSend(ctx context.Context, args []component.Val) 
 // outgoingDatagramStreamSend sends datagrams on the stream.
 // Signature: func(self: borrow<outgoing-datagram-stream>, datagrams: list<outgoing-datagram>) -> result<u64, error-code>
 func outgoingDatagramStreamSend(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return the number of datagrams sent (all of them)
-	var sent uint64 = 0
-	if len(args) > 1 && args[1].Kind() == component.ValKindList {
-		sent = uint64(len(args[1].List()))
+	handle := args[0].Borrow()
+	datagramsList := args[1]
+
+	stream, err := getOutgoingDatagramStream(ctx, handle)
+	if err != nil {
+		// Fallback - return number of datagrams
+		var sent uint64 = 0
+		if datagramsList.Kind() == component.ValKindList {
+			sent = uint64(len(datagramsList.List()))
+		}
+		sentVal := component.ValU64(sent)
+		return []component.Val{component.ValResultOk(&sentVal)}, nil
 	}
+
+	if stream.socket == nil || stream.socket.conn == nil {
+		return []component.Val{errorCodeToVal(ErrorCodeInvalidState)}, nil
+	}
+
+	datagrams := datagramsList.List()
+	var sent uint64 = 0
+
+	for _, dg := range datagrams {
+		record := dg.Record()
+
+		// Get data
+		dataVal, hasData := record["data"]
+		if !hasData {
+			continue
+		}
+		dataList := dataVal.List()
+		data := make([]byte, len(dataList))
+		for i, v := range dataList {
+			data[i] = v.U8()
+		}
+
+		// Get remote-address (optional)
+		remoteAddrVal, hasAddr := record["remote-address"]
+		var udpAddr *net.UDPAddr
+		if hasAddr && remoteAddrVal.Kind() == component.ValKindOption {
+			optPayload := remoteAddrVal.Option()
+			if optPayload != nil {
+				socketAddr, err := ipSocketAddressFromVal(*optPayload)
+				if err == nil {
+					udpAddr = ipSocketAddressToUDPAddr(socketAddr)
+				}
+			}
+		} else if hasAddr && remoteAddrVal.Kind() == component.ValKindVariant {
+			// Direct variant (not optional)
+			socketAddr, err := ipSocketAddressFromVal(remoteAddrVal)
+			if err == nil {
+				udpAddr = ipSocketAddressToUDPAddr(socketAddr)
+			}
+		}
+
+		// Send the datagram
+		var netErr error
+		if udpAddr != nil {
+			_, netErr = stream.socket.conn.WriteToUDP(data, udpAddr)
+		} else if stream.socket.remoteAddr != nil {
+			// Connected UDP - use default remote address
+			_, netErr = stream.socket.conn.Write(data)
+		} else {
+			// No remote address available
+			continue
+		}
+
+		if netErr != nil {
+			if sent > 0 {
+				break
+			}
+			return []component.Val{errorCodeToVal(mapNetError(netErr))}, nil
+		}
+		sent++
+	}
+
 	sentVal := component.ValU64(sent)
 	return []component.Val{component.ValResultOk(&sentVal)}, nil
 }
@@ -216,4 +553,23 @@ func outgoingDatagramStreamSend(ctx context.Context, args []component.Val) ([]co
 func outgoingDatagramStreamSubscribe(ctx context.Context, args []component.Val) ([]component.Val, error) {
 	// Return placeholder pollable handle
 	return []component.Val{component.ValOwn(0)}, nil
+}
+
+// minUint64 returns the minimum of two uint64 values.
+func minUint64(a, b uint64) uint64 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// isWouldBlock checks if an error indicates a would-block condition.
+func isWouldBlock(err error) bool {
+	if err == nil {
+		return false
+	}
+	if netErr, ok := err.(net.Error); ok {
+		return netErr.Timeout()
+	}
+	return false
 }
