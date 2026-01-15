@@ -37,7 +37,11 @@ func LowerFlat(ctx *LowerContext, typ types.ValType, val component.Val) ([]uint6
 	case types.F64:
 		return []uint64{math.Float64bits(val.F64())}, nil
 	case types.Char:
-		return []uint64{uint64(val.Char())}, nil
+		c := val.Char()
+		if !isValidUnicodeScalarRune(c) {
+			return nil, fmt.Errorf("invalid char value: U+%04X is not a valid Unicode scalar value", c)
+		}
+		return []uint64{uint64(c)}, nil
 	case types.String:
 		ptr, taggedLen, err := LowerString(ctx, val.StringVal())
 		if err != nil {
@@ -285,7 +289,11 @@ func LowerHeap(ctx *LowerContext, typ types.ValType, val component.Val, offset u
 		writeUint64Le(ctx.Memory, offset, math.Float64bits(val.F64()))
 		return nil
 	case types.Char:
-		writeUint32Le(ctx.Memory, offset, uint32(val.Char()))
+		c := val.Char()
+		if !isValidUnicodeScalarRune(c) {
+			return fmt.Errorf("invalid char value: U+%04X is not a valid Unicode scalar value", c)
+		}
+		writeUint32Le(ctx.Memory, offset, uint32(c))
 		return nil
 	case types.String:
 		ptr, taggedLen, err := LowerString(ctx, val.StringVal())
@@ -329,4 +337,23 @@ func LowerBorrow(ctx *LowerContext, rep any) (uint32, error) {
 	}
 
 	return h.Index(), nil
+}
+
+// isValidUnicodeScalarRune checks if a rune is a valid Unicode scalar value.
+// Unicode scalar values are any code point except high-surrogate and low-surrogate code points.
+// Valid ranges: U+0000 to U+D7FF and U+E000 to U+10FFFF
+func isValidUnicodeScalarRune(r rune) bool {
+	// Check for surrogates (U+D800 to U+DFFF)
+	if r >= 0xD800 && r <= 0xDFFF {
+		return false
+	}
+	// Check for values above maximum Unicode code point
+	if r > 0x10FFFF {
+		return false
+	}
+	// Check for negative values (rune is int32)
+	if r < 0 {
+		return false
+	}
+	return true
 }
