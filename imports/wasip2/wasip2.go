@@ -14,6 +14,7 @@ import (
 	"github.com/tetratelabs/wazero/imports/wasip2/filesystem"
 	wasip2io "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/imports/wasip2/random"
+	"github.com/tetratelabs/wazero/imports/wasip2/sockets"
 	"github.com/tetratelabs/wazero/internal/component"
 )
 
@@ -40,6 +41,9 @@ func InstantiateWithConfig(linker *component.Linker, config *Config) error {
 	if err := filesystem.Instantiate(linker); err != nil {
 		return err
 	}
-	// sockets, http will be added
+	if err := sockets.Instantiate(linker); err != nil {
+		return err
+	}
+	// http will be added
 	return nil
 }
