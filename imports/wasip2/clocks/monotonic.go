@@ -6,6 +6,7 @@ import (
 	"context"
 	"time"
 
+	wasip2io "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
 )
 
@@ -71,14 +72,44 @@ func monotonicClockResolution(ctx context.Context, args []component.Val) ([]comp
 
 func monotonicClockSubscribeInstant(ctx context.Context, args []component.Val) ([]component.Val, error) {
 	// args[0] is instant (u64)
-	// Returns own<pollable> - placeholder returns handle 0
-	// Full implementation will create a pollable resource and return its handle
-	return []component.Val{component.ValOwn(0)}, nil
+	instant := args[0].U64()
+
+	// Create ready and block functions for this instant
+	readyFn, blockFn := SubscribeInstant(instant)
+
+	// Create the pollable resource
+	pollable := wasip2io.NewPollable(readyFn, blockFn)
+
+	// Get the resource table from context
+	table := component.ResourceTableFromContext(ctx)
+	if table == nil {
+		// Fallback - return placeholder handle if no resource table
+		return []component.Val{component.ValOwn(0)}, nil
+	}
+
+	// Register the pollable in the resource table and return the handle
+	handle := table.New(pollable, true)
+	return []component.Val{component.ValOwn(uint32(handle))}, nil
 }
 
 func monotonicClockSubscribeDuration(ctx context.Context, args []component.Val) ([]component.Val, error) {
 	// args[0] is duration (u64)
-	// Returns own<pollable> - placeholder returns handle 0
-	// Full implementation will create a pollable resource and return its handle
-	return []component.Val{component.ValOwn(0)}, nil
+	duration := args[0].U64()
+
+	// Create ready and block functions for this duration
+	readyFn, blockFn := SubscribeDuration(duration)
+
+	// Create the pollable resource
+	pollable := wasip2io.NewPollable(readyFn, blockFn)
+
+	// Get the resource table from context
+	table := component.ResourceTableFromContext(ctx)
+	if table == nil {
+		// Fallback - return placeholder handle if no resource table
+		return []component.Val{component.ValOwn(0)}, nil
+	}
+
+	// Register the pollable in the resource table and return the handle
+	handle := table.New(pollable, true)
+	return []component.Val{component.ValOwn(uint32(handle))}, nil
 }
