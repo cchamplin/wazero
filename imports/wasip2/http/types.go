@@ -489,17 +489,17 @@ const (
 	ErrorCodeHTTPRequestTrailerSize        ErrorCode = "HTTP-request-trailer-size"
 
 	// HTTP response errors
-	ErrorCodeHTTPResponseIncomplete          ErrorCode = "HTTP-response-incomplete"
-	ErrorCodeHTTPResponseHeaderSectionSize   ErrorCode = "HTTP-response-header-section-size"
-	ErrorCodeHTTPResponseHeaderSize          ErrorCode = "HTTP-response-header-size"
-	ErrorCodeHTTPResponseBodySize            ErrorCode = "HTTP-response-body-size"
-	ErrorCodeHTTPResponseTrailerSectionSize  ErrorCode = "HTTP-response-trailer-section-size"
-	ErrorCodeHTTPResponseTrailerSize         ErrorCode = "HTTP-response-trailer-size"
-	ErrorCodeHTTPResponseTransferCoding      ErrorCode = "HTTP-response-transfer-coding"
-	ErrorCodeHTTPResponseContentCoding       ErrorCode = "HTTP-response-content-coding"
-	ErrorCodeHTTPResponseTimeout             ErrorCode = "HTTP-response-timeout"
-	ErrorCodeHTTPUpgradeFailed               ErrorCode = "HTTP-upgrade-failed"
-	ErrorCodeHTTPProtocolError               ErrorCode = "HTTP-protocol-error"
+	ErrorCodeHTTPResponseIncomplete         ErrorCode = "HTTP-response-incomplete"
+	ErrorCodeHTTPResponseHeaderSectionSize  ErrorCode = "HTTP-response-header-section-size"
+	ErrorCodeHTTPResponseHeaderSize         ErrorCode = "HTTP-response-header-size"
+	ErrorCodeHTTPResponseBodySize           ErrorCode = "HTTP-response-body-size"
+	ErrorCodeHTTPResponseTrailerSectionSize ErrorCode = "HTTP-response-trailer-section-size"
+	ErrorCodeHTTPResponseTrailerSize        ErrorCode = "HTTP-response-trailer-size"
+	ErrorCodeHTTPResponseTransferCoding     ErrorCode = "HTTP-response-transfer-coding"
+	ErrorCodeHTTPResponseContentCoding      ErrorCode = "HTTP-response-content-coding"
+	ErrorCodeHTTPResponseTimeout            ErrorCode = "HTTP-response-timeout"
+	ErrorCodeHTTPUpgradeFailed              ErrorCode = "HTTP-upgrade-failed"
+	ErrorCodeHTTPProtocolError              ErrorCode = "HTTP-protocol-error"
 
 	// General errors
 	ErrorCodeLoopDetected       ErrorCode = "loop-detected"
