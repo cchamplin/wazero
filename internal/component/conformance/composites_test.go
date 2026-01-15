@@ -3,6 +3,7 @@
 package conformance
 
 import (
+	"fmt"
 	"math"
 	"testing"
 
@@ -922,5 +923,739 @@ func TestCompositeTupleWithTupleElement(t *testing.T) {
 		innerElems2 := elems[1].Tuple()
 		require.Equal(t, 3.5, innerElems2[0].F64())
 		require.Equal(t, 4.5, innerElems2[1].F64())
+	})
+}
+
+// =============================================================================
+// Variant/Option/Result Tests
+// Ported from wasmtime's tests/all/component_model/func.rs
+// =============================================================================
+
+// TestOptionNone tests option<s32> with None value.
+// None has discriminant 0. Tests LowerFlat/LiftFlat roundtrip.
+func TestOptionNone(t *testing.T) {
+	optionType := types.Option{Some: types.S32{}}
+
+	t.Run("type_properties", func(t *testing.T) {
+		// option<s32> is like variant { none, some(s32) }
+		// discriminant: 1 byte (2 cases)
+		// payload: 4 bytes (s32), align 4
+		// size: align(1,4) + 4 = 4 + 4 = 8, aligned to 4 = 8
+		require.Equal(t, uint32(8), optionType.Size(), "option<s32> should have size 8")
+		require.Equal(t, uint32(4), optionType.Align(), "option<s32> should have align 4")
+		require.Equal(t, 2, optionType.FlattenCount(), "option<s32> should have FlattenCount 2 (disc + payload)")
+	})
+
+	t.Run("roundtrip_none", func(t *testing.T) {
+		// Create None value (nil payload)
+		val := component.ValOption(nil)
+
+		flat, err := abi.LowerFlat(nil, optionType, val)
+		require.NoError(t, err)
+		require.Equal(t, 2, len(flat), "option<s32> should lower to 2 flat values")
+		require.Equal(t, uint64(0), flat[0], "None should have discriminant 0")
+
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(nil, optionType, iter)
+		require.NoError(t, err)
+		require.Equal(t, component.ValKindOption, lifted.Kind())
+
+		// Verify IsNone: payload should be nil
+		liftedPayload := lifted.Option()
+		require.Nil(t, liftedPayload, "None option should have nil payload")
+	})
+}
+
+// TestOptionSome tests option<s32> with Some(42) value.
+// Some has discriminant 1. Tests that payload is preserved through roundtrip.
+func TestOptionSome(t *testing.T) {
+	optionType := types.Option{Some: types.S32{}}
+
+	t.Run("roundtrip_some_positive", func(t *testing.T) {
+		payload := component.ValS32(42)
+		val := component.ValOption(&payload)
+
+		flat, err := abi.LowerFlat(nil, optionType, val)
+		require.NoError(t, err)
+		require.Equal(t, 2, len(flat), "option<s32> should lower to 2 flat values")
+		require.Equal(t, uint64(1), flat[0], "Some should have discriminant 1")
+
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(nil, optionType, iter)
+		require.NoError(t, err)
+		require.Equal(t, component.ValKindOption, lifted.Kind())
+
+		// Verify Some: payload should not be nil and should have correct value
+		liftedPayload := lifted.Option()
+		require.NotNil(t, liftedPayload, "Some option should have non-nil payload")
+		require.Equal(t, int32(42), liftedPayload.S32(), "payload value should be preserved")
+	})
+
+	t.Run("roundtrip_some_negative", func(t *testing.T) {
+		payload := component.ValS32(-100)
+		val := component.ValOption(&payload)
+
+		flat, err := abi.LowerFlat(nil, optionType, val)
+		require.NoError(t, err)
+		require.Equal(t, uint64(1), flat[0], "Some should have discriminant 1")
+
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(nil, optionType, iter)
+		require.NoError(t, err)
+
+		liftedPayload := lifted.Option()
+		require.NotNil(t, liftedPayload)
+		require.Equal(t, int32(-100), liftedPayload.S32())
+	})
+
+	t.Run("roundtrip_some_boundary_values", func(t *testing.T) {
+		tests := []int32{0, math.MaxInt32, math.MinInt32}
+		for _, v := range tests {
+			payload := component.ValS32(v)
+			val := component.ValOption(&payload)
+
+			flat, err := abi.LowerFlat(nil, optionType, val)
+			require.NoError(t, err)
+			require.Equal(t, uint64(1), flat[0])
+
+			iter := abi.NewFlatIter(flat)
+			lifted, err := abi.LiftFlat(nil, optionType, iter)
+			require.NoError(t, err)
+
+			liftedPayload := lifted.Option()
+			require.NotNil(t, liftedPayload)
+			require.Equal(t, v, liftedPayload.S32())
+		}
+	})
+}
+
+// TestOptionWithDifferentPayloadTypes tests option with various payload types.
+func TestOptionWithDifferentPayloadTypes(t *testing.T) {
+	t.Run("option_u8", func(t *testing.T) {
+		optType := types.Option{Some: types.U8{}}
+		// option<u8>: disc 1 byte + u8 1 byte = 2 bytes, align 1
+		require.Equal(t, uint32(2), optType.Size())
+		require.Equal(t, uint32(1), optType.Align())
+		require.Equal(t, 2, optType.FlattenCount())
+
+		payload := component.ValU8(255)
+		val := component.ValOption(&payload)
+
+		flat, err := abi.LowerFlat(nil, optType, val)
+		require.NoError(t, err)
+
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(nil, optType, iter)
+		require.NoError(t, err)
+
+		liftedPayload := lifted.Option()
+		require.NotNil(t, liftedPayload)
+		require.Equal(t, uint8(255), liftedPayload.U8())
+	})
+
+	t.Run("option_u64", func(t *testing.T) {
+		optType := types.Option{Some: types.U64{}}
+		// option<u64>: disc 1 byte + padding to 8 + u64 8 bytes = 16 bytes, align 8
+		require.Equal(t, uint32(16), optType.Size())
+		require.Equal(t, uint32(8), optType.Align())
+		require.Equal(t, 2, optType.FlattenCount())
+
+		payload := component.ValU64(0xDEADBEEFCAFEBABE)
+		val := component.ValOption(&payload)
+
+		flat, err := abi.LowerFlat(nil, optType, val)
+		require.NoError(t, err)
+
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(nil, optType, iter)
+		require.NoError(t, err)
+
+		liftedPayload := lifted.Option()
+		require.NotNil(t, liftedPayload)
+		require.Equal(t, uint64(0xDEADBEEFCAFEBABE), liftedPayload.U64())
+	})
+
+	t.Run("option_f64", func(t *testing.T) {
+		optType := types.Option{Some: types.F64{}}
+
+		payload := component.ValF64(3.14159265358979)
+		val := component.ValOption(&payload)
+
+		flat, err := abi.LowerFlat(nil, optType, val)
+		require.NoError(t, err)
+
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(nil, optType, iter)
+		require.NoError(t, err)
+
+		liftedPayload := lifted.Option()
+		require.NotNil(t, liftedPayload)
+		require.Equal(t, math.Float64bits(3.14159265358979), math.Float64bits(liftedPayload.F64()))
+	})
+}
+
+// TestResultOk tests result<s32, string> with Ok(100) value.
+// Ok has discriminant 0. Tests LowerFlat/LiftFlat roundtrip.
+func TestResultOk(t *testing.T) {
+	// Note: String type not fully supported in flat representation, using s32 for error type too
+	resultType := types.Result{Ok: types.S32{}, Error: types.S32{}}
+
+	t.Run("type_properties", func(t *testing.T) {
+		// result<s32, s32> is like variant { ok(s32), error(s32) }
+		// Both payloads are s32, so max payload is 4 bytes
+		// disc: 1 byte, payload align: 4, so offset 4, payload 4 bytes
+		// Total: 8 bytes, align 4
+		require.Equal(t, uint32(8), resultType.Size(), "result<s32,s32> should have size 8")
+		require.Equal(t, uint32(4), resultType.Align(), "result<s32,s32> should have align 4")
+		require.Equal(t, 2, resultType.FlattenCount(), "result<s32,s32> should have FlattenCount 2")
+	})
+
+	t.Run("roundtrip_ok", func(t *testing.T) {
+		okPayload := component.ValS32(100)
+		val := component.ValResultOk(&okPayload)
+
+		flat, err := abi.LowerFlat(nil, resultType, val)
+		require.NoError(t, err)
+		require.Equal(t, 2, len(flat), "result should lower to 2 flat values")
+		require.Equal(t, uint64(0), flat[0], "Ok should have discriminant 0")
+
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(nil, resultType, iter)
+		require.NoError(t, err)
+		require.Equal(t, component.ValKindResult, lifted.Kind())
+
+		// Verify IsOk and Ok()
+		isOk, okVal, errVal := lifted.Result()
+		require.True(t, isOk, "result should be Ok")
+		require.NotNil(t, okVal, "Ok value should not be nil")
+		require.Nil(t, errVal, "Error value should be nil for Ok result")
+		require.Equal(t, int32(100), okVal.S32(), "Ok payload should be preserved")
+	})
+
+	t.Run("roundtrip_ok_boundary_values", func(t *testing.T) {
+		tests := []int32{0, math.MaxInt32, math.MinInt32, -1}
+		for _, v := range tests {
+			okPayload := component.ValS32(v)
+			val := component.ValResultOk(&okPayload)
+
+			flat, err := abi.LowerFlat(nil, resultType, val)
+			require.NoError(t, err)
+			require.Equal(t, uint64(0), flat[0])
+
+			iter := abi.NewFlatIter(flat)
+			lifted, err := abi.LiftFlat(nil, resultType, iter)
+			require.NoError(t, err)
+
+			isOk, okVal, _ := lifted.Result()
+			require.True(t, isOk)
+			require.Equal(t, v, okVal.S32())
+		}
+	})
+}
+
+// TestResultError tests result<s32, s32> with Error(-1) value.
+// Error has discriminant 1. Tests LowerFlat/LiftFlat roundtrip.
+func TestResultError(t *testing.T) {
+	resultType := types.Result{Ok: types.S32{}, Error: types.S32{}}
+
+	t.Run("roundtrip_error", func(t *testing.T) {
+		errPayload := component.ValS32(-1)
+		val := component.ValResultError(&errPayload)
+
+		flat, err := abi.LowerFlat(nil, resultType, val)
+		require.NoError(t, err)
+		require.Equal(t, 2, len(flat), "result should lower to 2 flat values")
+		require.Equal(t, uint64(1), flat[0], "Error should have discriminant 1")
+
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(nil, resultType, iter)
+		require.NoError(t, err)
+		require.Equal(t, component.ValKindResult, lifted.Kind())
+
+		// Verify IsOk() == false and Error()
+		isOk, okVal, errVal := lifted.Result()
+		require.False(t, isOk, "result should be Error")
+		require.Nil(t, okVal, "Ok value should be nil for Error result")
+		require.NotNil(t, errVal, "Error value should not be nil")
+		require.Equal(t, int32(-1), errVal.S32(), "Error payload should be preserved")
+	})
+
+	t.Run("roundtrip_error_various_values", func(t *testing.T) {
+		tests := []int32{0, 1, -100, math.MaxInt32, math.MinInt32}
+		for _, v := range tests {
+			errPayload := component.ValS32(v)
+			val := component.ValResultError(&errPayload)
+
+			flat, err := abi.LowerFlat(nil, resultType, val)
+			require.NoError(t, err)
+			require.Equal(t, uint64(1), flat[0])
+
+			iter := abi.NewFlatIter(flat)
+			lifted, err := abi.LiftFlat(nil, resultType, iter)
+			require.NoError(t, err)
+
+			isOk, _, errVal := lifted.Result()
+			require.False(t, isOk)
+			require.Equal(t, v, errVal.S32())
+		}
+	})
+}
+
+// TestResultWithDifferentPayloadTypes tests result with different ok/error types.
+func TestResultWithDifferentPayloadTypes(t *testing.T) {
+	t.Run("result_u64_u8", func(t *testing.T) {
+		// result<u64, u8> - different sizes for ok and error
+		resultType := types.Result{Ok: types.U64{}, Error: types.U8{}}
+
+		// Size should be based on max(u64, u8) = u64
+		// disc 1 byte + padding to 8 + payload 8 = 16, align 8
+		require.Equal(t, uint32(16), resultType.Size())
+		require.Equal(t, uint32(8), resultType.Align())
+		require.Equal(t, 2, resultType.FlattenCount())
+
+		// Test Ok
+		okPayload := component.ValU64(0xFFFFFFFFFFFFFFFF)
+		okVal := component.ValResultOk(&okPayload)
+
+		flat, err := abi.LowerFlat(nil, resultType, okVal)
+		require.NoError(t, err)
+
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(nil, resultType, iter)
+		require.NoError(t, err)
+
+		isOk, liftedOk, _ := lifted.Result()
+		require.True(t, isOk)
+		require.Equal(t, uint64(0xFFFFFFFFFFFFFFFF), liftedOk.U64())
+
+		// Test Error
+		errPayload := component.ValU8(42)
+		errVal := component.ValResultError(&errPayload)
+
+		flat, err = abi.LowerFlat(nil, resultType, errVal)
+		require.NoError(t, err)
+
+		iter = abi.NewFlatIter(flat)
+		lifted, err = abi.LiftFlat(nil, resultType, iter)
+		require.NoError(t, err)
+
+		isOk, _, liftedErr := lifted.Result()
+		require.False(t, isOk)
+		require.Equal(t, uint8(42), liftedErr.U8())
+	})
+
+	t.Run("result_unit_ok", func(t *testing.T) {
+		// result<_, s32> - no ok payload
+		resultType := types.Result{Ok: nil, Error: types.S32{}}
+
+		// Test Ok with nil payload
+		okVal := component.ValResultOk(nil)
+
+		flat, err := abi.LowerFlat(nil, resultType, okVal)
+		require.NoError(t, err)
+		require.Equal(t, uint64(0), flat[0])
+
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(nil, resultType, iter)
+		require.NoError(t, err)
+
+		isOk, liftedOk, _ := lifted.Result()
+		require.True(t, isOk)
+		require.Nil(t, liftedOk)
+	})
+
+	t.Run("result_unit_error", func(t *testing.T) {
+		// result<s32, _> - no error payload
+		resultType := types.Result{Ok: types.S32{}, Error: nil}
+
+		// Test Error with nil payload
+		errVal := component.ValResultError(nil)
+
+		flat, err := abi.LowerFlat(nil, resultType, errVal)
+		require.NoError(t, err)
+		require.Equal(t, uint64(1), flat[0])
+
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(nil, resultType, iter)
+		require.NoError(t, err)
+
+		isOk, _, liftedErr := lifted.Result()
+		require.False(t, isOk)
+		require.Nil(t, liftedErr)
+	})
+}
+
+// TestVariantSingleCase tests a variant with a single case.
+// variant { only-case } has minimal size (discriminant only when no payload).
+func TestVariantSingleCase(t *testing.T) {
+	// Single case with no payload
+	variantType := types.Variant{
+		Cases: []types.Case{
+			{Name: "only-case", Type: nil},
+		},
+	}
+
+	t.Run("type_properties", func(t *testing.T) {
+		// Single case variant: discriminant only (1 byte for <= 256 cases)
+		// No payload, so size is just discriminant
+		require.Equal(t, uint32(1), variantType.DiscriminantSize(), "1 case should use u8 discriminant")
+		require.Equal(t, uint32(1), variantType.Size(), "single case variant should have size 1")
+		require.Equal(t, uint32(1), variantType.Align(), "single case variant should have align 1")
+		require.Equal(t, 1, variantType.FlattenCount(), "single case variant should have FlattenCount 1")
+	})
+
+	t.Run("roundtrip", func(t *testing.T) {
+		val := component.ValVariant("only-case", nil)
+
+		flat, err := abi.LowerFlat(nil, variantType, val)
+		require.NoError(t, err)
+		require.Equal(t, 1, len(flat), "single case variant should lower to 1 flat value")
+		require.Equal(t, uint64(0), flat[0], "only-case should have discriminant 0")
+
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(nil, variantType, iter)
+		require.NoError(t, err)
+		require.Equal(t, component.ValKindVariant, lifted.Kind())
+
+		caseName, payload := lifted.Variant()
+		require.Equal(t, "only-case", caseName)
+		require.Nil(t, payload, "single case with no payload should have nil payload")
+	})
+}
+
+// TestVariantSingleCaseWithPayload tests a variant with single case that has payload.
+func TestVariantSingleCaseWithPayload(t *testing.T) {
+	variantType := types.Variant{
+		Cases: []types.Case{
+			{Name: "only", Type: types.S32{}},
+		},
+	}
+
+	t.Run("type_properties", func(t *testing.T) {
+		require.Equal(t, uint32(1), variantType.DiscriminantSize())
+		// disc 1 + padding to 4 + s32 4 = 8 bytes
+		require.Equal(t, uint32(8), variantType.Size())
+		require.Equal(t, uint32(4), variantType.Align())
+		require.Equal(t, 2, variantType.FlattenCount())
+	})
+
+	t.Run("roundtrip", func(t *testing.T) {
+		payload := component.ValS32(999)
+		val := component.ValVariant("only", &payload)
+
+		flat, err := abi.LowerFlat(nil, variantType, val)
+		require.NoError(t, err)
+		require.Equal(t, 2, len(flat))
+
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(nil, variantType, iter)
+		require.NoError(t, err)
+
+		caseName, liftedPayload := lifted.Variant()
+		require.Equal(t, "only", caseName)
+		require.NotNil(t, liftedPayload)
+		require.Equal(t, int32(999), liftedPayload.S32())
+	})
+}
+
+// TestVariantDiscriminantSizeU8 tests variants with 1-255 cases use u8 discriminant.
+func TestVariantDiscriminantSizeU8(t *testing.T) {
+	t.Run("10_cases", func(t *testing.T) {
+		cases := make([]types.Case, 10)
+		for i := 0; i < 10; i++ {
+			cases[i] = types.Case{Name: fmt.Sprintf("case%d", i), Type: nil}
+		}
+		variantType := types.Variant{Cases: cases}
+
+		require.Equal(t, uint32(1), variantType.DiscriminantSize(), "10 cases should use u8 discriminant")
+		require.Equal(t, uint32(1), variantType.Size(), "variant with 10 cases no payload should have size 1")
+		require.Equal(t, uint32(1), variantType.Align())
+		require.Equal(t, 1, variantType.FlattenCount())
+	})
+
+	t.Run("256_cases", func(t *testing.T) {
+		cases := make([]types.Case, 256)
+		for i := 0; i < 256; i++ {
+			cases[i] = types.Case{Name: fmt.Sprintf("case%d", i), Type: nil}
+		}
+		variantType := types.Variant{Cases: cases}
+
+		// 256 cases = 0x100, which is exactly at the boundary
+		// Per spec: n <= 0x100 (256) uses 1 byte
+		require.Equal(t, uint32(1), variantType.DiscriminantSize(), "256 cases should use u8 discriminant")
+	})
+
+	t.Run("roundtrip_case_5", func(t *testing.T) {
+		cases := make([]types.Case, 10)
+		for i := 0; i < 10; i++ {
+			cases[i] = types.Case{Name: fmt.Sprintf("case%d", i), Type: nil}
+		}
+		variantType := types.Variant{Cases: cases}
+
+		val := component.ValVariant("case5", nil)
+
+		flat, err := abi.LowerFlat(nil, variantType, val)
+		require.NoError(t, err)
+		require.Equal(t, uint64(5), flat[0], "case5 should have discriminant 5")
+
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(nil, variantType, iter)
+		require.NoError(t, err)
+
+		caseName, _ := lifted.Variant()
+		require.Equal(t, "case5", caseName)
+	})
+
+	t.Run("roundtrip_last_case", func(t *testing.T) {
+		cases := make([]types.Case, 10)
+		for i := 0; i < 10; i++ {
+			cases[i] = types.Case{Name: fmt.Sprintf("case%d", i), Type: nil}
+		}
+		variantType := types.Variant{Cases: cases}
+
+		val := component.ValVariant("case9", nil)
+
+		flat, err := abi.LowerFlat(nil, variantType, val)
+		require.NoError(t, err)
+		require.Equal(t, uint64(9), flat[0])
+
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(nil, variantType, iter)
+		require.NoError(t, err)
+
+		caseName, _ := lifted.Variant()
+		require.Equal(t, "case9", caseName)
+	})
+}
+
+// TestVariantDiscriminantSizeU16 tests variants with 257-65535 cases use u16 discriminant.
+func TestVariantDiscriminantSizeU16(t *testing.T) {
+	t.Run("300_cases", func(t *testing.T) {
+		cases := make([]types.Case, 300)
+		for i := 0; i < 300; i++ {
+			cases[i] = types.Case{Name: fmt.Sprintf("case%d", i), Type: nil}
+		}
+		variantType := types.Variant{Cases: cases}
+
+		// 300 > 256, so uses u16 discriminant (2 bytes)
+		require.Equal(t, uint32(2), variantType.DiscriminantSize(), "300 cases should use u16 discriminant")
+		require.Equal(t, uint32(2), variantType.Size(), "variant with 300 cases no payload should have size 2")
+		require.Equal(t, uint32(2), variantType.Align(), "variant with 300 cases should have align 2")
+		require.Equal(t, 1, variantType.FlattenCount())
+	})
+
+	t.Run("257_cases", func(t *testing.T) {
+		cases := make([]types.Case, 257)
+		for i := 0; i < 257; i++ {
+			cases[i] = types.Case{Name: fmt.Sprintf("case%d", i), Type: nil}
+		}
+		variantType := types.Variant{Cases: cases}
+
+		// 257 > 256, so uses u16 discriminant
+		require.Equal(t, uint32(2), variantType.DiscriminantSize(), "257 cases should use u16 discriminant")
+	})
+
+	t.Run("roundtrip_case_299", func(t *testing.T) {
+		cases := make([]types.Case, 300)
+		for i := 0; i < 300; i++ {
+			cases[i] = types.Case{Name: fmt.Sprintf("case%d", i), Type: nil}
+		}
+		variantType := types.Variant{Cases: cases}
+
+		val := component.ValVariant("case299", nil)
+
+		flat, err := abi.LowerFlat(nil, variantType, val)
+		require.NoError(t, err)
+		require.Equal(t, uint64(299), flat[0], "case299 should have discriminant 299")
+
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(nil, variantType, iter)
+		require.NoError(t, err)
+
+		caseName, _ := lifted.Variant()
+		require.Equal(t, "case299", caseName)
+	})
+}
+
+// TestVariantMultipleCasesWithPayloads tests variant with multiple cases having different payloads.
+func TestVariantMultipleCasesWithPayloads(t *testing.T) {
+	variantType := types.Variant{
+		Cases: []types.Case{
+			{Name: "none", Type: nil},
+			{Name: "some-u8", Type: types.U8{}},
+			{Name: "some-s32", Type: types.S32{}},
+			{Name: "some-u64", Type: types.U64{}},
+		},
+	}
+
+	t.Run("type_properties", func(t *testing.T) {
+		// 4 cases: u8 discriminant (1 byte)
+		// Max payload: u64 (8 bytes, align 8)
+		// disc 1 + padding to 8 + payload 8 = 16 bytes
+		require.Equal(t, uint32(1), variantType.DiscriminantSize())
+		require.Equal(t, uint32(16), variantType.Size())
+		require.Equal(t, uint32(8), variantType.Align())
+		// FlattenCount: 1 (disc) + 1 (max payload u64 flattens to 1) = 2
+		require.Equal(t, 2, variantType.FlattenCount())
+	})
+
+	t.Run("roundtrip_none", func(t *testing.T) {
+		val := component.ValVariant("none", nil)
+
+		flat, err := abi.LowerFlat(nil, variantType, val)
+		require.NoError(t, err)
+		require.Equal(t, uint64(0), flat[0])
+
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(nil, variantType, iter)
+		require.NoError(t, err)
+
+		caseName, payload := lifted.Variant()
+		require.Equal(t, "none", caseName)
+		require.Nil(t, payload)
+	})
+
+	t.Run("roundtrip_some_u8", func(t *testing.T) {
+		payload := component.ValU8(200)
+		val := component.ValVariant("some-u8", &payload)
+
+		flat, err := abi.LowerFlat(nil, variantType, val)
+		require.NoError(t, err)
+		require.Equal(t, uint64(1), flat[0])
+
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(nil, variantType, iter)
+		require.NoError(t, err)
+
+		caseName, liftedPayload := lifted.Variant()
+		require.Equal(t, "some-u8", caseName)
+		require.NotNil(t, liftedPayload)
+		require.Equal(t, uint8(200), liftedPayload.U8())
+	})
+
+	t.Run("roundtrip_some_s32", func(t *testing.T) {
+		payload := component.ValS32(-12345)
+		val := component.ValVariant("some-s32", &payload)
+
+		flat, err := abi.LowerFlat(nil, variantType, val)
+		require.NoError(t, err)
+		require.Equal(t, uint64(2), flat[0])
+
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(nil, variantType, iter)
+		require.NoError(t, err)
+
+		caseName, liftedPayload := lifted.Variant()
+		require.Equal(t, "some-s32", caseName)
+		require.NotNil(t, liftedPayload)
+		require.Equal(t, int32(-12345), liftedPayload.S32())
+	})
+
+	t.Run("roundtrip_some_u64", func(t *testing.T) {
+		payload := component.ValU64(0xCAFEBABEDEADBEEF)
+		val := component.ValVariant("some-u64", &payload)
+
+		flat, err := abi.LowerFlat(nil, variantType, val)
+		require.NoError(t, err)
+		require.Equal(t, uint64(3), flat[0])
+
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(nil, variantType, iter)
+		require.NoError(t, err)
+
+		caseName, liftedPayload := lifted.Variant()
+		require.Equal(t, "some-u64", caseName)
+		require.NotNil(t, liftedPayload)
+		require.Equal(t, uint64(0xCAFEBABEDEADBEEF), liftedPayload.U64())
+	})
+}
+
+// TestVariantPayloadOffset tests variant payload offset calculation.
+func TestVariantPayloadOffset(t *testing.T) {
+	tests := []struct {
+		name           string
+		variant        types.Variant
+		expectedOffset uint32
+	}{
+		{
+			name: "no_payload",
+			variant: types.Variant{Cases: []types.Case{
+				{Name: "a", Type: nil},
+				{Name: "b", Type: nil},
+			}},
+			expectedOffset: 1, // disc 1, no payload so offset is at disc end
+		},
+		{
+			name: "u8_payload",
+			variant: types.Variant{Cases: []types.Case{
+				{Name: "a", Type: types.U8{}},
+			}},
+			expectedOffset: 1, // disc 1, u8 align 1, offset 1
+		},
+		{
+			name: "s32_payload",
+			variant: types.Variant{Cases: []types.Case{
+				{Name: "a", Type: types.S32{}},
+			}},
+			expectedOffset: 4, // disc 1, s32 align 4, padded to 4
+		},
+		{
+			name: "u64_payload",
+			variant: types.Variant{Cases: []types.Case{
+				{Name: "a", Type: types.U64{}},
+			}},
+			expectedOffset: 8, // disc 1, u64 align 8, padded to 8
+		},
+		{
+			name: "mixed_payloads_max_align",
+			variant: types.Variant{Cases: []types.Case{
+				{Name: "a", Type: types.U8{}},
+				{Name: "b", Type: types.U64{}},
+			}},
+			expectedOffset: 8, // max align is 8 (from u64)
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.expectedOffset, tc.variant.PayloadOffset())
+		})
+	}
+}
+
+// TestVariantInvalidDiscriminant tests error handling for invalid discriminant.
+func TestVariantInvalidDiscriminant(t *testing.T) {
+	variantType := types.Variant{
+		Cases: []types.Case{
+			{Name: "a", Type: nil},
+			{Name: "b", Type: nil},
+		},
+	}
+
+	t.Run("invalid_discriminant_error", func(t *testing.T) {
+		// Create flat values with invalid discriminant (2 for a 2-case variant)
+		flat := []uint64{2} // Invalid: only 0 and 1 are valid
+
+		iter := abi.NewFlatIter(flat)
+		_, err := abi.LiftFlat(nil, variantType, iter)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "invalid variant discriminant")
+	})
+}
+
+// TestVariantUnknownCaseName tests error handling for unknown case name in LowerFlat.
+func TestVariantUnknownCaseName(t *testing.T) {
+	variantType := types.Variant{
+		Cases: []types.Case{
+			{Name: "known", Type: nil},
+		},
+	}
+
+	t.Run("unknown_case_error", func(t *testing.T) {
+		val := component.ValVariant("unknown-case", nil)
+
+		_, err := abi.LowerFlat(nil, variantType, val)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "unknown variant case")
 	})
 }
