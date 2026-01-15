@@ -20,7 +20,7 @@
 | 2 | Complete Type System | **COMPLETE** | 31-70 | [phase2-type-system.md](./2026-01-12-component-model-phase2-type-system.md) |
 | 3 | Resources | **COMPLETE** | 71-100 | [phase3-resources.md](./2026-01-12-component-model-phase3-resources.md) |
 | 4 | Full Instantiation & Linking | **COMPLETE** | 101-150 | [phase4-linking.md](./2026-01-12-component-model-phase4-linking.md) |
-| 5 | WASI Preview 2 | NOT STARTED | 151-240 | [phase5-wasip2.md](./2026-01-12-component-model-phase5-wasip2.md) |
+| 5 | WASI Preview 2 | **COMPLETE** | 151-240 | [phase5-wasip2.md](./2026-01-12-component-model-phase5-wasip2.md) |
 | 6 | Polish & Conformance | NOT STARTED | 241-280 | [phase6-polish.md](./2026-01-12-component-model-phase6-polish.md) |
 
 ---
@@ -112,21 +112,31 @@ Complete component instantiation and linking with semver-compatible import resol
 
 ---
 
-### Phase 5: WASI Preview 2
+### Phase 5: WASI Preview 2 (COMPLETE)
 
 Implements all WASI Preview 2 interfaces.
 
-**Interfaces:**
-- `wasi:cli` - environment, exit, terminal
-- `wasi:filesystem` - file operations, preopens
-- `wasi:io` - streams, poll
-- `wasi:clocks` - monotonic, wall
-- `wasi:random` - random bytes
-- `wasi:sockets` - TCP, UDP, DNS
-- `wasi:http` - client and server
+**Completed:**
+- Package structure with `imports/wasip2/` hierarchy
+- WASIConfig for customization (stdin, stdout, stderr, environ, args, preopens)
+- `wasi:io/error`, `wasi:io/poll`, `wasi:io/streams` interfaces
+- `wasi:clocks/monotonic-clock`, `wasi:clocks/wall-clock` interfaces
+- `wasi:random/random`, `wasi:random/insecure`, `wasi:random/insecure-seed` interfaces
+- `wasi:cli/environment`, `wasi:cli/exit`, `wasi:cli/stdin`, `wasi:cli/stdout`, `wasi:cli/stderr`, `wasi:cli/terminal-*` interfaces
+- `wasi:filesystem/types`, `wasi:filesystem/preopens` interfaces (27 descriptor methods)
+- `wasi:sockets/network`, `wasi:sockets/tcp`, `wasi:sockets/udp`, `wasi:sockets/ip-name-lookup` interfaces
+- `wasi:http/types`, `wasi:http/outgoing-handler`, `wasi:http/incoming-handler` interfaces
 
-**Key files to create:**
-- `imports/wasip2/` package hierarchy
+**Key files created:**
+- `imports/wasip2/wasip2.go` - Top-level Instantiate
+- `imports/wasip2/config.go` - WASIConfig
+- `imports/wasip2/io/` - error, poll, streams
+- `imports/wasip2/clocks/` - monotonic, wall
+- `imports/wasip2/random/` - random, insecure
+- `imports/wasip2/cli/` - environment, exit, stdin/stdout/stderr, terminal
+- `imports/wasip2/filesystem/` - types, preopens
+- `imports/wasip2/sockets/` - network, tcp, udp
+- `imports/wasip2/http/` - types, outgoing, incoming
 
 ---
 
