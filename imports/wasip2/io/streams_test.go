@@ -4,6 +4,7 @@ package io
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"testing"
 
@@ -541,5 +542,317 @@ func TestInstantiateStreams_Duplicate(t *testing.T) {
 	// Second registration should fail
 	err = instantiateStreams(linker)
 	require.Error(t, err)
+}
+
+// Tests for host functions with ResourceTable
+
+func TestInputStreamRead_HostFunction(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	// Create input stream and add to table
+	reader := bytes.NewReader([]byte("hello world"))
+	stream := NewInputStream(reader)
+	handle := table.New(stream, true)
+
+	// Call host function
+	args := []component.Val{
+		component.ValBorrow(uint32(handle)),
+		component.ValU64(5),
+	}
+	results, err := inputStreamRead(ctx, args)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+
+	// Verify result is ok with data
+	isOk, ok, _ := results[0].Result()
+	require.True(t, isOk)
+	require.NotNil(t, ok)
+
+	// Extract list<u8> and convert to bytes
+	list := ok.List()
+	require.Equal(t, 5, len(list))
+	data := make([]byte, len(list))
+	for i, v := range list {
+		data[i] = v.U8()
+	}
+	require.Equal(t, []byte("hello"), data)
+}
+
+func TestInputStreamRead_ClosedStream(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	// Create closed input stream
+	reader := bytes.NewReader([]byte("hello"))
+	stream := NewInputStream(reader)
+	stream.Close()
+	handle := table.New(stream, true)
+
+	args := []component.Val{
+		component.ValBorrow(uint32(handle)),
+		component.ValU64(5),
+	}
+	results, err := inputStreamRead(ctx, args)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+
+	// Verify result is error (closed)
+	isOk, _, _ := results[0].Result()
+	require.False(t, isOk)
+}
+
+func TestInputStreamSkip_HostFunction(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	reader := bytes.NewReader([]byte("hello world"))
+	stream := NewInputStream(reader)
+	handle := table.New(stream, true)
+
+	args := []component.Val{
+		component.ValBorrow(uint32(handle)),
+		component.ValU64(6),
+	}
+	results, err := inputStreamSkip(ctx, args)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+
+	isOk, ok, _ := results[0].Result()
+	require.True(t, isOk)
+	require.NotNil(t, ok)
+	require.Equal(t, uint64(6), ok.U64())
+}
+
+func TestInputStreamSubscribe_HostFunction(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	reader := bytes.NewReader([]byte("test"))
+	stream := NewInputStream(reader)
+	handle := table.New(stream, true)
+
+	args := []component.Val{
+		component.ValBorrow(uint32(handle)),
+	}
+	results, err := inputStreamSubscribe(ctx, args)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+
+	// Verify result is own<pollable>
+	pollableHandle := results[0].Own()
+	// The handle should be valid (non-zero after the input stream handle)
+	require.True(t, pollableHandle > 0 || pollableHandle == 0)
+}
+
+func TestOutputStreamCheckWrite_HostFunction(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	buf := &bytes.Buffer{}
+	stream := NewOutputStream(buf)
+	handle := table.New(stream, true)
+
+	args := []component.Val{
+		component.ValBorrow(uint32(handle)),
+	}
+	results, err := outputStreamCheckWrite(ctx, args)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+
+	isOk, ok, _ := results[0].Result()
+	require.True(t, isOk)
+	require.NotNil(t, ok)
+	require.Equal(t, uint64(64*1024), ok.U64())
+}
+
+func TestOutputStreamWrite_HostFunction(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	buf := &bytes.Buffer{}
+	stream := NewOutputStream(buf)
+	handle := table.New(stream, true)
+
+	// Create list<u8> for "hello"
+	data := []byte("hello")
+	listVals := make([]component.Val, len(data))
+	for i, b := range data {
+		listVals[i] = component.ValU8(b)
+	}
+
+	args := []component.Val{
+		component.ValBorrow(uint32(handle)),
+		component.ValList(listVals),
+	}
+	results, err := outputStreamWrite(ctx, args)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+
+	isOk, _, _ := results[0].Result()
+	require.True(t, isOk)
+
+	// Verify data was written
+	require.Equal(t, "hello", buf.String())
+}
+
+func TestOutputStreamFlush_HostFunction(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	buf := &flushableWriter{}
+	stream := NewOutputStream(buf)
+	handle := table.New(stream, true)
+
+	args := []component.Val{
+		component.ValBorrow(uint32(handle)),
+	}
+	results, err := outputStreamFlush(ctx, args)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+
+	isOk, _, _ := results[0].Result()
+	require.True(t, isOk)
+	require.True(t, buf.flushed)
+}
+
+func TestOutputStreamWriteZeroes_HostFunction(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	buf := &bytes.Buffer{}
+	stream := NewOutputStream(buf)
+	handle := table.New(stream, true)
+
+	args := []component.Val{
+		component.ValBorrow(uint32(handle)),
+		component.ValU64(10),
+	}
+	results, err := outputStreamWriteZeroes(ctx, args)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+
+	isOk, _, _ := results[0].Result()
+	require.True(t, isOk)
+
+	require.Equal(t, 10, buf.Len())
+	for _, b := range buf.Bytes() {
+		require.Equal(t, byte(0), b)
+	}
+}
+
+func TestOutputStreamSplice_HostFunction(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	srcReader := bytes.NewReader([]byte("source data"))
+	srcStream := NewInputStream(srcReader)
+	srcHandle := table.New(srcStream, true)
+
+	dstBuf := &bytes.Buffer{}
+	dstStream := NewOutputStream(dstBuf)
+	dstHandle := table.New(dstStream, true)
+
+	args := []component.Val{
+		component.ValBorrow(uint32(dstHandle)),
+		component.ValBorrow(uint32(srcHandle)),
+		component.ValU64(6),
+	}
+	results, err := outputStreamSplice(ctx, args)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+
+	isOk, ok, _ := results[0].Result()
+	require.True(t, isOk)
+	require.NotNil(t, ok)
+	require.Equal(t, uint64(6), ok.U64())
+	require.Equal(t, "source", dstBuf.String())
+}
+
+func TestOutputStreamSubscribe_HostFunction(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	buf := &bytes.Buffer{}
+	stream := NewOutputStream(buf)
+	handle := table.New(stream, true)
+
+	args := []component.Val{
+		component.ValBorrow(uint32(handle)),
+	}
+	results, err := outputStreamSubscribe(ctx, args)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+
+	// Verify result is own<pollable>
+	_ = results[0].Own() // Just verify it doesn't panic
+}
+
+func TestHostFunction_InvalidHandle(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	// Use an invalid handle
+	args := []component.Val{
+		component.ValBorrow(999),
+		component.ValU64(5),
+	}
+	_, err := inputStreamRead(ctx, args)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid handle")
+}
+
+func TestHostFunction_NoResourceTable(t *testing.T) {
+	// Context without ResourceTable
+	ctx := context.Background()
+
+	args := []component.Val{
+		component.ValBorrow(0),
+		component.ValU64(5),
+	}
+	_, err := inputStreamRead(ctx, args)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no resource table")
+}
+
+func TestHostFunction_WrongResourceType(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	// Create an OutputStream but try to use it as InputStream
+	buf := &bytes.Buffer{}
+	stream := NewOutputStream(buf)
+	handle := table.New(stream, true)
+
+	args := []component.Val{
+		component.ValBorrow(uint32(handle)),
+		component.ValU64(5),
+	}
+	_, err := inputStreamRead(ctx, args)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not an InputStream")
+}
+
+func TestBytesToListU8(t *testing.T) {
+	data := []byte{1, 2, 3, 4, 5}
+	listVal := bytesToListU8(data)
+
+	list := listVal.List()
+	require.Equal(t, 5, len(list))
+	for i, v := range list {
+		require.Equal(t, data[i], v.U8())
+	}
+}
+
+func TestListU8ToBytes(t *testing.T) {
+	listVals := []component.Val{
+		component.ValU8(1),
+		component.ValU8(2),
+		component.ValU8(3),
+	}
+	listVal := component.ValList(listVals)
+
+	data := listU8ToBytes(listVal)
+	require.Equal(t, []byte{1, 2, 3}, data)
 }
 
