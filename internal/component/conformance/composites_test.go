@@ -2396,3 +2396,606 @@ func TestListNoReallocError(t *testing.T) {
 		require.Contains(t, err.Error(), "realloc function required")
 	})
 }
+
+// =============================================================================
+// Flags Tests
+// =============================================================================
+
+// TestFlagsEmpty tests empty flags handling.
+// flags {} has size 0, align 1, FlattenCount 0.
+func TestFlagsEmpty(t *testing.T) {
+	emptyFlags := types.Flags{Names: []string{}}
+
+	t.Run("type_properties", func(t *testing.T) {
+		require.Equal(t, uint32(0), emptyFlags.Size(), "empty flags should have size 0")
+		require.Equal(t, uint32(1), emptyFlags.Align(), "empty flags should have align 1")
+		require.Equal(t, 0, emptyFlags.FlattenCount(), "empty flags should have FlattenCount 0")
+	})
+
+	t.Run("roundtrip_flat", func(t *testing.T) {
+		val := component.ValFlags(map[string]bool{})
+
+		flat, err := abi.LowerFlat(nil, emptyFlags, val)
+		require.NoError(t, err)
+		require.Equal(t, 0, len(flat), "empty flags should lower to 0 flat values")
+
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(nil, emptyFlags, iter)
+		require.NoError(t, err)
+		require.Equal(t, component.ValKindFlags, lifted.Kind())
+		require.Equal(t, 0, len(lifted.Flags()))
+	})
+
+	t.Run("roundtrip_heap", func(t *testing.T) {
+		mem := newListTestMemory(64)
+		lowerCtx := &abi.LowerContext{Memory: mem}
+		liftCtx := &abi.LiftContext{Memory: mem}
+
+		val := component.ValFlags(map[string]bool{})
+
+		err := abi.LowerHeap(lowerCtx, emptyFlags, val, 0)
+		require.NoError(t, err)
+
+		lifted, err := abi.LiftHeap(liftCtx, emptyFlags, 0)
+		require.NoError(t, err)
+		require.Equal(t, component.ValKindFlags, lifted.Kind())
+		require.Equal(t, 0, len(lifted.Flags()))
+	})
+}
+
+// TestFlagsSingleFlag tests flags with a single flag.
+// flags { read } has size 1 (u8), align 1.
+func TestFlagsSingleFlag(t *testing.T) {
+	singleFlag := types.Flags{Names: []string{"read"}}
+
+	t.Run("type_properties", func(t *testing.T) {
+		require.Equal(t, uint32(1), singleFlag.Size(), "single flag should have size 1")
+		require.Equal(t, uint32(1), singleFlag.Align(), "single flag should have align 1")
+		require.Equal(t, 1, singleFlag.FlattenCount(), "single flag should have FlattenCount 1")
+	})
+
+	t.Run("flag_true", func(t *testing.T) {
+		val := component.ValFlags(map[string]bool{"read": true})
+
+		flat, err := abi.LowerFlat(nil, singleFlag, val)
+		require.NoError(t, err)
+		require.Equal(t, 1, len(flat))
+		require.Equal(t, uint64(1), flat[0], "read=true should be bit 0 set")
+
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(nil, singleFlag, iter)
+		require.NoError(t, err)
+		require.True(t, lifted.Flags()["read"])
+	})
+
+	t.Run("flag_false", func(t *testing.T) {
+		val := component.ValFlags(map[string]bool{"read": false})
+
+		flat, err := abi.LowerFlat(nil, singleFlag, val)
+		require.NoError(t, err)
+		require.Equal(t, 1, len(flat))
+		require.Equal(t, uint64(0), flat[0], "read=false should be 0")
+
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(nil, singleFlag, iter)
+		require.NoError(t, err)
+		require.False(t, lifted.Flags()["read"])
+	})
+
+	t.Run("roundtrip_heap", func(t *testing.T) {
+		mem := newListTestMemory(64)
+		lowerCtx := &abi.LowerContext{Memory: mem}
+		liftCtx := &abi.LiftContext{Memory: mem}
+
+		val := component.ValFlags(map[string]bool{"read": true})
+
+		err := abi.LowerHeap(lowerCtx, singleFlag, val, 0)
+		require.NoError(t, err)
+
+		// Verify byte in memory
+		require.Equal(t, uint8(1), mem.data[0], "memory should have bit 0 set")
+
+		lifted, err := abi.LiftHeap(liftCtx, singleFlag, 0)
+		require.NoError(t, err)
+		require.True(t, lifted.Flags()["read"])
+	})
+}
+
+// TestFlagsMultipleFlags tests flags with multiple flags.
+// flags { read, write, execute } - 3 flags fits in u8.
+func TestFlagsMultipleFlags(t *testing.T) {
+	multiFlags := types.Flags{Names: []string{"read", "write", "execute"}}
+
+	t.Run("type_properties", func(t *testing.T) {
+		require.Equal(t, uint32(1), multiFlags.Size(), "3 flags should have size 1 (u8)")
+		require.Equal(t, uint32(1), multiFlags.Align(), "3 flags should have align 1")
+		require.Equal(t, 1, multiFlags.FlattenCount(), "3 flags should have FlattenCount 1")
+	})
+
+	t.Run("read_execute_combination", func(t *testing.T) {
+		// read=true (bit 0), write=false (bit 1), execute=true (bit 2)
+		// Expected: 0b101 = 5
+		val := component.ValFlags(map[string]bool{
+			"read":    true,
+			"write":   false,
+			"execute": true,
+		})
+
+		flat, err := abi.LowerFlat(nil, multiFlags, val)
+		require.NoError(t, err)
+		require.Equal(t, 1, len(flat))
+		require.Equal(t, uint64(0b101), flat[0], "read+execute should be 0b101")
+
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(nil, multiFlags, iter)
+		require.NoError(t, err)
+		flags := lifted.Flags()
+		require.True(t, flags["read"])
+		require.False(t, flags["write"])
+		require.True(t, flags["execute"])
+	})
+
+	t.Run("all_flags_set", func(t *testing.T) {
+		val := component.ValFlags(map[string]bool{
+			"read":    true,
+			"write":   true,
+			"execute": true,
+		})
+
+		flat, err := abi.LowerFlat(nil, multiFlags, val)
+		require.NoError(t, err)
+		require.Equal(t, uint64(0b111), flat[0], "all flags should be 0b111")
+
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(nil, multiFlags, iter)
+		require.NoError(t, err)
+		flags := lifted.Flags()
+		require.True(t, flags["read"])
+		require.True(t, flags["write"])
+		require.True(t, flags["execute"])
+	})
+
+	t.Run("no_flags_set", func(t *testing.T) {
+		val := component.ValFlags(map[string]bool{
+			"read":    false,
+			"write":   false,
+			"execute": false,
+		})
+
+		flat, err := abi.LowerFlat(nil, multiFlags, val)
+		require.NoError(t, err)
+		require.Equal(t, uint64(0), flat[0], "no flags should be 0")
+
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(nil, multiFlags, iter)
+		require.NoError(t, err)
+		flags := lifted.Flags()
+		require.False(t, flags["read"])
+		require.False(t, flags["write"])
+		require.False(t, flags["execute"])
+	})
+
+	t.Run("roundtrip_heap_preserves_bits", func(t *testing.T) {
+		mem := newListTestMemory(64)
+		lowerCtx := &abi.LowerContext{Memory: mem}
+		liftCtx := &abi.LiftContext{Memory: mem}
+
+		val := component.ValFlags(map[string]bool{
+			"read":    true,
+			"write":   false,
+			"execute": true,
+		})
+
+		err := abi.LowerHeap(lowerCtx, multiFlags, val, 0)
+		require.NoError(t, err)
+
+		// Verify byte in memory
+		require.Equal(t, uint8(0b101), mem.data[0], "memory should have bits 0 and 2 set")
+
+		lifted, err := abi.LiftHeap(liftCtx, multiFlags, 0)
+		require.NoError(t, err)
+		flags := lifted.Flags()
+		require.True(t, flags["read"])
+		require.False(t, flags["write"])
+		require.True(t, flags["execute"])
+	})
+}
+
+// TestFlagsLarge tests flags with 9 flags (requires u16).
+// 9 flags requires 2 bytes (u16), align 2.
+func TestFlagsLarge(t *testing.T) {
+	// Create 9 flag names
+	names := make([]string, 9)
+	for i := 0; i < 9; i++ {
+		names[i] = fmt.Sprintf("flag%d", i)
+	}
+	largeFlags := types.Flags{Names: names}
+
+	t.Run("type_properties", func(t *testing.T) {
+		require.Equal(t, uint32(2), largeFlags.Size(), "9 flags should have size 2 (u16)")
+		require.Equal(t, uint32(2), largeFlags.Align(), "9 flags should have align 2")
+		require.Equal(t, 1, largeFlags.FlattenCount(), "9 flags should have FlattenCount 1")
+	})
+
+	t.Run("boundary_flags", func(t *testing.T) {
+		// Set flag0 (bit 0) and flag8 (bit 8)
+		flagMap := make(map[string]bool)
+		for _, name := range names {
+			flagMap[name] = false
+		}
+		flagMap["flag0"] = true
+		flagMap["flag8"] = true
+
+		val := component.ValFlags(flagMap)
+
+		flat, err := abi.LowerFlat(nil, largeFlags, val)
+		require.NoError(t, err)
+		require.Equal(t, 1, len(flat))
+		require.Equal(t, uint64((1<<0)|(1<<8)), flat[0], "should have bits 0 and 8 set")
+
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(nil, largeFlags, iter)
+		require.NoError(t, err)
+		flags := lifted.Flags()
+		require.True(t, flags["flag0"])
+		require.True(t, flags["flag8"])
+		for i := 1; i < 8; i++ {
+			require.False(t, flags[fmt.Sprintf("flag%d", i)])
+		}
+	})
+
+	t.Run("roundtrip_heap", func(t *testing.T) {
+		mem := newListTestMemory(64)
+		lowerCtx := &abi.LowerContext{Memory: mem}
+		liftCtx := &abi.LiftContext{Memory: mem}
+
+		flagMap := make(map[string]bool)
+		for _, name := range names {
+			flagMap[name] = false
+		}
+		flagMap["flag0"] = true
+		flagMap["flag8"] = true
+
+		val := component.ValFlags(flagMap)
+
+		// Ensure 2-byte alignment
+		err := abi.LowerHeap(lowerCtx, largeFlags, val, 0)
+		require.NoError(t, err)
+
+		// Verify u16 in memory (little-endian)
+		expected := uint16((1 << 0) | (1 << 8))
+		actual := binary.LittleEndian.Uint16(mem.data[0:2])
+		require.Equal(t, expected, actual, "memory should have u16 with bits 0 and 8 set")
+
+		lifted, err := abi.LiftHeap(liftCtx, largeFlags, 0)
+		require.NoError(t, err)
+		flags := lifted.Flags()
+		require.True(t, flags["flag0"])
+		require.True(t, flags["flag8"])
+	})
+}
+
+// TestFlagsVeryLarge tests flags with 17 flags (requires u32).
+// 17 flags requires 4 bytes (u32), align 4.
+func TestFlagsVeryLarge(t *testing.T) {
+	// Create 17 flag names
+	names := make([]string, 17)
+	for i := 0; i < 17; i++ {
+		names[i] = fmt.Sprintf("flag%d", i)
+	}
+	veryLargeFlags := types.Flags{Names: names}
+
+	t.Run("type_properties", func(t *testing.T) {
+		require.Equal(t, uint32(4), veryLargeFlags.Size(), "17 flags should have size 4 (u32)")
+		require.Equal(t, uint32(4), veryLargeFlags.Align(), "17 flags should have align 4")
+		require.Equal(t, 1, veryLargeFlags.FlattenCount(), "17 flags should have FlattenCount 1")
+	})
+
+	t.Run("boundary_flags", func(t *testing.T) {
+		// Set flag0 (bit 0) and flag16 (bit 16)
+		flagMap := make(map[string]bool)
+		for _, name := range names {
+			flagMap[name] = false
+		}
+		flagMap["flag0"] = true
+		flagMap["flag16"] = true
+
+		val := component.ValFlags(flagMap)
+
+		flat, err := abi.LowerFlat(nil, veryLargeFlags, val)
+		require.NoError(t, err)
+		require.Equal(t, 1, len(flat))
+		require.Equal(t, uint64((1<<0)|(1<<16)), flat[0], "should have bits 0 and 16 set")
+
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(nil, veryLargeFlags, iter)
+		require.NoError(t, err)
+		flags := lifted.Flags()
+		require.True(t, flags["flag0"])
+		require.True(t, flags["flag16"])
+	})
+
+	t.Run("all_flags_set", func(t *testing.T) {
+		flagMap := make(map[string]bool)
+		for _, name := range names {
+			flagMap[name] = true
+		}
+
+		val := component.ValFlags(flagMap)
+
+		flat, err := abi.LowerFlat(nil, veryLargeFlags, val)
+		require.NoError(t, err)
+		require.Equal(t, 1, len(flat))
+		// All 17 bits set: (1 << 17) - 1 = 0x1FFFF
+		require.Equal(t, uint64(0x1FFFF), flat[0], "all 17 flags should be set")
+
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(nil, veryLargeFlags, iter)
+		require.NoError(t, err)
+		flags := lifted.Flags()
+		for _, name := range names {
+			require.True(t, flags[name], "%s should be set", name)
+		}
+	})
+
+	t.Run("roundtrip_heap", func(t *testing.T) {
+		mem := newListTestMemory(64)
+		lowerCtx := &abi.LowerContext{Memory: mem}
+		liftCtx := &abi.LiftContext{Memory: mem}
+
+		flagMap := make(map[string]bool)
+		for _, name := range names {
+			flagMap[name] = false
+		}
+		flagMap["flag0"] = true
+		flagMap["flag16"] = true
+
+		val := component.ValFlags(flagMap)
+
+		err := abi.LowerHeap(lowerCtx, veryLargeFlags, val, 0)
+		require.NoError(t, err)
+
+		// Verify u32 in memory (little-endian)
+		expected := uint32((1 << 0) | (1 << 16))
+		actual := binary.LittleEndian.Uint32(mem.data[0:4])
+		require.Equal(t, expected, actual, "memory should have u32 with bits 0 and 16 set")
+
+		lifted, err := abi.LiftHeap(liftCtx, veryLargeFlags, 0)
+		require.NoError(t, err)
+		flags := lifted.Flags()
+		require.True(t, flags["flag0"])
+		require.True(t, flags["flag16"])
+	})
+}
+
+// TestFlagsSizeThresholds tests size transitions at 8, 16 flag boundaries.
+func TestFlagsSizeThresholds(t *testing.T) {
+	testCases := []struct {
+		numFlags      int
+		expectedSize  uint32
+		expectedAlign uint32
+	}{
+		{1, 1, 1},  // 1-8 flags: u8
+		{8, 1, 1},  // exactly 8 flags: u8
+		{9, 2, 2},  // 9-16 flags: u16
+		{16, 2, 2}, // exactly 16 flags: u16
+		{17, 4, 4}, // 17+ flags: u32
+		{32, 4, 4}, // exactly 32 flags: single u32
+		{33, 8, 4}, // 33 flags: 2 u32s
+	}
+
+	for _, tc := range testCases {
+		t.Run(fmt.Sprintf("%d_flags", tc.numFlags), func(t *testing.T) {
+			names := make([]string, tc.numFlags)
+			for i := 0; i < tc.numFlags; i++ {
+				names[i] = fmt.Sprintf("f%d", i)
+			}
+			flags := types.Flags{Names: names}
+
+			require.Equal(t, tc.expectedSize, flags.Size(), "%d flags should have size %d", tc.numFlags, tc.expectedSize)
+			require.Equal(t, tc.expectedAlign, flags.Align(), "%d flags should have align %d", tc.numFlags, tc.expectedAlign)
+		})
+	}
+}
+
+// =============================================================================
+// Enum Tests
+// =============================================================================
+
+// TestEnumSimple tests a simple enum with 3 cases.
+// enum { red, green, blue } has size 1, align 1.
+func TestEnumSimple(t *testing.T) {
+	colorEnum := types.Enum{Cases: []string{"red", "green", "blue"}}
+
+	t.Run("type_properties", func(t *testing.T) {
+		require.Equal(t, uint32(1), colorEnum.Size(), "3-case enum should have size 1 (u8)")
+		require.Equal(t, uint32(1), colorEnum.Align(), "3-case enum should have align 1")
+		require.Equal(t, 1, colorEnum.FlattenCount(), "enum should have FlattenCount 1")
+	})
+
+	t.Run("select_first_case", func(t *testing.T) {
+		val := component.ValEnum("red")
+
+		flat, err := abi.LowerFlat(nil, colorEnum, val)
+		require.NoError(t, err)
+		require.Equal(t, 1, len(flat))
+		require.Equal(t, uint64(0), flat[0], "red should be discriminant 0")
+
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(nil, colorEnum, iter)
+		require.NoError(t, err)
+		require.Equal(t, "red", lifted.Enum())
+	})
+
+	t.Run("select_middle_case", func(t *testing.T) {
+		val := component.ValEnum("green")
+
+		flat, err := abi.LowerFlat(nil, colorEnum, val)
+		require.NoError(t, err)
+		require.Equal(t, uint64(1), flat[0], "green should be discriminant 1")
+
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(nil, colorEnum, iter)
+		require.NoError(t, err)
+		require.Equal(t, "green", lifted.Enum())
+	})
+
+	t.Run("select_last_case", func(t *testing.T) {
+		val := component.ValEnum("blue")
+
+		flat, err := abi.LowerFlat(nil, colorEnum, val)
+		require.NoError(t, err)
+		require.Equal(t, uint64(2), flat[0], "blue should be discriminant 2")
+
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(nil, colorEnum, iter)
+		require.NoError(t, err)
+		require.Equal(t, "blue", lifted.Enum())
+	})
+
+	t.Run("roundtrip_heap", func(t *testing.T) {
+		mem := newListTestMemory(64)
+		lowerCtx := &abi.LowerContext{Memory: mem}
+		liftCtx := &abi.LiftContext{Memory: mem}
+
+		val := component.ValEnum("green")
+
+		err := abi.LowerHeap(lowerCtx, colorEnum, val, 0)
+		require.NoError(t, err)
+
+		// Verify byte in memory
+		require.Equal(t, uint8(1), mem.data[0], "memory should have discriminant 1")
+
+		lifted, err := abi.LiftHeap(liftCtx, colorEnum, 0)
+		require.NoError(t, err)
+		require.Equal(t, "green", lifted.Enum())
+	})
+
+	t.Run("all_cases_roundtrip", func(t *testing.T) {
+		cases := []string{"red", "green", "blue"}
+		for i, caseName := range cases {
+			val := component.ValEnum(caseName)
+
+			flat, err := abi.LowerFlat(nil, colorEnum, val)
+			require.NoError(t, err)
+			require.Equal(t, uint64(i), flat[0], "%s should be discriminant %d", caseName, i)
+
+			iter := abi.NewFlatIter(flat)
+			lifted, err := abi.LiftFlat(nil, colorEnum, iter)
+			require.NoError(t, err)
+			require.Equal(t, caseName, lifted.Enum())
+		}
+	})
+}
+
+// TestEnumLarge tests an enum with more than 256 cases (requires u16).
+func TestEnumLarge(t *testing.T) {
+	// Create 257 case names to force u16 discriminant
+	cases := make([]string, 257)
+	for i := 0; i < 257; i++ {
+		cases[i] = fmt.Sprintf("case%d", i)
+	}
+	largeEnum := types.Enum{Cases: cases}
+
+	t.Run("type_properties", func(t *testing.T) {
+		require.Equal(t, uint32(2), largeEnum.Size(), "257-case enum should have size 2 (u16)")
+		require.Equal(t, uint32(2), largeEnum.Align(), "257-case enum should have align 2")
+		require.Equal(t, 1, largeEnum.FlattenCount(), "enum should have FlattenCount 1")
+	})
+
+	t.Run("select_first_case", func(t *testing.T) {
+		val := component.ValEnum("case0")
+
+		flat, err := abi.LowerFlat(nil, largeEnum, val)
+		require.NoError(t, err)
+		require.Equal(t, uint64(0), flat[0])
+
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(nil, largeEnum, iter)
+		require.NoError(t, err)
+		require.Equal(t, "case0", lifted.Enum())
+	})
+
+	t.Run("select_case_256", func(t *testing.T) {
+		// This case (index 256) is beyond u8 range
+		val := component.ValEnum("case256")
+
+		flat, err := abi.LowerFlat(nil, largeEnum, val)
+		require.NoError(t, err)
+		require.Equal(t, uint64(256), flat[0], "case256 should be discriminant 256")
+
+		iter := abi.NewFlatIter(flat)
+		lifted, err := abi.LiftFlat(nil, largeEnum, iter)
+		require.NoError(t, err)
+		require.Equal(t, "case256", lifted.Enum())
+	})
+
+	t.Run("roundtrip_heap", func(t *testing.T) {
+		mem := newListTestMemory(64)
+		lowerCtx := &abi.LowerContext{Memory: mem}
+		liftCtx := &abi.LiftContext{Memory: mem}
+
+		val := component.ValEnum("case256")
+
+		err := abi.LowerHeap(lowerCtx, largeEnum, val, 0)
+		require.NoError(t, err)
+
+		// Verify u16 in memory (little-endian)
+		actual := binary.LittleEndian.Uint16(mem.data[0:2])
+		require.Equal(t, uint16(256), actual, "memory should have discriminant 256")
+
+		lifted, err := abi.LiftHeap(liftCtx, largeEnum, 0)
+		require.NoError(t, err)
+		require.Equal(t, "case256", lifted.Enum())
+	})
+}
+
+// TestEnumSizeThresholds tests size transitions at 256, 65536 case boundaries.
+func TestEnumSizeThresholds(t *testing.T) {
+	testCases := []struct {
+		numCases      int
+		expectedSize  uint32
+		expectedAlign uint32
+	}{
+		{1, 1, 1},     // 1-256 cases: u8
+		{256, 1, 1},   // exactly 256 cases: u8
+		{257, 2, 2},   // 257-65536 cases: u16
+		{65536, 2, 2}, // exactly 65536 cases: u16
+	}
+
+	for _, tc := range testCases {
+		t.Run(fmt.Sprintf("%d_cases", tc.numCases), func(t *testing.T) {
+			cases := make([]string, tc.numCases)
+			for i := 0; i < tc.numCases; i++ {
+				cases[i] = fmt.Sprintf("c%d", i)
+			}
+			enum := types.Enum{Cases: cases}
+
+			require.Equal(t, tc.expectedSize, enum.Size(), "%d cases should have size %d", tc.numCases, tc.expectedSize)
+			require.Equal(t, tc.expectedAlign, enum.Align(), "%d cases should have align %d", tc.numCases, tc.expectedAlign)
+		})
+	}
+}
+
+// TestEnumInvalidCase tests that lowering an invalid enum case returns an error.
+func TestEnumInvalidCase(t *testing.T) {
+	colorEnum := types.Enum{Cases: []string{"red", "green", "blue"}}
+
+	val := component.ValEnum("yellow") // Not a valid case
+
+	_, err := abi.LowerFlat(nil, colorEnum, val)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unknown enum case")
+}
+
+// TestEnumInvalidDiscriminant tests that lifting an invalid discriminant returns an error.
+func TestEnumInvalidDiscriminant(t *testing.T) {
+	colorEnum := types.Enum{Cases: []string{"red", "green", "blue"}}
+
+	flat := []uint64{5} // Discriminant 5 is out of range [0, 2]
+
+	iter := abi.NewFlatIter(flat)
+	_, err := abi.LiftFlat(nil, colorEnum, iter)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid enum discriminant")
+}
