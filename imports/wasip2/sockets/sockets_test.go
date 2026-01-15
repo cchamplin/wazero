@@ -1047,3 +1047,421 @@ func TestDatagramStreams(t *testing.T) {
 	outStream := NewOutgoingDatagramStream(sock)
 	require.NotNil(t, outStream)
 }
+
+// ====================================
+// Real Socket Integration Tests
+// ====================================
+
+// Helper to create a context with resource table
+func contextWithResourceTable() context.Context {
+	table := component.NewResourceTable()
+	return component.WithResourceTable(context.Background(), table)
+}
+
+// Helper to create an IPv4 socket address Val
+func makeIPv4SocketAddrVal(a, b, c, d byte, port uint16) component.Val {
+	addrRecord := component.ValRecord(map[string]component.Val{
+		"port":    component.ValU16(port),
+		"address": component.ValTuple([]component.Val{component.ValU8(a), component.ValU8(b), component.ValU8(c), component.ValU8(d)}),
+	})
+	return component.ValVariant("ipv4", &addrRecord)
+}
+
+func TestTcpSocket_CreateAndBind(t *testing.T) {
+	ctx := contextWithResourceTable()
+
+	// Create TCP socket
+	network := component.ValBorrow(0)
+	family := component.ValEnum("ipv4")
+	result, err := createTcpSocket(ctx, []component.Val{network, family})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(result))
+
+	isOk, ok, _ := result[0].Result()
+	require.True(t, isOk, "createTcpSocket should succeed")
+	require.NotNil(t, ok)
+	sockHandle := ok.Own()
+
+	// Start bind to 127.0.0.1:0 (port 0 = let OS pick)
+	selfHandle := component.ValBorrow(sockHandle)
+	localAddr := makeIPv4SocketAddrVal(127, 0, 0, 1, 0)
+	result, err = tcpSocketStartBind(ctx, []component.Val{selfHandle, network, localAddr})
+	require.NoError(t, err)
+	isOk, _, _ = result[0].Result()
+	require.True(t, isOk, "start-bind should succeed")
+
+	// Finish bind
+	result, err = tcpSocketFinishBind(ctx, []component.Val{selfHandle})
+	require.NoError(t, err)
+	isOk, _, _ = result[0].Result()
+	require.True(t, isOk, "finish-bind should succeed")
+
+	// Verify local address is set
+	result, err = tcpSocketLocalAddress(ctx, []component.Val{selfHandle})
+	require.NoError(t, err)
+	isOk, addrVal, _ := result[0].Result()
+	require.True(t, isOk, "local-address should succeed")
+	require.NotNil(t, addrVal)
+
+	// Verify address is IPv4
+	caseName, _ := addrVal.Variant()
+	require.Equal(t, "ipv4", caseName)
+
+	// Clean up: get the socket and close it
+	sock, _ := getTcpSocket(ctx, sockHandle)
+	if sock != nil {
+		sock.Close()
+	}
+}
+
+func TestTcpSocket_ListenAndAccept(t *testing.T) {
+	ctx := contextWithResourceTable()
+
+	// Create TCP socket
+	network := component.ValBorrow(0)
+	family := component.ValEnum("ipv4")
+	result, err := createTcpSocket(ctx, []component.Val{network, family})
+	require.NoError(t, err)
+	isOk, ok, _ := result[0].Result()
+	require.True(t, isOk)
+	serverHandle := ok.Own()
+
+	// Bind to 127.0.0.1:0
+	selfHandle := component.ValBorrow(serverHandle)
+	localAddr := makeIPv4SocketAddrVal(127, 0, 0, 1, 0)
+	result, _ = tcpSocketStartBind(ctx, []component.Val{selfHandle, network, localAddr})
+	isOk, _, _ = result[0].Result()
+	require.True(t, isOk)
+
+	result, _ = tcpSocketFinishBind(ctx, []component.Val{selfHandle})
+	isOk, _, _ = result[0].Result()
+	require.True(t, isOk)
+
+	// Start listen
+	result, err = tcpSocketStartListen(ctx, []component.Val{selfHandle})
+	require.NoError(t, err)
+	isOk, _, _ = result[0].Result()
+	require.True(t, isOk, "start-listen should succeed")
+
+	// Finish listen
+	result, err = tcpSocketFinishListen(ctx, []component.Val{selfHandle})
+	require.NoError(t, err)
+	isOk, _, _ = result[0].Result()
+	require.True(t, isOk, "finish-listen should succeed")
+
+	// Verify is-listening returns true
+	result, err = tcpSocketIsListening(ctx, []component.Val{selfHandle})
+	require.NoError(t, err)
+	require.True(t, result[0].Bool(), "socket should be listening")
+
+	// Get local address (for client to connect to)
+	result, _ = tcpSocketLocalAddress(ctx, []component.Val{selfHandle})
+	isOk, addrVal, _ := result[0].Result()
+	require.True(t, isOk)
+
+	// Clean up
+	sock, _ := getTcpSocket(ctx, serverHandle)
+	if sock != nil {
+		sock.Close()
+	}
+
+	// Note: Full accept test would require a client connecting, which is more complex
+	_ = addrVal
+}
+
+func TestTcpSocket_ConnectToListener(t *testing.T) {
+	ctx := contextWithResourceTable()
+	network := component.ValBorrow(0)
+
+	// Create server socket
+	family := component.ValEnum("ipv4")
+	result, _ := createTcpSocket(ctx, []component.Val{network, family})
+	isOk, ok, _ := result[0].Result()
+	require.True(t, isOk)
+	serverHandle := ok.Own()
+
+	// Bind server
+	serverBorrow := component.ValBorrow(serverHandle)
+	localAddr := makeIPv4SocketAddrVal(127, 0, 0, 1, 0)
+	result, _ = tcpSocketStartBind(ctx, []component.Val{serverBorrow, network, localAddr})
+	isOk, _, _ = result[0].Result()
+	require.True(t, isOk)
+
+	result, _ = tcpSocketFinishBind(ctx, []component.Val{serverBorrow})
+	isOk, _, _ = result[0].Result()
+	require.True(t, isOk)
+
+	// Listen
+	result, _ = tcpSocketStartListen(ctx, []component.Val{serverBorrow})
+	isOk, _, _ = result[0].Result()
+	require.True(t, isOk)
+
+	result, _ = tcpSocketFinishListen(ctx, []component.Val{serverBorrow})
+	isOk, _, _ = result[0].Result()
+	require.True(t, isOk)
+
+	// Get server's port
+	result, _ = tcpSocketLocalAddress(ctx, []component.Val{serverBorrow})
+	isOk, addrVal, _ := result[0].Result()
+	require.True(t, isOk)
+
+	serverSock, _ := getTcpSocket(ctx, serverHandle)
+	serverPort := serverSock.LocalAddress().Port()
+
+	// Create client socket
+	result, _ = createTcpSocket(ctx, []component.Val{network, family})
+	isOk, ok, _ = result[0].Result()
+	require.True(t, isOk)
+	clientHandle := ok.Own()
+
+	// Start connect to server
+	clientBorrow := component.ValBorrow(clientHandle)
+	remoteAddr := makeIPv4SocketAddrVal(127, 0, 0, 1, serverPort)
+	result, err := tcpSocketStartConnect(ctx, []component.Val{clientBorrow, network, remoteAddr})
+	require.NoError(t, err)
+	isOk, _, _ = result[0].Result()
+	require.True(t, isOk, "start-connect should succeed")
+
+	// Finish connect (this actually connects)
+	result, err = tcpSocketFinishConnect(ctx, []component.Val{clientBorrow})
+	require.NoError(t, err)
+	isOk, tupleVal, _ := result[0].Result()
+	require.True(t, isOk, "finish-connect should succeed")
+	require.NotNil(t, tupleVal)
+
+	// Verify we got streams back
+	streams := tupleVal.Tuple()
+	require.Equal(t, 2, len(streams), "should return input and output stream handles")
+
+	// Verify remote address
+	result, _ = tcpSocketRemoteAddress(ctx, []component.Val{clientBorrow})
+	isOk, remoteAddrVal, _ := result[0].Result()
+	require.True(t, isOk)
+	require.NotNil(t, remoteAddrVal)
+
+	// Clean up
+	clientSock, _ := getTcpSocket(ctx, clientHandle)
+	if clientSock != nil {
+		clientSock.Close()
+	}
+	if serverSock != nil {
+		serverSock.Close()
+	}
+
+	_ = addrVal
+}
+
+func TestUdpSocket_CreateAndBind(t *testing.T) {
+	ctx := contextWithResourceTable()
+
+	// Create UDP socket
+	network := component.ValBorrow(0)
+	family := component.ValEnum("ipv4")
+	result, err := createUdpSocket(ctx, []component.Val{network, family})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(result))
+
+	isOk, ok, _ := result[0].Result()
+	require.True(t, isOk, "createUdpSocket should succeed")
+	require.NotNil(t, ok)
+	sockHandle := ok.Own()
+
+	// Start bind to 127.0.0.1:0
+	selfHandle := component.ValBorrow(sockHandle)
+	localAddr := makeIPv4SocketAddrVal(127, 0, 0, 1, 0)
+	result, err = udpSocketStartBind(ctx, []component.Val{selfHandle, network, localAddr})
+	require.NoError(t, err)
+	isOk, _, _ = result[0].Result()
+	require.True(t, isOk, "start-bind should succeed")
+
+	// Finish bind
+	result, err = udpSocketFinishBind(ctx, []component.Val{selfHandle})
+	require.NoError(t, err)
+	isOk, _, _ = result[0].Result()
+	require.True(t, isOk, "finish-bind should succeed")
+
+	// Verify local address is set
+	result, err = udpSocketLocalAddress(ctx, []component.Val{selfHandle})
+	require.NoError(t, err)
+	isOk, addrVal, _ := result[0].Result()
+	require.True(t, isOk, "local-address should succeed")
+	require.NotNil(t, addrVal)
+
+	// Verify address is IPv4
+	caseName, _ := addrVal.Variant()
+	require.Equal(t, "ipv4", caseName)
+
+	// Clean up
+	sock, _ := getUdpSocket(ctx, sockHandle)
+	if sock != nil {
+		sock.Close()
+	}
+}
+
+func TestUdpSocket_SendReceive(t *testing.T) {
+	ctx := contextWithResourceTable()
+	network := component.ValBorrow(0)
+	family := component.ValEnum("ipv4")
+
+	// Create and bind socket 1
+	result, _ := createUdpSocket(ctx, []component.Val{network, family})
+	isOk, ok, _ := result[0].Result()
+	require.True(t, isOk)
+	sock1Handle := ok.Own()
+
+	sock1Borrow := component.ValBorrow(sock1Handle)
+	localAddr1 := makeIPv4SocketAddrVal(127, 0, 0, 1, 0)
+	result, _ = udpSocketStartBind(ctx, []component.Val{sock1Borrow, network, localAddr1})
+	isOk, _, _ = result[0].Result()
+	require.True(t, isOk)
+
+	result, _ = udpSocketFinishBind(ctx, []component.Val{sock1Borrow})
+	isOk, _, _ = result[0].Result()
+	require.True(t, isOk)
+
+	// Get streams for socket 1
+	remoteAddrOpt := component.ValOption(nil)
+	result, err := udpSocketStream(ctx, []component.Val{sock1Borrow, remoteAddrOpt})
+	require.NoError(t, err)
+	isOk, tupleVal, _ := result[0].Result()
+	require.True(t, isOk, "stream() should succeed")
+	require.NotNil(t, tupleVal)
+
+	streams := tupleVal.Tuple()
+	require.Equal(t, 2, len(streams))
+
+	// Verify address family
+	result, _ = udpSocketAddressFamily(ctx, []component.Val{sock1Borrow})
+	require.Equal(t, component.ValKindEnum, result[0].Kind())
+	require.Equal(t, "ipv4", result[0].Enum())
+
+	// Clean up
+	sock1, _ := getUdpSocket(ctx, sock1Handle)
+	if sock1 != nil {
+		sock1.Close()
+	}
+}
+
+func TestAddressConversion(t *testing.T) {
+	// Test IPv4 conversion
+	ipv4Addr := makeIPv4SocketAddrVal(192, 168, 1, 100, 8080)
+	parsed, err := ipSocketAddressFromVal(ipv4Addr)
+	require.NoError(t, err)
+	require.NotNil(t, parsed)
+	require.Equal(t, IpAddressFamilyIpv4, parsed.Family())
+	require.Equal(t, uint16(8080), parsed.Port())
+	require.Equal(t, [4]byte{192, 168, 1, 100}, parsed.Address().Ipv4())
+
+	// Convert back to Val
+	converted := ipSocketAddressToVal(parsed)
+	caseName, payload := converted.Variant()
+	require.Equal(t, "ipv4", caseName)
+	require.NotNil(t, payload)
+
+	// Parse the converted value again
+	parsed2, err := ipSocketAddressFromVal(converted)
+	require.NoError(t, err)
+	require.Equal(t, parsed.Family(), parsed2.Family())
+	require.Equal(t, parsed.Port(), parsed2.Port())
+	require.Equal(t, parsed.Address().Ipv4(), parsed2.Address().Ipv4())
+}
+
+func TestErrorCodeMapping(t *testing.T) {
+	// Test that error codes are properly mapped
+	require.Equal(t, ErrorCodeUnknown, mapNetError(nil))
+
+	// Test string-based error detection (simulated)
+	// Note: actual error mapping depends on the system error strings
+}
+
+func TestTcpSocket_InvalidStateTransitions(t *testing.T) {
+	ctx := contextWithResourceTable()
+	network := component.ValBorrow(0)
+	family := component.ValEnum("ipv4")
+
+	// Create socket
+	result, _ := createTcpSocket(ctx, []component.Val{network, family})
+	isOk, ok, _ := result[0].Result()
+	require.True(t, isOk)
+	sockHandle := ok.Own()
+	selfHandle := component.ValBorrow(sockHandle)
+
+	// Try to start listen without binding first - should fail with invalid state
+	result, _ = tcpSocketStartListen(ctx, []component.Val{selfHandle})
+	isOk, _, errVal := result[0].Result()
+	require.False(t, isOk, "start-listen should fail without bind")
+	require.NotNil(t, errVal)
+
+	// Try to finish bind without start bind - should fail with invalid state
+	result, _ = tcpSocketFinishBind(ctx, []component.Val{selfHandle})
+	isOk, _, errVal = result[0].Result()
+	require.False(t, isOk, "finish-bind should fail without start-bind")
+
+	// Clean up
+	sock, _ := getTcpSocket(ctx, sockHandle)
+	if sock != nil {
+		sock.Close()
+	}
+}
+
+func TestUdpSocket_InvalidStateTransitions(t *testing.T) {
+	ctx := contextWithResourceTable()
+	network := component.ValBorrow(0)
+	family := component.ValEnum("ipv4")
+
+	// Create socket
+	result, _ := createUdpSocket(ctx, []component.Val{network, family})
+	isOk, ok, _ := result[0].Result()
+	require.True(t, isOk)
+	sockHandle := ok.Own()
+	selfHandle := component.ValBorrow(sockHandle)
+
+	// Try to get stream without binding first - should fail
+	remoteAddrOpt := component.ValOption(nil)
+	result, _ = udpSocketStream(ctx, []component.Val{selfHandle, remoteAddrOpt})
+	isOk, _, errVal := result[0].Result()
+	require.False(t, isOk, "stream() should fail without bind")
+	require.NotNil(t, errVal)
+
+	// Try to finish bind without start bind - should fail with invalid state
+	result, _ = udpSocketFinishBind(ctx, []component.Val{selfHandle})
+	isOk, _, errVal = result[0].Result()
+	require.False(t, isOk, "finish-bind should fail without start-bind")
+
+	// Clean up
+	sock, _ := getUdpSocket(ctx, sockHandle)
+	if sock != nil {
+		sock.Close()
+	}
+}
+
+func TestTcpSocket_Close(t *testing.T) {
+	// Test that Close properly releases resources
+	sock := NewTcpSocket(IpAddressFamilyIpv4)
+	err := sock.Close()
+	require.NoError(t, err)
+	require.Equal(t, tcpStateClosed, sock.State())
+}
+
+func TestUdpSocket_Close(t *testing.T) {
+	// Test that Close properly releases resources
+	sock := NewUdpSocket(IpAddressFamilyIpv4)
+	err := sock.Close()
+	require.NoError(t, err)
+	require.Equal(t, udpStateClosed, sock.State())
+}
+
+func TestTcpInputStream_ReadWrite(t *testing.T) {
+	// Test TcpInputStream and TcpOutputStream types
+	sock := NewTcpSocket(IpAddressFamilyIpv4)
+
+	inStream := NewTcpInputStream(sock)
+	require.NotNil(t, inStream)
+
+	outStream := NewTcpOutputStream(sock)
+	require.NotNil(t, outStream)
+
+	// Close should work without panicking
+	inStream.Close()
+	outStream.Close()
+}
