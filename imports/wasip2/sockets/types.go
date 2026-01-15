@@ -110,27 +110,27 @@ func (s IpSocketAddress) Address() IpAddress {
 type ErrorCode string
 
 const (
-	ErrorCodeUnknown                   ErrorCode = "unknown"
-	ErrorCodeAccessDenied              ErrorCode = "access-denied"
-	ErrorCodeNotSupported              ErrorCode = "not-supported"
-	ErrorCodeInvalidArgument           ErrorCode = "invalid-argument"
-	ErrorCodeOutOfMemory               ErrorCode = "out-of-memory"
-	ErrorCodeTimeout                   ErrorCode = "timeout"
-	ErrorCodeConcurrencyConflict       ErrorCode = "concurrency-conflict"
-	ErrorCodeNotInProgress             ErrorCode = "not-in-progress"
-	ErrorCodeWouldBlock                ErrorCode = "would-block"
-	ErrorCodeInvalidState              ErrorCode = "invalid-state"
-	ErrorCodeNewSocketLimit            ErrorCode = "new-socket-limit"
-	ErrorCodeAddressNotBindable        ErrorCode = "address-not-bindable"
-	ErrorCodeAddressInUse              ErrorCode = "address-in-use"
-	ErrorCodeRemoteUnreachable         ErrorCode = "remote-unreachable"
-	ErrorCodeConnectionRefused         ErrorCode = "connection-refused"
-	ErrorCodeConnectionReset           ErrorCode = "connection-reset"
-	ErrorCodeConnectionAborted         ErrorCode = "connection-aborted"
-	ErrorCodeDatagramTooLarge          ErrorCode = "datagram-too-large"
-	ErrorCodeNameUnresolvable          ErrorCode = "name-unresolvable"
-	ErrorCodeTemporaryResolverFailure  ErrorCode = "temporary-resolver-failure"
-	ErrorCodePermanentResolverFailure  ErrorCode = "permanent-resolver-failure"
+	ErrorCodeUnknown                  ErrorCode = "unknown"
+	ErrorCodeAccessDenied             ErrorCode = "access-denied"
+	ErrorCodeNotSupported             ErrorCode = "not-supported"
+	ErrorCodeInvalidArgument          ErrorCode = "invalid-argument"
+	ErrorCodeOutOfMemory              ErrorCode = "out-of-memory"
+	ErrorCodeTimeout                  ErrorCode = "timeout"
+	ErrorCodeConcurrencyConflict      ErrorCode = "concurrency-conflict"
+	ErrorCodeNotInProgress            ErrorCode = "not-in-progress"
+	ErrorCodeWouldBlock               ErrorCode = "would-block"
+	ErrorCodeInvalidState             ErrorCode = "invalid-state"
+	ErrorCodeNewSocketLimit           ErrorCode = "new-socket-limit"
+	ErrorCodeAddressNotBindable       ErrorCode = "address-not-bindable"
+	ErrorCodeAddressInUse             ErrorCode = "address-in-use"
+	ErrorCodeRemoteUnreachable        ErrorCode = "remote-unreachable"
+	ErrorCodeConnectionRefused        ErrorCode = "connection-refused"
+	ErrorCodeConnectionReset          ErrorCode = "connection-reset"
+	ErrorCodeConnectionAborted        ErrorCode = "connection-aborted"
+	ErrorCodeDatagramTooLarge         ErrorCode = "datagram-too-large"
+	ErrorCodeNameUnresolvable         ErrorCode = "name-unresolvable"
+	ErrorCodeTemporaryResolverFailure ErrorCode = "temporary-resolver-failure"
+	ErrorCodePermanentResolverFailure ErrorCode = "permanent-resolver-failure"
 )
 
 // tcpState represents the state of a TCP socket.
@@ -149,31 +149,31 @@ const (
 // TcpSocket represents a TCP socket.
 // Matches wasi:sockets/tcp tcp-socket resource.
 type TcpSocket struct {
-	family       IpAddressFamily
-	state        tcpState
-	localAddr    *IpSocketAddress
-	remoteAddr   *IpSocketAddress
-	listenBacklog uint64
-	keepAliveEnabled bool
+	family            IpAddressFamily
+	state             tcpState
+	localAddr         *IpSocketAddress
+	remoteAddr        *IpSocketAddress
+	listenBacklog     uint64
+	keepAliveEnabled  bool
 	keepAliveIdleTime uint64
 	keepAliveInterval uint64
-	keepAliveCount uint32
-	hopLimit     uint8
+	keepAliveCount    uint32
+	hopLimit          uint8
 	receiveBufferSize uint64
-	sendBufferSize uint64
+	sendBufferSize    uint64
 }
 
 // NewTcpSocket creates a new TCP socket with the given address family.
 func NewTcpSocket(family IpAddressFamily) *TcpSocket {
 	return &TcpSocket{
-		family:           family,
-		state:            tcpStateUnbound,
-		listenBacklog:    128,
-		keepAliveEnabled: false,
+		family:            family,
+		state:             tcpStateUnbound,
+		listenBacklog:     128,
+		keepAliveEnabled:  false,
 		keepAliveIdleTime: 7200, // 2 hours in seconds
 		keepAliveInterval: 75,   // 75 seconds
-		keepAliveCount:   9,
-		hopLimit:         64,
+		keepAliveCount:    9,
+		hopLimit:          64,
 		receiveBufferSize: 65536,
 		sendBufferSize:    65536,
 	}
