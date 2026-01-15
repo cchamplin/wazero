@@ -19,8 +19,8 @@ type StreamError struct {
 type streamErrorKind uint8
 
 const (
-	streamErrorKindClosed streamErrorKind = iota
-	streamErrorKindLastOperationFailed
+	streamErrorKindLastOperationFailed streamErrorKind = iota // 0: last-operation-failed(error)
+	streamErrorKindClosed                                     // 1: closed
 )
 
 // StreamErrorClosed creates a closed stream error.
@@ -280,9 +280,9 @@ func listU8ToBytes(listVal component.Val) []byte {
 }
 
 // streamErrorToResultVal converts a StreamError to a result error Val.
-// The stream-error variant has two cases:
-//   - closed: discriminant 1, no payload
+// The stream-error variant has two cases (per wasi:io/streams@0.2.0):
 //   - last-operation-failed(error): discriminant 0, with Error resource handle
+//   - closed: discriminant 1, no payload
 func streamErrorToResultVal(ctx context.Context, err *StreamError) component.Val {
 	if err.IsClosed() {
 		// closed variant - just the variant discriminant "closed" with no payload
