@@ -1,6 +1,7 @@
 package abi
 
 import (
+	"encoding/binary"
 	"fmt"
 	"math"
 
@@ -238,10 +239,40 @@ func LowerFlat(ctx *LowerContext, typ types.ValType, val component.Val) ([]uint6
 		return result, nil
 
 	case types.List:
-		// TODO: List flat representation is [ptr, len]. Actual element lowering
-		// requires heap allocation via LowerContext.Realloc. For now, return
-		// placeholder zeros. Full implementation in heap lower.
-		return []uint64{0, 0}, nil
+		t := typ.(types.List)
+		elements := val.List()
+		length := uint32(len(elements))
+
+		// Empty list case - no allocation needed
+		if length == 0 {
+			return []uint64{0, 0}, nil
+		}
+
+		// Need realloc for non-empty lists
+		if ctx == nil || ctx.Realloc == nil {
+			return nil, fmt.Errorf("lower list: realloc function required for non-empty list")
+		}
+
+		// Calculate total size needed
+		elemSize := t.Element.Size()
+		elemAlign := t.Element.Align()
+		totalSize := length * elemSize
+
+		// Allocate memory for the list
+		ptr, err := ctx.Realloc(0, 0, elemAlign, totalSize)
+		if err != nil {
+			return nil, fmt.Errorf("lower list: realloc failed: %w", err)
+		}
+
+		// Lower each element to heap
+		for i := uint32(0); i < length; i++ {
+			offset := ptr + i*elemSize
+			if err := LowerHeap(ctx, t.Element, elements[i], offset); err != nil {
+				return nil, fmt.Errorf("lower list element %d: %w", i, err)
+			}
+		}
+
+		return []uint64{uint64(ptr), uint64(length)}, nil
 
 	default:
 		return nil, fmt.Errorf("unsupported flat lower for type: %T", typ)
@@ -303,6 +334,271 @@ func LowerHeap(ctx *LowerContext, typ types.ValType, val component.Val, offset u
 		writeUint32Le(ctx.Memory, offset, ptr)
 		writeUint32Le(ctx.Memory, offset+4, taggedLen)
 		return nil
+
+	case types.Record:
+		t := typ.(types.Record)
+		rec := val.Record()
+		fieldOffset := uint32(0)
+		for _, f := range t.Fields {
+			// Align field offset
+			align := f.Type.Align()
+			if fieldOffset%align != 0 {
+				fieldOffset += align - (fieldOffset % align)
+			}
+			fieldVal, ok := rec[f.Name]
+			if !ok {
+				return fmt.Errorf("missing record field: %s", f.Name)
+			}
+			if err := LowerHeap(ctx, f.Type, fieldVal, offset+fieldOffset); err != nil {
+				return fmt.Errorf("lower record field %s: %w", f.Name, err)
+			}
+			fieldOffset += f.Type.Size()
+		}
+		return nil
+
+	case types.Tuple:
+		t := typ.(types.Tuple)
+		elems := val.Tuple()
+		if len(elems) != len(t.Types) {
+			return fmt.Errorf("tuple has %d elements, expected %d", len(elems), len(t.Types))
+		}
+		elemOffset := uint32(0)
+		for i, elemType := range t.Types {
+			// Align
+			align := elemType.Align()
+			if elemOffset%align != 0 {
+				elemOffset += align - (elemOffset % align)
+			}
+			if err := LowerHeap(ctx, elemType, elems[i], offset+elemOffset); err != nil {
+				return fmt.Errorf("lower tuple element %d: %w", i, err)
+			}
+			elemOffset += elemType.Size()
+		}
+		return nil
+
+	case types.Variant:
+		t := typ.(types.Variant)
+		caseName, payload := val.Variant()
+
+		// Find case index
+		caseIdx := -1
+		var caseType types.ValType
+		for i, c := range t.Cases {
+			if c.Name == caseName {
+				caseIdx = i
+				caseType = c.Type
+				break
+			}
+		}
+		if caseIdx == -1 {
+			return fmt.Errorf("unknown variant case: %s", caseName)
+		}
+
+		// Write discriminant
+		discSize := t.DiscriminantSize()
+		switch discSize {
+		case 1:
+			writeUint8(ctx.Memory, offset, uint8(caseIdx))
+		case 2:
+			writeUint16Le(ctx.Memory, offset, uint16(caseIdx))
+		default:
+			writeUint32Le(ctx.Memory, offset, uint32(caseIdx))
+		}
+
+		// Write payload if present
+		if caseType != nil && payload != nil {
+			payloadOffset := t.PayloadOffset()
+			if err := LowerHeap(ctx, caseType, *payload, offset+payloadOffset); err != nil {
+				return fmt.Errorf("lower variant payload: %w", err)
+			}
+		}
+		return nil
+
+	case types.Option:
+		t := typ.(types.Option)
+		payload := val.Option()
+
+		if payload == nil {
+			// None: discriminant = 0
+			writeUint8(ctx.Memory, offset, 0)
+			return nil
+		}
+
+		// Some: discriminant = 1
+		writeUint8(ctx.Memory, offset, 1)
+
+		// Calculate payload offset
+		payloadAlign := uint32(1)
+		if t.Some != nil {
+			payloadAlign = t.Some.Align()
+		}
+		payloadOffset := uint32(1) // discriminant is 1 byte
+		if payloadOffset%payloadAlign != 0 {
+			payloadOffset += payloadAlign - (payloadOffset % payloadAlign)
+		}
+
+		if t.Some != nil {
+			if err := LowerHeap(ctx, t.Some, *payload, offset+payloadOffset); err != nil {
+				return fmt.Errorf("lower option payload: %w", err)
+			}
+		}
+		return nil
+
+	case types.Result:
+		t := typ.(types.Result)
+		isOk, okVal, errVal := val.Result()
+
+		// Calculate max alignment for payload
+		payloadAlign := uint32(1)
+		if t.Ok != nil && t.Ok.Align() > payloadAlign {
+			payloadAlign = t.Ok.Align()
+		}
+		if t.Error != nil && t.Error.Align() > payloadAlign {
+			payloadAlign = t.Error.Align()
+		}
+		payloadOffset := uint32(1)
+		if payloadOffset%payloadAlign != 0 {
+			payloadOffset += payloadAlign - (payloadOffset % payloadAlign)
+		}
+
+		if isOk {
+			// Ok: discriminant = 0
+			writeUint8(ctx.Memory, offset, 0)
+			if t.Ok != nil && okVal != nil {
+				if err := LowerHeap(ctx, t.Ok, *okVal, offset+payloadOffset); err != nil {
+					return fmt.Errorf("lower result ok: %w", err)
+				}
+			}
+		} else {
+			// Error: discriminant = 1
+			writeUint8(ctx.Memory, offset, 1)
+			if t.Error != nil && errVal != nil {
+				if err := LowerHeap(ctx, t.Error, *errVal, offset+payloadOffset); err != nil {
+					return fmt.Errorf("lower result error: %w", err)
+				}
+			}
+		}
+		return nil
+
+	case types.Enum:
+		t := typ.(types.Enum)
+		caseName := val.Enum()
+		caseIdx := -1
+		for i, c := range t.Cases {
+			if c == caseName {
+				caseIdx = i
+				break
+			}
+		}
+		if caseIdx == -1 {
+			return fmt.Errorf("unknown enum case: %s", caseName)
+		}
+
+		// Write discriminant based on enum size
+		discSize := t.Size()
+		switch discSize {
+		case 1:
+			writeUint8(ctx.Memory, offset, uint8(caseIdx))
+		case 2:
+			writeUint16Le(ctx.Memory, offset, uint16(caseIdx))
+		default:
+			writeUint32Le(ctx.Memory, offset, uint32(caseIdx))
+		}
+		return nil
+
+	case types.Flags:
+		t := typ.(types.Flags)
+		flags := val.Flags()
+		if len(t.Names) == 0 {
+			return nil
+		}
+
+		n := len(t.Names)
+		if n <= 8 {
+			var bits uint8
+			for i, name := range t.Names {
+				if flags[name] {
+					bits |= 1 << i
+				}
+			}
+			writeUint8(ctx.Memory, offset, bits)
+		} else if n <= 16 {
+			var bits uint16
+			for i, name := range t.Names {
+				if flags[name] {
+					bits |= 1 << i
+				}
+			}
+			writeUint16Le(ctx.Memory, offset, bits)
+		} else if n <= 32 {
+			var bits uint32
+			for i, name := range t.Names {
+				if flags[name] {
+					bits |= 1 << i
+				}
+			}
+			writeUint32Le(ctx.Memory, offset, bits)
+		} else {
+			// Multiple u32s
+			for i, name := range t.Names {
+				if flags[name] {
+					wordIdx := i / 32
+					bit := i % 32
+					wordOffset := offset + uint32(wordIdx*4)
+					// Read, modify, write
+					data, ok := ctx.Memory.Read(wordOffset, 4)
+					if !ok {
+						return fmt.Errorf("failed to read flags word at offset %d", wordOffset)
+					}
+					word := binary.LittleEndian.Uint32(data)
+					word |= 1 << bit
+					writeUint32Le(ctx.Memory, wordOffset, word)
+				}
+			}
+		}
+		return nil
+
+	case types.List:
+		t := typ.(types.List)
+		elements := val.List()
+		length := uint32(len(elements))
+
+		// Empty list case
+		if length == 0 {
+			writeUint32Le(ctx.Memory, offset, 0)   // ptr
+			writeUint32Le(ctx.Memory, offset+4, 0) // len
+			return nil
+		}
+
+		// Need realloc for non-empty lists
+		if ctx.Realloc == nil {
+			return fmt.Errorf("lower list: realloc function required for non-empty list")
+		}
+
+		// Calculate total size needed
+		elemSize := t.Element.Size()
+		elemAlign := t.Element.Align()
+		totalSize := length * elemSize
+
+		// Allocate memory for the list elements
+		ptr, err := ctx.Realloc(0, 0, elemAlign, totalSize)
+		if err != nil {
+			return fmt.Errorf("lower list: realloc failed: %w", err)
+		}
+
+		// Lower each element to heap
+		for i := uint32(0); i < length; i++ {
+			elemOffset := ptr + i*elemSize
+			if err := LowerHeap(ctx, t.Element, elements[i], elemOffset); err != nil {
+				return fmt.Errorf("lower list element %d: %w", i, err)
+			}
+		}
+
+		// Write ptr and length at the given offset
+		writeUint32Le(ctx.Memory, offset, ptr)
+		writeUint32Le(ctx.Memory, offset+4, length)
+		return nil
+
 	default:
 		return fmt.Errorf("unsupported heap lower for type: %T", typ)
 	}
