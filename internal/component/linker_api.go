@@ -4,6 +4,7 @@ package component
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/internal/internalapi"
@@ -63,7 +64,7 @@ func (l *ComponentLinkerWrapper) Instantiate(ctx context.Context, compiled api.C
 	// Get the internal compiled component
 	cc, ok := compiled.(*CompiledComponent)
 	if !ok {
-		return nil, nil // or an error - but this shouldn't happen with wazero-only types
+		return nil, fmt.Errorf("invalid compiled component type: expected *CompiledComponent")
 	}
 
 	// Instantiate using the internal linker
