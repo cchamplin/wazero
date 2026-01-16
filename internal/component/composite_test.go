@@ -21,7 +21,7 @@ func TestEchoRecord(t *testing.T) {
 	c, err := binary.DecodeComponent(testdata.EchoRecordComponent)
 	require.NoError(t, err)
 
-	inst, err := component.Instantiate(ctx, rt, c)
+	inst, err := component.Instantiate(ctx, component.NewRuntimeInstantiator(rt), c)
 	require.NoError(t, err)
 
 	echo := inst.ExportedFunction("echo")
@@ -51,7 +51,7 @@ func TestEchoRecord_EdgeCases(t *testing.T) {
 	c, err := binary.DecodeComponent(testdata.EchoRecordComponent)
 	require.NoError(t, err)
 
-	inst, err := component.Instantiate(ctx, rt, c)
+	inst, err := component.Instantiate(ctx, component.NewRuntimeInstantiator(rt), c)
 	require.NoError(t, err)
 
 	echo := inst.ExportedFunction("echo")
@@ -113,7 +113,7 @@ func TestOptionRoundtrip(t *testing.T) {
 	c, err := binary.DecodeComponent(testdata.OptionRoundtripComponent)
 	require.NoError(t, err)
 
-	inst, err := component.Instantiate(ctx, rt, c)
+	inst, err := component.Instantiate(ctx, component.NewRuntimeInstantiator(rt), c)
 	require.NoError(t, err)
 
 	echo := inst.ExportedFunction("echo")
@@ -156,7 +156,7 @@ func TestListSum(t *testing.T) {
 	c, err := binary.DecodeComponent(testdata.ListSumComponent)
 	require.NoError(t, err)
 
-	inst, err := component.Instantiate(ctx, rt, c)
+	inst, err := component.Instantiate(ctx, component.NewRuntimeInstantiator(rt), c)
 	require.NoError(t, err)
 
 	sum := inst.ExportedFunction("sum")
@@ -219,7 +219,7 @@ func TestResultDivide(t *testing.T) {
 	c, err := binary.DecodeComponent(testdata.ResultDivideComponent)
 	require.NoError(t, err)
 
-	inst, err := component.Instantiate(ctx, rt, c)
+	inst, err := component.Instantiate(ctx, component.NewRuntimeInstantiator(rt), c)
 	require.NoError(t, err)
 
 	divide := inst.ExportedFunction("divide")

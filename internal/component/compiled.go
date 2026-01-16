@@ -4,7 +4,6 @@ package component
 import (
 	"context"
 
-	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/internal/internalapi"
 )
@@ -12,17 +11,23 @@ import (
 // Compile-time check that CompiledComponent implements api.CompiledComponent.
 var _ api.CompiledComponent = (*CompiledComponent)(nil)
 
+// CompiledModuleCloser is an interface for compiled modules that can be closed.
+// This avoids importing wazero package directly to prevent import cycles.
+type CompiledModuleCloser interface {
+	api.Closer
+}
+
 // CompiledComponent wraps a parsed Component with pre-compiled core modules.
 type CompiledComponent struct {
 	internalapi.WazeroOnlyType
 
 	component       *Component
-	compiledModules []wazero.CompiledModule
-	runtime         wazero.Runtime
+	compiledModules []CompiledModuleCloser
+	runtime         any // Stores the runtime for later use (avoids import cycle)
 }
 
 // NewCompiledComponent creates a new CompiledComponent.
-func NewCompiledComponent(c *Component, compiledModules []wazero.CompiledModule, rt wazero.Runtime) *CompiledComponent {
+func NewCompiledComponent(c *Component, compiledModules []CompiledModuleCloser, rt any) *CompiledComponent {
 	return &CompiledComponent{
 		component:       c,
 		compiledModules: compiledModules,
@@ -73,12 +78,13 @@ func (c *CompiledComponent) Internal() *Component {
 }
 
 // CompiledModules returns the pre-compiled core modules.
-func (c *CompiledComponent) CompiledModules() []wazero.CompiledModule {
+func (c *CompiledComponent) CompiledModules() []CompiledModuleCloser {
 	return c.compiledModules
 }
 
 // Runtime returns the runtime used to compile the modules.
-func (c *CompiledComponent) Runtime() wazero.Runtime {
+// Returns as any to avoid import cycles.
+func (c *CompiledComponent) Runtime() any {
 	return c.runtime
 }
 

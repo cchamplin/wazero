@@ -25,7 +25,7 @@ func TestInstantiate_AddS32(t *testing.T) {
 	require.NoError(t, err)
 
 	// Instantiate the component
-	inst, err := component.Instantiate(ctx, rt, c)
+	inst, err := component.Instantiate(ctx, component.NewRuntimeInstantiator(rt), c)
 	require.NoError(t, err)
 	require.NotNil(t, inst)
 
@@ -48,7 +48,7 @@ func TestInstantiate_AddS32_EdgeCases(t *testing.T) {
 	c, err := binary.DecodeComponent(testdata.AddS32Component)
 	require.NoError(t, err)
 
-	inst, err := component.Instantiate(ctx, rt, c)
+	inst, err := component.Instantiate(ctx, component.NewRuntimeInstantiator(rt), c)
 	require.NoError(t, err)
 
 	add := inst.ExportedFunction("add")
