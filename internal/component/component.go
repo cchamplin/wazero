@@ -20,6 +20,9 @@ type Component struct {
 	// Used for instantiation via wazero's CompileModule API.
 	CoreModuleData [][]byte
 
+	// CoreTypes contains core type definitions (section ID 0).
+	CoreTypes []CoreTypeDef
+
 	// Types contains component type definitions (section ID 7).
 	// This includes function types, component types, instance types, etc.
 	Types []TypeDef
@@ -46,6 +49,12 @@ type Component struct {
 
 	// Components contains nested component definitions (section ID 4).
 	Components []*Component
+
+	// Start defines the component start function (section ID 9).
+	Start *StartDef
+
+	// Values contains component value definitions (section ID 12).
+	Values []ValueDef
 }
 
 // TypeDef represents a component type definition.
@@ -72,6 +81,18 @@ type TypeDef struct {
 
 	// Resource holds the decoded resource type definition.
 	Resource interface{}
+
+	// Variant holds the decoded variant type definition.
+	Variant *VariantTypeDef
+
+	// Tuple holds the decoded tuple type definition.
+	Tuple *TupleTypeDef
+
+	// Flags holds the decoded flags type definition.
+	Flags *FlagsTypeDef
+
+	// Enum holds the decoded enum type definition.
+	Enum *EnumTypeDef
 }
 
 // TypeDefKind identifies the kind of type definition.
@@ -327,8 +348,17 @@ type ImportExternDesc struct {
 	// For core module: core type index (after 0x11 prefix)
 	CoreTypeIdx uint32
 
-	// For value: value bound
-	// For type: type bound
+	// For value: value type reference
+	ValType *ValTypeRef
+
+	// ValueBoundKind indicates the kind of value bound (for value imports)
+	ValueBoundKind byte
+
+	// TypeBoundIdx is the type index for type bounds
+	TypeBoundIdx *uint32
+
+	// TypeBoundKind indicates the kind of type bound (sub or eq)
+	TypeBoundKind TypeBoundKind
 }
 
 // Import represents a component import.
@@ -427,3 +457,90 @@ type ComponentInstance struct {
 	// For Inline
 	InlineExports []ComponentInlineExport
 }
+
+// VariantTypeDef represents a variant (tagged union) type.
+type VariantTypeDef struct {
+	Cases []VariantCase
+}
+
+// VariantCase represents a single case in a variant type.
+type VariantCase struct {
+	Name    string
+	ValType *ValTypeRef // nil for cases without payload
+}
+
+// TupleTypeDef represents a tuple type with fixed elements.
+type TupleTypeDef struct {
+	Types []ValTypeRef
+}
+
+// FlagsTypeDef represents a flags (bitfield) type.
+type FlagsTypeDef struct {
+	Names []string
+}
+
+// EnumTypeDef represents an enumeration type.
+type EnumTypeDef struct {
+	Names []string
+}
+
+// CoreTypeDef represents a core type definition.
+type CoreTypeDef struct {
+	Kind   CoreTypeDefKind
+	Func   *CoreFuncTypeDef
+	Module *CoreModuleTypeDef
+}
+
+// CoreTypeDefKind identifies the kind of core type definition.
+type CoreTypeDefKind uint8
+
+const (
+	CoreTypeDefKindFunc   CoreTypeDefKind = 0x60
+	CoreTypeDefKindModule CoreTypeDefKind = 0x50
+)
+
+// CoreFuncTypeDef describes a core function type.
+type CoreFuncTypeDef struct {
+	Params  []byte // Value types
+	Results []byte // Value types
+}
+
+// CoreModuleTypeDef describes a module type.
+type CoreModuleTypeDef struct {
+	Imports []CoreImportType
+	Exports []CoreExportType
+}
+
+// CoreImportType describes a core import in a module type.
+type CoreImportType struct {
+	Module string
+	Name   string
+	Kind   byte
+}
+
+// CoreExportType describes a core export in a module type.
+type CoreExportType struct {
+	Name string
+	Kind byte
+}
+
+// StartDef defines the component start function.
+type StartDef struct {
+	FuncIdx     uint32   // Function to call
+	ArgValueIdx []uint32 // Value indices to pass as arguments
+	ResultCount uint32   // Expected number of results
+}
+
+// ValueDef represents a component value.
+type ValueDef struct {
+	Type ValTypeRef
+	Data []byte
+}
+
+// TypeBoundKind represents the kind of type bound.
+type TypeBoundKind uint8
+
+const (
+	TypeBoundSub TypeBoundKind = 0x00
+	TypeBoundEq  TypeBoundKind = 0x01
+)
