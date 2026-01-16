@@ -448,7 +448,7 @@ func (r *runtime) CompileComponent(ctx context.Context, binary []byte) (api.Comp
 
 	// Check if this is a component (not a core module)
 	if !componentbinary.IsComponent(binary) {
-		return nil, fmt.Errorf("not a component binary")
+		return nil, componentbinary.ErrInvalidLayer
 	}
 
 	// Parse the component
