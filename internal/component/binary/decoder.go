@@ -188,7 +188,7 @@ func decodeTypeSection(c *component.Component, r *bytes.Reader) error {
 
 			c.Types[i] = component.TypeDef{
 				Kind:   component.TypeDefKindDefined,
-				Record: record,
+				Record: convertRecordTypeDef(record),
 			}
 
 		case ValTypeOpcodeOption:
@@ -200,7 +200,7 @@ func decodeTypeSection(c *component.Component, r *bytes.Reader) error {
 
 			c.Types[i] = component.TypeDef{
 				Kind:   component.TypeDefKindDefined,
-				Option: option,
+				Option: convertOptionTypeDef(option),
 			}
 
 		case ValTypeOpcodeList:
@@ -212,7 +212,7 @@ func decodeTypeSection(c *component.Component, r *bytes.Reader) error {
 
 			c.Types[i] = component.TypeDef{
 				Kind: component.TypeDefKindDefined,
-				List: list,
+				List: convertListTypeDef(list),
 			}
 
 		case ValTypeOpcodeResult:
@@ -224,7 +224,7 @@ func decodeTypeSection(c *component.Component, r *bytes.Reader) error {
 
 			c.Types[i] = component.TypeDef{
 				Kind:   component.TypeDefKindDefined,
-				Result: result,
+				Result: convertResultTypeDef(result),
 			}
 
 		case ValTypeOpcodeVariant:
@@ -364,4 +364,34 @@ func convertEnumTypeDef(e *EnumTypeDef) *component.EnumTypeDef {
 	names := make([]string, len(e.Cases))
 	copy(names, e.Cases)
 	return &component.EnumTypeDef{Names: names}
+}
+
+// convertRecordTypeDef converts a binary package RecordTypeDef to a component package RecordTypeDef.
+func convertRecordTypeDef(r *RecordTypeDef) *component.RecordTypeDef {
+	fields := make([]component.RecordField, len(r.Fields))
+	for i, f := range r.Fields {
+		fields[i] = component.RecordField{
+			Name:    f.Name,
+			ValType: f.Type,
+		}
+	}
+	return &component.RecordTypeDef{Fields: fields}
+}
+
+// convertListTypeDef converts a binary package ListTypeDef to a component package ListTypeDef.
+func convertListTypeDef(l *ListTypeDef) *component.ListTypeDef {
+	return &component.ListTypeDef{ElementType: l.Element}
+}
+
+// convertOptionTypeDef converts a binary package OptionTypeDef to a component package OptionTypeDef.
+func convertOptionTypeDef(o *OptionTypeDef) *component.OptionTypeDef {
+	return &component.OptionTypeDef{InnerType: o.Some}
+}
+
+// convertResultTypeDef converts a binary package ResultTypeDef to a component package ResultTypeDef.
+func convertResultTypeDef(r *ResultTypeDef) *component.ResultTypeDef {
+	return &component.ResultTypeDef{
+		OkType:  r.Ok,
+		ErrType: r.Error,
+	}
 }
