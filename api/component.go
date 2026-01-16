@@ -1,7 +1,11 @@
 // api/component.go
 package api
 
-import "context"
+import (
+	"context"
+
+	"github.com/tetratelabs/wazero/internal/internalapi"
+)
 
 // ComponentExportKind classifies component exports.
 type ComponentExportKind byte
@@ -40,6 +44,8 @@ type CompiledComponent interface {
 
 	// Close releases resources associated with this compiled component.
 	Close(context.Context) error
+
+	internalapi.WazeroOnly
 }
 
 // Component is an instantiated component ready for execution.
@@ -58,6 +64,8 @@ type Component interface {
 
 	// Close releases resources associated with this component instance.
 	Close(context.Context) error
+
+	internalapi.WazeroOnly
 }
 
 // ComponentFunc is an exported function from an instantiated component.
@@ -65,6 +73,8 @@ type ComponentFunc interface {
 	// Call invokes the function with the given arguments.
 	// Arguments and results use the dynamic Val type from internal/component.
 	Call(ctx context.Context, params ...any) ([]any, error)
+
+	internalapi.WazeroOnly
 }
 
 // ComponentLinker configures imports before instantiating a component.
@@ -85,6 +95,8 @@ type ComponentLinker interface {
 
 	// Instantiate creates a component instance with resolved imports.
 	Instantiate(ctx context.Context, compiled CompiledComponent) (Component, error)
+
+	internalapi.WazeroOnly
 }
 
 // ComponentInstanceBuilder builds an instance definition with multiple exports.
@@ -97,4 +109,6 @@ type ComponentInstanceBuilder interface {
 
 	// Build finalizes the instance definition.
 	Build() error
+
+	internalapi.WazeroOnly
 }
