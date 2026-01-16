@@ -38,12 +38,14 @@ func (i *Instance) ExportedFunction(name string) *ExportedFunc {
 
 // ExportedFunc represents an exported component function.
 type ExportedFunc struct {
-	name      string
-	funcType  *FuncType
-	coreFunc  api.Function
-	canonical *CanonicalDef
-	component *Component // reference to parent component for type lookups
-	instance  *Instance  // reference to parent instance for memory access
+	name        string
+	funcType    *FuncType
+	coreFunc    api.Function
+	canonical   *CanonicalDef
+	component   *Component   // reference to parent component for type lookups
+	instance    *Instance    // reference to parent instance for memory access
+	memory      api.Memory   // resolved memory for canonical ABI operations
+	reallocFunc api.Function // resolved realloc function for memory allocation
 }
 
 // Name returns the export name of this function.
