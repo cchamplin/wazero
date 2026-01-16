@@ -340,3 +340,124 @@ func TestDecodeComponent_AddS32Fixture(t *testing.T) {
 	require.Equal(t, "add", c.Exports[0].Name)
 	require.Equal(t, component.ExportKindFunc, c.Exports[0].Kind)
 }
+
+func TestDecodeComponent_VariantType(t *testing.T) {
+	// variant { a, b(s32) }
+	data := buildComponentWithTypeSection([]byte{
+		0x71,       // variant opcode
+		0x02,       // 2 cases
+		0x01, 'a',  // case "a"
+		0x00,       // no refines
+		0x00,       // no payload
+		0x01, 'b',  // case "b"
+		0x00,       // no refines
+		0x01, 0x7a, // has payload: s32
+	})
+
+	c, err := DecodeComponent(data)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(c.Types) != 1 {
+		t.Fatalf("expected 1 type, got %d", len(c.Types))
+	}
+
+	if c.Types[0].Variant == nil {
+		t.Fatal("expected variant type def")
+	}
+
+	if len(c.Types[0].Variant.Cases) != 2 {
+		t.Errorf("expected 2 cases, got %d", len(c.Types[0].Variant.Cases))
+	}
+}
+
+func TestDecodeComponent_TupleType(t *testing.T) {
+	// tuple<s32, s32>
+	data := buildComponentWithTypeSection([]byte{
+		0x6f,       // tuple opcode
+		0x02,       // 2 elements
+		0x7a,       // s32
+		0x7a,       // s32
+	})
+
+	c, err := DecodeComponent(data)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(c.Types) != 1 {
+		t.Fatalf("expected 1 type, got %d", len(c.Types))
+	}
+
+	if c.Types[0].Tuple == nil {
+		t.Fatal("expected tuple type def")
+	}
+
+	if len(c.Types[0].Tuple.Types) != 2 {
+		t.Errorf("expected 2 types, got %d", len(c.Types[0].Tuple.Types))
+	}
+}
+
+func TestDecodeComponent_FlagsType(t *testing.T) {
+	// flags { read, write }
+	data := buildComponentWithTypeSection([]byte{
+		0x6e,                   // flags opcode
+		0x02,                   // 2 flags
+		0x04, 'r', 'e', 'a', 'd',
+		0x05, 'w', 'r', 'i', 't', 'e',
+	})
+
+	c, err := DecodeComponent(data)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if c.Types[0].Flags == nil {
+		t.Fatal("expected flags type def")
+	}
+
+	if len(c.Types[0].Flags.Names) != 2 {
+		t.Errorf("expected 2 flags, got %d", len(c.Types[0].Flags.Names))
+	}
+}
+
+func TestDecodeComponent_EnumType(t *testing.T) {
+	// enum { red, green, blue }
+	data := buildComponentWithTypeSection([]byte{
+		0x6d,           // enum opcode
+		0x03,           // 3 cases
+		0x03, 'r', 'e', 'd',
+		0x05, 'g', 'r', 'e', 'e', 'n',
+		0x04, 'b', 'l', 'u', 'e',
+	})
+
+	c, err := DecodeComponent(data)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if c.Types[0].Enum == nil {
+		t.Fatal("expected enum type def")
+	}
+
+	if len(c.Types[0].Enum.Names) != 3 {
+		t.Errorf("expected 3 names, got %d", len(c.Types[0].Enum.Names))
+	}
+}
+
+// Helper to build a minimal component binary with a type section
+func buildComponentWithTypeSection(typeData []byte) []byte {
+	typeSectionContent := append([]byte{0x01}, typeData...)
+	typeSectionSize := len(typeSectionContent)
+
+	result := make([]byte, 0, 20+len(typeSectionContent))
+	result = append(result, Magic[:]...)
+	result = append(result, Version[:]...)
+	result = append(result, LayerComponent[:]...)
+	result = append(result, byte(SectionIDType))
+	result = append(result, byte(typeSectionSize))
+	result = append(result, typeSectionContent...)
+
+	return result
+}
