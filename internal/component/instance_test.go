@@ -330,7 +330,7 @@ func TestExportedFuncCall_OwnArgument(t *testing.T) {
 			{Name: "handle", ValType: ValTypeRef{IsOwn: true, TypeIdx: 0}},
 		},
 		Results: []NamedValType{
-			{Name: "", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7f}}, // s32
+			{Name: "", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}, // s32
 		},
 	}
 
@@ -382,7 +382,7 @@ func TestExportedFuncCall_BorrowArgument(t *testing.T) {
 			{Name: "handle", ValType: ValTypeRef{IsBorrow: true, TypeIdx: 0}},
 		},
 		Results: []NamedValType{
-			{Name: "", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7f}}, // s32
+			{Name: "", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}, // s32
 		},
 	}
 
@@ -459,7 +459,7 @@ func TestExportedFuncCall_OutstandingBorrowTrap(t *testing.T) {
 			{Name: "handle", ValType: ValTypeRef{IsBorrow: true, TypeIdx: 0}},
 		},
 		Results: []NamedValType{
-			{Name: "", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7f}}, // s32
+			{Name: "", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}, // s32
 		},
 	}
 
@@ -506,7 +506,7 @@ func TestExportedFuncCall_BorrowDroppedBeforeReturn(t *testing.T) {
 			{Name: "handle", ValType: ValTypeRef{IsBorrow: true, TypeIdx: 0}},
 		},
 		Results: []NamedValType{
-			{Name: "", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7f}}, // s32
+			{Name: "", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}, // s32
 		},
 	}
 
@@ -546,7 +546,7 @@ func TestExportedFuncCall_MultipleOwnBorrowParams(t *testing.T) {
 			{Name: "owned2", ValType: ValTypeRef{IsOwn: true, TypeIdx: 0}},
 		},
 		Results: []NamedValType{
-			{Name: "", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7f}},
+			{Name: "", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}, // s32
 		},
 	}
 
@@ -585,7 +585,7 @@ func TestExportedFuncCall_CallContextRestored(t *testing.T) {
 	funcType := &FuncType{
 		Params:  []NamedValType{},
 		Results: []NamedValType{
-			{Name: "", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7f}},
+			{Name: "", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}, // s32
 		},
 	}
 

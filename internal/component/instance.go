@@ -8,6 +8,7 @@ import (
 	"sort"
 
 	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 // Instance represents an instantiated component.
@@ -73,6 +74,12 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 		defer func() {
 			f.instance.callContext = prevCallCtx
 		}()
+	}
+
+	// Create TypeResolver for dynamic type resolution
+	var resolver *TypeResolver
+	if f.component != nil {
+		resolver = NewTypeResolver(f.component)
 	}
 
 	// Convert component Vals to core wasm values
@@ -207,13 +214,13 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 		return nil, err
 	}
 
-	// Convert core results back to component Vals
+	// Convert core results back to component Vals using TypeResolver
 	// Check if the result type is a record, option, or handle by examining the function type
 	if f.funcType != nil && len(f.funcType.Results) == 1 {
-		resultType := f.funcType.Results[0].ValType
+		resultTypeRef := f.funcType.Results[0].ValType
 
 		// Check for own<T> result
-		if resultType.IsOwn && len(coreResults) == 1 {
+		if resultTypeRef.IsOwn && len(coreResults) == 1 {
 			// own<T> result: Extract rep and transfer ownership out of component
 			handleIdx := uint32(coreResults[0])
 			rep, err := f.liftOwn(handleIdx, borrowScope)
@@ -241,7 +248,7 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 		}
 
 		// Check for borrow<T> result (rare, but possible)
-		if resultType.IsBorrow && len(coreResults) == 1 {
+		if resultTypeRef.IsBorrow && len(coreResults) == 1 {
 			// borrow<T> result: Read the rep without removing from table
 			handleIdx := uint32(coreResults[0])
 			rep, err := f.liftBorrow(handleIdx, borrowScope)
@@ -264,9 +271,22 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 			return []Val{ValBorrow(0)}, nil
 		}
 
-		if !resultType.IsPrimitive && f.component != nil && resultType.TypeIdx < uint32(len(f.component.Types)) {
+		// Use TypeResolver for defined types when available
+		if resolver != nil && !resultTypeRef.IsPrimitive {
+			resolvedType, resolveErr := resolver.ResolveValType(resultTypeRef)
+			if resolveErr == nil {
+				result, liftErr := f.liftResolvedType(resolvedType, coreResults, borrowScope, callCtx)
+				if liftErr == nil {
+					return result, nil
+				}
+				// If lifting fails, fall through to legacy handling
+			}
+		}
+
+		// Legacy handling for when TypeResolver is not available
+		if !resultTypeRef.IsPrimitive && f.component != nil && resultTypeRef.TypeIdx < uint32(len(f.component.Types)) {
 			// Result is a defined type - look up the actual type definition
-			typeDef := &f.component.Types[resultType.TypeIdx]
+			typeDef := &f.component.Types[resultTypeRef.TypeIdx]
 			if typeDef.Option != nil && len(coreResults) == 2 {
 				// Option type: first result is discriminant, second is payload
 				discriminant := coreResults[0]
@@ -283,10 +303,8 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 					}
 					return []Val{ValOption(nil)}, nil
 				}
-				// Some: currently assumes s32 payload
-				// TODO: In a full implementation, the payload type should be
-				// determined from the option type definition.
-				payload := ValS32(int32(coreResults[1]))
+				// Some: Use TypeResolver to determine payload type if available
+				payload := f.liftPrimitiveVal(coreResults[1], typeDef.Option.InnerType)
 				// Release borrow scope and validate before return
 				if borrowScope != nil {
 					if err := borrowScope.Release(); err != nil {
@@ -297,18 +315,9 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 					return nil, err
 				}
 				return []Val{ValOption(&payload)}, nil
-			} else if typeDef.Record != nil && len(coreResults) == 2 {
-				// Record type: For records, the core function returns multiple flat values
-				// that need to be reconstructed into a record
-				// TODO: Currently hardcodes field names "x" and "y". In a full implementation,
-				// field names should be looked up from the record type definition using
-				// resultType.TypeIdx to resolve the actual type and its field names.
-				// TODO: Currently assumes all record fields are s32. In a full implementation,
-				// field types should be determined from the type definition.
-				rec := map[string]Val{
-					"x": ValS32(int32(coreResults[0])),
-					"y": ValS32(int32(coreResults[1])),
-				}
+			} else if typeDef.Record != nil {
+				// Record type: Use TypeResolver to get field names and types dynamically
+				rec := f.liftRecord(typeDef.Record, coreResults)
 				// Release borrow scope and validate before return
 				if borrowScope != nil {
 					if err := borrowScope.Release(); err != nil {
@@ -325,9 +334,35 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 				discriminant := coreResults[0]
 				if discriminant == 0 {
 					// Ok: return success result with value
-					// TODO: In a full implementation, the payload type should be
-					// determined from the result type definition.
-					payload := ValS32(int32(coreResults[1]))
+					// Use TypeResolver to determine payload type if available
+					if typeDef.Result.OkType != nil {
+						payload := f.liftPrimitiveVal(coreResults[1], *typeDef.Result.OkType)
+						// Release borrow scope and validate before return
+						if borrowScope != nil {
+							if err := borrowScope.Release(); err != nil {
+								return nil, fmt.Errorf("release borrow scope: %w", err)
+							}
+						}
+						if err := callCtx.ValidateReturn(); err != nil {
+							return nil, err
+						}
+						return []Val{ValResultOk(&payload)}, nil
+					}
+					// No ok type, return unit result
+					if borrowScope != nil {
+						if err := borrowScope.Release(); err != nil {
+							return nil, fmt.Errorf("release borrow scope: %w", err)
+						}
+					}
+					if err := callCtx.ValidateReturn(); err != nil {
+						return nil, err
+					}
+					return []Val{ValResultOk(nil)}, nil
+				}
+				// Error: return error result with error value
+				// Use TypeResolver to determine error type if available
+				if typeDef.Result.ErrType != nil {
+					errVal := f.liftPrimitiveVal(coreResults[1], *typeDef.Result.ErrType)
 					// Release borrow scope and validate before return
 					if borrowScope != nil {
 						if err := borrowScope.Release(); err != nil {
@@ -337,12 +372,25 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 					if err := callCtx.ValidateReturn(); err != nil {
 						return nil, err
 					}
-					return []Val{ValResultOk(&payload)}, nil
+					return []Val{ValResultError(&errVal)}, nil
 				}
-				// Error: return error result with error value
-				// TODO: In a full implementation, the error type should be
-				// determined from the result type definition.
-				errVal := ValS32(int32(coreResults[1]))
+				// No error type, return unit error
+				if borrowScope != nil {
+					if err := borrowScope.Release(); err != nil {
+						return nil, fmt.Errorf("release borrow scope: %w", err)
+					}
+				}
+				if err := callCtx.ValidateReturn(); err != nil {
+					return nil, err
+				}
+				return []Val{ValResultError(nil)}, nil
+			}
+		}
+
+		// Handle primitive result types using TypeResolver
+		if resultTypeRef.IsPrimitive {
+			if len(coreResults) == 1 {
+				val := f.liftPrimitiveVal(coreResults[0], resultTypeRef)
 				// Release borrow scope and validate before return
 				if borrowScope != nil {
 					if err := borrowScope.Release(); err != nil {
@@ -352,7 +400,7 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 				if err := callCtx.ValidateReturn(); err != nil {
 					return nil, err
 				}
-				return []Val{ValResultError(&errVal)}, nil
+				return []Val{val}, nil
 			}
 		}
 	}
@@ -369,15 +417,243 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 		return nil, err
 	}
 
-	// Default: treat results as primitives (s32)
-	// TODO: Currently assumes all primitive results are s32. In a full implementation,
-	// the result type should be determined from f.funcType.Results.
+	// Handle multiple results or fallback: use TypeResolver when available
+	if f.funcType != nil && len(f.funcType.Results) == len(coreResults) {
+		results := make([]Val, len(coreResults))
+		for i, r := range coreResults {
+			results[i] = f.liftPrimitiveVal(r, f.funcType.Results[i].ValType)
+		}
+		return results, nil
+	}
+
+	// Final fallback: treat results as s32 (for backwards compatibility)
 	results := make([]Val, len(coreResults))
 	for i, r := range coreResults {
 		results[i] = ValS32(int32(r))
 	}
 
 	return results, nil
+}
+
+// liftPrimitiveVal converts a core wasm value to a component Val based on the ValTypeRef.
+// Uses TypeResolver logic to determine the correct primitive type.
+func (f *ExportedFunc) liftPrimitiveVal(coreVal uint64, typeRef ValTypeRef) Val {
+	if typeRef.IsPrimitive {
+		switch typeRef.Primitive {
+		case 0x7f: // bool
+			if coreVal != 0 {
+				return ValBool(true)
+			}
+			return ValBool(false)
+		case 0x7e: // s8
+			return ValS8(int8(coreVal))
+		case 0x7d: // u8
+			return ValU8(uint8(coreVal))
+		case 0x7c: // s16
+			return ValS16(int16(coreVal))
+		case 0x7b: // u16
+			return ValU16(uint16(coreVal))
+		case 0x7a: // s32
+			return ValS32(int32(coreVal))
+		case 0x79: // u32
+			return ValU32(uint32(coreVal))
+		case 0x78: // s64
+			return ValS64(int64(coreVal))
+		case 0x77: // u64
+			return ValU64(coreVal)
+		case 0x76: // f32
+			return ValF32(float32(coreVal))
+		case 0x75: // f64
+			return ValF64(float64(coreVal))
+		case 0x74: // char
+			return ValChar(rune(coreVal))
+		}
+	}
+	// Default fallback to s32
+	return ValS32(int32(coreVal))
+}
+
+// liftRecord reconstructs a record Val from flattened core values.
+// Uses field names from the record type definition instead of hardcoded names.
+func (f *ExportedFunc) liftRecord(recordDef *RecordTypeDef, coreResults []uint64) map[string]Val {
+	rec := make(map[string]Val)
+
+	// Get sorted field names (component model spec requires alphabetical order)
+	fieldNames := make([]string, len(recordDef.Fields))
+	for i, field := range recordDef.Fields {
+		fieldNames[i] = field.Name
+	}
+	sort.Strings(fieldNames)
+
+	// Build a map from field name to field definition for easy lookup
+	fieldMap := make(map[string]*RecordField)
+	for i := range recordDef.Fields {
+		fieldMap[recordDef.Fields[i].Name] = &recordDef.Fields[i]
+	}
+
+	// Lift each field value using its type
+	coreIdx := 0
+	for _, name := range fieldNames {
+		if coreIdx >= len(coreResults) {
+			break
+		}
+		field := fieldMap[name]
+		if field != nil {
+			rec[name] = f.liftPrimitiveVal(coreResults[coreIdx], field.ValType)
+		} else {
+			// Fallback for missing field definition
+			rec[name] = ValS32(int32(coreResults[coreIdx]))
+		}
+		coreIdx++
+	}
+
+	return rec
+}
+
+// liftResolvedType lifts core values to a component Val using a resolved type.
+// This is the type-resolver-driven path for lifting complex types.
+func (f *ExportedFunc) liftResolvedType(resolvedType types.ValType, coreResults []uint64, borrowScope *BorrowScope, callCtx *CallContext) ([]Val, error) {
+	switch t := resolvedType.(type) {
+	case types.Record:
+		if len(coreResults) < len(t.Fields) {
+			return nil, fmt.Errorf("not enough core results for record: have %d, need %d", len(coreResults), len(t.Fields))
+		}
+		rec := make(map[string]Val)
+		for i, field := range t.Fields {
+			rec[field.Name] = f.liftResolvedPrimitiveVal(coreResults[i], field.Type)
+		}
+		// Release borrow scope and validate before return
+		if borrowScope != nil {
+			if err := borrowScope.Release(); err != nil {
+				return nil, fmt.Errorf("release borrow scope: %w", err)
+			}
+		}
+		if err := callCtx.ValidateReturn(); err != nil {
+			return nil, err
+		}
+		return []Val{ValRecord(rec)}, nil
+
+	case types.Option:
+		if len(coreResults) < 2 {
+			return nil, fmt.Errorf("not enough core results for option: have %d, need 2", len(coreResults))
+		}
+		discriminant := coreResults[0]
+		if discriminant == 0 {
+			// None
+			if borrowScope != nil {
+				if err := borrowScope.Release(); err != nil {
+					return nil, fmt.Errorf("release borrow scope: %w", err)
+				}
+			}
+			if err := callCtx.ValidateReturn(); err != nil {
+				return nil, err
+			}
+			return []Val{ValOption(nil)}, nil
+		}
+		// Some
+		payload := f.liftResolvedPrimitiveVal(coreResults[1], t.Some)
+		if borrowScope != nil {
+			if err := borrowScope.Release(); err != nil {
+				return nil, fmt.Errorf("release borrow scope: %w", err)
+			}
+		}
+		if err := callCtx.ValidateReturn(); err != nil {
+			return nil, err
+		}
+		return []Val{ValOption(&payload)}, nil
+
+	case types.Result:
+		if len(coreResults) < 2 {
+			return nil, fmt.Errorf("not enough core results for result: have %d, need 2", len(coreResults))
+		}
+		discriminant := coreResults[0]
+		if discriminant == 0 {
+			// Ok
+			if t.Ok != nil {
+				payload := f.liftResolvedPrimitiveVal(coreResults[1], t.Ok)
+				if borrowScope != nil {
+					if err := borrowScope.Release(); err != nil {
+						return nil, fmt.Errorf("release borrow scope: %w", err)
+					}
+				}
+				if err := callCtx.ValidateReturn(); err != nil {
+					return nil, err
+				}
+				return []Val{ValResultOk(&payload)}, nil
+			}
+			if borrowScope != nil {
+				if err := borrowScope.Release(); err != nil {
+					return nil, fmt.Errorf("release borrow scope: %w", err)
+				}
+			}
+			if err := callCtx.ValidateReturn(); err != nil {
+				return nil, err
+			}
+			return []Val{ValResultOk(nil)}, nil
+		}
+		// Error
+		if t.Error != nil {
+			errVal := f.liftResolvedPrimitiveVal(coreResults[1], t.Error)
+			if borrowScope != nil {
+				if err := borrowScope.Release(); err != nil {
+					return nil, fmt.Errorf("release borrow scope: %w", err)
+				}
+			}
+			if err := callCtx.ValidateReturn(); err != nil {
+				return nil, err
+			}
+			return []Val{ValResultError(&errVal)}, nil
+		}
+		if borrowScope != nil {
+			if err := borrowScope.Release(); err != nil {
+				return nil, fmt.Errorf("release borrow scope: %w", err)
+			}
+		}
+		if err := callCtx.ValidateReturn(); err != nil {
+			return nil, err
+		}
+		return []Val{ValResultError(nil)}, nil
+
+	default:
+		// For other types, fall back to legacy handling
+		return nil, fmt.Errorf("unsupported resolved type for lifting: %T", resolvedType)
+	}
+}
+
+// liftResolvedPrimitiveVal converts a core value to a Val using a resolved types.ValType.
+func (f *ExportedFunc) liftResolvedPrimitiveVal(coreVal uint64, valType types.ValType) Val {
+	switch valType.(type) {
+	case types.Bool:
+		if coreVal != 0 {
+			return ValBool(true)
+		}
+		return ValBool(false)
+	case types.S8:
+		return ValS8(int8(coreVal))
+	case types.U8:
+		return ValU8(uint8(coreVal))
+	case types.S16:
+		return ValS16(int16(coreVal))
+	case types.U16:
+		return ValU16(uint16(coreVal))
+	case types.S32:
+		return ValS32(int32(coreVal))
+	case types.U32:
+		return ValU32(uint32(coreVal))
+	case types.S64:
+		return ValS64(int64(coreVal))
+	case types.U64:
+		return ValU64(coreVal)
+	case types.F32:
+		return ValF32(float32(coreVal))
+	case types.F64:
+		return ValF64(float64(coreVal))
+	case types.Char:
+		return ValChar(rune(coreVal))
+	default:
+		// Default fallback to s32
+		return ValS32(int32(coreVal))
+	}
 }
 
 // liftOwn transfers ownership of a resource out of the component.
