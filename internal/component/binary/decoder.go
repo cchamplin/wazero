@@ -111,6 +111,10 @@ func DecodeComponent(binary []byte) (*component.Component, error) {
 				return nil, fmt.Errorf("section %s: %w", sectionID, err)
 			}
 			c.Components = append(c.Components, nestedComponent)
+		case SectionIDStart:
+			if err := decodeStartSection(c, bytes.NewReader(sectionContent)); err != nil {
+				return nil, fmt.Errorf("section %s: %w", sectionID, err)
+			}
 		default:
 			// Skip unknown sections for now
 		}
