@@ -7,6 +7,8 @@ import (
 
 	"github.com/tetratelabs/wazero/api"
 	experimentalapi "github.com/tetratelabs/wazero/experimental"
+	"github.com/tetratelabs/wazero/internal/component"
+	componentbinary "github.com/tetratelabs/wazero/internal/component/binary"
 	"github.com/tetratelabs/wazero/internal/engine/interpreter"
 	"github.com/tetratelabs/wazero/internal/engine/wazevo"
 	"github.com/tetratelabs/wazero/internal/expctxkeys"
@@ -138,6 +140,46 @@ type Runtime interface {
 
 	// Module returns an instantiated module in this runtime or nil if there aren't any.
 	Module(moduleName string) api.Module
+
+	// CompileComponent parses a component binary and pre-compiles embedded core modules.
+	//
+	// Here's an example:
+	//	ctx := context.Background()
+	//	r := wazero.NewRuntime(ctx)
+	//	defer r.Close(ctx)
+	//
+	//	compiled, _ := r.CompileComponent(ctx, componentWasm)
+	//	defer compiled.Close(ctx)
+	//
+	// # Notes
+	//
+	//   - This returns an error if the binary is not a valid component.
+	//   - Use NewComponentLinker to define imports and instantiate the component.
+	CompileComponent(ctx context.Context, binary []byte) (api.CompiledComponent, error)
+
+	// NewComponentLinker creates a ComponentLinker for defining imports.
+	//
+	// Here's an example:
+	//	linker := r.NewComponentLinker()
+	//	linker.DefineFunc("wasi:cli/stdout@0.2.0", "print", printFunc)
+	//	instance, _ := linker.Instantiate(ctx, compiled)
+	NewComponentLinker() api.ComponentLinker
+
+	// InstantiateComponent instantiates a component with no imports (convenience method).
+	//
+	// Here's an example:
+	//	ctx := context.Background()
+	//	r := wazero.NewRuntime(ctx)
+	//	defer r.Close(ctx)
+	//
+	//	compiled, _ := r.CompileComponent(ctx, componentWasm)
+	//	instance, _ := r.InstantiateComponent(ctx, compiled)
+	//
+	// # Notes
+	//
+	//   - This is a convenience method for components with no imports.
+	//   - For components with imports, use NewComponentLinker instead.
+	InstantiateComponent(ctx context.Context, compiled api.CompiledComponent) (api.Component, error)
 
 	// Closer closes all compiled code by delegating to CloseWithExitCode with an exit code of zero.
 	api.Closer
@@ -396,4 +438,51 @@ func (r *runtime) CloseWithExitCode(ctx context.Context, exitCode uint32) error 
 		}
 	}
 	return err
+}
+
+// CompileComponent implements Runtime.CompileComponent
+func (r *runtime) CompileComponent(ctx context.Context, binary []byte) (api.CompiledComponent, error) {
+	if err := r.failIfClosed(); err != nil {
+		return nil, err
+	}
+
+	// Check if this is a component (not a core module)
+	if !componentbinary.IsComponent(binary) {
+		return nil, fmt.Errorf("not a component binary")
+	}
+
+	// Parse the component
+	parsed, err := componentbinary.DecodeComponent(binary)
+	if err != nil {
+		return nil, fmt.Errorf("decode component: %w", err)
+	}
+
+	// Pre-compile all embedded core modules
+	compiledModules := make([]component.CompiledModuleCloser, len(parsed.CoreModuleData))
+	for i, moduleData := range parsed.CoreModuleData {
+		compiled, err := r.CompileModule(ctx, moduleData)
+		if err != nil {
+			// Clean up already-compiled modules
+			for j := 0; j < i; j++ {
+				if compiledModules[j] != nil {
+					compiledModules[j].Close(ctx)
+				}
+			}
+			return nil, fmt.Errorf("compile core module %d: %w", i, err)
+		}
+		compiledModules[i] = compiled
+	}
+
+	return component.NewCompiledComponent(parsed, compiledModules, r), nil
+}
+
+// NewComponentLinker implements Runtime.NewComponentLinker
+func (r *runtime) NewComponentLinker() api.ComponentLinker {
+	return component.NewComponentLinker()
+}
+
+// InstantiateComponent implements Runtime.InstantiateComponent
+func (r *runtime) InstantiateComponent(ctx context.Context, compiled api.CompiledComponent) (api.Component, error) {
+	linker := r.NewComponentLinker()
+	return linker.Instantiate(ctx, compiled)
 }
