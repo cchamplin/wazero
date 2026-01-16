@@ -478,7 +478,7 @@ func (r *runtime) CompileComponent(ctx context.Context, binary []byte) (api.Comp
 
 // NewComponentLinker implements Runtime.NewComponentLinker
 func (r *runtime) NewComponentLinker() api.ComponentLinker {
-	return component.NewComponentLinker()
+	return component.NewComponentLinkerWrapper()
 }
 
 // InstantiateComponent implements Runtime.InstantiateComponent

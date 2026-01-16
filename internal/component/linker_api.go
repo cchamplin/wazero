@@ -24,8 +24,8 @@ type ComponentLinkerWrapper struct {
 	linker *Linker
 }
 
-// NewComponentLinker creates a new ComponentLinker that implements api.ComponentLinker.
-func NewComponentLinker() *ComponentLinkerWrapper {
+// NewComponentLinkerWrapper creates a new wrapper that implements api.ComponentLinker.
+func NewComponentLinkerWrapper() *ComponentLinkerWrapper {
 	return &ComponentLinkerWrapper{
 		linker: NewLinker(),
 	}
