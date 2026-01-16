@@ -71,13 +71,33 @@ func decodeExternDesc(r *bytes.Reader) (component.ImportExternDesc, error) {
 
 	case 0x02:
 		desc.Kind = component.ImportExternDescValue
-		// TODO: decode valuebound
-		return desc, fmt.Errorf("value imports not yet supported")
+		// Decode valuebound: valtype (the type of the value being imported)
+		valType, err := decodeValType(r)
+		if err != nil {
+			return desc, fmt.Errorf("decode value type: %w", err)
+		}
+		desc.ValType = &valType
 
 	case 0x03:
 		desc.Kind = component.ImportExternDescType
-		// TODO: decode typebound
-		return desc, fmt.Errorf("type imports not yet supported")
+		// Decode typebound: tag followed by type index
+		// tag 0x00 = sub bound, tag 0x01 = eq bound
+		boundTag, err := r.ReadByte()
+		if err != nil {
+			return desc, fmt.Errorf("read type bound tag: %w", err)
+		}
+
+		typeIdx, _, err := leb128.DecodeUint32(r)
+		if err != nil {
+			return desc, fmt.Errorf("decode type bound index: %w", err)
+		}
+		desc.TypeBoundIdx = &typeIdx
+
+		if boundTag == 0x00 {
+			desc.TypeBoundKind = component.TypeBoundSub
+		} else {
+			desc.TypeBoundKind = component.TypeBoundEq
+		}
 
 	case 0x04:
 		desc.Kind = component.ImportExternDescComponent
