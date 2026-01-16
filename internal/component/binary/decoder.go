@@ -215,6 +215,54 @@ func decodeTypeSection(c *component.Component, r *bytes.Reader) error {
 				Result: result,
 			}
 
+		case ValTypeOpcodeVariant:
+			// Decode variant type (opcode already consumed, decode cases directly)
+			variant, err := decodeVariantTypeDef(r)
+			if err != nil {
+				return fmt.Errorf("decode variant type %d: %w", i, err)
+			}
+
+			c.Types[i] = component.TypeDef{
+				Kind:    component.TypeDefKindDefined,
+				Variant: convertVariantTypeDef(variant),
+			}
+
+		case ValTypeOpcodeTuple:
+			// Decode tuple type (opcode already consumed, decode element types directly)
+			tuple, err := decodeTupleTypeDef(r)
+			if err != nil {
+				return fmt.Errorf("decode tuple type %d: %w", i, err)
+			}
+
+			c.Types[i] = component.TypeDef{
+				Kind:  component.TypeDefKindDefined,
+				Tuple: convertTupleTypeDef(tuple),
+			}
+
+		case ValTypeOpcodeFlags:
+			// Decode flags type (opcode already consumed, decode flag names directly)
+			flags, err := decodeFlagsTypeDef(r)
+			if err != nil {
+				return fmt.Errorf("decode flags type %d: %w", i, err)
+			}
+
+			c.Types[i] = component.TypeDef{
+				Kind:  component.TypeDefKindDefined,
+				Flags: convertFlagsTypeDef(flags),
+			}
+
+		case ValTypeOpcodeEnum:
+			// Decode enum type (opcode already consumed, decode case names directly)
+			enum, err := decodeEnumTypeDef(r)
+			if err != nil {
+				return fmt.Errorf("decode enum type %d: %w", i, err)
+			}
+
+			c.Types[i] = component.TypeDef{
+				Kind: component.TypeDefKindDefined,
+				Enum: convertEnumTypeDef(enum),
+			}
+
 		case TypeOpResourceSync:
 			// Decode resource type (opcode already consumed)
 			resourceDef, err := decodeResourceTypeDef(r)
@@ -271,4 +319,37 @@ func decodeExportSection(c *component.Component, r *bytes.Reader) error {
 	}
 
 	return nil
+}
+
+// convertVariantTypeDef converts a binary package VariantTypeDef to a component package VariantTypeDef.
+func convertVariantTypeDef(v *VariantTypeDef) *component.VariantTypeDef {
+	cases := make([]component.VariantCase, len(v.Cases))
+	for i, c := range v.Cases {
+		cases[i] = component.VariantCase{
+			Name:    c.Name,
+			ValType: c.Type, // Type in binary package maps to ValType in component package
+		}
+	}
+	return &component.VariantTypeDef{Cases: cases}
+}
+
+// convertTupleTypeDef converts a binary package TupleTypeDef to a component package TupleTypeDef.
+func convertTupleTypeDef(t *TupleTypeDef) *component.TupleTypeDef {
+	types := make([]component.ValTypeRef, len(t.Types))
+	copy(types, t.Types)
+	return &component.TupleTypeDef{Types: types}
+}
+
+// convertFlagsTypeDef converts a binary package FlagsTypeDef to a component package FlagsTypeDef.
+func convertFlagsTypeDef(f *FlagsTypeDef) *component.FlagsTypeDef {
+	names := make([]string, len(f.Names))
+	copy(names, f.Names)
+	return &component.FlagsTypeDef{Names: names}
+}
+
+// convertEnumTypeDef converts a binary package EnumTypeDef to a component package EnumTypeDef.
+func convertEnumTypeDef(e *EnumTypeDef) *component.EnumTypeDef {
+	names := make([]string, len(e.Cases))
+	copy(names, e.Cases)
+	return &component.EnumTypeDef{Names: names}
 }
