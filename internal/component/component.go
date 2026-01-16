@@ -66,18 +66,17 @@ type TypeDef struct {
 	Func *FuncType
 
 	// For Defined types (record, variant, etc.)
-	// These are stored as parsed structures from the binary package.
 	// Record holds the decoded record type definition.
-	Record interface{}
+	Record *RecordTypeDef
 
 	// Option holds the decoded option type definition.
-	Option interface{}
+	Option *OptionTypeDef
 
 	// List holds the decoded list type definition.
-	List interface{}
+	List *ListTypeDef
 
 	// Result holds the decoded result type definition.
-	Result interface{}
+	Result *ResultTypeDef
 
 	// Resource holds the decoded resource type definition.
 	Resource interface{}
@@ -482,6 +481,33 @@ type FlagsTypeDef struct {
 // EnumTypeDef represents an enumeration type.
 type EnumTypeDef struct {
 	Names []string
+}
+
+// RecordTypeDef represents a record (struct) type definition.
+type RecordTypeDef struct {
+	Fields []RecordField
+}
+
+// RecordField represents a field in a record type.
+type RecordField struct {
+	Name    string
+	ValType ValTypeRef
+}
+
+// ListTypeDef represents a list type definition.
+type ListTypeDef struct {
+	ElementType ValTypeRef
+}
+
+// OptionTypeDef represents an option type definition.
+type OptionTypeDef struct {
+	InnerType ValTypeRef
+}
+
+// ResultTypeDef represents a result type definition.
+type ResultTypeDef struct {
+	OkType  *ValTypeRef // nil for result<_, E>
+	ErrType *ValTypeRef // nil for result<T, _>
 }
 
 // CoreTypeDef represents a core type definition.
