@@ -252,3 +252,11 @@ func TestComponent_NestedComponents(t *testing.T) {
 	}
 	require.Equal(t, 1, len(c.Components))
 }
+
+func TestNewTypeDefs(t *testing.T) {
+	// Verify type definitions exist and can be instantiated
+	_ = VariantTypeDef{Cases: []VariantCase{{Name: "a"}}}
+	_ = TupleTypeDef{Types: []ValTypeRef{}}
+	_ = FlagsTypeDef{Names: []string{"read", "write"}}
+	_ = EnumTypeDef{Names: []string{"red", "green", "blue"}}
+}
