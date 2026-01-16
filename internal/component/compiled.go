@@ -92,6 +92,14 @@ func convertImportKind(desc ImportExternDesc) api.ComponentExportKind {
 		return api.ComponentExportKindType
 	case ImportExternDescInstance:
 		return api.ComponentExportKindInstance
+	case ImportExternDescComponent:
+		// Component imports are semantically similar to instance imports
+		// in the public API, as both represent composite entities.
+		return api.ComponentExportKindInstance
+	case ImportExternDescCoreModule:
+		// Core module imports map to instance kind since modules are
+		// instantiated entities in the component model.
+		return api.ComponentExportKindInstance
 	default:
 		return api.ComponentExportKindFunc
 	}
@@ -105,6 +113,10 @@ func convertExportKind(kind ExportKind) api.ComponentExportKind {
 		return api.ComponentExportKindValue
 	case ExportKindType:
 		return api.ComponentExportKindType
+	case ExportKindComponent:
+		// Component exports are semantically similar to instance exports
+		// in the public API, as both represent composite entities.
+		return api.ComponentExportKindInstance
 	case ExportKindInstance:
 		return api.ComponentExportKindInstance
 	default:
