@@ -10,19 +10,20 @@ import "fmt"
 type PrimValType byte
 
 const (
-	PrimValTypeBool   PrimValType = 0x7f
-	PrimValTypeS8     PrimValType = 0x7e
-	PrimValTypeU8     PrimValType = 0x7d
-	PrimValTypeS16    PrimValType = 0x7c
-	PrimValTypeU16    PrimValType = 0x7b
-	PrimValTypeS32    PrimValType = 0x7a
-	PrimValTypeU32    PrimValType = 0x79
-	PrimValTypeS64    PrimValType = 0x78
-	PrimValTypeU64    PrimValType = 0x77
-	PrimValTypeF32    PrimValType = 0x76
-	PrimValTypeF64    PrimValType = 0x75
-	PrimValTypeChar   PrimValType = 0x74
-	PrimValTypeString PrimValType = 0x73
+	PrimValTypeBool         PrimValType = 0x7f
+	PrimValTypeS8           PrimValType = 0x7e
+	PrimValTypeU8           PrimValType = 0x7d
+	PrimValTypeS16          PrimValType = 0x7c
+	PrimValTypeU16          PrimValType = 0x7b
+	PrimValTypeS32          PrimValType = 0x7a
+	PrimValTypeU32          PrimValType = 0x79
+	PrimValTypeS64          PrimValType = 0x78
+	PrimValTypeU64          PrimValType = 0x77
+	PrimValTypeF32          PrimValType = 0x76
+	PrimValTypeF64          PrimValType = 0x75
+	PrimValTypeChar         PrimValType = 0x74
+	PrimValTypeString       PrimValType = 0x73
+	PrimValTypeErrorContext PrimValType = 0x64
 )
 
 // String returns a human-readable name for the primitive value type.
@@ -54,15 +55,17 @@ func (p PrimValType) String() string {
 		return "char"
 	case PrimValTypeString:
 		return "string"
+	case PrimValTypeErrorContext:
+		return "error-context"
 	default:
 		return fmt.Sprintf("unknown(0x%02x)", byte(p))
 	}
 }
 
 // IsPrimValType returns true if the byte is a valid primitive valtype opcode.
-// Primitive valtypes are in the range 0x73-0x7f (negative SLEB128).
+// Primitive valtypes are in the range 0x73-0x7f (negative SLEB128), plus 0x64 (error-context).
 func IsPrimValType(b byte) bool {
-	return b >= 0x73 && b <= 0x7f
+	return (b >= 0x73 && b <= 0x7f) || b == 0x64
 }
 
 // Composite type opcodes
