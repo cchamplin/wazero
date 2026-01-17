@@ -87,27 +87,25 @@ func decodeExport(r *bytes.Reader) (component.Export, error) {
 	}
 	exp.Idx = idx
 
-	// Check for optional externdesc
-	if r.Len() > 0 {
-		hasExternDesc, err := r.ReadByte()
+	// Read the mandatory externdesc flag (0x00 = no type, 0x01 = has type)
+	hasExternDesc, err := r.ReadByte()
+	if err != nil {
+		return exp, fmt.Errorf("read extern desc flag: %w", err)
+	}
+	if hasExternDesc == 0x01 {
+		// Read extern desc kind
+		externKind, err := r.ReadByte()
 		if err != nil {
-			return exp, fmt.Errorf("read extern desc flag: %w", err)
+			return exp, fmt.Errorf("read extern desc kind: %w", err)
 		}
-		if hasExternDesc == 0x01 {
-			// Read extern desc kind
-			externKind, err := r.ReadByte()
-			if err != nil {
-				return exp, fmt.Errorf("read extern desc kind: %w", err)
-			}
-			_ = externKind // Could store this
+		_ = externKind
 
-			// Read type index
-			typeIdx, _, err := leb128.DecodeUint32(r)
-			if err != nil {
-				return exp, fmt.Errorf("read extern desc type index: %w", err)
-			}
-			exp.TypeIdx = &typeIdx
+		// Read type index
+		typeIdx, _, err := leb128.DecodeUint32(r)
+		if err != nil {
+			return exp, fmt.Errorf("read extern desc type index: %w", err)
 		}
+		exp.TypeIdx = &typeIdx
 	}
 
 	return exp, nil

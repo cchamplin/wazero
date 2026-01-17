@@ -17,11 +17,11 @@ func TestDecodeExport(t *testing.T) {
 
 	// Export function index 0 with name "add"
 	input := []byte{
-		0x00,             // simple name (no version)
+		0x00,                // simple name (no version)
 		0x03, 'a', 'd', 'd', // name length=3, "add"
-		0x01,             // sort = func (0x01)
-		0x00,             // index = 0
-		// No optional externdesc
+		0x01,                // sort = func (0x01)
+		0x00,                // index = 0
+		0x00,                // no extern desc
 	}
 
 	r := bytes.NewReader(input)
@@ -55,5 +55,40 @@ func TestDecodeExportWithExternDesc(t *testing.T) {
 
 	if *c.Exports[0].TypeIdx != 5 {
 		t.Errorf("expected type index 5, got %d", *c.Exports[0].TypeIdx)
+	}
+}
+
+func TestDecodeExportMultiple(t *testing.T) {
+	data := buildComponentWithSection(SectionIDExport, []byte{
+		0x02,                 // count = 2
+		// First export
+		0x00,                 // simple name
+		0x03, 'f', 'o', 'o', // name "foo"
+		0x01,                 // func sort
+		0x00,                 // index
+		0x00,                 // no extern desc
+		// Second export
+		0x00,                 // simple name
+		0x03, 'b', 'a', 'r', // name "bar"
+		0x01,                 // func sort
+		0x01,                 // index
+		0x00,                 // no extern desc
+	})
+
+	c, err := DecodeComponent(data)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(c.Exports) != 2 {
+		t.Fatalf("expected 2 exports, got %d", len(c.Exports))
+	}
+
+	if c.Exports[0].Name != "foo" {
+		t.Errorf("expected first export name 'foo', got '%s'", c.Exports[0].Name)
+	}
+
+	if c.Exports[1].Name != "bar" {
+		t.Errorf("expected second export name 'bar', got '%s'", c.Exports[1].Name)
 	}
 }
