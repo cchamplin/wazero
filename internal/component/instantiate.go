@@ -67,11 +67,16 @@ func Instantiate(ctx context.Context, instantiator ModuleInstantiator, c *Compon
 			continue
 		}
 
-		// Find the canonical definition for this export
-		if exp.Idx >= uint32(len(c.Canonicals)) {
+		// exp.Idx is the component function index, not the canonical array index.
+		// We need to look up the canonical index using the FuncIdxToCanonical map.
+		canonIdx, ok := c.FuncIdxToCanonical[exp.Idx]
+		if !ok {
 			continue
 		}
-		canon := &c.Canonicals[exp.Idx]
+		if canonIdx >= uint32(len(c.Canonicals)) {
+			continue
+		}
+		canon := &c.Canonicals[canonIdx]
 
 		if canon.Kind != CanonKindLift {
 			continue

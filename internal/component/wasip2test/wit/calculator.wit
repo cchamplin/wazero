@@ -1,0 +1,12 @@
+package docs:calculator;
+
+interface host {
+  // Empty - no host functions needed for this example
+}
+
+world plugin {
+  import host;
+
+  export get-plugin-name: func() -> string;
+  export evaluate: func(x: s32, y: s32) -> s32;
+}

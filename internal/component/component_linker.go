@@ -390,7 +390,13 @@ func (l *ComponentLinker) wireExportedFunc(
 	funcSpace *CoreFuncIndexSpace,
 	memSpace *CoreMemoryIndexSpace,
 ) (*ExportedFunc, error) {
-	canonIdx := exp.Idx
+	// exp.Idx is the component function index, not the canonical array index.
+	// We need to look up the canonical index using the FuncIdxToCanonical map.
+	funcIdx := exp.Idx
+	canonIdx, ok := c.FuncIdxToCanonical[funcIdx]
+	if !ok {
+		return nil, fmt.Errorf("no canonical for function index: %d", funcIdx)
+	}
 	if int(canonIdx) >= len(c.Canonicals) {
 		return nil, fmt.Errorf("invalid canonical index: %d", canonIdx)
 	}

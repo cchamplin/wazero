@@ -44,7 +44,9 @@ func DecodeComponent(binary []byte) (*component.Component, error) {
 		return nil, ErrInvalidLayer
 	}
 
-	c := &component.Component{}
+	c := &component.Component{
+		FuncIdxToCanonical: make(map[uint32]uint32),
+	}
 
 	// Parse sections
 	for r.Len() > 0 {
@@ -360,6 +362,7 @@ func decodeTypeSection(c *component.Component, r *bytes.Reader) error {
 
 // decodeCanonSection parses the canonical section (section ID 8).
 // Multiple canon sections may exist; entries are accumulated.
+// Each canon lift/lower operation consumes one entry from the component function index space.
 func decodeCanonSection(c *component.Component, r *bytes.Reader) error {
 	count, _, err := leb128.DecodeUint32(r)
 	if err != nil {
@@ -372,6 +375,15 @@ func decodeCanonSection(c *component.Component, r *bytes.Reader) error {
 		if err != nil {
 			return fmt.Errorf("decode canonical %d: %w", startIdx+i, err)
 		}
+
+		// Assign the component function index for lift operations.
+		// Each canon lift consumes the next available function index.
+		if def.Kind == component.CanonKindLift {
+			def.ComponentFuncIdx = c.NextFuncIdx
+			c.FuncIdxToCanonical[c.NextFuncIdx] = startIdx + i
+			c.NextFuncIdx++
+		}
+
 		c.Canonicals = append(c.Canonicals, def)
 	}
 
@@ -380,6 +392,8 @@ func decodeCanonSection(c *component.Component, r *bytes.Reader) error {
 
 // decodeExportSection parses the export section (section ID 11).
 // Multiple export sections may exist; exports are accumulated.
+// According to the Component Model spec, exports introduce a new index that
+// aliases the exported definition. Function exports increment the function index space.
 func decodeExportSection(c *component.Component, r *bytes.Reader) error {
 	count, _, err := leb128.DecodeUint32(r)
 	if err != nil {
@@ -393,6 +407,13 @@ func decodeExportSection(c *component.Component, r *bytes.Reader) error {
 			return fmt.Errorf("decode export %d: %w", startIdx+i, err)
 		}
 		c.Exports = append(c.Exports, exp)
+
+		// According to the Component Model spec, exports introduce a new index
+		// that aliases the exported definition. For function exports, this
+		// increments the component function index space.
+		if exp.Kind == component.ExportKindFunc {
+			c.NextFuncIdx++
+		}
 	}
 
 	return nil

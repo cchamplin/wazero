@@ -239,8 +239,15 @@ func (i *Instance) getExactExportedFunc(name string) *ExportedFunc {
 	for _, exp := range i.component.Exports {
 		if exp.Name == name && exp.Kind == ExportKindFunc {
 			var funcType *FuncType
-			if int(exp.Idx) < len(i.component.Types) {
-				funcType = i.component.Types[exp.Idx].Func
+			// exp.Idx is the component function index, not the canonical array index.
+			// Look up the canonical to get the type.
+			if canonIdx, ok := i.component.FuncIdxToCanonical[exp.Idx]; ok {
+				if int(canonIdx) < len(i.component.Canonicals) {
+					canon := &i.component.Canonicals[canonIdx]
+					if int(canon.TypeIdx) < len(i.component.Types) {
+						funcType = i.component.Types[canon.TypeIdx].Func
+					}
+				}
 			}
 			return &ExportedFunc{
 				name:     name,
