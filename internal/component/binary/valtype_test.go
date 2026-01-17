@@ -89,3 +89,15 @@ func TestNonCompositeTypeOpcodes(t *testing.T) {
 	require.False(t, IsCompositeTypeOpcode(0x69)) // below result
 	require.False(t, IsCompositeTypeOpcode(0x40)) // function type opcode
 }
+
+func TestIsPrimValTypeErrorContext(t *testing.T) {
+	if !IsPrimValType(0x64) {
+		t.Error("0x64 (error-context) should be a primitive valtype")
+	}
+}
+
+func TestPrimValTypeErrorContextString(t *testing.T) {
+	if PrimValType(0x64).String() != "error-context" {
+		t.Errorf("expected 'error-context', got %s", PrimValType(0x64).String())
+	}
+}
