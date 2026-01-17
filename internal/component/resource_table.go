@@ -239,3 +239,16 @@ func (t *ResourceTable) CreateResourceDropFunc(resourceTypeIdx uint32, destructo
 		}
 	}
 }
+
+// CreateResourceRepFunc creates a core function for resource.rep
+// that can be called from core modules to get the representation
+// value of a resource handle.
+func (t *ResourceTable) CreateResourceRepFunc(resourceTypeIdx uint32) func(handle uint32) uint32 {
+	return func(handle uint32) uint32 {
+		rep, err := t.Rep(Handle(handle))
+		if err != nil {
+			return 0 // Return 0 for invalid handles
+		}
+		return rep
+	}
+}

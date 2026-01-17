@@ -362,3 +362,30 @@ func TestResourceTable_CreateResourceDropFunc_NilDestructor(t *testing.T) {
 		t.Error("expected error getting dropped handle")
 	}
 }
+
+func TestResourceTable_CreateResourceRepFunc(t *testing.T) {
+	table := NewResourceTable()
+
+	repFunc := table.CreateResourceRepFunc(0)
+
+	// Create a resource
+	handle := table.New(42, true)
+
+	// Get its rep
+	rep := repFunc(uint32(handle))
+	if rep != 42 {
+		t.Errorf("expected rep=42, got %d", rep)
+	}
+}
+
+func TestResourceTable_CreateResourceRepFunc_InvalidHandle(t *testing.T) {
+	table := NewResourceTable()
+
+	repFunc := table.CreateResourceRepFunc(0)
+
+	// Get rep for invalid handle - should return 0
+	rep := repFunc(999)
+	if rep != 0 {
+		t.Errorf("expected rep=0 for invalid handle, got %d", rep)
+	}
+}
