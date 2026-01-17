@@ -6,6 +6,8 @@ import (
 	"fmt"
 
 	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/experimental"
+	"github.com/tetratelabs/wazero/internal/wasm"
 )
 
 // ComponentLinker resolves component imports and instantiates components
@@ -146,10 +148,165 @@ func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledCom
 	return inst, nil
 }
 
-// runtimeInstantiator is an interface for runtime module instantiation.
-// This allows us to work with wazero.Runtime without importing it directly.
-type runtimeInstantiator interface {
-	InstantiateModule(ctx context.Context, compiled api.Closer, config any) (api.Module, error)
+
+// buildImportResolver creates an import resolver function that maps import module names
+// to previously instantiated core instances based on CoreInstantiateArg mappings.
+// This enables inter-instance import resolution where later core instances can import
+// from earlier ones.
+//
+// For inline instances (which don't create actual modules), we resolve through the
+// inline exports to find the actual source core instance.
+func (l *ComponentLinker) buildImportResolver(inst *Instance, c *Component, coreInst *CoreInstance) experimental.ImportResolver {
+	// Build a map from import module name to source instance index
+	importMap := make(map[string]uint32)
+	for _, arg := range coreInst.Args {
+		importMap[arg.Name] = arg.InstanceIdx
+	}
+
+	return func(moduleName string) api.Module {
+		// Look up the instance index for this import module name
+		instanceIdx, ok := importMap[moduleName]
+		if !ok {
+			return nil
+		}
+
+		// Check if we have a direct core instance
+		if int(instanceIdx) < len(inst.coreInstances) {
+			coreInstance := inst.coreInstances[instanceIdx]
+			if coreInstance != nil {
+				return coreInstance
+			}
+		}
+
+		// The instance might be an inline instance - we need to trace through
+		// the inline exports to find the actual source.
+		// An inline instance exports items from the alias index space.
+		if int(instanceIdx) < len(c.CoreInstances) {
+			srcCoreInst := &c.CoreInstances[instanceIdx]
+			if srcCoreInst.Kind == CoreInstanceExprInline {
+				// For inline instances, find the actual source instance
+				// through the inline exports.
+				// Each inline export references an alias, and we need to
+				// find what core instance the alias points to.
+				return l.resolveInlineInstanceSource(inst, c, srcCoreInst)
+			}
+		}
+
+		return nil
+	}
+}
+
+// resolveInlineInstanceSource creates a virtual module wrapper that re-exports
+// functions from real core instances with renamed export names.
+// This handles inline instances like: (core instance (export "" (func 0)))
+// where func 0 is an alias to a real core instance's export.
+//
+// NOTE: This is a complex feature that requires creating a wrapper module
+// that remaps export names. The current implementation has limitations when
+// the importing module's engine tries to resolve the function references.
+func (l *ComponentLinker) resolveInlineInstanceSource(inst *Instance, c *Component, inlineInst *CoreInstance) api.Module {
+	if len(inlineInst.InlineExports) == 0 {
+		return nil
+	}
+
+	// Build a mapping of export names to source (instanceIdx, exportName)
+	// For each inline export, trace through the alias to find the source
+	type exportSource struct {
+		instanceIdx uint32
+		exportName  string
+	}
+	exportMapping := make(map[string]exportSource)
+
+	// Track the core function index space (populated by aliases)
+	// Each alias with CoreSortFunc adds to this space
+	funcAliases := make(map[uint32]exportSource)
+	funcIdx := uint32(0)
+	for _, alias := range c.Aliases {
+		if alias.Kind == AliasKindCoreExport && alias.CoreSort == CoreSortFunc {
+			funcAliases[funcIdx] = exportSource{alias.InstanceIdx, alias.ExportName}
+			funcIdx++
+		}
+	}
+
+	// Map inline exports to their sources
+	for _, exp := range inlineInst.InlineExports {
+		if exp.Sort != CoreSortFunc {
+			continue
+		}
+		if src, ok := funcAliases[exp.Idx]; ok {
+			exportMapping[exp.Name] = src
+		}
+	}
+
+	if len(exportMapping) == 0 {
+		return nil
+	}
+
+	// Find the primary source instance (typically all exports come from one instance)
+	var primarySourceIdx uint32
+	var primarySource *wasm.ModuleInstance
+	for _, src := range exportMapping {
+		if int(src.instanceIdx) < len(inst.coreInstances) {
+			srcMod := inst.coreInstances[src.instanceIdx]
+			if srcMod == nil {
+				continue
+			}
+			// Cast to *wasm.ModuleInstance
+			if mi, ok := srcMod.(*wasm.ModuleInstance); ok {
+				primarySourceIdx = src.instanceIdx
+				primarySource = mi
+				break
+			}
+		}
+	}
+
+	if primarySource == nil {
+		return nil
+	}
+
+	// Create a wrapper module instance that has remapped exports
+	// The wrapper shares the engine, source, etc. with the original
+	// but has a new Exports map with the renamed entries
+	wrapper := &wasm.ModuleInstance{
+		ModuleName:       fmt.Sprintf("inline_wrapper_%p", inlineInst),
+		Exports:          make(map[string]*wasm.Export),
+		Globals:          primarySource.Globals,
+		MemoryInstance:   primarySource.MemoryInstance,
+		Tables:           primarySource.Tables,
+		Engine:           primarySource.Engine,
+		TypeIDs:          primarySource.TypeIDs,
+		DataInstances:    primarySource.DataInstances,
+		ElementInstances: primarySource.ElementInstances,
+		Source:           primarySource.Source,
+	}
+
+	// Build the remapped exports
+	for newName, src := range exportMapping {
+		var srcMod *wasm.ModuleInstance
+		if src.instanceIdx == primarySourceIdx {
+			srcMod = primarySource
+		} else if int(src.instanceIdx) < len(inst.coreInstances) {
+			if mi, ok := inst.coreInstances[src.instanceIdx].(*wasm.ModuleInstance); ok {
+				srcMod = mi
+			}
+		}
+
+		if srcMod == nil {
+			continue
+		}
+
+		// Find the original export in the source module
+		if origExp, ok := srcMod.Exports[src.exportName]; ok {
+			// Create a new export with the new name but same index and type
+			wrapper.Exports[newName] = &wasm.Export{
+				Type:  origExp.Type,
+				Name:  newName,
+				Index: origExp.Index,
+			}
+		}
+	}
+
+	return wrapper
 }
 
 func (l *ComponentLinker) instantiateCoreModule(
@@ -175,31 +332,20 @@ func (l *ComponentLinker) instantiateCoreModule(
 		return nil, fmt.Errorf("no runtime available for module instantiation")
 	}
 
-	// Use reflection-free interface check for the runtime
-	// The runtime should implement InstantiateModule method
-	moduleName := fmt.Sprintf("component_core_%d", instanceIdx)
+	// Build an import resolver for this instance to resolve imports from
+	// previously instantiated core instances
+	if len(coreInst.Args) > 0 {
+		resolver := l.buildImportResolver(inst, c, coreInst)
+		ctx = experimental.WithImportResolver(ctx, resolver)
+	}
 
 	// Try to use the runtime to instantiate the module
-	// This requires the runtime to have the InstantiateModule method
-	type moduleInstantiator interface {
-		InstantiateModule(ctx context.Context, compiled any, config any) (api.Module, error)
+	// The runtime should implement CoreModuleInstantiator interface
+	if mi, ok := l.runtime.(CoreModuleInstantiator); ok {
+		return mi.InstantiateCoreModule(ctx, compiled)
 	}
 
-	if mi, ok := l.runtime.(moduleInstantiator); ok {
-		// Create module config - we pass nil and let the runtime use defaults
-		return mi.InstantiateModule(ctx, compiled, nil)
-	}
-
-	// Alternative: try a simpler interface that wazero.Runtime implements
-	type simpleInstantiator interface {
-		InstantiateModule(context.Context, CompiledModuleCloser, any) (api.Module, error)
-	}
-
-	if si, ok := l.runtime.(simpleInstantiator); ok {
-		return si.InstantiateModule(ctx, compiled, nil)
-	}
-
-	return nil, fmt.Errorf("runtime does not support module instantiation (type: %T), module name: %s", l.runtime, moduleName)
+	return nil, fmt.Errorf("runtime does not support module instantiation (type: %T)", l.runtime)
 }
 
 func (l *ComponentLinker) wireExportedFunc(
@@ -338,4 +484,13 @@ func (l *ComponentLinker) MatchImport(importName string) (Definition, error) {
 func (l *ComponentLinker) Get(key string) (Definition, bool) {
 	def, ok := l.definitions[key]
 	return def, ok
+}
+
+// MergeFrom copies all definitions from a Linker into this ComponentLinker.
+// This allows using WASI interfaces registered on a Linker with a ComponentLinker
+// that has runtime integration for core module instantiation.
+func (l *ComponentLinker) MergeFrom(linker *Linker) {
+	for key, def := range linker.definitions {
+		l.definitions[key] = def
+	}
 }
