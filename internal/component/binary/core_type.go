@@ -83,7 +83,97 @@ func decodeCoreFunc(r *bytes.Reader) (*component.CoreFuncTypeDef, error) {
 	}, nil
 }
 
+// decodeCoreModuleType decodes a core module type.
+// Format: vec(moduletypedecl)
+// moduletypedecl ::= 0x00 import              (import)
+//
+//	| 0x01 core:type           (type)
+//	| 0x02 alias               (outer alias)
+//	| 0x03 export              (export)
 func decodeCoreModuleType(r *bytes.Reader) (*component.CoreModuleTypeDef, error) {
-	// Module type is a sequence of declarations - simplified for now
-	return &component.CoreModuleTypeDef{}, nil
+	declCount, _, err := leb128.DecodeUint32(r)
+	if err != nil {
+		return nil, fmt.Errorf("read declaration count: %w", err)
+	}
+
+	moduleType := &component.CoreModuleTypeDef{}
+
+	for i := uint32(0); i < declCount; i++ {
+		declKind, err := r.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("read declaration %d kind: %w", i, err)
+		}
+
+		switch declKind {
+		case 0x00: // import
+			moduleName, err := decodeName(r)
+			if err != nil {
+				return nil, fmt.Errorf("read import %d module name: %w", i, err)
+			}
+			importName, err := decodeName(r)
+			if err != nil {
+				return nil, fmt.Errorf("read import %d name: %w", i, err)
+			}
+			kind, err := r.ReadByte()
+			if err != nil {
+				return nil, fmt.Errorf("read import %d kind: %w", i, err)
+			}
+			// Skip type index based on kind
+			if _, _, err := leb128.DecodeUint32(r); err != nil {
+				return nil, fmt.Errorf("read import %d type index: %w", i, err)
+			}
+			moduleType.Imports = append(moduleType.Imports, component.CoreImportType{
+				Module: moduleName,
+				Name:   importName,
+				Kind:   kind,
+			})
+
+		case 0x01: // type
+			// Nested core type - read opcode and decode accordingly
+			opcode, err := r.ReadByte()
+			if err != nil {
+				return nil, fmt.Errorf("read type declaration %d opcode: %w", i, err)
+			}
+			switch opcode {
+			case 0x60: // func type
+				if _, err := decodeCoreFunc(r); err != nil {
+					return nil, fmt.Errorf("read type declaration %d func: %w", i, err)
+				}
+			default:
+				return nil, fmt.Errorf("unsupported core type opcode in module type: 0x%02x", opcode)
+			}
+
+		case 0x02: // outer alias
+			// Skip outer alias
+			if _, _, err := leb128.DecodeUint32(r); err != nil { // count
+				return nil, fmt.Errorf("read alias %d count: %w", i, err)
+			}
+			if _, _, err := leb128.DecodeUint32(r); err != nil { // index
+				return nil, fmt.Errorf("read alias %d index: %w", i, err)
+			}
+
+		case 0x03: // export
+			exportName, err := decodeName(r)
+			if err != nil {
+				return nil, fmt.Errorf("read export %d name: %w", i, err)
+			}
+			kind, err := r.ReadByte()
+			if err != nil {
+				return nil, fmt.Errorf("read export %d kind: %w", i, err)
+			}
+			// Skip type index
+			if _, _, err := leb128.DecodeUint32(r); err != nil {
+				return nil, fmt.Errorf("read export %d type index: %w", i, err)
+			}
+			moduleType.Exports = append(moduleType.Exports, component.CoreExportType{
+				Name: exportName,
+				Kind: kind,
+			})
+
+		default:
+			return nil, fmt.Errorf("unknown module type declaration kind: 0x%02x", declKind)
+		}
+	}
+
+	return moduleType, nil
 }
