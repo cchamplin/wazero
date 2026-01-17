@@ -187,3 +187,34 @@ func (t *ResourceTable) DecrementLends(h Handle) error {
 	entry.entry.NumLends--
 	return nil
 }
+
+// Rep returns the representation value for a handle.
+// This is the underlying uint32 value that identifies the resource.
+// Returns an error if the handle is invalid.
+func (t *ResourceTable) Rep(h Handle) (uint32, error) {
+	entry, err := t.Get(h)
+	if err != nil {
+		return 0, err
+	}
+	// The rep is stored as any, but for canonical ABI purposes
+	// it should be a uint32
+	switch v := entry.Rep.(type) {
+	case uint32:
+		return v, nil
+	case int:
+		return uint32(v), nil
+	default:
+		return 0, fmt.Errorf("resource rep is not a uint32: %T", entry.Rep)
+	}
+}
+
+// CreateResourceNewFunc creates a core function for resource.new
+// that can be called from core modules to create new resource handles.
+// The returned function accepts a rep (representation) value and returns
+// a handle index that can be used to access the resource.
+func (t *ResourceTable) CreateResourceNewFunc(resourceTypeIdx uint32) func(rep uint32) uint32 {
+	return func(rep uint32) uint32 {
+		handle := t.New(rep, true) // own=true for newly created resources
+		return uint32(handle)
+	}
+}

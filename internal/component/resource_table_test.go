@@ -191,3 +191,110 @@ func TestResourceTable_RemoveBorrowedMustNotCallDestructor(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, entry.Own) // Caller checks Own to decide on destructor
 }
+
+func TestResourceTable_Rep(t *testing.T) {
+	table := NewResourceTable()
+
+	// Create a new resource with rep=42
+	handle := table.New(uint32(42), true)
+
+	// First handle has index 0 and generation 0
+	require.Equal(t, uint32(0), handle.Index())
+	require.Equal(t, uint32(0), handle.Generation())
+
+	// Verify we can get the rep back
+	rep, err := table.Rep(handle)
+	require.NoError(t, err)
+	require.Equal(t, uint32(42), rep)
+}
+
+func TestResourceTable_Rep_InvalidHandle(t *testing.T) {
+	table := NewResourceTable()
+
+	// Try to get rep of non-existent handle
+	invalidHandle := MakeHandle(999, 0)
+	_, err := table.Rep(invalidHandle)
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrInvalidHandle)
+}
+
+func TestResourceTable_Rep_IntConversion(t *testing.T) {
+	table := NewResourceTable()
+
+	// Create a resource with int rep (common in tests)
+	handle := table.New(42, true) // int, not uint32
+
+	// Rep should still work with int->uint32 conversion
+	rep, err := table.Rep(handle)
+	require.NoError(t, err)
+	require.Equal(t, uint32(42), rep)
+}
+
+func TestResourceTable_Rep_NonNumeric(t *testing.T) {
+	table := NewResourceTable()
+
+	// Create a resource with non-numeric rep
+	handle := table.New("string-rep", true)
+
+	// Rep should error for non-numeric rep
+	_, err := table.Rep(handle)
+	require.Error(t, err)
+}
+
+func TestResourceTable_CreateResourceNewFunc(t *testing.T) {
+	table := NewResourceTable()
+
+	// Create a resource.new function
+	newFunc := table.CreateResourceNewFunc(0)
+
+	// Call it - first handle will be 0 (index 0, gen 0)
+	handle := newFunc(42)
+
+	// Verify the resource was created and handle is valid
+	h := Handle(handle)
+	require.Equal(t, uint32(0), h.Index())
+	require.Equal(t, uint32(0), h.Generation())
+
+	// Verify we can get the rep back
+	rep, err := table.Rep(h)
+	require.NoError(t, err)
+	require.Equal(t, uint32(42), rep)
+}
+
+func TestResourceTable_CreateResourceNewFunc_MultipleResources(t *testing.T) {
+	table := NewResourceTable()
+
+	// Create resource.new functions for different resource types
+	newFunc1 := table.CreateResourceNewFunc(0)
+	newFunc2 := table.CreateResourceNewFunc(1)
+
+	// Create resources
+	h1 := newFunc1(100)
+	h2 := newFunc2(200)
+	h3 := newFunc1(300)
+
+	// All handles should be valid and have correct reps
+	rep1, err := table.Rep(Handle(h1))
+	require.NoError(t, err)
+	require.Equal(t, uint32(100), rep1)
+
+	rep2, err := table.Rep(Handle(h2))
+	require.NoError(t, err)
+	require.Equal(t, uint32(200), rep2)
+
+	rep3, err := table.Rep(Handle(h3))
+	require.NoError(t, err)
+	require.Equal(t, uint32(300), rep3)
+}
+
+func TestResourceTable_CreateResourceNewFunc_CreatesOwnedResources(t *testing.T) {
+	table := NewResourceTable()
+
+	newFunc := table.CreateResourceNewFunc(0)
+	handle := Handle(newFunc(42))
+
+	// Verify the created resource is owned
+	entry, err := table.Get(handle)
+	require.NoError(t, err)
+	require.True(t, entry.Own)
+}
