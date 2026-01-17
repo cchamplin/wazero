@@ -461,7 +461,12 @@ func (r *runtime) CompileComponent(ctx context.Context, binary []byte) (api.Comp
 	// which have AllowEmptyModuleName=true set
 	compiledModules := make([]component.CompiledModuleCloser, len(parsed.CoreModules))
 	for i, m := range parsed.CoreModules {
-		compiled, err := r.compileComponentModule(ctx, m)
+		// Pass the raw module bytes for proper module ID calculation
+		var moduleBytes []byte
+		if i < len(parsed.CoreModuleData) {
+			moduleBytes = parsed.CoreModuleData[i]
+		}
+		compiled, err := r.compileComponentModule(ctx, m, moduleBytes)
 		if err != nil {
 			// Clean up already-compiled modules
 			for j := 0; j < i; j++ {
@@ -480,7 +485,8 @@ func (r *runtime) CompileComponent(ctx context.Context, binary []byte) (api.Comp
 // compileComponentModule compiles a pre-parsed module from a component.
 // This is used for modules that were decoded from component binaries and
 // already have AllowEmptyModuleName=true set.
-func (r *runtime) compileComponentModule(ctx context.Context, m *wasm.Module) (CompiledModule, error) {
+// The moduleBytes parameter contains the raw wasm bytes for proper module ID calculation.
+func (r *runtime) compileComponentModule(ctx context.Context, m *wasm.Module, moduleBytes []byte) (CompiledModule, error) {
 	// The module already has AllowEmptyModuleName set from component decoder
 
 	if err := m.Validate(r.enabledFeatures); err != nil {
@@ -503,7 +509,9 @@ func (r *runtime) compileComponentModule(ctx context.Context, m *wasm.Module) (C
 	if err != nil {
 		return nil, err
 	}
-	m.AssignModuleID(nil, listeners, r.ensureTermination)
+	// Use the actual module bytes for proper module ID calculation to avoid cache collisions
+	// between different core modules within the same component
+	m.AssignModuleID(moduleBytes, listeners, r.ensureTermination)
 	if err = r.store.Engine.CompileModule(ctx, m, listeners, r.ensureTermination); err != nil {
 		return nil, err
 	}
