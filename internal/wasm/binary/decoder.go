@@ -168,6 +168,25 @@ func DecodeModule(
 	return m, nil
 }
 
+// DecodeModuleForComponent decodes a core module that's embedded in a component.
+// Unlike DecodeModule, this sets AllowEmptyModuleName=true on the resulting module,
+// which permits empty import module names used as placeholders in the component model.
+func DecodeModuleForComponent(
+	binary []byte,
+	enabledFeatures api.CoreFeatures,
+	memoryLimitPages uint32,
+	memoryCapacityFromMax,
+	dwarfEnabled, storeCustomSections bool,
+) (*wasm.Module, error) {
+	m, err := DecodeModule(binary, enabledFeatures, memoryLimitPages, memoryCapacityFromMax, dwarfEnabled, storeCustomSections)
+	if err != nil {
+		return nil, err
+	}
+	// Mark this module as allowing empty import module names
+	m.AllowEmptyModuleName = true
+	return m, nil
+}
+
 func checkSectionOrder(current, previous wasm.SectionID) (byte, bool) {
 	// https://webassembly.github.io/spec/core/binary/modules.html#binary-module
 

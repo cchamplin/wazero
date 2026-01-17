@@ -225,6 +225,47 @@ func TestDecodeModule(t *testing.T) {
 	})
 }
 
+func TestDecodeModule_AllowEmptyModuleName(t *testing.T) {
+	// Module with empty import module name
+	// (module (import "" "f" (func)))
+	binary := []byte{
+		0x00, 0x61, 0x73, 0x6d, // magic
+		0x01, 0x00, 0x00, 0x00, // version
+		// Type section
+		0x01, 0x04, 0x01, 0x60, 0x00, 0x00, // (type (func))
+		// Import section with empty module name
+		0x02, 0x06, 0x01, // import section, size 6, count 1
+		0x00,       // module name length 0 (empty)
+		0x01, 0x66, // name "f"
+		0x00, 0x00, // func, type 0
+	}
+
+	// Without flag: should fail (DecodeModule doesn't validate imports directly,
+	// but the module should have flag unset so validation elsewhere will fail)
+	m, err := DecodeModule(binary, api.CoreFeaturesV2, 65536, false, false, false)
+	if err != nil {
+		t.Fatalf("DecodeModule failed: %v", err)
+	}
+	if m.AllowEmptyModuleName {
+		t.Error("DecodeModule should not set AllowEmptyModuleName")
+	}
+
+	// With DecodeModuleForComponent: should have flag set
+	m2, err := DecodeModuleForComponent(binary, api.CoreFeaturesV2, 65536, false, false, false)
+	if err != nil {
+		t.Fatalf("DecodeModuleForComponent failed: %v", err)
+	}
+	if !m2.AllowEmptyModuleName {
+		t.Error("DecodeModuleForComponent should set AllowEmptyModuleName=true")
+	}
+	if len(m2.ImportSection) != 1 {
+		t.Errorf("expected 1 import, got %d", len(m2.ImportSection))
+	}
+	if m2.ImportSection[0].Module != "" {
+		t.Errorf("expected empty module name, got %q", m2.ImportSection[0].Module)
+	}
+}
+
 func TestDecodeModule_Errors(t *testing.T) {
 	tests := []struct {
 		name        string
