@@ -95,6 +95,9 @@ type TypeDef struct {
 
 	// Instance holds the decoded instance type definition (0x42).
 	Instance *InstanceTypeDef
+
+	// Component holds the decoded component type definition (0x41).
+	Component *ComponentTypeDef
 }
 
 // TypeDefKind identifies the kind of type definition.
@@ -117,6 +120,32 @@ const (
 	InstanceDeclKindAlias    InstanceDeclKind = 0x02
 	InstanceDeclKindExport   InstanceDeclKind = 0x04
 )
+
+// ComponentDeclKind identifies the kind of component declaration.
+type ComponentDeclKind uint8
+
+const (
+	ComponentDeclKindCoreType ComponentDeclKind = 0x00
+	ComponentDeclKindType     ComponentDeclKind = 0x01
+	ComponentDeclKindAlias    ComponentDeclKind = 0x02
+	ComponentDeclKindImport   ComponentDeclKind = 0x03
+	ComponentDeclKindExport   ComponentDeclKind = 0x04
+)
+
+// ComponentDecl represents a declaration within a component type.
+type ComponentDecl struct {
+	Kind     ComponentDeclKind
+	CoreType *CoreTypeDef
+	Type     *TypeDef
+	Alias    *Alias
+	Import   *Import
+	Export   *InstanceExport
+}
+
+// ComponentTypeDef represents a component type (0x41).
+type ComponentTypeDef struct {
+	Declarations []ComponentDecl
+}
 
 // InstanceDecl represents a declaration within an instance type.
 type InstanceDecl struct {

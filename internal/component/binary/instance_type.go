@@ -310,6 +310,14 @@ func decodeNestedTypeDef(r *bytes.Reader) (*component.TypeDef, error) {
 		typeDef.Kind = component.TypeDefKindResource
 		typeDef.Resource = resourceDef
 
+	case TypeOpComponent:
+		comp, err := decodeComponentTypeDef(r)
+		if err != nil {
+			return nil, err
+		}
+		typeDef.Kind = component.TypeDefKindComponent
+		typeDef.Component = comp
+
 	default:
 		return nil, fmt.Errorf("unsupported nested type opcode: 0x%02x", opcode)
 	}

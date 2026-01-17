@@ -299,6 +299,18 @@ func decodeTypeSection(c *component.Component, r *bytes.Reader) error {
 				Instance: inst,
 			}
 
+		case TypeOpComponent:
+			// Decode component type (opcode already consumed)
+			comp, err := decodeComponentTypeDef(r)
+			if err != nil {
+				return fmt.Errorf("decode component type %d: %w", i, err)
+			}
+
+			c.Types[i] = component.TypeDef{
+				Kind:      component.TypeDefKindComponent,
+				Component: comp,
+			}
+
 		default:
 			return fmt.Errorf("unsupported type opcode 0x%02x at index %d", opcode, i)
 		}
