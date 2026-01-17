@@ -39,6 +39,35 @@ func main() {
 	out = appendLEB128(out, uint32(len(coreModule)))
 	out = append(out, coreModule...)
 
+	// === Section 2: Core Instance Section ===
+	// Instantiate the core module (module index 0) with no imports
+	coreInstanceSection := []byte{
+		0x01,       // 1 core instance
+		0x00,       // instantiate
+		0x00,       // module index = 0
+		0x00,       // 0 args
+	}
+	out = append(out, 0x02)
+	out = appendLEB128(out, uint32(len(coreInstanceSection)))
+	out = append(out, coreInstanceSection...)
+
+	// === Section 6: Alias Section ===
+	// Alias the "add" function from core instance 0
+	// Format: sort aliastarget
+	// sort = 0x00 (core sort prefix) + 0x00 (core func)
+	// aliastarget = 0x01 (core export) + instanceidx + name
+	aliasSection := []byte{
+		0x01,                   // 1 alias
+		0x00,                   // sort = core sort prefix
+		0x00,                   // core sort = func (0x00)
+		0x01,                   // target = core export (0x01)
+		0x00,                   // core instance index = 0
+		0x03, 0x61, 0x64, 0x64, // export name "add" (len=3)
+	}
+	out = append(out, 0x06)
+	out = appendLEB128(out, uint32(len(aliasSection)))
+	out = append(out, aliasSection...)
+
 	// === Section 7: Type Section ===
 	// Component function type: (s32, s32) -> s32
 	typeSection := []byte{
@@ -78,6 +107,7 @@ func main() {
 		0x03, 0x61, 0x64, 0x64, // name "add"
 		0x01,                   // sort = func
 		0x00,                   // index = 0
+		0x00,                   // no externdesc
 	}
 	out = append(out, 0x0b)
 	out = appendLEB128(out, uint32(len(exportSection)))

@@ -140,19 +140,20 @@ func decodeImport(r *bytes.Reader) (component.Import, error) {
 }
 
 // decodeImportSection parses the import section (section ID 10).
+// Multiple import sections may exist; imports are accumulated.
 func decodeImportSection(c *component.Component, r *bytes.Reader) error {
 	count, _, err := leb128.DecodeUint32(r)
 	if err != nil {
 		return fmt.Errorf("reading import count: %w", err)
 	}
 
-	c.Imports = make([]component.Import, count)
+	startIdx := uint32(len(c.Imports))
 	for i := uint32(0); i < count; i++ {
 		imp, err := decodeImport(r)
 		if err != nil {
-			return fmt.Errorf("decoding import %d: %w", i, err)
+			return fmt.Errorf("decoding import %d: %w", startIdx+i, err)
 		}
-		c.Imports[i] = imp
+		c.Imports = append(c.Imports, imp)
 	}
 
 	return nil

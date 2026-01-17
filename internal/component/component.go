@@ -107,6 +107,10 @@ type TypeDef struct {
 
 	// FixedSizeList holds the decoded fixed-size list type definition (0x67).
 	FixedSizeList *FixedSizeListTypeDef
+
+	// Handle holds a handle type (own<T> or borrow<T>) definition.
+	// The ValTypeRef will have IsOwn or IsBorrow set with TypeIdx pointing to the resource.
+	Handle *ValTypeRef
 }
 
 // TypeDefKind identifies the kind of type definition.

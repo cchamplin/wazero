@@ -147,6 +147,7 @@ func decodeCoreModuleSection(c *component.Component, content []byte) error {
 }
 
 // decodeTypeSection parses the type section (section ID 7).
+// Multiple type sections may exist in a component; types are accumulated.
 func decodeTypeSection(c *component.Component, r *bytes.Reader) error {
 	// Type section is: vec(typedef)
 	count, _, err := leb128.DecodeUint32(r)
@@ -154,7 +155,8 @@ func decodeTypeSection(c *component.Component, r *bytes.Reader) error {
 		return fmt.Errorf("read type count: %w", err)
 	}
 
-	c.Types = make([]component.TypeDef, count)
+	// Track starting index for error messages
+	startIdx := uint32(len(c.Types))
 	for i := uint32(0); i < count; i++ {
 		// Peek at the opcode to determine type kind
 		opcode, err := r.ReadByte()
@@ -171,184 +173,184 @@ func decodeTypeSection(c *component.Component, r *bytes.Reader) error {
 
 			ft, err := decodeFuncType(r)
 			if err != nil {
-				return fmt.Errorf("decode functype %d: %w", i, err)
+				return fmt.Errorf("decode functype %d: %w", startIdx+i, err)
 			}
 
-			c.Types[i] = component.TypeDef{
+			c.Types = append(c.Types, component.TypeDef{
 				Kind: component.TypeDefKindFunc,
 				Func: ft,
-			}
+			})
 
 		case ValTypeOpcodeRecord:
 			// Decode record type (opcode already consumed, decode fields directly)
 			record, err := decodeRecordTypeDef(r)
 			if err != nil {
-				return fmt.Errorf("decode record type %d: %w", i, err)
+				return fmt.Errorf("decode record type %d: %w", startIdx+i, err)
 			}
 
-			c.Types[i] = component.TypeDef{
+			c.Types = append(c.Types, component.TypeDef{
 				Kind:   component.TypeDefKindDefined,
 				Record: convertRecordTypeDef(record),
-			}
+			})
 
 		case ValTypeOpcodeOption:
 			// Decode option type (opcode already consumed, decode inner type directly)
 			option, err := decodeOptionTypeDef(r)
 			if err != nil {
-				return fmt.Errorf("decode option type %d: %w", i, err)
+				return fmt.Errorf("decode option type %d: %w", startIdx+i, err)
 			}
 
-			c.Types[i] = component.TypeDef{
+			c.Types = append(c.Types, component.TypeDef{
 				Kind:   component.TypeDefKindDefined,
 				Option: convertOptionTypeDef(option),
-			}
+			})
 
 		case ValTypeOpcodeList:
 			// Decode list type (opcode already consumed, decode element type directly)
 			list, err := decodeListTypeDef(r)
 			if err != nil {
-				return fmt.Errorf("decode list type %d: %w", i, err)
+				return fmt.Errorf("decode list type %d: %w", startIdx+i, err)
 			}
 
-			c.Types[i] = component.TypeDef{
+			c.Types = append(c.Types, component.TypeDef{
 				Kind: component.TypeDefKindDefined,
 				List: convertListTypeDef(list),
-			}
+			})
 
 		case ValTypeOpcodeResult:
 			// Decode result type (opcode already consumed, decode ok/error types directly)
 			result, err := decodeResultTypeDef(r)
 			if err != nil {
-				return fmt.Errorf("decode result type %d: %w", i, err)
+				return fmt.Errorf("decode result type %d: %w", startIdx+i, err)
 			}
 
-			c.Types[i] = component.TypeDef{
+			c.Types = append(c.Types, component.TypeDef{
 				Kind:   component.TypeDefKindDefined,
 				Result: convertResultTypeDef(result),
-			}
+			})
 
 		case ValTypeOpcodeVariant:
 			// Decode variant type (opcode already consumed, decode cases directly)
 			variant, err := decodeVariantTypeDef(r)
 			if err != nil {
-				return fmt.Errorf("decode variant type %d: %w", i, err)
+				return fmt.Errorf("decode variant type %d: %w", startIdx+i, err)
 			}
 
-			c.Types[i] = component.TypeDef{
+			c.Types = append(c.Types, component.TypeDef{
 				Kind:    component.TypeDefKindDefined,
 				Variant: convertVariantTypeDef(variant),
-			}
+			})
 
 		case ValTypeOpcodeTuple:
 			// Decode tuple type (opcode already consumed, decode element types directly)
 			tuple, err := decodeTupleTypeDef(r)
 			if err != nil {
-				return fmt.Errorf("decode tuple type %d: %w", i, err)
+				return fmt.Errorf("decode tuple type %d: %w", startIdx+i, err)
 			}
 
-			c.Types[i] = component.TypeDef{
+			c.Types = append(c.Types, component.TypeDef{
 				Kind:  component.TypeDefKindDefined,
 				Tuple: convertTupleTypeDef(tuple),
-			}
+			})
 
 		case ValTypeOpcodeFlags:
 			// Decode flags type (opcode already consumed, decode flag names directly)
 			flags, err := decodeFlagsTypeDef(r)
 			if err != nil {
-				return fmt.Errorf("decode flags type %d: %w", i, err)
+				return fmt.Errorf("decode flags type %d: %w", startIdx+i, err)
 			}
 
-			c.Types[i] = component.TypeDef{
+			c.Types = append(c.Types, component.TypeDef{
 				Kind:  component.TypeDefKindDefined,
 				Flags: convertFlagsTypeDef(flags),
-			}
+			})
 
 		case ValTypeOpcodeEnum:
 			// Decode enum type (opcode already consumed, decode case names directly)
 			enum, err := decodeEnumTypeDef(r)
 			if err != nil {
-				return fmt.Errorf("decode enum type %d: %w", i, err)
+				return fmt.Errorf("decode enum type %d: %w", startIdx+i, err)
 			}
 
-			c.Types[i] = component.TypeDef{
+			c.Types = append(c.Types, component.TypeDef{
 				Kind: component.TypeDefKindDefined,
 				Enum: convertEnumTypeDef(enum),
-			}
+			})
 
 		case TypeOpResourceSync:
 			// Decode resource type (opcode already consumed)
 			resourceDef, err := decodeResourceTypeDef(r)
 			if err != nil {
-				return fmt.Errorf("decode resource type %d: %w", i, err)
+				return fmt.Errorf("decode resource type %d: %w", startIdx+i, err)
 			}
 
-			c.Types[i] = component.TypeDef{
+			c.Types = append(c.Types, component.TypeDef{
 				Kind:     component.TypeDefKindResource,
 				Resource: resourceDef,
-			}
+			})
 
 		case TypeOpInstance:
 			// Decode instance type (opcode already consumed)
 			inst, err := decodeInstanceTypeDef(r)
 			if err != nil {
-				return fmt.Errorf("decode instance type %d: %w", i, err)
+				return fmt.Errorf("decode instance type %d: %w", startIdx+i, err)
 			}
 
-			c.Types[i] = component.TypeDef{
+			c.Types = append(c.Types, component.TypeDef{
 				Kind:     component.TypeDefKindInstance,
 				Instance: inst,
-			}
+			})
 
 		case TypeOpComponent:
 			// Decode component type (opcode already consumed)
 			comp, err := decodeComponentTypeDef(r)
 			if err != nil {
-				return fmt.Errorf("decode component type %d: %w", i, err)
+				return fmt.Errorf("decode component type %d: %w", startIdx+i, err)
 			}
 
-			c.Types[i] = component.TypeDef{
+			c.Types = append(c.Types, component.TypeDef{
 				Kind:      component.TypeDefKindComponent,
 				Component: comp,
-			}
+			})
 
 		case ValTypeOpcodeStream:
 			// Decode stream type (opcode already consumed)
 			stream, err := decodeStreamTypeDef(r)
 			if err != nil {
-				return fmt.Errorf("decode stream type %d: %w", i, err)
+				return fmt.Errorf("decode stream type %d: %w", startIdx+i, err)
 			}
 
-			c.Types[i] = component.TypeDef{
+			c.Types = append(c.Types, component.TypeDef{
 				Kind:   component.TypeDefKindDefined,
 				Stream: stream,
-			}
+			})
 
 		case ValTypeOpcodeFuture:
 			// Decode future type (opcode already consumed)
 			future, err := decodeFutureTypeDef(r)
 			if err != nil {
-				return fmt.Errorf("decode future type %d: %w", i, err)
+				return fmt.Errorf("decode future type %d: %w", startIdx+i, err)
 			}
 
-			c.Types[i] = component.TypeDef{
+			c.Types = append(c.Types, component.TypeDef{
 				Kind:   component.TypeDefKindDefined,
 				Future: future,
-			}
+			})
 
 		case ValTypeOpcodeFixedSizeList:
 			// Decode fixed-size list type (opcode already consumed)
 			fixedList, err := decodeFixedSizeListTypeDef(r)
 			if err != nil {
-				return fmt.Errorf("decode fixed-size list type %d: %w", i, err)
+				return fmt.Errorf("decode fixed-size list type %d: %w", startIdx+i, err)
 			}
 
-			c.Types[i] = component.TypeDef{
+			c.Types = append(c.Types, component.TypeDef{
 				Kind:          component.TypeDefKindDefined,
 				FixedSizeList: fixedList,
-			}
+			})
 
 		default:
-			return fmt.Errorf("unsupported type opcode 0x%02x at index %d", opcode, i)
+			return fmt.Errorf("unsupported type opcode 0x%02x at index %d", opcode, startIdx+i)
 		}
 	}
 
@@ -356,38 +358,40 @@ func decodeTypeSection(c *component.Component, r *bytes.Reader) error {
 }
 
 // decodeCanonSection parses the canonical section (section ID 8).
+// Multiple canon sections may exist; entries are accumulated.
 func decodeCanonSection(c *component.Component, r *bytes.Reader) error {
 	count, _, err := leb128.DecodeUint32(r)
 	if err != nil {
 		return fmt.Errorf("read canon count: %w", err)
 	}
 
-	c.Canonicals = make([]component.CanonicalDef, count)
+	startIdx := uint32(len(c.Canonicals))
 	for i := uint32(0); i < count; i++ {
 		def, err := decodeCanonical(r)
 		if err != nil {
-			return fmt.Errorf("decode canonical %d: %w", i, err)
+			return fmt.Errorf("decode canonical %d: %w", startIdx+i, err)
 		}
-		c.Canonicals[i] = def
+		c.Canonicals = append(c.Canonicals, def)
 	}
 
 	return nil
 }
 
 // decodeExportSection parses the export section (section ID 11).
+// Multiple export sections may exist; exports are accumulated.
 func decodeExportSection(c *component.Component, r *bytes.Reader) error {
 	count, _, err := leb128.DecodeUint32(r)
 	if err != nil {
 		return fmt.Errorf("read export count: %w", err)
 	}
 
-	c.Exports = make([]component.Export, count)
+	startIdx := uint32(len(c.Exports))
 	for i := uint32(0); i < count; i++ {
 		exp, err := decodeExport(r)
 		if err != nil {
-			return fmt.Errorf("decode export %d: %w", i, err)
+			return fmt.Errorf("decode export %d: %w", startIdx+i, err)
 		}
-		c.Exports[i] = exp
+		c.Exports = append(c.Exports, exp)
 	}
 
 	return nil
