@@ -31,6 +31,11 @@ type Component struct {
 	// These define lift/lower wrappers around core functions.
 	Canonicals []CanonicalDef
 
+	// FuncIdxToCanonical maps component function index to the index in Canonicals.
+	// This is needed because canon lift operations can create component functions
+	// at non-contiguous indices in the component function index space.
+	FuncIdxToCanonical map[uint32]uint32
+
 	// Exports contains component exports (section ID 11).
 	// These expose functions and instances to the outside world.
 	Exports []Export
@@ -55,6 +60,10 @@ type Component struct {
 
 	// Values contains component value definitions (section ID 12).
 	Values []ValueDef
+
+	// NextFuncIdx tracks the next component function index during parsing.
+	// This is used internally by the decoder.
+	NextFuncIdx uint32
 }
 
 // TypeDef represents a component type definition.
@@ -220,6 +229,12 @@ type ValTypeRef struct {
 // CanonicalDef represents a canonical function definition.
 type CanonicalDef struct {
 	Kind CanonKind
+
+	// ComponentFuncIdx is the component function index assigned to this canonical.
+	// For Lift: this is the index in the component function index space.
+	// For Lower: this is the core function index that is created.
+	// For Resource operations: not used.
+	ComponentFuncIdx uint32
 
 	// For Lift: core function index, options, and component function type
 	CoreFuncIdx uint32
