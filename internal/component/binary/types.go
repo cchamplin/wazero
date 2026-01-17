@@ -612,6 +612,83 @@ func decodeResultTypeDef(r *bytes.Reader) (*ResultTypeDef, error) {
 	return result, nil
 }
 
+// decodeStreamTypeDef decodes a stream type definition.
+// Format: 0x66 <has_element> [element_type] <has_end> [end_type]
+func decodeStreamTypeDef(r *bytes.Reader) (*component.StreamTypeDef, error) {
+	stream := &component.StreamTypeDef{}
+
+	hasElement, err := r.ReadByte()
+	if err != nil {
+		return nil, fmt.Errorf("read has element: %w", err)
+	}
+	if hasElement == 0x01 {
+		elemType, err := decodeValType(r)
+		if err != nil {
+			return nil, fmt.Errorf("read element type: %w", err)
+		}
+		stream.ElementType = &elemType
+	} else if hasElement != 0x00 {
+		return nil, fmt.Errorf("invalid has element flag: 0x%02x", hasElement)
+	}
+
+	hasEnd, err := r.ReadByte()
+	if err != nil {
+		return nil, fmt.Errorf("read has end: %w", err)
+	}
+	if hasEnd == 0x01 {
+		endType, err := decodeValType(r)
+		if err != nil {
+			return nil, fmt.Errorf("read end type: %w", err)
+		}
+		stream.EndType = &endType
+	} else if hasEnd != 0x00 {
+		return nil, fmt.Errorf("invalid has end flag: 0x%02x", hasEnd)
+	}
+
+	return stream, nil
+}
+
+// decodeFutureTypeDef decodes a future type definition.
+// Format: 0x65 <has_payload> [payload_type]
+func decodeFutureTypeDef(r *bytes.Reader) (*component.FutureTypeDef, error) {
+	future := &component.FutureTypeDef{}
+
+	hasPayload, err := r.ReadByte()
+	if err != nil {
+		return nil, fmt.Errorf("read has payload: %w", err)
+	}
+	if hasPayload == 0x01 {
+		payloadType, err := decodeValType(r)
+		if err != nil {
+			return nil, fmt.Errorf("read payload type: %w", err)
+		}
+		future.PayloadType = &payloadType
+	} else if hasPayload != 0x00 {
+		return nil, fmt.Errorf("invalid has payload flag: 0x%02x", hasPayload)
+	}
+
+	return future, nil
+}
+
+// decodeFixedSizeListTypeDef decodes a fixed-size list type definition.
+// Format: 0x67 <element_type> <size>
+func decodeFixedSizeListTypeDef(r *bytes.Reader) (*component.FixedSizeListTypeDef, error) {
+	elemType, err := decodeValType(r)
+	if err != nil {
+		return nil, fmt.Errorf("read element type: %w", err)
+	}
+
+	size, _, err := leb128.DecodeUint32(r)
+	if err != nil {
+		return nil, fmt.Errorf("read size: %w", err)
+	}
+
+	return &component.FixedSizeListTypeDef{
+		ElementType: elemType,
+		Size:        size,
+	}, nil
+}
+
 // decodeResourceTypeDef reads a resource type definition from the reader.
 // Format: 0x7f dtor_flag [dtor_idx]
 // The 0x7f byte indicates i32 representation (always required).
