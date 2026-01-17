@@ -92,6 +92,9 @@ type TypeDef struct {
 
 	// Enum holds the decoded enum type definition.
 	Enum *EnumTypeDef
+
+	// Instance holds the decoded instance type definition (0x42).
+	Instance *InstanceTypeDef
 }
 
 // TypeDefKind identifies the kind of type definition.
@@ -104,6 +107,38 @@ const (
 	TypeDefKindResource
 	TypeDefKindDefined
 )
+
+// InstanceDeclKind identifies the kind of instance declaration.
+type InstanceDeclKind uint8
+
+const (
+	InstanceDeclKindCoreType InstanceDeclKind = 0x00
+	InstanceDeclKindType     InstanceDeclKind = 0x01
+	InstanceDeclKindAlias    InstanceDeclKind = 0x02
+	InstanceDeclKindExport   InstanceDeclKind = 0x04
+)
+
+// InstanceDecl represents a declaration within an instance type.
+type InstanceDecl struct {
+	Kind     InstanceDeclKind
+	CoreType *CoreTypeDef
+	Type     *TypeDef
+	Alias    *Alias
+	Export   *InstanceExport
+}
+
+// InstanceExport represents an export declaration in an instance type.
+type InstanceExport struct {
+	Name    string
+	Kind    ExportKind
+	Idx     uint32
+	TypeIdx *uint32 // Optional type annotation
+}
+
+// InstanceTypeDef represents an instance type (0x42).
+type InstanceTypeDef struct {
+	Declarations []InstanceDecl
+}
 
 // FuncType represents a component function type.
 // Format: 0x40 paramlist resultlist

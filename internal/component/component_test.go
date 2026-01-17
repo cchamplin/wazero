@@ -260,3 +260,21 @@ func TestNewTypeDefs(t *testing.T) {
 	_ = FlagsTypeDef{Names: []string{"read", "write"}}
 	_ = EnumTypeDef{Names: []string{"red", "green", "blue"}}
 }
+
+func TestInstanceTypeDef(t *testing.T) {
+	// Verify instance type definition can be created
+	decl := InstanceDecl{
+		Kind: InstanceDeclKindExport,
+		Export: &InstanceExport{
+			Name: "test",
+			Kind: ExportKindFunc,
+			Idx:  0,
+		},
+	}
+	instType := InstanceTypeDef{
+		Declarations: []InstanceDecl{decl},
+	}
+	if len(instType.Declarations) != 1 {
+		t.Errorf("expected 1 declaration, got %d", len(instType.Declarations))
+	}
+}
