@@ -218,3 +218,24 @@ func (t *ResourceTable) CreateResourceNewFunc(resourceTypeIdx uint32) func(rep u
 		return uint32(handle)
 	}
 }
+
+// CreateResourceDropFunc creates a core function for resource.drop
+// that can be called from core modules to drop resource handles.
+// The destructor is called when the resource is dropped (if provided).
+func (t *ResourceTable) CreateResourceDropFunc(resourceTypeIdx uint32, destructor func(rep uint32)) func(handle uint32) {
+	return func(handle uint32) {
+		entry, err := t.Remove(Handle(handle))
+		if err != nil {
+			return // Silently ignore invalid handles per spec
+		}
+		if destructor != nil && entry.Rep != nil {
+			// Convert rep to uint32 and call destructor
+			switch rep := entry.Rep.(type) {
+			case uint32:
+				destructor(rep)
+			case int:
+				destructor(uint32(rep))
+			}
+		}
+	}
+}
