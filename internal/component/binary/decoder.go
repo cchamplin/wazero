@@ -129,7 +129,8 @@ func DecodeComponent(binary []byte) (*component.Component, error) {
 
 // decodeCoreModuleSection parses an embedded core wasm module.
 func decodeCoreModuleSection(c *component.Component, content []byte) error {
-	m, err := wasmbinary.DecodeModule(
+	// Use DecodeModuleForComponent to allow empty import module names
+	m, err := wasmbinary.DecodeModuleForComponent(
 		content,
 		api.CoreFeaturesV2,
 		65536,
