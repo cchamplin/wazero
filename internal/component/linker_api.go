@@ -18,16 +18,17 @@ var (
 	_ api.ComponentFunc           = (*ComponentFuncWrapper)(nil)
 )
 
-// ComponentLinkerWrapper wraps the internal Linker to implement api.ComponentLinker.
+// ComponentLinkerWrapper wraps the internal ComponentLinker to implement api.ComponentLinker.
 type ComponentLinkerWrapper struct {
 	internalapi.WazeroOnlyType
-	linker *Linker
+	linker *ComponentLinker
 }
 
 // NewComponentLinkerWrapper creates a new wrapper that implements api.ComponentLinker.
-func NewComponentLinkerWrapper() *ComponentLinkerWrapper {
+// The runtime parameter should be a wazero.Runtime instance for core module instantiation.
+func NewComponentLinkerWrapper(rt any) *ComponentLinkerWrapper {
 	return &ComponentLinkerWrapper{
-		linker: NewLinker(),
+		linker: NewComponentLinker(rt),
 	}
 }
 
@@ -37,19 +38,19 @@ func (l *ComponentLinkerWrapper) DefineFunc(namespace, name string, fn any) erro
 	// For now, we accept HostFunc directly; a fuller implementation
 	// would introspect fn's signature and create a wrapper.
 	if hf, ok := fn.(HostFunc); ok {
-		return l.linker.DefineFunc(namespace, name, nil, hf)
+		return l.linker.DefineFunc(namespace, name, hf)
 	}
 	// For non-HostFunc, wrap it (simplified - just stores a placeholder)
 	wrapper := func(ctx context.Context, args []Val) ([]Val, error) {
 		// Placeholder - full implementation would call fn with converted args
 		return nil, nil
 	}
-	return l.linker.DefineFunc(namespace, name, nil, wrapper)
+	return l.linker.DefineFunc(namespace, name, wrapper)
 }
 
 // DefineInstance starts building an instance definition with multiple exports.
 func (l *ComponentLinkerWrapper) DefineInstance(namespace string) api.ComponentInstanceBuilder {
-	return &ComponentInstanceBuilderWrapper{
+	return &ComponentInstanceBuilderWrapper2{
 		builder: l.linker.DefineInstance(namespace),
 	}
 }
@@ -67,8 +68,8 @@ func (l *ComponentLinkerWrapper) Instantiate(ctx context.Context, compiled api.C
 		return nil, fmt.Errorf("invalid compiled component type: expected *CompiledComponent")
 	}
 
-	// Instantiate using the internal linker
-	inst, err := l.linker.Instantiate(ctx, cc.Internal())
+	// Instantiate using the internal ComponentLinker (which has runtime integration)
+	inst, err := l.linker.Instantiate(ctx, cc)
 	if err != nil {
 		return nil, err
 	}
@@ -77,6 +78,7 @@ func (l *ComponentLinkerWrapper) Instantiate(ctx context.Context, compiled api.C
 }
 
 // ComponentInstanceBuilderWrapper wraps InstanceBuilder to implement api.ComponentInstanceBuilder.
+// NOTE: This is kept for backward compatibility with code using the basic Linker.
 type ComponentInstanceBuilderWrapper struct {
 	internalapi.WazeroOnlyType
 	builder *InstanceBuilder
@@ -105,6 +107,39 @@ func (b *ComponentInstanceBuilderWrapper) Resource(name string, dtor func(rep ui
 
 // Build finalizes the instance definition.
 func (b *ComponentInstanceBuilderWrapper) Build() error {
+	return b.builder.Build()
+}
+
+// ComponentInstanceBuilderWrapper2 wraps ComponentInstanceBuilder to implement api.ComponentInstanceBuilder.
+// This is the wrapper used by ComponentLinkerWrapper which has runtime integration.
+type ComponentInstanceBuilderWrapper2 struct {
+	internalapi.WazeroOnlyType
+	builder *ComponentInstanceBuilder
+}
+
+// Func adds a function export to the instance being built.
+func (b *ComponentInstanceBuilderWrapper2) Func(name string, fn any) api.ComponentInstanceBuilder {
+	// Convert fn to HostFunc
+	if hf, ok := fn.(HostFunc); ok {
+		b.builder.Func(name, hf)
+	} else {
+		// Wrap non-HostFunc (simplified)
+		wrapper := func(ctx context.Context, args []Val) ([]Val, error) {
+			return nil, nil
+		}
+		b.builder.Func(name, wrapper)
+	}
+	return b
+}
+
+// Resource adds a resource type definition to the instance.
+func (b *ComponentInstanceBuilderWrapper2) Resource(name string, dtor func(rep uint32)) api.ComponentInstanceBuilder {
+	b.builder.Resource(name, dtor)
+	return b
+}
+
+// Build finalizes the instance definition.
+func (b *ComponentInstanceBuilderWrapper2) Build() error {
 	return b.builder.Build()
 }
 

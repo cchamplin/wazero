@@ -7,7 +7,6 @@ import (
 
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/experimental"
-	"github.com/tetratelabs/wazero/internal/wasm"
 )
 
 // ComponentLinker resolves component imports and instantiates components
@@ -196,14 +195,21 @@ func (l *ComponentLinker) buildImportResolver(inst *Instance, c *Component, core
 	}
 }
 
-// resolveInlineInstanceSource creates a virtual module wrapper that re-exports
-// functions from real core instances with renamed export names.
+// resolveInlineInstanceSource resolves an inline core instance to its underlying source module.
 // This handles inline instances like: (core instance (export "" (func 0)))
 // where func 0 is an alias to a real core instance's export.
 //
-// NOTE: This is a complex feature that requires creating a wrapper module
-// that remaps export names. The current implementation has limitations when
-// the importing module's engine tries to resolve the function references.
+// For inline instances where all exports come from a single source module AND the export names
+// match the original names, we can return the source module directly. Otherwise, we return nil
+// as creating a proper wrapper module that remaps export names requires engine-level support
+// that is not currently implemented.
+//
+// LIMITATION: This implementation only works when:
+// 1. All inline exports come from the same source core instance
+// 2. The inline export names match the original export names in the source module
+//
+// Components that re-export functions with different names will not work correctly and
+// will return nil, causing instantiation to fail with a clear error rather than panic.
 func (l *ComponentLinker) resolveInlineInstanceSource(inst *Instance, c *Component, inlineInst *CoreInstance) api.Module {
 	if len(inlineInst.InlineExports) == 0 {
 		return nil
@@ -228,13 +234,49 @@ func (l *ComponentLinker) resolveInlineInstanceSource(inst *Instance, c *Compone
 		}
 	}
 
+	// Also track memory aliases
+	memAliases := make(map[uint32]exportSource)
+	memIdx := uint32(0)
+	for _, alias := range c.Aliases {
+		if alias.Kind == AliasKindCoreExport && alias.CoreSort == CoreSortMemory {
+			memAliases[memIdx] = exportSource{alias.InstanceIdx, alias.ExportName}
+			memIdx++
+		}
+	}
+
 	// Map inline exports to their sources
+	var primaryInstanceIdx uint32 = 0xFFFFFFFF
+	allSameSource := true
+	namesMatch := true
+
 	for _, exp := range inlineInst.InlineExports {
-		if exp.Sort != CoreSortFunc {
+		var src exportSource
+		var ok bool
+		switch exp.Sort {
+		case CoreSortFunc:
+			src, ok = funcAliases[exp.Idx]
+		case CoreSortMemory:
+			src, ok = memAliases[exp.Idx]
+		default:
 			continue
 		}
-		if src, ok := funcAliases[exp.Idx]; ok {
-			exportMapping[exp.Name] = src
+
+		if !ok {
+			continue
+		}
+
+		exportMapping[exp.Name] = src
+
+		// Check if all exports come from the same source instance
+		if primaryInstanceIdx == 0xFFFFFFFF {
+			primaryInstanceIdx = src.instanceIdx
+		} else if src.instanceIdx != primaryInstanceIdx {
+			allSameSource = false
+		}
+
+		// Check if the export name matches the source name
+		if exp.Name != src.exportName {
+			namesMatch = false
 		}
 	}
 
@@ -242,71 +284,50 @@ func (l *ComponentLinker) resolveInlineInstanceSource(inst *Instance, c *Compone
 		return nil
 	}
 
-	// Find the primary source instance (typically all exports come from one instance)
-	var primarySourceIdx uint32
-	var primarySource *wasm.ModuleInstance
-	for _, src := range exportMapping {
-		if int(src.instanceIdx) < len(inst.coreInstances) {
-			srcMod := inst.coreInstances[src.instanceIdx]
-			if srcMod == nil {
-				continue
-			}
-			// Cast to *wasm.ModuleInstance
-			if mi, ok := srcMod.(*wasm.ModuleInstance); ok {
-				primarySourceIdx = src.instanceIdx
-				primarySource = mi
-				break
-			}
-		}
+	// Find the primary source module
+	if primaryInstanceIdx == 0xFFFFFFFF || int(primaryInstanceIdx) >= len(inst.coreInstances) {
+		return nil
 	}
 
+	primarySource := inst.coreInstances[primaryInstanceIdx]
 	if primarySource == nil {
 		return nil
 	}
 
-	// Create a wrapper module instance that has remapped exports
-	// The wrapper shares the engine, source, etc. with the original
-	// but has a new Exports map with the renamed entries
-	wrapper := &wasm.ModuleInstance{
-		ModuleName:       fmt.Sprintf("inline_wrapper_%p", inlineInst),
-		Exports:          make(map[string]*wasm.Export),
-		Globals:          primarySource.Globals,
-		MemoryInstance:   primarySource.MemoryInstance,
-		Tables:           primarySource.Tables,
-		Engine:           primarySource.Engine,
-		TypeIDs:          primarySource.TypeIDs,
-		DataInstances:    primarySource.DataInstances,
-		ElementInstances: primarySource.ElementInstances,
-		Source:           primarySource.Source,
+	// If all exports come from the same source and names match, return the source directly.
+	// This is the safe path that doesn't require creating a wrapper.
+	if allSameSource && namesMatch {
+		return primarySource
 	}
 
-	// Build the remapped exports
-	for newName, src := range exportMapping {
-		var srcMod *wasm.ModuleInstance
-		if src.instanceIdx == primarySourceIdx {
-			srcMod = primarySource
-		} else if int(src.instanceIdx) < len(inst.coreInstances) {
-			if mi, ok := inst.coreInstances[src.instanceIdx].(*wasm.ModuleInstance); ok {
-				srcMod = mi
+	// If all exports come from the same source but names don't match, we can still
+	// return the source if the source module has exports with both the old and new names.
+	// This handles cases where a module exports a function that gets re-exported under
+	// the same name it was imported as.
+	if allSameSource {
+		// Check if the source module has all the required exports under the new names
+		allExportsAvailable := true
+		for newName := range exportMapping {
+			if _, ok := primarySource.ExportedFunctionDefinitions()[newName]; !ok {
+				// Also check memory
+				if mem := primarySource.ExportedMemory(newName); mem == nil {
+					allExportsAvailable = false
+					break
+				}
 			}
 		}
-
-		if srcMod == nil {
-			continue
-		}
-
-		// Find the original export in the source module
-		if origExp, ok := srcMod.Exports[src.exportName]; ok {
-			// Create a new export with the new name but same index and type
-			wrapper.Exports[newName] = &wasm.Export{
-				Type:  origExp.Type,
-				Name:  newName,
-				Index: origExp.Index,
-			}
+		if allExportsAvailable {
+			return primarySource
 		}
 	}
 
-	return wrapper
+	// Cannot safely resolve this inline instance - the source module doesn't have
+	// exports with the expected names, and creating a proper wrapper requires
+	// engine-level support for function remapping.
+	//
+	// Return nil to cause a clean error instead of panicking when the engine
+	// tries to resolve function references from an incomplete wrapper.
+	return nil
 }
 
 func (l *ComponentLinker) instantiateCoreModule(
