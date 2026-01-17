@@ -31,3 +31,29 @@ func TestDecodeExport(t *testing.T) {
 	require.Equal(t, component.ExportKindFunc, exp.Kind)
 	require.Equal(t, uint32(0), exp.Idx)
 }
+
+func TestDecodeExportWithExternDesc(t *testing.T) {
+	data := buildComponentWithSection(SectionIDExport, []byte{
+		0x01,                   // count = 1
+		0x00,                   // simple name
+		0x04, 't', 'e', 's', 't',
+		0x01,                   // func sort
+		0x00,                   // index
+		0x01,                   // has extern desc
+		0x01,                   // func type
+		0x05,                   // type index
+	})
+
+	c, err := DecodeComponent(data)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if c.Exports[0].TypeIdx == nil {
+		t.Fatal("expected type index")
+	}
+
+	if *c.Exports[0].TypeIdx != 5 {
+		t.Errorf("expected type index 5, got %d", *c.Exports[0].TypeIdx)
+	}
+}

@@ -258,9 +258,10 @@ const (
 
 // Export represents a component export.
 type Export struct {
-	Name string
-	Kind ExportKind
-	Idx  uint32 // Index into the appropriate index space
+	Name    string
+	Kind    ExportKind
+	Idx     uint32  // Index into the appropriate index space
+	TypeIdx *uint32 // Optional type annotation
 }
 
 // ExportKind identifies what kind of item is being exported.
