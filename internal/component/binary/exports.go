@@ -44,33 +44,71 @@ func decodeExport(r *bytes.Reader) (component.Export, error) {
 		return exp, fmt.Errorf("read sort: %w", err)
 	}
 
+	// Handle core sort prefix
+	if sort == SortCore {
+		coreSortByte, err := r.ReadByte()
+		if err != nil {
+			return exp, fmt.Errorf("read core sort: %w", err)
+		}
+		// Map core sort to export kind
+		switch coreSortByte {
+		case 0x00:
+			exp.Kind = component.ExportKindFunc
+		case 0x01:
+			exp.Kind = component.ExportKindFunc // table
+		case 0x02:
+			exp.Kind = component.ExportKindFunc // memory
+		case 0x03:
+			exp.Kind = component.ExportKindFunc // global
+		default:
+			exp.Kind = component.ExportKindFunc
+		}
+	} else {
+		// Map sort to ExportKind
+		switch sort {
+		case SortFunc:
+			exp.Kind = component.ExportKindFunc
+		case SortValue:
+			exp.Kind = component.ExportKindValue
+		case SortType:
+			exp.Kind = component.ExportKindType
+		case SortComponent:
+			exp.Kind = component.ExportKindComponent
+		case SortInstance:
+			exp.Kind = component.ExportKindInstance
+		default:
+			return exp, fmt.Errorf("unknown sort: 0x%02x", sort)
+		}
+	}
+
 	idx, _, err := leb128.DecodeUint32(r)
 	if err != nil {
 		return exp, fmt.Errorf("read index: %w", err)
 	}
 	exp.Idx = idx
 
-	// Map sort to ExportKind
-	switch sort {
-	case SortFunc:
-		exp.Kind = component.ExportKindFunc
-	case SortValue:
-		exp.Kind = component.ExportKindValue
-	case SortType:
-		exp.Kind = component.ExportKindType
-	case SortComponent:
-		exp.Kind = component.ExportKindComponent
-	case SortInstance:
-		exp.Kind = component.ExportKindInstance
-	case SortCore:
-		// Core exports have a nested sort byte
-		// For simplicity, treat as func for now
-		exp.Kind = component.ExportKindFunc
-	default:
-		return exp, fmt.Errorf("unknown sort: 0x%02x", sort)
-	}
+	// Check for optional externdesc
+	if r.Len() > 0 {
+		hasExternDesc, err := r.ReadByte()
+		if err != nil {
+			return exp, fmt.Errorf("read extern desc flag: %w", err)
+		}
+		if hasExternDesc == 0x01 {
+			// Read extern desc kind
+			externKind, err := r.ReadByte()
+			if err != nil {
+				return exp, fmt.Errorf("read extern desc kind: %w", err)
+			}
+			_ = externKind // Could store this
 
-	// Note: optional externdesc is skipped for Phase 1
+			// Read type index
+			typeIdx, _, err := leb128.DecodeUint32(r)
+			if err != nil {
+				return exp, fmt.Errorf("read extern desc type index: %w", err)
+			}
+			exp.TypeIdx = &typeIdx
+		}
+	}
 
 	return exp, nil
 }
