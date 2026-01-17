@@ -513,7 +513,7 @@ func (r *runtime) compileComponentModule(ctx context.Context, m *wasm.Module) (C
 
 // NewComponentLinker implements Runtime.NewComponentLinker
 func (r *runtime) NewComponentLinker() api.ComponentLinker {
-	return component.NewComponentLinkerWrapper()
+	return component.NewComponentLinkerWrapper(r)
 }
 
 // InstantiateComponent implements Runtime.InstantiateComponent
