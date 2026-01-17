@@ -2,6 +2,7 @@ package abi
 
 import (
 	"encoding/binary"
+	"fmt"
 	"math"
 
 	"github.com/tetratelabs/wazero/internal/component"
@@ -52,40 +53,82 @@ type LiftContext struct {
 	BorrowScope   *component.BorrowScope
 }
 
-// ReadU8 reads a u8 from memory at the given offset.
-func (c *LiftContext) ReadU8(offset uint32) uint8 {
-	data, _ := c.Memory.Read(offset, 1)
-	return data[0]
+// ReadU8 reads a u8 from memory at the given offset with bounds checking.
+func (c *LiftContext) ReadU8(offset uint32) (uint8, error) {
+	if c.Memory == nil {
+		return 0, fmt.Errorf("no memory available")
+	}
+	data, ok := c.Memory.Read(offset, 1)
+	if !ok {
+		return 0, fmt.Errorf("memory read out of bounds: offset=%d", offset)
+	}
+	return data[0], nil
 }
 
-// ReadU16 reads a u16 from memory at the given offset.
-func (c *LiftContext) ReadU16(offset uint32) uint16 {
-	data, _ := c.Memory.Read(offset, 2)
-	return binary.LittleEndian.Uint16(data)
+// ReadU16 reads a u16 from memory at the given offset with bounds checking.
+func (c *LiftContext) ReadU16(offset uint32) (uint16, error) {
+	if c.Memory == nil {
+		return 0, fmt.Errorf("no memory available")
+	}
+	data, ok := c.Memory.Read(offset, 2)
+	if !ok {
+		return 0, fmt.Errorf("memory read out of bounds: offset=%d", offset)
+	}
+	return binary.LittleEndian.Uint16(data), nil
 }
 
-// ReadU32 reads a u32 from memory at the given offset.
-func (c *LiftContext) ReadU32(offset uint32) uint32 {
-	data, _ := c.Memory.Read(offset, 4)
-	return binary.LittleEndian.Uint32(data)
+// ReadU32 reads a u32 from memory at the given offset with bounds checking.
+func (c *LiftContext) ReadU32(offset uint32) (uint32, error) {
+	if c.Memory == nil {
+		return 0, fmt.Errorf("no memory available")
+	}
+	data, ok := c.Memory.Read(offset, 4)
+	if !ok {
+		return 0, fmt.Errorf("memory read out of bounds: offset=%d", offset)
+	}
+	return binary.LittleEndian.Uint32(data), nil
 }
 
-// ReadU64 reads a u64 from memory at the given offset.
-func (c *LiftContext) ReadU64(offset uint32) uint64 {
-	data, _ := c.Memory.Read(offset, 8)
-	return binary.LittleEndian.Uint64(data)
+// ReadU64 reads a u64 from memory at the given offset with bounds checking.
+func (c *LiftContext) ReadU64(offset uint32) (uint64, error) {
+	if c.Memory == nil {
+		return 0, fmt.Errorf("no memory available")
+	}
+	data, ok := c.Memory.Read(offset, 8)
+	if !ok {
+		return 0, fmt.Errorf("memory read out of bounds: offset=%d", offset)
+	}
+	return binary.LittleEndian.Uint64(data), nil
 }
 
-// ReadF32 reads a f32 from memory at the given offset.
-func (c *LiftContext) ReadF32(offset uint32) float32 {
-	bits := c.ReadU32(offset)
-	return math.Float32frombits(bits)
+// ReadF32 reads a f32 from memory at the given offset with bounds checking.
+func (c *LiftContext) ReadF32(offset uint32) (float32, error) {
+	bits, err := c.ReadU32(offset)
+	if err != nil {
+		return 0, err
+	}
+	return math.Float32frombits(bits), nil
 }
 
-// ReadF64 reads a f64 from memory at the given offset.
-func (c *LiftContext) ReadF64(offset uint32) float64 {
-	bits := c.ReadU64(offset)
-	return math.Float64frombits(bits)
+// ReadF64 reads a f64 from memory at the given offset with bounds checking.
+func (c *LiftContext) ReadF64(offset uint32) (float64, error) {
+	bits, err := c.ReadU64(offset)
+	if err != nil {
+		return 0, err
+	}
+	return math.Float64frombits(bits), nil
+}
+
+// ReadBytes reads a byte slice from memory at the given offset with bounds checking.
+func (c *LiftContext) ReadBytes(offset, length uint32) ([]byte, error) {
+	if c.Memory == nil {
+		return nil, fmt.Errorf("no memory available")
+	}
+	data, ok := c.Memory.Read(offset, length)
+	if !ok {
+		return nil, fmt.Errorf("memory read out of bounds: offset=%d, length=%d", offset, length)
+	}
+	return data, nil
 }
 
 // LowerContext provides context for lowering operations.

@@ -16,8 +16,14 @@ const utf16Tag = uint32(1 << 31)
 // LiftString lifts a string from memory at the given offset.
 // The offset points to a (ptr, len) pair in memory.
 func LiftString(ctx *LiftContext, offset uint32) (string, error) {
-	ptr := ctx.ReadU32(offset)
-	taggedLen := ctx.ReadU32(offset + 4)
+	ptr, err := ctx.ReadU32(offset)
+	if err != nil {
+		return "", fmt.Errorf("failed to read string ptr: %w", err)
+	}
+	taggedLen, err := ctx.ReadU32(offset + 4)
+	if err != nil {
+		return "", fmt.Errorf("failed to read string len: %w", err)
+	}
 
 	return liftStringFromPtrLen(ctx, ptr, taggedLen)
 }
