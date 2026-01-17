@@ -172,6 +172,11 @@ type Module struct {
 	// IsHostModule true if this is the host module, false otherwise.
 	IsHostModule bool
 
+	// AllowEmptyModuleName permits empty module names in imports.
+	// This is required for component-embedded core modules which use ""
+	// as a placeholder that gets resolved during component instantiation.
+	AllowEmptyModuleName bool
+
 	// functionDefinitionSectionInitOnce guards FunctionDefinitionSection so that it is initialized exactly once.
 	functionDefinitionSectionInitOnce sync.Once
 
@@ -478,7 +483,8 @@ func (m *Module) validateMemory(memory *Memory, globals []GlobalType, _ api.Core
 func (m *Module) validateImports(enabledFeatures api.CoreFeatures) error {
 	for i := range m.ImportSection {
 		imp := &m.ImportSection[i]
-		if imp.Module == "" {
+		// Allow empty module names if explicitly permitted (component model)
+		if imp.Module == "" && !m.AllowEmptyModuleName {
 			return fmt.Errorf("import[%d] has an empty module name", i)
 		}
 		switch imp.Type {
