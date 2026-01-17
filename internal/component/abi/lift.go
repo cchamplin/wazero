@@ -288,35 +288,80 @@ func LiftFlat(ctx *LiftContext, typ types.ValType, iter *FlatIter) (component.Va
 }
 
 // LiftHeap lifts a value from heap memory at the given offset.
-// TODO: The LiftContext.Read* methods currently panic on out-of-bounds access.
-// Consider adding error-returning variants for robust error handling.
 func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (component.Val, error) {
 	switch t := typ.(type) {
 	// Primitives
 	case types.Bool:
-		return component.ValBool(ctx.ReadU8(offset) != 0), nil
+		v, err := ctx.ReadU8(offset)
+		if err != nil {
+			return component.Val{}, fmt.Errorf("lift bool: %w", err)
+		}
+		return component.ValBool(v != 0), nil
 	case types.U8:
-		return component.ValU8(ctx.ReadU8(offset)), nil
+		v, err := ctx.ReadU8(offset)
+		if err != nil {
+			return component.Val{}, fmt.Errorf("lift u8: %w", err)
+		}
+		return component.ValU8(v), nil
 	case types.S8:
-		return component.ValS8(int8(ctx.ReadU8(offset))), nil
+		v, err := ctx.ReadU8(offset)
+		if err != nil {
+			return component.Val{}, fmt.Errorf("lift s8: %w", err)
+		}
+		return component.ValS8(int8(v)), nil
 	case types.U16:
-		return component.ValU16(ctx.ReadU16(offset)), nil
+		v, err := ctx.ReadU16(offset)
+		if err != nil {
+			return component.Val{}, fmt.Errorf("lift u16: %w", err)
+		}
+		return component.ValU16(v), nil
 	case types.S16:
-		return component.ValS16(int16(ctx.ReadU16(offset))), nil
+		v, err := ctx.ReadU16(offset)
+		if err != nil {
+			return component.Val{}, fmt.Errorf("lift s16: %w", err)
+		}
+		return component.ValS16(int16(v)), nil
 	case types.U32:
-		return component.ValU32(ctx.ReadU32(offset)), nil
+		v, err := ctx.ReadU32(offset)
+		if err != nil {
+			return component.Val{}, fmt.Errorf("lift u32: %w", err)
+		}
+		return component.ValU32(v), nil
 	case types.S32:
-		return component.ValS32(int32(ctx.ReadU32(offset))), nil
+		v, err := ctx.ReadU32(offset)
+		if err != nil {
+			return component.Val{}, fmt.Errorf("lift s32: %w", err)
+		}
+		return component.ValS32(int32(v)), nil
 	case types.U64:
-		return component.ValU64(ctx.ReadU64(offset)), nil
+		v, err := ctx.ReadU64(offset)
+		if err != nil {
+			return component.Val{}, fmt.Errorf("lift u64: %w", err)
+		}
+		return component.ValU64(v), nil
 	case types.S64:
-		return component.ValS64(int64(ctx.ReadU64(offset))), nil
+		v, err := ctx.ReadU64(offset)
+		if err != nil {
+			return component.Val{}, fmt.Errorf("lift s64: %w", err)
+		}
+		return component.ValS64(int64(v)), nil
 	case types.F32:
-		return component.ValF32(ctx.ReadF32(offset)), nil
+		v, err := ctx.ReadF32(offset)
+		if err != nil {
+			return component.Val{}, fmt.Errorf("lift f32: %w", err)
+		}
+		return component.ValF32(v), nil
 	case types.F64:
-		return component.ValF64(ctx.ReadF64(offset)), nil
+		v, err := ctx.ReadF64(offset)
+		if err != nil {
+			return component.Val{}, fmt.Errorf("lift f64: %w", err)
+		}
+		return component.ValF64(v), nil
 	case types.Char:
-		c := ctx.ReadU32(offset)
+		c, err := ctx.ReadU32(offset)
+		if err != nil {
+			return component.Val{}, fmt.Errorf("lift char: %w", err)
+		}
 		if !isValidUnicodeScalar(c) {
 			return component.Val{}, fmt.Errorf("invalid char value: U+%04X is not a valid Unicode scalar value", c)
 		}
@@ -371,13 +416,19 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (component.Val
 		// Read discriminant (size depends on number of cases)
 		discSize := t.DiscriminantSize()
 		var disc uint32
+		var discErr error
 		switch discSize {
 		case 1:
-			disc = uint32(ctx.ReadU8(offset))
+			v, err := ctx.ReadU8(offset)
+			disc, discErr = uint32(v), err
 		case 2:
-			disc = uint32(ctx.ReadU16(offset))
+			v, err := ctx.ReadU16(offset)
+			disc, discErr = uint32(v), err
 		default:
-			disc = ctx.ReadU32(offset)
+			disc, discErr = ctx.ReadU32(offset)
+		}
+		if discErr != nil {
+			return component.Val{}, fmt.Errorf("lift variant discriminant: %w", discErr)
 		}
 		if int(disc) >= len(t.Cases) {
 			return component.Val{}, fmt.Errorf("invalid variant discriminant: %d", disc)
@@ -399,7 +450,10 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (component.Val
 
 	// Option
 	case types.Option:
-		disc := ctx.ReadU8(offset)
+		disc, err := ctx.ReadU8(offset)
+		if err != nil {
+			return component.Val{}, fmt.Errorf("lift option discriminant: %w", err)
+		}
 		if disc == 0 {
 			return component.ValOption(nil), nil
 		}
@@ -425,7 +479,10 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (component.Val
 
 	// Result
 	case types.Result:
-		disc := ctx.ReadU8(offset)
+		disc, err := ctx.ReadU8(offset)
+		if err != nil {
+			return component.Val{}, fmt.Errorf("lift result discriminant: %w", err)
+		}
 		// Calculate max alignment for payload
 		payloadAlign := uint32(1)
 		if t.Ok != nil && t.Ok.Align() > payloadAlign {
@@ -463,13 +520,19 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (component.Val
 	case types.Enum:
 		discSize := t.Size() // Enum's Size() returns the discriminant size
 		var disc uint32
+		var discErr error
 		switch discSize {
 		case 1:
-			disc = uint32(ctx.ReadU8(offset))
+			v, err := ctx.ReadU8(offset)
+			disc, discErr = uint32(v), err
 		case 2:
-			disc = uint32(ctx.ReadU16(offset))
+			v, err := ctx.ReadU16(offset)
+			disc, discErr = uint32(v), err
 		default:
-			disc = ctx.ReadU32(offset)
+			disc, discErr = ctx.ReadU32(offset)
+		}
+		if discErr != nil {
+			return component.Val{}, fmt.Errorf("lift enum discriminant: %w", discErr)
 		}
 		if int(disc) >= len(t.Cases) {
 			return component.Val{}, fmt.Errorf("invalid enum discriminant: %d", disc)
@@ -485,17 +548,26 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (component.Val
 		// Determine storage size
 		n := len(t.Names)
 		if n <= 8 {
-			bits := ctx.ReadU8(offset)
+			bits, err := ctx.ReadU8(offset)
+			if err != nil {
+				return component.Val{}, fmt.Errorf("lift flags: %w", err)
+			}
 			for i, name := range t.Names {
 				flags[name] = (bits & (1 << i)) != 0
 			}
 		} else if n <= 16 {
-			bits := ctx.ReadU16(offset)
+			bits, err := ctx.ReadU16(offset)
+			if err != nil {
+				return component.Val{}, fmt.Errorf("lift flags: %w", err)
+			}
 			for i, name := range t.Names {
 				flags[name] = (bits & (1 << i)) != 0
 			}
 		} else if n <= 32 {
-			bits := ctx.ReadU32(offset)
+			bits, err := ctx.ReadU32(offset)
+			if err != nil {
+				return component.Val{}, fmt.Errorf("lift flags: %w", err)
+			}
 			for i, name := range t.Names {
 				flags[name] = (bits & (1 << i)) != 0
 			}
@@ -504,7 +576,10 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (component.Val
 			for i, name := range t.Names {
 				wordIdx := i / 32
 				bit := i % 32
-				word := ctx.ReadU32(offset + uint32(wordIdx*4))
+				word, err := ctx.ReadU32(offset + uint32(wordIdx*4))
+				if err != nil {
+					return component.Val{}, fmt.Errorf("lift flags word %d: %w", wordIdx, err)
+				}
 				flags[name] = (word & (1 << bit)) != 0
 			}
 		}
@@ -512,8 +587,14 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (component.Val
 
 	// List
 	case types.List:
-		ptr := ctx.ReadU32(offset)
-		length := ctx.ReadU32(offset + 4)
+		ptr, err := ctx.ReadU32(offset)
+		if err != nil {
+			return component.Val{}, fmt.Errorf("lift list ptr: %w", err)
+		}
+		length, err := ctx.ReadU32(offset + 4)
+		if err != nil {
+			return component.Val{}, fmt.Errorf("lift list length: %w", err)
+		}
 
 		// Validate bounds to prevent overflow and excessive allocation
 		elemSize := t.Element.Size()
