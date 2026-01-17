@@ -571,10 +571,11 @@ func TestModule_validateMemory(t *testing.T) {
 
 func TestModule_validateImports(t *testing.T) {
 	tests := []struct {
-		name            string
-		enabledFeatures api.CoreFeatures
-		i               *Import
-		expectedErr     string
+		name                 string
+		enabledFeatures      api.CoreFeatures
+		i                    *Import
+		allowEmptyModuleName bool
+		expectedErr          string
 	}{
 		{name: "empty import section"},
 		{
@@ -582,6 +583,13 @@ func TestModule_validateImports(t *testing.T) {
 			enabledFeatures: api.CoreFeaturesV1,
 			i:               &Import{Module: "", Name: "n", Type: ExternTypeFunc, DescFunc: 0},
 			expectedErr:     "import[0] has an empty module name",
+		},
+		{
+			name:                 "allow empty module name when flag set",
+			enabledFeatures:      api.CoreFeaturesV1,
+			i:                    &Import{Module: "", Name: "func", Type: ExternTypeFunc, DescFunc: 0},
+			allowEmptyModuleName: true,
+			// No error expected - should pass validation
 		},
 		{
 			name:            "func",
@@ -631,6 +639,7 @@ func TestModule_validateImports(t *testing.T) {
 		tc := tt
 		t.Run(tc.name, func(t *testing.T) {
 			m := Module{TypeSection: []FunctionType{{}}}
+			m.AllowEmptyModuleName = tc.allowEmptyModuleName
 			if tc.i != nil {
 				m.ImportSection = []Import{*tc.i}
 			}
