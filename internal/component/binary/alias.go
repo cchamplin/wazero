@@ -85,19 +85,20 @@ func decodeAlias(r *bytes.Reader) (component.Alias, error) {
 }
 
 // decodeAliasSection parses the alias section (section ID 6).
+// Multiple alias sections may exist; aliases are accumulated.
 func decodeAliasSection(c *component.Component, r *bytes.Reader) error {
 	count, _, err := leb128.DecodeUint32(r)
 	if err != nil {
 		return fmt.Errorf("reading alias count: %w", err)
 	}
 
-	c.Aliases = make([]component.Alias, count)
+	startIdx := uint32(len(c.Aliases))
 	for i := uint32(0); i < count; i++ {
 		alias, err := decodeAlias(r)
 		if err != nil {
-			return fmt.Errorf("decoding alias %d: %w", i, err)
+			return fmt.Errorf("decoding alias %d: %w", startIdx+i, err)
 		}
-		c.Aliases[i] = alias
+		c.Aliases = append(c.Aliases, alias)
 	}
 
 	return nil

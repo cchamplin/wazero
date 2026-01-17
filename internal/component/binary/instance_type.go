@@ -142,16 +142,27 @@ func decodeInstanceExportDecl(r *bytes.Reader) (*component.InstanceExport, error
 
 	case 0x03:
 		// Type: typebound
-		// Format: 0x00 typeidx (sub resource bound) or 0x01 typeidx (eq bound)
-		// Note: For type exports in instance types, we may just have a type index
-		// without a bound tag, depending on the version of the spec.
+		// Format: 0x00 typeidx (eq bound) or 0x01 (sub-resource, fresh)
 		export.Kind = component.ExportKindType
-		// Read the type bound or index
-		idx, _, err := leb128.DecodeUint32(r)
+		// Read the type bound discriminator
+		boundKind, err := r.ReadByte()
 		if err != nil {
-			return nil, fmt.Errorf("read type bound: %w", err)
+			return nil, fmt.Errorf("read type bound kind: %w", err)
 		}
-		export.Idx = idx
+		switch boundKind {
+		case 0x00:
+			// Eq bound: followed by type index
+			idx, _, err := leb128.DecodeUint32(r)
+			if err != nil {
+				return nil, fmt.Errorf("read eq type bound index: %w", err)
+			}
+			export.Idx = idx
+		case 0x01:
+			// Sub-resource: fresh resource type, no index follows
+			// The idx stays 0 (default) for fresh resources
+		default:
+			return nil, fmt.Errorf("unknown type bound kind: 0x%02x", boundKind)
+		}
 
 	case 0x04:
 		// Component: typeidx
@@ -210,6 +221,8 @@ func decodeCoreTypeDefForInstance(r *bytes.Reader) (*component.CoreTypeDef, erro
 }
 
 // decodeNestedTypeDef decodes a type definition nested within an instance/component type.
+// This handles deftype which can be: defvaltype | functype | instancetype | componenttype
+// defvaltype includes primitive types (0x73-0x7f, 0x64) and composite types.
 func decodeNestedTypeDef(r *bytes.Reader) (*component.TypeDef, error) {
 	opcode, err := r.ReadByte()
 	if err != nil {
@@ -217,6 +230,17 @@ func decodeNestedTypeDef(r *bytes.Reader) (*component.TypeDef, error) {
 	}
 
 	typeDef := &component.TypeDef{}
+
+	// Check if it's a primitive value type first
+	if IsPrimValType(opcode) {
+		// Primitive value type as a defined type (e.g., Type(Defined(Primitive(U64))))
+		typeDef.Kind = component.TypeDefKindDefined
+		typeDef.Handle = &component.ValTypeRef{
+			IsPrimitive: true,
+			Primitive:   opcode,
+		}
+		return typeDef, nil
+	}
 
 	switch opcode {
 	case TypeOpFuncSync, TypeOpFuncAsync:
@@ -317,6 +341,30 @@ func decodeNestedTypeDef(r *bytes.Reader) (*component.TypeDef, error) {
 		}
 		typeDef.Kind = component.TypeDefKindComponent
 		typeDef.Component = comp
+
+	case ValTypeOpcodeOwn:
+		// Own handle type: own<T> where T is a resource type
+		typeIdx, _, err := leb128.DecodeUint32(r)
+		if err != nil {
+			return nil, fmt.Errorf("read own handle type index: %w", err)
+		}
+		typeDef.Kind = component.TypeDefKindDefined
+		typeDef.Handle = &component.ValTypeRef{
+			IsOwn:   true,
+			TypeIdx: typeIdx,
+		}
+
+	case ValTypeOpcodeBorrow:
+		// Borrow handle type: borrow<T> where T is a resource type
+		typeIdx, _, err := leb128.DecodeUint32(r)
+		if err != nil {
+			return nil, fmt.Errorf("read borrow handle type index: %w", err)
+		}
+		typeDef.Kind = component.TypeDefKindDefined
+		typeDef.Handle = &component.ValTypeRef{
+			IsBorrow: true,
+			TypeIdx:  typeIdx,
+		}
 
 	default:
 		return nil, fmt.Errorf("unsupported nested type opcode: 0x%02x", opcode)

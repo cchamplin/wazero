@@ -176,6 +176,7 @@ func TestDecodeComponent_ExportSection(t *testing.T) {
 		0x03, 'a', 'd', 'd', // name "add"
 		0x01,             // sort = func
 		0x00,             // index = 0
+		0x00,             // no externdesc
 	}
 
 	input := append(append(Magic[:], Version[:]...), LayerComponent[:]...)
