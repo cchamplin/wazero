@@ -98,6 +98,15 @@ type TypeDef struct {
 
 	// Component holds the decoded component type definition (0x41).
 	Component *ComponentTypeDef
+
+	// Stream holds the decoded stream type definition (0x66).
+	Stream *StreamTypeDef
+
+	// Future holds the decoded future type definition (0x65).
+	Future *FutureTypeDef
+
+	// FixedSizeList holds the decoded fixed-size list type definition (0x67).
+	FixedSizeList *FixedSizeListTypeDef
 }
 
 // TypeDefKind identifies the kind of type definition.
@@ -572,6 +581,23 @@ type OptionTypeDef struct {
 type ResultTypeDef struct {
 	OkType  *ValTypeRef // nil for result<_, E>
 	ErrType *ValTypeRef // nil for result<T, _>
+}
+
+// StreamTypeDef represents a stream type (0x66).
+type StreamTypeDef struct {
+	ElementType *ValTypeRef // nil if no element type
+	EndType     *ValTypeRef // nil if no end type
+}
+
+// FutureTypeDef represents a future type (0x65).
+type FutureTypeDef struct {
+	PayloadType *ValTypeRef // nil if no payload
+}
+
+// FixedSizeListTypeDef represents a fixed-size list type (0x67).
+type FixedSizeListTypeDef struct {
+	ElementType ValTypeRef
+	Size        uint32
 }
 
 // CoreTypeDef represents a core type definition.

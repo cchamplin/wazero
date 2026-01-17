@@ -311,6 +311,42 @@ func decodeTypeSection(c *component.Component, r *bytes.Reader) error {
 				Component: comp,
 			}
 
+		case ValTypeOpcodeStream:
+			// Decode stream type (opcode already consumed)
+			stream, err := decodeStreamTypeDef(r)
+			if err != nil {
+				return fmt.Errorf("decode stream type %d: %w", i, err)
+			}
+
+			c.Types[i] = component.TypeDef{
+				Kind:   component.TypeDefKindDefined,
+				Stream: stream,
+			}
+
+		case ValTypeOpcodeFuture:
+			// Decode future type (opcode already consumed)
+			future, err := decodeFutureTypeDef(r)
+			if err != nil {
+				return fmt.Errorf("decode future type %d: %w", i, err)
+			}
+
+			c.Types[i] = component.TypeDef{
+				Kind:   component.TypeDefKindDefined,
+				Future: future,
+			}
+
+		case ValTypeOpcodeFixedSizeList:
+			// Decode fixed-size list type (opcode already consumed)
+			fixedList, err := decodeFixedSizeListTypeDef(r)
+			if err != nil {
+				return fmt.Errorf("decode fixed-size list type %d: %w", i, err)
+			}
+
+			c.Types[i] = component.TypeDef{
+				Kind:          component.TypeDefKindDefined,
+				FixedSizeList: fixedList,
+			}
+
 		default:
 			return fmt.Errorf("unsupported type opcode 0x%02x at index %d", opcode, i)
 		}

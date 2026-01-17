@@ -88,6 +88,14 @@ const (
 	ValTypeOpcodeOwn    byte = 0x69 // own<T> handle type
 )
 
+// Async type opcodes
+// See: https://github.com/WebAssembly/component-model/blob/main/design/mvp/Binary.md
+const (
+	ValTypeOpcodeFuture        byte = 0x65 // future<T> type
+	ValTypeOpcodeStream        byte = 0x66 // stream<T, E> type
+	ValTypeOpcodeFixedSizeList byte = 0x67 // list<T, N> fixed-size list type
+)
+
 // IsCompositeTypeOpcode returns true if the opcode is a composite type.
 func IsCompositeTypeOpcode(opcode byte) bool {
 	return opcode >= 0x6a && opcode <= 0x72
