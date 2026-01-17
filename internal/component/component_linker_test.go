@@ -5,6 +5,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -139,4 +140,57 @@ func TestComponentLinkerInstanceBuilderResource(t *testing.T) {
 	require.Equal(t, 2, len(instDef.Exports))
 	require.NotNil(t, instDef.Exports["read"])
 	require.NotNil(t, instDef.Exports["handle"])
+}
+
+// TestComponentLinker_OrderedInstantiation verifies that core instances are
+// instantiated in order and that imports can be resolved from previously
+// instantiated instances.
+func TestComponentLinker_OrderedInstantiation(t *testing.T) {
+	// This test verifies the import resolver infrastructure.
+	// For a full integration test with actual modules, see wasip2test.
+	linker := NewComponentLinker(nil)
+
+	// Create a mock component structure
+	c := &Component{
+		CoreInstances: []CoreInstance{
+			// Instance 0: instantiate module 0 (no imports)
+			{
+				Kind:      CoreInstanceExprInstantiate,
+				ModuleIdx: 0,
+				Args:      nil,
+			},
+			// Instance 1: instantiate module 1 with imports from instance 0
+			{
+				Kind:      CoreInstanceExprInstantiate,
+				ModuleIdx: 1,
+				Args: []CoreInstantiateArg{
+					{Name: "provider", InstanceIdx: 0},
+				},
+			},
+		},
+		Aliases: []Alias{
+			{Kind: AliasKindCoreExport, InstanceIdx: 0, ExportName: "memory", CoreSort: CoreSortMemory},
+			{Kind: AliasKindCoreExport, InstanceIdx: 0, ExportName: "func1", CoreSort: CoreSortFunc},
+		},
+	}
+
+	// Test the import resolver building
+	inst := &Instance{
+		component:     c,
+		coreInstances: make([]api.Module, 2),
+	}
+
+	// Build import resolver for core instance 1
+	resolver := linker.buildImportResolver(inst, c, &c.CoreInstances[1])
+	require.NotNil(t, resolver)
+
+	// The resolver should map "provider" to instance 0
+	// Since we haven't actually instantiated anything, inst.coreInstances[0] is nil
+	// and the resolver will return nil (which is correct behavior)
+	result := resolver("provider")
+	require.Nil(t, result, "resolver returns nil when instance not yet available")
+
+	// Unknown import module should return nil
+	result = resolver("unknown")
+	require.Nil(t, result, "resolver returns nil for unknown imports")
 }

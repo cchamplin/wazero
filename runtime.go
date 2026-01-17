@@ -521,3 +521,16 @@ func (r *runtime) InstantiateComponent(ctx context.Context, compiled api.Compile
 	linker := r.NewComponentLinker()
 	return linker.Instantiate(ctx, compiled)
 }
+
+// InstantiateCoreModule implements component.CoreModuleInstantiator.
+// This method allows the component linker to instantiate core modules within a component.
+// The compiled parameter should be a *compiledModule from CompileComponent.
+func (r *runtime) InstantiateCoreModule(ctx context.Context, compiled component.CompiledModuleCloser) (api.Module, error) {
+	// Cast to *compiledModule - this should always work since compiled modules
+	// from CompileComponent are created by compileComponentModule
+	cm, ok := compiled.(*compiledModule)
+	if !ok {
+		return nil, fmt.Errorf("invalid compiled module type: %T", compiled)
+	}
+	return r.InstantiateModule(ctx, cm, NewModuleConfig())
+}

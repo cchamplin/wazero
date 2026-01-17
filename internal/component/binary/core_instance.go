@@ -97,19 +97,21 @@ func decodeCoreInstance(r *bytes.Reader) (component.CoreInstance, error) {
 }
 
 // decodeCoreInstanceSection parses the core instance section (section ID 2).
+// Note: Components may have multiple core instance sections that should be
+// accumulated in the CoreInstances slice.
 func decodeCoreInstanceSection(c *component.Component, r *bytes.Reader) error {
 	count, _, err := leb128.DecodeUint32(r)
 	if err != nil {
 		return fmt.Errorf("reading core instance count: %w", err)
 	}
 
-	c.CoreInstances = make([]component.CoreInstance, count)
+	// Append to existing CoreInstances instead of replacing
 	for i := uint32(0); i < count; i++ {
 		ci, err := decodeCoreInstance(r)
 		if err != nil {
 			return fmt.Errorf("decoding core instance %d: %w", i, err)
 		}
-		c.CoreInstances[i] = ci
+		c.CoreInstances = append(c.CoreInstances, ci)
 	}
 
 	return nil

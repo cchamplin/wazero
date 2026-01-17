@@ -17,6 +17,16 @@ type CompiledModuleCloser interface {
 	api.Closer
 }
 
+// CoreModuleInstantiator is an interface for instantiating core modules within a component.
+// The wazero.Runtime implements this interface to allow the component linker to
+// instantiate core modules with proper import resolution.
+type CoreModuleInstantiator interface {
+	// InstantiateCoreModule instantiates a compiled core module with the given context.
+	// The compiled parameter should be a CompiledModuleCloser (actually *compiledModule).
+	// Returns the instantiated module or an error.
+	InstantiateCoreModule(ctx context.Context, compiled CompiledModuleCloser) (api.Module, error)
+}
+
 // CompiledComponent wraps a parsed Component with pre-compiled core modules.
 type CompiledComponent struct {
 	internalapi.WazeroOnlyType
