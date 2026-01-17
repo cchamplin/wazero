@@ -457,10 +457,11 @@ func (r *runtime) CompileComponent(ctx context.Context, binary []byte) (api.Comp
 		return nil, fmt.Errorf("decode component: %w", err)
 	}
 
-	// Pre-compile all embedded core modules
-	compiledModules := make([]component.CompiledModuleCloser, len(parsed.CoreModuleData))
-	for i, moduleData := range parsed.CoreModuleData {
-		compiled, err := r.CompileModule(ctx, moduleData)
+	// Pre-compile all embedded core modules using the pre-parsed modules
+	// which have AllowEmptyModuleName=true set
+	compiledModules := make([]component.CompiledModuleCloser, len(parsed.CoreModules))
+	for i, m := range parsed.CoreModules {
+		compiled, err := r.compileComponentModule(ctx, m)
 		if err != nil {
 			// Clean up already-compiled modules
 			for j := 0; j < i; j++ {
@@ -474,6 +475,40 @@ func (r *runtime) CompileComponent(ctx context.Context, binary []byte) (api.Comp
 	}
 
 	return component.NewCompiledComponent(parsed, compiledModules, r), nil
+}
+
+// compileComponentModule compiles a pre-parsed module from a component.
+// This is used for modules that were decoded from component binaries and
+// already have AllowEmptyModuleName=true set.
+func (r *runtime) compileComponentModule(ctx context.Context, m *wasm.Module) (CompiledModule, error) {
+	// The module already has AllowEmptyModuleName set from component decoder
+
+	if err := m.Validate(r.enabledFeatures); err != nil {
+		return nil, fmt.Errorf("validate: %w", err)
+	}
+
+	// Now that the module is validated, cache the memory definitions.
+	m.BuildMemoryDefinitions()
+
+	c := &compiledModule{module: m, compiledEngine: r.store.Engine}
+
+	// typeIDs are static and compile-time known.
+	typeIDs, err := r.store.GetFunctionTypeIDs(m.TypeSection)
+	if err != nil {
+		return nil, err
+	}
+	c.typeIDs = typeIDs
+
+	listeners, err := buildFunctionListeners(ctx, m)
+	if err != nil {
+		return nil, err
+	}
+	m.AssignModuleID(nil, listeners, r.ensureTermination)
+	if err = r.store.Engine.CompileModule(ctx, m, listeners, r.ensureTermination); err != nil {
+		return nil, err
+	}
+
+	return c, nil
 }
 
 // NewComponentLinker implements Runtime.NewComponentLinker
