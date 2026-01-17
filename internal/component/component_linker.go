@@ -7,6 +7,7 @@ import (
 
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/experimental"
+	"github.com/tetratelabs/wazero/internal/wasm"
 )
 
 // ComponentLinker resolves component imports and instantiates components
@@ -300,33 +301,46 @@ func (l *ComponentLinker) resolveInlineInstanceSource(inst *Instance, c *Compone
 		return primarySource
 	}
 
-	// If all exports come from the same source but names don't match, we can still
-	// return the source if the source module has exports with both the old and new names.
-	// This handles cases where a module exports a function that gets re-exported under
-	// the same name it was imported as.
+	// If all exports come from the same source but names don't match, we need to
+	// add the remapped export names to the source module's Exports map.
+	// This allows the import resolver to find the exports under the new names.
 	if allSameSource {
-		// Check if the source module has all the required exports under the new names
-		allExportsAvailable := true
-		for newName := range exportMapping {
-			if _, ok := primarySource.ExportedFunctionDefinitions()[newName]; !ok {
-				// Also check memory
-				if mem := primarySource.ExportedMemory(newName); mem == nil {
-					allExportsAvailable = false
-					break
-				}
+		// Try to cast to *wasm.ModuleInstance to access the Exports map
+		modInst, ok := primarySource.(*wasm.ModuleInstance)
+		if !ok {
+			// Cannot add remapped exports if we don't have access to the ModuleInstance
+			return nil
+		}
+
+		// Add remapped exports for any names that don't already exist
+		for newName, src := range exportMapping {
+			if _, exists := modInst.Exports[newName]; exists {
+				// Export with this name already exists, no need to add
+				continue
+			}
+
+			// Find the original export to get the index and type
+			origExport, exists := modInst.Exports[src.exportName]
+			if !exists {
+				// Original export not found, can't create remapping
+				return nil
+			}
+
+			// Add a new export entry with the new name pointing to the same function/memory
+			// Note: The Index in the export is the function index in the module (imports + locals).
+			// For modules without imports, this is the same as the local function index.
+			modInst.Exports[newName] = &wasm.Export{
+				Type:  origExport.Type,
+				Name:  newName,
+				Index: origExport.Index,
 			}
 		}
-		if allExportsAvailable {
-			return primarySource
-		}
+
+		return primarySource
 	}
 
-	// Cannot safely resolve this inline instance - the source module doesn't have
-	// exports with the expected names, and creating a proper wrapper requires
-	// engine-level support for function remapping.
-	//
-	// Return nil to cause a clean error instead of panicking when the engine
-	// tries to resolve function references from an incomplete wrapper.
+	// Cannot safely resolve this inline instance - exports come from different
+	// source instances, which would require creating a wrapper module.
 	return nil
 }
 
