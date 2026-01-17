@@ -96,16 +96,22 @@ func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledCom
 	}
 
 	// Build index spaces from aliases
+	// Note: Each sort (func, memory) has its own index space that starts at 0.
+	// We track the current index for each space separately.
 	funcSpace := NewCoreFuncIndexSpace()
 	memSpace := NewCoreMemoryIndexSpace()
 
-	for i, alias := range c.Aliases {
+	funcIdx := uint32(0)
+	memIdx := uint32(0)
+	for _, alias := range c.Aliases {
 		if alias.Kind == AliasKindCoreExport {
 			switch alias.CoreSort {
 			case CoreSortFunc:
-				funcSpace.AddAlias(uint32(i), alias.InstanceIdx, alias.ExportName)
+				funcSpace.AddAlias(funcIdx, alias.InstanceIdx, alias.ExportName)
+				funcIdx++
 			case CoreSortMemory:
-				memSpace.AddAlias(uint32(i), alias.InstanceIdx, alias.ExportName)
+				memSpace.AddAlias(memIdx, alias.InstanceIdx, alias.ExportName)
+				memIdx++
 			}
 		}
 	}
