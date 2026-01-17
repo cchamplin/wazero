@@ -298,3 +298,67 @@ func TestResourceTable_CreateResourceNewFunc_CreatesOwnedResources(t *testing.T)
 	require.NoError(t, err)
 	require.True(t, entry.Own)
 }
+
+func TestResourceTable_CreateResourceDropFunc(t *testing.T) {
+	table := NewResourceTable()
+
+	var destructorCalled bool
+	var droppedRep uint32
+
+	dropFunc := table.CreateResourceDropFunc(0, func(rep uint32) {
+		destructorCalled = true
+		droppedRep = rep
+	})
+
+	// Create a resource
+	handle := table.New(uint32(42), true)
+
+	// Drop it
+	dropFunc(uint32(handle))
+
+	// Verify destructor was called
+	if !destructorCalled {
+		t.Error("destructor was not called")
+	}
+	if droppedRep != 42 {
+		t.Errorf("expected droppedRep=42, got %d", droppedRep)
+	}
+
+	// Verify resource was removed
+	_, err := table.Get(handle)
+	if err == nil {
+		t.Error("expected error getting dropped handle")
+	}
+}
+
+func TestResourceTable_CreateResourceDropFunc_InvalidHandle(t *testing.T) {
+	table := NewResourceTable()
+
+	var destructorCalled bool
+	dropFunc := table.CreateResourceDropFunc(0, func(rep uint32) {
+		destructorCalled = true
+	})
+
+	// Drop invalid handle - should not panic or call destructor
+	dropFunc(999)
+
+	if destructorCalled {
+		t.Error("destructor should not be called for invalid handle")
+	}
+}
+
+func TestResourceTable_CreateResourceDropFunc_NilDestructor(t *testing.T) {
+	table := NewResourceTable()
+
+	dropFunc := table.CreateResourceDropFunc(0, nil)
+
+	// Create and drop - should work without destructor
+	handle := table.New(uint32(42), true)
+	dropFunc(uint32(handle))
+
+	// Verify resource was removed
+	_, err := table.Get(handle)
+	if err == nil {
+		t.Error("expected error getting dropped handle")
+	}
+}
