@@ -146,18 +146,7 @@ func (f *ComponentFuncWrapper) Call(ctx context.Context, params ...any) ([]any, 
 	// Convert params to Val
 	vals := make([]Val, len(params))
 	for i, p := range params {
-		switch v := p.(type) {
-		case int32:
-			vals[i] = ValS32(v)
-		case uint32:
-			vals[i] = ValU32(v)
-		case int64:
-			vals[i] = ValS64(v)
-		case uint64:
-			vals[i] = ValU64(v)
-		default:
-			// Unsupported type - leave as zero
-		}
+		vals[i] = anyToVal(p)
 	}
 
 	results, err := f.fn.Call(ctx, vals...)
@@ -168,19 +157,160 @@ func (f *ComponentFuncWrapper) Call(ctx context.Context, params ...any) ([]any, 
 	// Convert results back to any
 	out := make([]any, len(results))
 	for i, r := range results {
-		switch r.Kind() {
-		case ValKindS32:
-			out[i] = r.S32()
-		case ValKindU32:
-			out[i] = r.U32()
-		case ValKindS64:
-			out[i] = r.S64()
-		case ValKindU64:
-			out[i] = r.U64()
-		default:
-			out[i] = nil
-		}
+		out[i] = valToAny(r)
 	}
 
 	return out, nil
+}
+
+// anyToVal converts a Go value to a component Val.
+// Supports primitives, maps (records), slices (lists/tuples), and Val directly.
+func anyToVal(p any) Val {
+	switch v := p.(type) {
+	case Val:
+		// Already a Val, use directly
+		return v
+	case bool:
+		return ValBool(v)
+	case int8:
+		return ValS8(v)
+	case uint8:
+		return ValU8(v)
+	case int16:
+		return ValS16(v)
+	case uint16:
+		return ValU16(v)
+	case int32:
+		return ValS32(v)
+	case uint32:
+		return ValU32(v)
+	case int64:
+		return ValS64(v)
+	case uint64:
+		return ValU64(v)
+	case float32:
+		return ValF32(v)
+	case float64:
+		return ValF64(v)
+	case string:
+		return ValString(v)
+	// Note: rune is an alias for int32, so we can't have a separate case.
+	// Users who want to pass a char should use component.ValChar() directly.
+	case map[string]any:
+		// Record: convert map[string]any to ValRecord
+		fields := make(map[string]Val)
+		for k, fv := range v {
+			fields[k] = anyToVal(fv)
+		}
+		return ValRecord(fields)
+	case map[string]Val:
+		// Record with Val values directly
+		return ValRecord(v)
+	case []any:
+		// List: convert []any to ValList
+		elements := make([]Val, len(v))
+		for i, e := range v {
+			elements[i] = anyToVal(e)
+		}
+		return ValList(elements)
+	case []Val:
+		// List with Val values directly
+		return ValList(v)
+	default:
+		// Unsupported type - return zero Val
+		return Val{}
+	}
+}
+
+// valToAny converts a component Val to a Go value.
+// Records become map[string]any, lists become []any, etc.
+func valToAny(r Val) any {
+	switch r.Kind() {
+	case ValKindBool:
+		return r.Bool()
+	case ValKindS8:
+		return r.S8()
+	case ValKindU8:
+		return r.U8()
+	case ValKindS16:
+		return r.S16()
+	case ValKindU16:
+		return r.U16()
+	case ValKindS32:
+		return r.S32()
+	case ValKindU32:
+		return r.U32()
+	case ValKindS64:
+		return r.S64()
+	case ValKindU64:
+		return r.U64()
+	case ValKindF32:
+		return r.F32()
+	case ValKindF64:
+		return r.F64()
+	case ValKindChar:
+		return r.Char()
+	case ValKindString:
+		return r.StringVal()
+	case ValKindRecord:
+		// Convert record to map[string]any
+		rec := r.Record()
+		out := make(map[string]any)
+		for k, v := range rec {
+			out[k] = valToAny(v)
+		}
+		return out
+	case ValKindList:
+		// Convert list to []any
+		list := r.List()
+		out := make([]any, len(list))
+		for i, v := range list {
+			out[i] = valToAny(v)
+		}
+		return out
+	case ValKindTuple:
+		// Convert tuple to []any
+		tuple := r.Tuple()
+		out := make([]any, len(tuple))
+		for i, v := range tuple {
+			out[i] = valToAny(v)
+		}
+		return out
+	case ValKindOption:
+		// Convert option to *any (nil for None)
+		opt := r.Option()
+		if opt == nil {
+			return nil
+		}
+		v := valToAny(*opt)
+		return v
+	case ValKindResult:
+		// Convert result to a struct-like map
+		isOk, okVal, errVal := r.Result()
+		result := map[string]any{"ok": isOk}
+		if isOk && okVal != nil {
+			result["value"] = valToAny(*okVal)
+		} else if !isOk && errVal != nil {
+			result["error"] = valToAny(*errVal)
+		}
+		return result
+	case ValKindVariant:
+		// Convert variant to a map with case name and payload
+		caseName, payload := r.Variant()
+		result := map[string]any{"case": caseName}
+		if payload != nil {
+			result["payload"] = valToAny(*payload)
+		}
+		return result
+	case ValKindEnum:
+		return r.Enum()
+	case ValKindFlags:
+		return r.Flags()
+	case ValKindOwn:
+		return r.Own()
+	case ValKindBorrow:
+		return r.Borrow()
+	default:
+		return nil
+	}
 }
