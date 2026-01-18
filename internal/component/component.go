@@ -209,8 +209,9 @@ type FuncType struct {
 
 // NamedValType is a (name, type) pair used in function parameters/results.
 type NamedValType struct {
-	Name    string
-	ValType ValTypeRef
+	Name         string
+	ValType      ValTypeRef
+	ResolvedType *TypeDef // Optional: resolved type definition when ValType is a type reference
 }
 
 // ValTypeRef is a reference to a value type.
