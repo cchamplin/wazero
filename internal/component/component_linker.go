@@ -528,11 +528,19 @@ func resolveValTypeRef(ref ValTypeRef, localTypes map[uint32]*TypeDef) ValTypeRe
 
 // resolveToValType converts a NamedValType to a types.ValType.
 // It first checks if a ResolvedType is available (for types resolved from instance types),
+// then tries to convert primitive/own/borrow types directly from ValTypeRef,
 // and falls back to the TypeResolver for component-level types.
 func resolveToValType(nvt NamedValType, resolver *TypeResolver) types.ValType {
 	// If we have a ResolvedType (from instance type lookup), use it directly
 	if nvt.ResolvedType != nil {
 		return typeDefToValType(nvt.ResolvedType)
+	}
+
+	// For host-defined functions, try to convert primitive/own/borrow types directly
+	// This handles cases where the host provides FuncType with ValTypeRef values
+	// that don't reference component-level type indices.
+	if nvt.ValType.IsPrimitive || nvt.ValType.IsOwn || nvt.ValType.IsBorrow {
+		return valTypeRefToValType(nvt.ValType)
 	}
 
 	// Fall back to resolver for component-level types
