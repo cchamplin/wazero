@@ -110,23 +110,22 @@ func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledCom
 		resourceTable: NewResourceTable(),
 	}
 
-	// Build index spaces from aliases
-	// Note: Each sort (func, memory) has its own index space that starts at 0.
-	// We track the current index for each space separately.
+	// Build index spaces from aliases.
+	// Each alias has an Idx field that represents the target index in the
+	// appropriate core index space (func, memory, etc.). This Idx is assigned
+	// during binary decoding and accounts for all operations that consume
+	// indices in these spaces (aliases, canon lower, canon resource.*, etc.).
 	funcSpace := NewCoreFuncIndexSpace()
 	memSpace := NewCoreMemoryIndexSpace()
 
-	funcIdx := uint32(0)
-	memIdx := uint32(0)
-	for _, alias := range c.Aliases {
+	for i := range c.Aliases {
+		alias := &c.Aliases[i]
 		if alias.Kind == AliasKindCoreExport {
 			switch alias.CoreSort {
 			case CoreSortFunc:
-				funcSpace.AddAlias(funcIdx, alias.InstanceIdx, alias.ExportName)
-				funcIdx++
+				funcSpace.AddAlias(alias.Idx, alias.InstanceIdx, alias.ExportName)
 			case CoreSortMemory:
-				memSpace.AddAlias(memIdx, alias.InstanceIdx, alias.ExportName)
-				memIdx++
+				memSpace.AddAlias(alias.Idx, alias.InstanceIdx, alias.ExportName)
 			}
 		}
 	}
@@ -279,24 +278,25 @@ func (l *ComponentLinker) resolveInlineInstanceSource(inst *Instance, c *Compone
 	}
 	exportMapping := make(map[string]exportSource)
 
-	// Track the core function index space (populated by aliases)
-	// Each alias with CoreSortFunc adds to this space
+	// Build maps from target index to alias source.
+	// Each alias has an Idx field that represents the target index in the
+	// appropriate core index space (func, memory, etc.). This Idx is assigned
+	// during binary decoding and accounts for all operations that consume
+	// indices in these spaces (aliases, canon lower, canon resource.*, etc.).
 	funcAliases := make(map[uint32]exportSource)
-	funcIdx := uint32(0)
-	for _, alias := range c.Aliases {
+	for i := range c.Aliases {
+		alias := &c.Aliases[i]
 		if alias.Kind == AliasKindCoreExport && alias.CoreSort == CoreSortFunc {
-			funcAliases[funcIdx] = exportSource{alias.InstanceIdx, alias.ExportName}
-			funcIdx++
+			funcAliases[alias.Idx] = exportSource{alias.InstanceIdx, alias.ExportName}
 		}
 	}
 
 	// Also track memory aliases
 	memAliases := make(map[uint32]exportSource)
-	memIdx := uint32(0)
-	for _, alias := range c.Aliases {
+	for i := range c.Aliases {
+		alias := &c.Aliases[i]
 		if alias.Kind == AliasKindCoreExport && alias.CoreSort == CoreSortMemory {
-			memAliases[memIdx] = exportSource{alias.InstanceIdx, alias.ExportName}
-			memIdx++
+			memAliases[alias.Idx] = exportSource{alias.InstanceIdx, alias.ExportName}
 		}
 	}
 

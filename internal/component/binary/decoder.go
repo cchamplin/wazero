@@ -362,7 +362,8 @@ func decodeTypeSection(c *component.Component, r *bytes.Reader) error {
 
 // decodeCanonSection parses the canonical section (section ID 8).
 // Multiple canon sections may exist; entries are accumulated.
-// Each canon lift/lower operation consumes one entry from the component function index space.
+// Each canon lift operation consumes one entry from the component function index space.
+// Canon lower and resource operations consume entries from the core function index space.
 func decodeCanonSection(c *component.Component, r *bytes.Reader) error {
 	count, _, err := leb128.DecodeUint32(r)
 	if err != nil {
@@ -376,12 +377,23 @@ func decodeCanonSection(c *component.Component, r *bytes.Reader) error {
 			return fmt.Errorf("decode canonical %d: %w", startIdx+i, err)
 		}
 
-		// Assign the component function index for lift operations.
-		// Each canon lift consumes the next available function index.
-		if def.Kind == component.CanonKindLift {
+		switch def.Kind {
+		case component.CanonKindLift:
+			// Assign the component function index for lift operations.
+			// Each canon lift consumes the next available component function index.
 			def.ComponentFuncIdx = c.NextFuncIdx
 			c.FuncIdxToCanonical[c.NextFuncIdx] = startIdx + i
 			c.NextFuncIdx++
+
+		case component.CanonKindLower:
+			// Canon lower produces a core function.
+			// Increment the core function index space.
+			c.NextCoreFuncIdx++
+
+		case component.CanonKindResourceNew, component.CanonKindResourceDrop, component.CanonKindResourceRep:
+			// Resource operations (new, drop, rep) produce core functions.
+			// Increment the core function index space.
+			c.NextCoreFuncIdx++
 		}
 
 		c.Canonicals = append(c.Canonicals, def)
