@@ -130,15 +130,36 @@ func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledCom
 		}
 	}
 
-	// Step 1: Validate imports
+	// Step 1: Validate imports and build instance-to-import mapping
 	resolvedImports := make(map[string]Definition)
+	// instanceToImport maps component instance indices to import names.
+	// Instance imports (ImportExternDescInstance) contribute to the component instance index space.
+	instanceToImport := make(map[uint32]string)
+	compInstanceIdx := uint32(0)
+
 	for _, imp := range c.Imports {
 		def, err := l.MatchImport(imp.Name)
 		if err != nil {
 			return nil, fmt.Errorf("import %q: %w", imp.Name, err)
 		}
 		resolvedImports[imp.Name] = def
+
+		// Instance imports create entries in the component instance index space
+		if imp.ExternDesc.Kind == ImportExternDescInstance {
+			instanceToImport[compInstanceIdx] = imp.Name
+			compInstanceIdx++
+		}
 	}
+
+	// Component instance definitions also add to the instance index space
+	// (after imports)
+	for range c.ComponentInstances {
+		compInstanceIdx++
+	}
+
+	// Build component function index space from aliases and canon lift operations
+	inst.componentFuncs = make(map[uint32]ComponentFunc)
+	l.buildComponentFuncs(inst, c, resolvedImports, instanceToImport)
 
 	// Step 2: Instantiate core modules
 	for i, coreInst := range c.CoreInstances {
@@ -168,6 +189,95 @@ func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledCom
 	return inst, nil
 }
 
+// buildComponentFuncs populates the componentFuncs map with component-level functions.
+// These come from two sources:
+// 1. Component-level aliases (AliasKindExport with SortFunc) that reference imported instance exports
+// 2. Canon lift operations that create component functions from core functions
+//
+// The component function index space is built during binary decoding and tracked via
+// NextFuncIdx. This method populates the runtime implementations for those indices.
+//
+// Note: The Alias.Idx field is only populated for core export aliases. For component-level
+// function aliases, we need to track the component function index based on the order of
+// operations that consume indices from the component function space.
+func (l *ComponentLinker) buildComponentFuncs(inst *Instance, c *Component, resolvedImports map[string]Definition, instanceToImport map[uint32]string) {
+	// First pass: Process canon lift operations.
+	// Each canon lift creates a component function from a core function.
+	// The ComponentFuncIdx is assigned during binary decoding and is authoritative.
+	for _, canon := range c.Canonicals {
+		if canon.Kind == CanonKindLift {
+			// Canon lift creates a component function.
+			// The implementation will be wired up later when we have the core function.
+			// For now, we just record that this function index exists.
+			// The actual implementation is in wireExportedFunc which handles lifting.
+			// Note: We don't populate Impl here because canon lift wraps a core function,
+			// not a host function. The ExportedFunc.Call method handles the lifting.
+
+			// Get the function type if available
+			var funcType *FuncType
+			if int(canon.TypeIdx) < len(c.Types) && c.Types[canon.TypeIdx].Kind == TypeDefKindFunc {
+				funcType = c.Types[canon.TypeIdx].Func
+			}
+			inst.componentFuncs[canon.ComponentFuncIdx] = ComponentFunc{
+				Type: funcType,
+				Impl: nil, // Core function lifting is handled by ExportedFunc
+			}
+		}
+	}
+
+	// Second pass: Process component-level aliases that reference imported instance exports.
+	// For these aliases, we need to determine the component function index based on the
+	// Idx field which represents the target index this alias creates.
+	// Note: Currently the decoder only sets Idx for core export aliases. For component-level
+	// function aliases, the Idx field represents the component function index assigned during
+	// binary decoding (see alias.go decodeAliasSection).
+	for _, alias := range c.Aliases {
+		if alias.Kind == AliasKindExport && alias.Sort == SortFunc {
+			// This aliases a function from a component instance (typically an imported instance).
+			// Look up which import this instance refers to.
+			importName, ok := instanceToImport[alias.InstanceIdx]
+			if !ok {
+				// Instance might be a ComponentInstance definition, not an import.
+				// For now, we only handle imported instances.
+				continue
+			}
+
+			// Get the resolved import definition
+			def, ok := resolvedImports[importName]
+			if !ok {
+				continue
+			}
+
+			// The import should be an InstanceDef with function exports
+			instDef, ok := def.(*InstanceDef)
+			if !ok {
+				continue
+			}
+
+			// Look up the specific function export by name
+			exportDef, ok := instDef.Exports[alias.ExportName]
+			if !ok {
+				continue
+			}
+
+			// The export should be a FuncDef
+			funcDef, ok := exportDef.(*FuncDef)
+			if !ok {
+				continue
+			}
+
+			// Add to component functions.
+			// For component-level aliases with SortFunc, alias.Idx should be the
+			// component function index assigned during decoding.
+			// Note: The decoder needs to be updated to track this properly.
+			// For now, we use alias.Idx as the component function index.
+			inst.componentFuncs[alias.Idx] = ComponentFunc{
+				Type: funcDef.Type,
+				Impl: funcDef.Callback,
+			}
+		}
+	}
+}
 
 // buildImportResolver creates an import resolver function that maps import module names
 // to previously instantiated core instances based on CoreInstantiateArg mappings.

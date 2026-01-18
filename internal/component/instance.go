@@ -18,10 +18,37 @@ type Instance struct {
 	coreInstances []api.Module
 	exports       map[string]*ExportedFunc
 
+	// componentFuncs maps component function indices to their implementations.
+	// These come from:
+	// - Aliased imports (component-level WASI functions)
+	// - Canon lift operations (lifted core functions)
+	componentFuncs map[uint32]ComponentFunc
+
 	// Resource management fields
 	resourceTable *ResourceTable          // Table for tracking resource handles
 	destructors   map[uint32]func(any)    // Destructor functions by resource type index
 	callContext   *CallContext            // Current call context for borrow tracking
+}
+
+// ComponentFunc represents a callable component-level function.
+type ComponentFunc struct {
+	// Type is the component function type (params and results).
+	Type *FuncType
+
+	// Implementation is the actual callable.
+	// For imports: the host-provided Definition
+	// For canon lift: the lifted core function
+	Impl func(ctx context.Context, args []Val) ([]Val, error)
+}
+
+// GetComponentFunc looks up a component function by its index.
+// Returns the ComponentFunc and true if found, or an empty struct and false if not.
+func (i *Instance) GetComponentFunc(funcIdx uint32) (ComponentFunc, bool) {
+	if i.componentFuncs == nil {
+		return ComponentFunc{}, false
+	}
+	f, ok := i.componentFuncs[funcIdx]
+	return f, ok
 }
 
 // Component returns the component this instance was created from.
