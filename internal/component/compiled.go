@@ -27,6 +27,23 @@ type CoreModuleInstantiator interface {
 	InstantiateCoreModule(ctx context.Context, compiled CompiledModuleCloser) (api.Module, error)
 }
 
+// HostModuleExport represents a single function export in a host module.
+type HostModuleExport struct {
+	Name     string
+	ParamTypes []api.ValueType
+	ResultTypes []api.ValueType
+	Func     api.GoModuleFunc
+}
+
+// HostModuleInstantiator is an interface for creating host modules dynamically.
+// This is used by the component linker to create synthetic modules that wrap
+// component-level imports for use by core modules.
+type HostModuleInstantiator interface {
+	// InstantiateHostModule creates and instantiates a new host module with the given
+	// name and function exports. Returns the instantiated module or an error.
+	InstantiateHostModule(ctx context.Context, moduleName string, exports []HostModuleExport) (api.Module, error)
+}
+
 // CompiledComponent wraps a parsed Component with pre-compiled core modules.
 type CompiledComponent struct {
 	internalapi.WazeroOnlyType

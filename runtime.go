@@ -542,3 +542,18 @@ func (r *runtime) InstantiateCoreModule(ctx context.Context, compiled component.
 	}
 	return r.InstantiateModule(ctx, cm, NewModuleConfig())
 }
+
+// InstantiateHostModule implements component.HostModuleInstantiator.
+// This method allows the component linker to create synthetic host modules that wrap
+// component-level imports for use by core modules.
+func (r *runtime) InstantiateHostModule(ctx context.Context, moduleName string, exports []component.HostModuleExport) (api.Module, error) {
+	builder := r.NewHostModuleBuilder(moduleName)
+	for _, exp := range exports {
+		builder.NewFunctionBuilder().
+			WithGoModuleFunction(exp.Func, exp.ParamTypes, exp.ResultTypes).
+			Export(exp.Name)
+	}
+	// Use empty name to avoid registering in the store's module map
+	// since we want to provide this module only through the import resolver
+	return builder.Instantiate(ctx)
+}
