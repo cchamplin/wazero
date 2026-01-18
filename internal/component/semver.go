@@ -56,7 +56,10 @@ func SplitVersion(name string) (baseName, version string, hasVersion bool) {
 // SemverCompatible checks if available version satisfies required version.
 // For major > 0: same major, available minor.patch >= required minor.patch
 // For major == 0: same major.minor, available patch >= required patch
-func SemverCompatible(required, available *Semver) bool {
+//
+// When relaxed is true, pre-1.0 versions (0.x.y) match any patch version
+// within the same minor version (e.g., 0.2.0 matches 0.2.3).
+func SemverCompatible(required, available *Semver, relaxed bool) bool {
 	if required.Major != available.Major {
 		return false
 	}
@@ -66,6 +69,11 @@ func SemverCompatible(required, available *Semver) bool {
 		if required.Minor != available.Minor {
 			return false
 		}
+		// Relaxed mode: any patch matches any other patch in same minor
+		if relaxed {
+			return true
+		}
+		// Strict mode: available patch must be >= required patch
 		return available.Patch >= required.Patch
 	}
 

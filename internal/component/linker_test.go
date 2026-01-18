@@ -397,3 +397,103 @@ func TestInstance_GetExportedFunc_SelectsMax(t *testing.T) {
 	// Verify we got the right one by checking the name
 	require.Equal(t, "test:api@1.0.2/fn", fn.name)
 }
+
+func TestLinker_RelaxedSemverMatching_FuncImport(t *testing.T) {
+	// Test relaxed semver matching for function imports
+	l := NewLinker()
+	funcType := &FuncType{}
+
+	// Define v0.2.0
+	err := l.DefineFunc("test:api@0.2.0", "fn", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
+		return []Val{ValS32(200)}, nil
+	})
+	require.NoError(t, err)
+
+	// Strict mode: request v0.2.3 - should NOT match v0.2.0 (strict requires patch >= required)
+	_, err = l.MatchImport("test:api@0.2.3/fn")
+	require.Error(t, err, "strict mode should not match 0.2.0 for 0.2.3 requirement")
+
+	// Enable relaxed matching
+	l.SetRelaxedSemverMatching(true)
+	require.True(t, l.RelaxedSemverMatching())
+
+	// Relaxed mode: request v0.2.3 - should match v0.2.0
+	def, err := l.MatchImport("test:api@0.2.3/fn")
+	require.NoError(t, err, "relaxed mode should match 0.2.0 for 0.2.3 requirement")
+	require.NotNil(t, def)
+
+	// Verify we got the right function
+	funcDef := def.(*FuncDef)
+	results, err := funcDef.Callback(context.Background(), nil)
+	require.NoError(t, err)
+	require.Equal(t, int32(200), results[0].S32())
+}
+
+func TestLinker_RelaxedSemverMatching_InstanceImport(t *testing.T) {
+	// Test relaxed semver matching for instance imports
+	l := NewLinker()
+	funcType := &FuncType{}
+
+	// Define instance at v0.2.0
+	err := l.DefineInstance("wasi:cli/environment@0.2.0").
+		Func("get-environment", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
+			return nil, nil
+		}).
+		Build()
+	require.NoError(t, err)
+
+	// Strict mode: request v0.2.3 - should NOT match v0.2.0
+	_, err = l.MatchImport("wasi:cli/environment@0.2.3")
+	require.Error(t, err, "strict mode should not match 0.2.0 for 0.2.3 requirement")
+
+	// Enable relaxed matching
+	l.SetRelaxedSemverMatching(true)
+
+	// Relaxed mode: request v0.2.3 - should match v0.2.0
+	def, err := l.MatchImport("wasi:cli/environment@0.2.3")
+	require.NoError(t, err, "relaxed mode should match 0.2.0 for 0.2.3 requirement")
+	require.NotNil(t, def)
+
+	// Verify we got the instance
+	instDef, ok := def.(*InstanceDef)
+	require.True(t, ok)
+	require.NotNil(t, instDef.Exports["get-environment"])
+}
+
+func TestLinker_RelaxedSemverMatching_DifferentMinor(t *testing.T) {
+	// Test that relaxed matching still requires same minor version
+	l := NewLinker()
+	funcType := &FuncType{}
+
+	// Define v0.2.0
+	err := l.DefineFunc("test:api@0.2.0", "fn", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
+		return nil, nil
+	})
+	require.NoError(t, err)
+
+	// Enable relaxed matching
+	l.SetRelaxedSemverMatching(true)
+
+	// Request v0.3.0 - should NOT match v0.2.0 (different minor)
+	_, err = l.MatchImport("test:api@0.3.0/fn")
+	require.Error(t, err, "relaxed mode should not match 0.2.0 for 0.3.0 requirement")
+}
+
+func TestLinker_RelaxedSemverMatching_Post1_0(t *testing.T) {
+	// Test that relaxed matching doesn't affect post-1.0 versions
+	l := NewLinker()
+	funcType := &FuncType{}
+
+	// Define v1.0.0
+	err := l.DefineFunc("test:api@1.0.0", "fn", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
+		return nil, nil
+	})
+	require.NoError(t, err)
+
+	// Enable relaxed matching
+	l.SetRelaxedSemverMatching(true)
+
+	// Request v1.0.1 - should NOT match v1.0.0 (relaxed doesn't affect 1.x+)
+	_, err = l.MatchImport("test:api@1.0.1/fn")
+	require.Error(t, err, "relaxed mode should not affect post-1.0 versions")
+}

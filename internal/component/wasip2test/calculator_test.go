@@ -23,12 +23,13 @@ func TestCalculatorPlugins(t *testing.T) {
 	}
 
 	plugins := []struct {
-		name     string
-		file     string
-		expected int32
+		name                  string
+		file                  string
+		expected              int32
+		relaxedSemverMatching bool
 	}{
-		{"add", "plugins/add.wasm", 5},            // 2 + 3 (Rust, requires WASI)
-		{"subtract", "plugins/subtract.wasm", -1}, // 2 - 3 (C, no WASI)
+		{"add", "plugins/add.wasm", 5, true},             // 2 + 3 (Rust, requires WASI, uses relaxed semver)
+		{"subtract", "plugins/subtract.wasm", -1, false}, // 2 - 3 (C, no WASI)
 	}
 
 	for _, p := range plugins {
@@ -48,6 +49,11 @@ func TestCalculatorPlugins(t *testing.T) {
 
 			// Create component linker with runtime integration
 			linker := component.NewComponentLinker(rt)
+
+			// Enable relaxed semver matching if needed for this plugin
+			if p.relaxedSemverMatching {
+				linker.SetRelaxedSemverMatching(true)
+			}
 
 			// Merge WASI definitions into the component linker
 			linker.MergeFrom(wasiLinker)
