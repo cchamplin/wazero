@@ -25,6 +25,14 @@ type canonLowerInfo struct {
 	coreFuncIdx uint32            // Resulting core function index
 }
 
+// canonResourceInfo stores information about a canonical resource operation
+// (resource.new, resource.drop, resource.rep).
+type canonResourceInfo struct {
+	kind        CanonKind // ResourceNew, ResourceDrop, or ResourceRep
+	typeIdx     uint32    // Resource type index
+	coreFuncIdx uint32    // Resulting core function index
+}
+
 // ComponentLinker resolves component imports and instantiates components
 // with full runtime integration for core module instantiation.
 type ComponentLinker struct {
@@ -179,20 +187,42 @@ func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledCom
 	// Each canon lower produces a core function that wraps a component function.
 	// We need to track this so inline instances that export canon lower functions
 	// can create proper host modules with correct signatures.
+	// The ComponentFuncIdx field stores the assigned core function index for Lower
+	// and resource operations (assigned during binary decoding).
 	canonLowers := make(map[uint32]canonLowerInfo)
-	coreFuncIdx := uint32(0)
+	canonResources := make(map[uint32]canonResourceInfo)
 	for _, canon := range c.Canonicals {
 		switch canon.Kind {
 		case CanonKindLower:
-			canonLowers[coreFuncIdx] = canonLowerInfo{
+			// canon.ComponentFuncIdx contains the assigned core function index
+			canonLowers[canon.ComponentFuncIdx] = canonLowerInfo{
 				compFuncIdx: canon.FuncIdx,
 				options:     &canon.Options,
-				coreFuncIdx: coreFuncIdx,
+				coreFuncIdx: canon.ComponentFuncIdx,
 			}
-			coreFuncIdx++
 		case CanonKindResourceNew, CanonKindResourceDrop, CanonKindResourceRep:
-			coreFuncIdx++
+			// Track resource operations by their assigned core function index
+			canonResources[canon.ComponentFuncIdx] = canonResourceInfo{
+				kind:        canon.Kind,
+				typeIdx:     canon.TypeIdx,
+				coreFuncIdx: canon.ComponentFuncIdx,
+			}
 		// CanonKindLift produces component funcs, not core funcs
+		}
+	}
+
+	// Build function alias map for inline instance resolution
+	funcAliases := make(map[uint32]struct {
+		instanceIdx uint32
+		exportName  string
+	})
+	for i := range c.Aliases {
+		alias := &c.Aliases[i]
+		if alias.Kind == AliasKindCoreExport && alias.CoreSort == CoreSortFunc {
+			funcAliases[alias.Idx] = struct {
+				instanceIdx uint32
+				exportName  string
+			}{alias.InstanceIdx, alias.ExportName}
 		}
 	}
 
@@ -200,7 +230,7 @@ func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledCom
 	for i, coreInst := range c.CoreInstances {
 		switch coreInst.Kind {
 		case CoreInstanceExprInstantiate:
-			module, err := l.instantiateCoreModule(ctx, inst, c, &coreInst, compiledModules, i, resolvedImports, canonLowers)
+			module, err := l.instantiateCoreModule(ctx, inst, c, &coreInst, compiledModules, i, resolvedImports, canonLowers, canonResources, funcAliases)
 			if err != nil {
 				return nil, fmt.Errorf("instantiate core instance %d: %w", i, err)
 			}
@@ -624,7 +654,16 @@ func valTypeRefToValType(ref ValTypeRef) types.ValType {
 // If we bypassed the shims and used host modules directly, we would get signature
 // mismatches because our host modules don't match the exact signatures expected by
 // core modules (e.g., resource.drop operations have specific canonical signatures).
-func (l *ComponentLinker) buildImportResolver(ctx context.Context, inst *Instance, c *Component, coreInst *CoreInstance, resolvedImports map[string]Definition, canonLowers map[uint32]canonLowerInfo) experimental.ImportResolver {
+func (l *ComponentLinker) buildImportResolver(
+	ctx context.Context,
+	inst *Instance,
+	c *Component,
+	coreInst *CoreInstance,
+	resolvedImports map[string]Definition,
+	canonLowers map[uint32]canonLowerInfo,
+	canonResources map[uint32]canonResourceInfo,
+	funcAliases map[uint32]struct{ instanceIdx uint32; exportName string },
+) experimental.ImportResolver {
 	// Build a map from import module name to source instance index
 	importMap := make(map[string]uint32)
 	for _, arg := range coreInst.Args {
@@ -661,11 +700,11 @@ func (l *ComponentLinker) buildImportResolver(ctx context.Context, inst *Instanc
 					}
 
 					// If resolveInlineInstanceSource returned nil, the exports may come from
-					// canon lower operations. Try to create a host module for them.
+					// canon operations (lower/resource) or aliases. Create a composite host module.
 					if synth, exists := syntheticModules[moduleName]; exists {
 						return synth
 					}
-					hostMod := l.createCanonLowerHostModule(ctx, inst, c, srcCoreInst, canonLowers)
+					hostMod := l.createInlineInstanceModule(ctx, inst, c, srcCoreInst, canonLowers, canonResources, funcAliases)
 					if hostMod != nil {
 						syntheticModules[moduleName] = hostMod
 						return hostMod
@@ -867,6 +906,8 @@ func (l *ComponentLinker) instantiateCoreModule(
 	instanceIdx int,
 	resolvedImports map[string]Definition,
 	canonLowers map[uint32]canonLowerInfo,
+	canonResources map[uint32]canonResourceInfo,
+	funcAliases map[uint32]struct{ instanceIdx uint32; exportName string },
 ) (api.Module, error) {
 	moduleIdx := coreInst.ModuleIdx
 	if int(moduleIdx) >= len(compiledModules) {
@@ -887,7 +928,7 @@ func (l *ComponentLinker) instantiateCoreModule(
 	// previously instantiated core instances AND component-level imports.
 	// We always build a resolver now since we need to handle component imports
 	// even when there are no inter-core-instance args.
-	resolver := l.buildImportResolver(ctx, inst, c, coreInst, resolvedImports, canonLowers)
+	resolver := l.buildImportResolver(ctx, inst, c, coreInst, resolvedImports, canonLowers, canonResources, funcAliases)
 	ctx = experimental.WithImportResolver(ctx, resolver)
 
 	// Try to use the runtime to instantiate the module
@@ -1306,15 +1347,19 @@ func extractFuncName(importPath string) string {
 	return importPath[lastSlash+1:]
 }
 
-// createCanonLowerHostModule creates a host module from an inline instance
-// that has exports coming from canon lower operations. This creates proper
-// core functions with correct signatures based on the component function types.
-func (l *ComponentLinker) createCanonLowerHostModule(
+// createInlineInstanceModule creates a host module from an inline instance
+// that has exports coming from multiple sources:
+// 1. Canon lower operations - creates proper core functions with correct signatures
+// 2. Resource operations (drop/new/rep) - creates resource handling functions
+// 3. Aliases - forwards to the source core instance
+func (l *ComponentLinker) createInlineInstanceModule(
 	ctx context.Context,
 	inst *Instance,
 	c *Component,
 	inlineInst *CoreInstance,
 	canonLowers map[uint32]canonLowerInfo,
+	canonResources map[uint32]canonResourceInfo,
+	funcAliases map[uint32]struct{ instanceIdx uint32; exportName string },
 ) api.Module {
 	// Check if the runtime supports host module instantiation
 	hmi, ok := l.runtime.(HostModuleInstantiator)
@@ -1329,49 +1374,34 @@ func (l *ComponentLinker) createCanonLowerHostModule(
 			continue
 		}
 
-		// Check if this is a canon lower function
-		info, ok := canonLowers[exp.Idx]
-		if !ok {
-			continue
-		}
+		// Try each source type in order: canon lower, resource ops, aliases
 
-		// Get the component function being lowered
-		compFunc, ok := inst.componentFuncs[info.compFuncIdx]
-		if !ok {
-			continue
-		}
-
-		// Convert FuncType to types.ValType slices for CoreSignature
-		var paramTypes, resultTypes []types.ValType
-		if compFunc.Type != nil {
-			resolver := NewTypeResolver(c)
-			for _, p := range compFunc.Type.Params {
-				if vt := resolveToValType(p, resolver); vt != nil {
-					paramTypes = append(paramTypes, vt)
-				}
+		// 1. Check if this is a canon lower function
+		if info, ok := canonLowers[exp.Idx]; ok {
+			export := l.createCanonLowerExport(ctx, inst, c, exp.Name, info)
+			if export != nil {
+				exports = append(exports, *export)
 			}
-			for _, r := range compFunc.Type.Results {
-				if vt := resolveToValType(r, resolver); vt != nil {
-					resultTypes = append(resultTypes, vt)
-				}
-			}
-		}
-
-		// Get the core signature using the ABI flattening
-		params, results, needsRetptr := coreSignature(paramTypes, resultTypes)
-
-		// Create the lowered function
-		goFunc := l.createCanonLowerFunc(ctx, inst, c, info, compFunc, needsRetptr)
-		if goFunc == nil {
 			continue
 		}
 
-		exports = append(exports, HostModuleExport{
-			Name:        exp.Name,
-			ParamTypes:  params,
-			ResultTypes: results,
-			Func:        goFunc,
-		})
+		// 2. Check if this is a resource operation
+		if info, ok := canonResources[exp.Idx]; ok {
+			export := l.createResourceOpExport(inst, exp.Name, info)
+			if export != nil {
+				exports = append(exports, *export)
+			}
+			continue
+		}
+
+		// 3. Check if this is an alias - forward to source core instance
+		if aliasInfo, ok := funcAliases[exp.Idx]; ok {
+			export := l.createAliasExport(inst, exp.Name, aliasInfo.instanceIdx, aliasInfo.exportName)
+			if export != nil {
+				exports = append(exports, *export)
+			}
+			continue
+		}
 	}
 
 	if len(exports) == 0 {
@@ -1379,12 +1409,166 @@ func (l *ComponentLinker) createCanonLowerHostModule(
 	}
 
 	// Generate a unique module name for this host module
-	moduleName := fmt.Sprintf("$canon_lower_%p", inlineInst)
+	moduleName := fmt.Sprintf("$inline_%p", inlineInst)
 	mod, err := hmi.InstantiateHostModule(ctx, moduleName, exports)
 	if err != nil {
 		return nil
 	}
 	return mod
+}
+
+// createCanonLowerExport creates a HostModuleExport for a canon lower operation.
+func (l *ComponentLinker) createCanonLowerExport(
+	ctx context.Context,
+	inst *Instance,
+	c *Component,
+	name string,
+	info canonLowerInfo,
+) *HostModuleExport {
+	// Get the component function being lowered
+	compFunc, ok := inst.componentFuncs[info.compFuncIdx]
+	if !ok {
+		return nil
+	}
+
+	// Convert FuncType to types.ValType slices for CoreSignature
+	var paramTypes, resultTypes []types.ValType
+	if compFunc.Type != nil {
+		resolver := NewTypeResolver(c)
+		for _, p := range compFunc.Type.Params {
+			if vt := resolveToValType(p, resolver); vt != nil {
+				paramTypes = append(paramTypes, vt)
+			}
+		}
+		for _, r := range compFunc.Type.Results {
+			if vt := resolveToValType(r, resolver); vt != nil {
+				resultTypes = append(resultTypes, vt)
+			}
+		}
+	}
+
+	// Get the core signature using the ABI flattening
+	params, results, needsRetptr := coreSignature(paramTypes, resultTypes)
+
+	// Create the lowered function
+	goFunc := l.createCanonLowerFunc(ctx, inst, c, info, compFunc, needsRetptr)
+	if goFunc == nil {
+		return nil
+	}
+
+	return &HostModuleExport{
+		Name:        name,
+		ParamTypes:  params,
+		ResultTypes: results,
+		Func:        goFunc,
+	}
+}
+
+// createResourceOpExport creates a HostModuleExport for a resource operation.
+func (l *ComponentLinker) createResourceOpExport(
+	inst *Instance,
+	name string,
+	info canonResourceInfo,
+) *HostModuleExport {
+	switch info.kind {
+	case CanonKindResourceDrop:
+		// resource.drop: (i32) -> ()
+		return &HostModuleExport{
+			Name:        name,
+			ParamTypes:  []api.ValueType{api.ValueTypeI32},
+			ResultTypes: []api.ValueType{},
+			Func: api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
+				handle := uint32(stack[0])
+				// Get the resource table and drop the handle
+				if inst.resourceTable != nil {
+					inst.resourceTable.Remove(Handle(handle))
+				}
+			}),
+		}
+	case CanonKindResourceNew:
+		// resource.new: (i32) -> i32
+		return &HostModuleExport{
+			Name:        name,
+			ParamTypes:  []api.ValueType{api.ValueTypeI32},
+			ResultTypes: []api.ValueType{api.ValueTypeI32},
+			Func: api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
+				rep := uint32(stack[0])
+				if inst.resourceTable != nil {
+					handle := inst.resourceTable.New(rep, true)
+					stack[0] = uint64(handle)
+				}
+			}),
+		}
+	case CanonKindResourceRep:
+		// resource.rep: (i32) -> i32
+		return &HostModuleExport{
+			Name:        name,
+			ParamTypes:  []api.ValueType{api.ValueTypeI32},
+			ResultTypes: []api.ValueType{api.ValueTypeI32},
+			Func: api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
+				handle := uint32(stack[0])
+				if inst.resourceTable != nil {
+					rep, err := inst.resourceTable.Rep(Handle(handle))
+					if err == nil {
+						stack[0] = uint64(rep)
+					}
+				}
+			}),
+		}
+	}
+	return nil
+}
+
+// createAliasExport creates a HostModuleExport that forwards to a function from another core instance.
+func (l *ComponentLinker) createAliasExport(
+	inst *Instance,
+	name string,
+	sourceInstanceIdx uint32,
+	sourceExportName string,
+) *HostModuleExport {
+	// Get the source core instance
+	if int(sourceInstanceIdx) >= len(inst.coreInstances) {
+		return nil
+	}
+	sourceInst := inst.coreInstances[sourceInstanceIdx]
+	if sourceInst == nil {
+		return nil
+	}
+
+	// Get the source function
+	sourceFunc := sourceInst.ExportedFunction(sourceExportName)
+	if sourceFunc == nil {
+		return nil
+	}
+
+	// Get the function definition to extract param/result types
+	defs := sourceInst.ExportedFunctionDefinitions()
+	def := defs[sourceExportName]
+	if def == nil {
+		return nil
+	}
+
+	paramTypes := def.ParamTypes()
+	resultTypes := def.ResultTypes()
+
+	// Create a forwarding function
+	return &HostModuleExport{
+		Name:        name,
+		ParamTypes:  paramTypes,
+		ResultTypes: resultTypes,
+		Func: api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
+			// Call the source function with the same stack
+			// Note: This assumes the stack layout is compatible
+			results, err := sourceFunc.Call(ctx, stack[:len(paramTypes)]...)
+			if err != nil {
+				return
+			}
+			// Copy results back to stack
+			for i, r := range results {
+				stack[i] = r
+			}
+		}),
+	}
 }
 
 // createCanonLowerFunc creates a GoModuleFunc that implements a canon lower operation.

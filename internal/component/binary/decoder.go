@@ -387,12 +387,14 @@ func decodeCanonSection(c *component.Component, r *bytes.Reader) error {
 
 		case component.CanonKindLower:
 			// Canon lower produces a core function.
-			// Increment the core function index space.
+			// Store the assigned core function index, then increment.
+			def.ComponentFuncIdx = c.NextCoreFuncIdx
 			c.NextCoreFuncIdx++
 
 		case component.CanonKindResourceNew, component.CanonKindResourceDrop, component.CanonKindResourceRep:
 			// Resource operations (new, drop, rep) produce core functions.
-			// Increment the core function index space.
+			// Store the assigned core function index, then increment.
+			def.ComponentFuncIdx = c.NextCoreFuncIdx
 			c.NextCoreFuncIdx++
 		}
 

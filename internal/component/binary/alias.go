@@ -101,8 +101,9 @@ func decodeAliasSection(c *component.Component, r *bytes.Reader) error {
 			return fmt.Errorf("decoding alias %d: %w", startIdx+i, err)
 		}
 
-		// Assign the target index based on the core sort.
+		// Assign the target index based on the alias kind and sort.
 		// Core export aliases add to the appropriate core index space.
+		// Component export aliases with Sort=func add to the component function index space.
 		if alias.Kind == component.AliasKindCoreExport {
 			switch alias.CoreSort {
 			case component.CoreSortFunc:
@@ -112,6 +113,10 @@ func decodeAliasSection(c *component.Component, r *bytes.Reader) error {
 				alias.Idx = c.NextCoreMemoryIdx
 				c.NextCoreMemoryIdx++
 			}
+		} else if alias.Kind == component.AliasKindExport && alias.Sort == component.SortFunc {
+			// Component-level function alias creates a component function
+			alias.Idx = c.NextFuncIdx
+			c.NextFuncIdx++
 		}
 
 		c.Aliases = append(c.Aliases, alias)
