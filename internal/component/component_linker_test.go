@@ -183,7 +183,10 @@ func TestComponentLinker_OrderedInstantiation(t *testing.T) {
 	// Build import resolver for core instance 1
 	ctx := context.Background()
 	resolvedImports := make(map[string]Definition)
-	resolver := linker.buildImportResolver(ctx, inst, c, &c.CoreInstances[1], resolvedImports)
+	canonLowers := make(map[uint32]canonLowerInfo)
+	canonResources := make(map[uint32]canonResourceInfo)
+	funcAliases := make(map[uint32]struct{ instanceIdx uint32; exportName string })
+	resolver := linker.buildImportResolver(ctx, inst, c, &c.CoreInstances[1], resolvedImports, canonLowers, canonResources, funcAliases)
 	require.NotNil(t, resolver)
 
 	// The resolver should map "provider" to instance 0

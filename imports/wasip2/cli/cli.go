@@ -142,7 +142,13 @@ func exit(ctx context.Context, args []component.Val) ([]component.Val, error) {
 func instantiateStdin(linker *component.Linker) error {
 	inst := linker.DefineInstance("wasi:cli/stdin@0.2.0")
 
-	inst.FuncNoType("get-stdin", getStdin)
+	// get-stdin: func() -> own<input-stream>
+	inst.Func("get-stdin", &component.FuncType{
+		Params: []component.NamedValType{},
+		Results: []component.NamedValType{
+			{ValType: component.ValTypeRef{IsOwn: true}},
+		},
+	}, getStdin)
 
 	return inst.Build()
 }
@@ -170,7 +176,13 @@ func getStdin(ctx context.Context, args []component.Val) ([]component.Val, error
 func instantiateStdout(linker *component.Linker) error {
 	inst := linker.DefineInstance("wasi:cli/stdout@0.2.0")
 
-	inst.FuncNoType("get-stdout", getStdout)
+	// get-stdout: func() -> own<output-stream>
+	inst.Func("get-stdout", &component.FuncType{
+		Params: []component.NamedValType{},
+		Results: []component.NamedValType{
+			{ValType: component.ValTypeRef{IsOwn: true}},
+		},
+	}, getStdout)
 
 	return inst.Build()
 }
@@ -198,7 +210,13 @@ func getStdout(ctx context.Context, args []component.Val) ([]component.Val, erro
 func instantiateStderr(linker *component.Linker) error {
 	inst := linker.DefineInstance("wasi:cli/stderr@0.2.0")
 
-	inst.FuncNoType("get-stderr", getStderr)
+	// get-stderr: func() -> own<output-stream>
+	inst.Func("get-stderr", &component.FuncType{
+		Params: []component.NamedValType{},
+		Results: []component.NamedValType{
+			{ValType: component.ValTypeRef{IsOwn: true}},
+		},
+	}, getStderr)
 
 	return inst.Build()
 }

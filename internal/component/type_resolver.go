@@ -105,6 +105,19 @@ func (r *TypeResolver) resolveTypeIdx(idx uint32) (types.ValType, error) {
 }
 
 func (r *TypeResolver) resolveDefinedType(typeDef *TypeDef) (types.ValType, error) {
+	// Handle types stored in the Handle field (primitives, own, borrow)
+	if typeDef.Handle != nil {
+		if typeDef.Handle.IsPrimitive {
+			// Primitive type alias (e.g., filesize = u64)
+			return r.resolvePrimitive(typeDef.Handle.Primitive)
+		}
+		if typeDef.Handle.IsOwn {
+			return types.Own{ResourceIdx: typeDef.Handle.TypeIdx}, nil
+		}
+		if typeDef.Handle.IsBorrow {
+			return types.Borrow{ResourceIdx: typeDef.Handle.TypeIdx}, nil
+		}
+	}
 	if typeDef.Record != nil {
 		return r.resolveRecord(typeDef.Record)
 	}
