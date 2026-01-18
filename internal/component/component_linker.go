@@ -230,7 +230,8 @@ func (l *ComponentLinker) buildImportResolver(ctx context.Context, inst *Instanc
 
 		// Fall back to host implementations only if no internal instance is available.
 		// This handles cases where the component imports directly from host without
-		// an internal shim layer.
+		// an internal shim layer, OR when inline instance resolution fails because
+		// exports come from canonical operations (like canon lower).
 		def := l.matchComponentImport(moduleName, resolvedImports)
 		if def != nil {
 			// Check if we already have a cached host module
@@ -304,20 +305,25 @@ func (l *ComponentLinker) resolveInlineInstanceSource(inst *Instance, c *Compone
 	var primaryInstanceIdx uint32 = 0xFFFFFFFF
 	allSameSource := true
 	namesMatch := true
+	totalExports := 0 // Count of exports we expect to map (func and memory only)
 
 	for _, exp := range inlineInst.InlineExports {
 		var src exportSource
 		var ok bool
 		switch exp.Sort {
 		case CoreSortFunc:
+			totalExports++
 			src, ok = funcAliases[exp.Idx]
 		case CoreSortMemory:
+			totalExports++
 			src, ok = memAliases[exp.Idx]
 		default:
 			continue
 		}
 
 		if !ok {
+			// This export comes from a canonical operation (canon lower, resource.drop, etc.)
+			// not from an alias. We cannot resolve it through alias tracing.
 			continue
 		}
 
@@ -334,6 +340,13 @@ func (l *ComponentLinker) resolveInlineInstanceSource(inst *Instance, c *Compone
 		if exp.Name != src.exportName {
 			namesMatch = false
 		}
+	}
+
+	// If we couldn't map all exports (some come from canonical operations),
+	// we cannot use alias-based resolution. Return nil to allow fallback to
+	// host implementations.
+	if len(exportMapping) != totalExports {
+		return nil
 	}
 
 	if len(exportMapping) == 0 {
@@ -609,6 +622,7 @@ func (l *ComponentLinker) matchComponentImport(moduleName string, resolvedImport
 	// Parse the requested module name to extract base and version
 	// Module names can be like "wasi:filesystem/preopens@0.2.2"
 	baseReq, reqVersionStr, hasReqVersion := SplitVersion(moduleName)
+
 	if !hasReqVersion {
 		// No version in request, try exact match in linker definitions
 		if def, ok := l.definitions[moduleName]; ok {
@@ -741,9 +755,10 @@ func (l *ComponentLinker) createHostModule(ctx context.Context, moduleName strin
 		return nil
 	}
 
-	// Use empty module name to avoid registering in the store
-	// We'll provide this module through the import resolver only
-	mod, err := hmi.InstantiateHostModule(ctx, "", exports)
+	// Use the module name from the import - the runtime requires a non-empty name.
+	// This name won't conflict since we're providing this module through the import
+	// resolver, not registering it in the store for lookup.
+	mod, err := hmi.InstantiateHostModule(ctx, moduleName, exports)
 	if err != nil {
 		return nil
 	}
