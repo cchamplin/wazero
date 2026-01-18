@@ -553,7 +553,13 @@ func (r *runtime) InstantiateHostModule(ctx context.Context, moduleName string, 
 			WithGoModuleFunction(exp.Func, exp.ParamTypes, exp.ResultTypes).
 			Export(exp.Name)
 	}
-	// Use empty name to avoid registering in the store's module map
-	// since we want to provide this module only through the import resolver
-	return builder.Instantiate(ctx)
+	// We need to return the raw *wasm.ModuleInstance, not the hostModuleInstance wrapper.
+	// The wrapper prevents calling ExportedFunction, but the import resolver needs the raw
+	// module to properly resolve imports.
+	compiled, err := builder.Compile(ctx)
+	if err != nil {
+		return nil, err
+	}
+	compiled.(*compiledModule).closeWithModule = true
+	return r.InstantiateModule(ctx, compiled, NewModuleConfig())
 }
