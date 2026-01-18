@@ -182,6 +182,14 @@ func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledCom
 // resolvedImports using semver matching. When a component import is matched
 // (e.g., wasi:filesystem/preopens@0.2.2), a host module is created that
 // wraps the host functions defined in the InstanceDef.
+//
+// IMPORTANT: Internal core instances (shim modules) take priority over host implementations.
+// The component's internal shim modules use canonical operations (canon lower/lift) to
+// translate between core module signatures and the component ABI. These shims then call
+// the component-level imports (our host implementations) via canonical operations.
+// If we bypassed the shims and used host modules directly, we would get signature
+// mismatches because our host modules don't match the exact signatures expected by
+// core modules (e.g., resource.drop operations have specific canonical signatures).
 func (l *ComponentLinker) buildImportResolver(ctx context.Context, inst *Instance, c *Component, coreInst *CoreInstance, resolvedImports map[string]Definition) experimental.ImportResolver {
 	// Build a map from import module name to source instance index
 	importMap := make(map[string]uint32)
@@ -193,26 +201,11 @@ func (l *ComponentLinker) buildImportResolver(ctx context.Context, inst *Instanc
 	syntheticModules := make(map[string]api.Module)
 
 	return func(moduleName string) api.Module {
-		// First, check if we have a host implementation for this import.
-		// This takes priority because host implementations are properly typed
-		// and have correct signatures, unlike shim modules which may have
-		// placeholder functions.
-		def := l.matchComponentImport(moduleName, resolvedImports)
-		if def != nil {
-			// Check if we already have a cached host module
-			if synth, exists := syntheticModules[moduleName]; exists {
-				return synth
-			}
-
-			// Create a host module from the definition
-			hostMod := l.createHostModule(ctx, moduleName, def, inst)
-			if hostMod != nil {
-				syntheticModules[moduleName] = hostMod
-				return hostMod
-			}
-		}
-
-		// Fall back to inter-core-instance imports
+		// First, check if the component has an internal instance for this import.
+		// Internal instances (from inter-core-instance imports or inline instances)
+		// take priority because they contain the component's shim code that properly
+		// translates between core module signatures and the component ABI using
+		// canonical operations (canon lower/lift/resource.drop/etc).
 		instanceIdx, ok := importMap[moduleName]
 		if ok {
 			// Check if we have a direct core instance
@@ -233,6 +226,24 @@ func (l *ComponentLinker) buildImportResolver(ctx context.Context, inst *Instanc
 						return result
 					}
 				}
+			}
+		}
+
+		// Fall back to host implementations only if no internal instance is available.
+		// This handles cases where the component imports directly from host without
+		// an internal shim layer.
+		def := l.matchComponentImport(moduleName, resolvedImports)
+		if def != nil {
+			// Check if we already have a cached host module
+			if synth, exists := syntheticModules[moduleName]; exists {
+				return synth
+			}
+
+			// Create a host module from the definition
+			hostMod := l.createHostModule(ctx, moduleName, def, inst)
+			if hostMod != nil {
+				syntheticModules[moduleName] = hostMod
+				return hostMod
 			}
 		}
 
