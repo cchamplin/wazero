@@ -13,8 +13,9 @@ import (
 // ComponentLinker resolves component imports and instantiates components
 // with full runtime integration for core module instantiation.
 type ComponentLinker struct {
-	runtime     any // wazero.Runtime - stored as any to avoid import cycle
-	definitions map[string]Definition
+	runtime       any // wazero.Runtime - stored as any to avoid import cycle
+	definitions   map[string]Definition
+	relaxedSemver bool
 }
 
 // NewComponentLinker creates a new component linker with access to a runtime.
@@ -24,6 +25,19 @@ func NewComponentLinker(rt any) *ComponentLinker {
 		runtime:     rt,
 		definitions: make(map[string]Definition),
 	}
+}
+
+// SetRelaxedSemverMatching enables or disables relaxed semver matching.
+// When enabled, pre-1.0 versions (0.x.y) match any patch version within
+// the same minor version (e.g., 0.2.0 matches 0.2.3).
+// By default, strict matching is used where available.Patch >= required.Patch.
+func (l *ComponentLinker) SetRelaxedSemverMatching(relaxed bool) {
+	l.relaxedSemver = relaxed
+}
+
+// RelaxedSemverMatching returns whether relaxed semver matching is enabled.
+func (l *ComponentLinker) RelaxedSemverMatching() bool {
+	return l.relaxedSemver
 }
 
 // DefineFunc adds a host function definition.
@@ -522,7 +536,7 @@ func (l *ComponentLinker) resolveCoreMemory(inst *Instance, c *Component, memIdx
 // MatchImport finds a definition that satisfies the import name.
 func (l *ComponentLinker) MatchImport(importName string) (Definition, error) {
 	// Create a temporary Linker to reuse its MatchImport logic
-	linker := &Linker{definitions: l.definitions}
+	linker := &Linker{definitions: l.definitions, relaxedSemver: l.relaxedSemver}
 	return linker.MatchImport(importName)
 }
 

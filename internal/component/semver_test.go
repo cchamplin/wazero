@@ -83,8 +83,45 @@ func TestSemverCompatible(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		result := SemverCompatible(tt.required, tt.available)
+		result := SemverCompatible(tt.required, tt.available, false)
 		require.Equal(t, tt.compatible, result,
 			"required=%v available=%v", tt.required, tt.available)
+	}
+}
+
+func TestSemverCompatibleRelaxed(t *testing.T) {
+	tests := []struct {
+		name       string
+		required   *Semver
+		available  *Semver
+		relaxed    bool
+		compatible bool
+	}{
+		// Strict mode (relaxed=false): 0.x.y requires available.Patch >= required.Patch
+		{"strict: 0.2.0 requires 0.2.3 - incompatible", &Semver{0, 2, 3}, &Semver{0, 2, 0}, false, false},
+		{"strict: 0.2.0 provides 0.2.3 - compatible", &Semver{0, 2, 0}, &Semver{0, 2, 3}, false, true},
+		{"strict: 0.2.3 exact match", &Semver{0, 2, 3}, &Semver{0, 2, 3}, false, true},
+
+		// Relaxed mode (relaxed=true): any 0.x.* matches any other 0.x.*
+		{"relaxed: 0.2.0 requires 0.2.3 - compatible", &Semver{0, 2, 3}, &Semver{0, 2, 0}, true, true},
+		{"relaxed: 0.2.3 provides 0.2.0 - compatible", &Semver{0, 2, 0}, &Semver{0, 2, 3}, true, true},
+		{"relaxed: 0.2.3 exact match", &Semver{0, 2, 3}, &Semver{0, 2, 3}, true, true},
+
+		// Relaxed mode still requires same minor version
+		{"relaxed: 0.2.x vs 0.3.x - incompatible", &Semver{0, 2, 0}, &Semver{0, 3, 0}, true, false},
+		{"relaxed: 0.3.x vs 0.2.x - incompatible", &Semver{0, 3, 0}, &Semver{0, 2, 0}, true, false},
+
+		// Relaxed mode doesn't affect 1.x+ versions
+		{"relaxed: 1.0.0 vs 1.0.1 - compatible", &Semver{1, 0, 0}, &Semver{1, 0, 1}, true, true},
+		{"relaxed: 1.0.1 vs 1.0.0 - incompatible", &Semver{1, 0, 1}, &Semver{1, 0, 0}, true, false},
+		{"relaxed: 1.1.0 vs 1.0.0 - incompatible", &Semver{1, 1, 0}, &Semver{1, 0, 0}, true, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := SemverCompatible(tt.required, tt.available, tt.relaxed)
+			require.Equal(t, tt.compatible, result,
+				"required=%v available=%v relaxed=%v", tt.required, tt.available, tt.relaxed)
+		})
 	}
 }

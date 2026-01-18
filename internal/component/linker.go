@@ -40,7 +40,8 @@ func (*ResourceDef) definition() {}
 
 // Linker resolves component imports and instantiates components.
 type Linker struct {
-	definitions map[string]Definition
+	definitions    map[string]Definition
+	relaxedSemver  bool
 }
 
 // NewLinker creates a new component linker.
@@ -48,6 +49,19 @@ func NewLinker() *Linker {
 	return &Linker{
 		definitions: make(map[string]Definition),
 	}
+}
+
+// SetRelaxedSemverMatching enables or disables relaxed semver matching.
+// When enabled, pre-1.0 versions (0.x.y) match any patch version within
+// the same minor version (e.g., 0.2.0 matches 0.2.3).
+// By default, strict matching is used where available.Patch >= required.Patch.
+func (l *Linker) SetRelaxedSemverMatching(relaxed bool) {
+	l.relaxedSemver = relaxed
+}
+
+// RelaxedSemverMatching returns whether relaxed semver matching is enabled.
+func (l *Linker) RelaxedSemverMatching() bool {
+	return l.relaxedSemver
 }
 
 // DefineFunc adds a host function definition.
@@ -122,9 +136,11 @@ func (l *Linker) Get(key string) (Definition, bool) {
 
 // MatchImport finds a definition that satisfies the import name.
 // Supports semver-compatible matching per component model spec.
+// Handles both function imports (namespace@version/name) and instance imports (package/interface@version).
 func (l *Linker) MatchImport(importName string) (Definition, error) {
 	// Parse import name into namespace/name format
 	// e.g., "test:api@1.0.0/fn" -> namespace="test:api@1.0.0", name="fn"
+	// or "wasi:cli/environment@0.2.0" -> this is an instance import
 	lastSlash := strings.LastIndex(importName, "/")
 	if lastSlash == -1 {
 		return nil, fmt.Errorf("import not found: %s", importName)
@@ -136,7 +152,71 @@ func (l *Linker) MatchImport(importName string) (Definition, error) {
 	// Split namespace into base and version
 	baseNamespace, reqVersionStr, hasReqVersion := SplitVersion(namespace)
 	if !hasReqVersion {
-		// No version - try direct match only
+		// No version in namespace - check if version is in the name part
+		// This handles instance imports like "wasi:cli/environment@0.2.0"
+		baseName, nameVersionStr, hasNameVersion := SplitVersion(name)
+		if hasNameVersion {
+			// This is an instance import with version in the name
+			reqVersion, err := ParseSemver(nameVersionStr)
+			if err != nil {
+				return nil, fmt.Errorf("invalid version in import: %w", err)
+			}
+
+			// Construct the base key without version
+			baseKey := namespace + "/" + baseName
+
+			// Find best compatible match for instance imports
+			var bestDef Definition
+			var bestVersion *Semver
+
+			for defName, def := range l.definitions {
+				// Extract base key and version from definition
+				defLastSlash := strings.LastIndex(defName, "/")
+				if defLastSlash == -1 {
+					continue
+				}
+				defNamespace := defName[:defLastSlash]
+				defName2 := defName[defLastSlash+1:]
+
+				// Check if namespace matches
+				if defNamespace != namespace {
+					continue
+				}
+
+				// Check if base name matches (without version)
+				defBaseName, defVersionStr, hasDefVersion := SplitVersion(defName2)
+				if defBaseName != baseName {
+					continue
+				}
+				if !hasDefVersion {
+					continue
+				}
+
+				defVersion, err := ParseSemver(defVersionStr)
+				if err != nil {
+					continue
+				}
+
+				// Check semver compatibility
+				if !SemverCompatible(reqVersion, defVersion, l.relaxedSemver) {
+					continue
+				}
+
+				// Select highest compatible version
+				if bestVersion == nil || semverGreater(defVersion, bestVersion) {
+					bestDef = def
+					bestVersion = defVersion
+				}
+			}
+
+			if bestDef != nil {
+				return bestDef, nil
+			}
+
+			return nil, fmt.Errorf("no compatible definition for: %s (base: %s)", importName, baseKey)
+		}
+
+		// No version anywhere - try direct match only
 		if def, ok := l.definitions[importName]; ok {
 			return def, nil
 		}
@@ -180,7 +260,7 @@ func (l *Linker) MatchImport(importName string) (Definition, error) {
 		}
 
 		// Check semver compatibility
-		if !SemverCompatible(reqVersion, defVersion) {
+		if !SemverCompatible(reqVersion, defVersion, l.relaxedSemver) {
 			continue
 		}
 
@@ -326,7 +406,9 @@ func (i *Instance) GetExportedFunc(name string) *ExportedFunc {
 		// For exports, check bidirectional semver compatibility:
 		// - Requested old, export new: SemverCompatible(reqVersion, expVersion)
 		// - Requested new, export old: SemverCompatible(expVersion, reqVersion)
-		if !SemverCompatible(reqVersion, expVersion) && !SemverCompatible(expVersion, reqVersion) {
+		// Note: Using strict mode (false) for export matching. Relaxed mode
+		// is primarily for import resolution during linking.
+		if !SemverCompatible(reqVersion, expVersion, false) && !SemverCompatible(expVersion, reqVersion, false) {
 			continue
 		}
 
