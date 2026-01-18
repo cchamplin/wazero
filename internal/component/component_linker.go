@@ -354,6 +354,7 @@ func (l *ComponentLinker) buildComponentFuncs(inst *Instance, c *Component, reso
 // lookupFuncTypeFromImport looks up the function type from the component's import type definitions.
 // This is used when the host defines a function without type information (using FuncNoType).
 func (l *ComponentLinker) lookupFuncTypeFromImport(c *Component, instanceIdx uint32, exportName string) *FuncType {
+
 	// Find the import that creates this instance
 	compInstanceIdx := uint32(0)
 	for _, imp := range c.Imports {
@@ -372,7 +373,7 @@ func (l *ComponentLinker) lookupFuncTypeFromImport(c *Component, instanceIdx uin
 				if int(instanceIdx) < len(c.Types) {
 					typeDef := &c.Types[instanceIdx]
 					if typeDef.Instance != nil {
-						return l.lookupFuncInInstanceType(typeDef.Instance, exportName)
+						return l.lookupFuncInInstanceTypeWithOuter(typeDef.Instance, exportName, c.Types)
 					}
 				}
 
@@ -380,7 +381,7 @@ func (l *ComponentLinker) lookupFuncTypeFromImport(c *Component, instanceIdx uin
 				for i := range c.Types {
 					typeDef := &c.Types[i]
 					if typeDef.Instance != nil {
-						if ft := l.lookupFuncInInstanceType(typeDef.Instance, exportName); ft != nil {
+						if ft := l.lookupFuncInInstanceTypeWithOuter(typeDef.Instance, exportName, c.Types); ft != nil {
 							return ft
 						}
 					}
@@ -395,21 +396,27 @@ func (l *ComponentLinker) lookupFuncTypeFromImport(c *Component, instanceIdx uin
 
 // lookupFuncInInstanceType looks up a function type by export name within an instance type.
 // It resolves nested type references using the instance type's local type namespace.
+// This version doesn't have access to outer types, so it cannot resolve type aliases.
 func (l *ComponentLinker) lookupFuncInInstanceType(inst *InstanceTypeDef, exportName string) *FuncType {
+	return l.lookupFuncInInstanceTypeWithOuter(inst, exportName, nil)
+}
+
+// lookupFuncInInstanceTypeWithOuter looks up a function type by export name within an instance type.
+// It resolves nested type references using the instance type's local type namespace and outer types.
+func (l *ComponentLinker) lookupFuncInInstanceTypeWithOuter(inst *InstanceTypeDef, exportName string, outerTypes []TypeDef) *FuncType {
 	// Build the local type index space for this instance type
-	localTypes := buildLocalTypeIndex(inst)
+	localTypes := buildLocalTypeIndex(inst, outerTypes)
 
 	for _, decl := range inst.Declarations {
 		if decl.Kind == InstanceDeclKindExport && decl.Export != nil {
 			if decl.Export.Name == exportName && decl.Export.Kind == ExportKindFunc {
-				// For function exports, Idx is the declaration index where the function type is defined
+				// For function exports, Idx is the type index in the local type space
 				funcTypeIdx := decl.Export.Idx
-				if int(funcTypeIdx) < len(inst.Declarations) {
-					typeDecl := inst.Declarations[funcTypeIdx]
-					if typeDecl.Kind == InstanceDeclKindType && typeDecl.Type != nil && typeDecl.Type.Kind == TypeDefKindFunc {
-						// Resolve the FuncType's parameter and result types using local types
-						return resolveFuncType(typeDecl.Type.Func, localTypes)
-					}
+				// Look up the type in the local type space
+				td := localTypes[funcTypeIdx]
+				if td != nil && td.Kind == TypeDefKindFunc && td.Func != nil {
+					// Resolve the FuncType's parameter and result types using local types
+					return resolveFuncType(td.Func, localTypes)
 				}
 				return nil
 			}
@@ -418,13 +425,36 @@ func (l *ComponentLinker) lookupFuncInInstanceType(inst *InstanceTypeDef, export
 	return nil
 }
 
-// buildLocalTypeIndex builds a map from declaration index to TypeDef for an instance type.
-// In instance type definitions, type references use declaration indices.
-func buildLocalTypeIndex(inst *InstanceTypeDef) map[uint32]*TypeDef {
+// buildLocalTypeIndex builds a map from type index to TypeDef for an instance type.
+// In instance type definitions, each declaration that adds to the type index space
+// (type declarations and type aliases) increments the type index counter.
+// outerTypes is used to resolve type aliases that reference outer scope types.
+func buildLocalTypeIndex(inst *InstanceTypeDef, outerTypes []TypeDef) map[uint32]*TypeDef {
 	localTypes := make(map[uint32]*TypeDef)
-	for i, decl := range inst.Declarations {
-		if decl.Kind == InstanceDeclKindType && decl.Type != nil {
-			localTypes[uint32(i)] = decl.Type
+	typeIdx := uint32(0)
+
+	for _, decl := range inst.Declarations {
+		// Only type declarations and type aliases contribute to the type index space
+		switch decl.Kind {
+		case InstanceDeclKindType:
+			if decl.Type != nil {
+				localTypes[typeIdx] = decl.Type
+			}
+			typeIdx++
+		case InstanceDeclKindAlias:
+			// Aliases with Sort=Type also contribute to the type index space
+			if decl.Alias != nil && decl.Alias.Sort == SortType {
+				// Try to resolve the alias using outer types
+				if outerTypes != nil && decl.Alias.Kind == AliasKindOuter {
+					// Outer alias references a type from an enclosing scope
+					// For OuterCount=1, we look up in outerTypes[OuterIndex]
+					if decl.Alias.OuterCount == 1 && int(decl.Alias.OuterIndex) < len(outerTypes) {
+						localTypes[typeIdx] = &outerTypes[decl.Alias.OuterIndex]
+					}
+				}
+				typeIdx++
+			}
+		// CoreType and Export declarations don't contribute to the type index space
 		}
 	}
 	return localTypes
@@ -523,6 +553,10 @@ func typeDefToValType(td *TypeDef) types.ValType {
 	case TypeDefKindDefined:
 		// Handle different defined types
 		if td.Handle != nil {
+			if td.Handle.IsPrimitive {
+				// Handle primitive type aliases (e.g., filesize = u64)
+				return valTypeRefToValType(*td.Handle)
+			}
 			if td.Handle.IsOwn {
 				return types.Own{ResourceIdx: td.Handle.TypeIdx}
 			}
