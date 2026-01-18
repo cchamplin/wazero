@@ -74,6 +74,72 @@ func (f *LoweredFunc) SetInstance(instance *Instance) {
 	f.instance = instance
 }
 
+// CoreSignature returns the core wasm parameter and result types for this lowered function.
+// This is used to register the function with the runtime's host module builder.
+func (f *LoweredFunc) CoreSignature() (paramTypes []api.ValueType, resultTypes []api.ValueType) {
+	if f.funcType == nil {
+		// Without type information, return empty (will be treated as no params, no results)
+		return nil, nil
+	}
+
+	// Convert component params to core wasm types
+	for _, param := range f.funcType.Params {
+		coreTypes := componentTypeToCoreTypes(param.ValType)
+		paramTypes = append(paramTypes, coreTypes...)
+	}
+
+	// Convert component results to core wasm types
+	for _, result := range f.funcType.Results {
+		coreTypes := componentTypeToCoreTypes(result.ValType)
+		resultTypes = append(resultTypes, coreTypes...)
+	}
+
+	return paramTypes, resultTypes
+}
+
+// componentTypeToCoreTypes converts a component type to core wasm types.
+// This implements the flattening of component types to core wasm types
+// according to the canonical ABI.
+func componentTypeToCoreTypes(typeRef ValTypeRef) []api.ValueType {
+	if !typeRef.IsPrimitive {
+		// Non-primitive types are represented as i32 pointer for now
+		// Full implementation would handle records, variants, etc.
+		return []api.ValueType{api.ValueTypeI32}
+	}
+
+	switch typeRef.Primitive {
+	case 0x7f: // bool
+		return []api.ValueType{api.ValueTypeI32}
+	case 0x7e: // s8
+		return []api.ValueType{api.ValueTypeI32}
+	case 0x7d: // u8
+		return []api.ValueType{api.ValueTypeI32}
+	case 0x7c: // s16
+		return []api.ValueType{api.ValueTypeI32}
+	case 0x7b: // u16
+		return []api.ValueType{api.ValueTypeI32}
+	case 0x7a: // s32
+		return []api.ValueType{api.ValueTypeI32}
+	case 0x79: // u32
+		return []api.ValueType{api.ValueTypeI32}
+	case 0x78: // s64
+		return []api.ValueType{api.ValueTypeI64}
+	case 0x77: // u64
+		return []api.ValueType{api.ValueTypeI64}
+	case 0x76: // f32
+		return []api.ValueType{api.ValueTypeF32}
+	case 0x75: // f64
+		return []api.ValueType{api.ValueTypeF64}
+	case 0x74: // char
+		return []api.ValueType{api.ValueTypeI32}
+	case 0x73: // string
+		// String is represented as (ptr: i32, len: i32)
+		return []api.ValueType{api.ValueTypeI32, api.ValueTypeI32}
+	default:
+		return []api.ValueType{api.ValueTypeI32}
+	}
+}
+
 // CallWithStack invokes the lowered function with core wasm stack values.
 // This is the main entry point when core wasm code calls the lowered function.
 //

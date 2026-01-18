@@ -4,6 +4,7 @@ package component
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/experimental"
@@ -144,7 +145,7 @@ func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledCom
 	for i, coreInst := range c.CoreInstances {
 		switch coreInst.Kind {
 		case CoreInstanceExprInstantiate:
-			module, err := l.instantiateCoreModule(ctx, inst, c, &coreInst, compiledModules, i)
+			module, err := l.instantiateCoreModule(ctx, inst, c, &coreInst, compiledModules, i, resolvedImports)
 			if err != nil {
 				return nil, fmt.Errorf("instantiate core instance %d: %w", i, err)
 			}
@@ -176,39 +177,62 @@ func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledCom
 //
 // For inline instances (which don't create actual modules), we resolve through the
 // inline exports to find the actual source core instance.
-func (l *ComponentLinker) buildImportResolver(inst *Instance, c *Component, coreInst *CoreInstance) experimental.ImportResolver {
+//
+// Additionally, this resolver handles component-level imports by matching against
+// resolvedImports using semver matching. When a component import is matched
+// (e.g., wasi:filesystem/preopens@0.2.2), a host module is created that
+// wraps the host functions defined in the InstanceDef.
+func (l *ComponentLinker) buildImportResolver(ctx context.Context, inst *Instance, c *Component, coreInst *CoreInstance, resolvedImports map[string]Definition) experimental.ImportResolver {
 	// Build a map from import module name to source instance index
 	importMap := make(map[string]uint32)
 	for _, arg := range coreInst.Args {
 		importMap[arg.Name] = arg.InstanceIdx
 	}
 
-	return func(moduleName string) api.Module {
-		// Look up the instance index for this import module name
-		instanceIdx, ok := importMap[moduleName]
-		if !ok {
-			return nil
-		}
+	// Cache for synthetic modules created from component imports
+	syntheticModules := make(map[string]api.Module)
 
-		// Check if we have a direct core instance
-		if int(instanceIdx) < len(inst.coreInstances) {
-			coreInstance := inst.coreInstances[instanceIdx]
-			if coreInstance != nil {
-				return coreInstance
+	return func(moduleName string) api.Module {
+		// First, check if we have a host implementation for this import.
+		// This takes priority because host implementations are properly typed
+		// and have correct signatures, unlike shim modules which may have
+		// placeholder functions.
+		def := l.matchComponentImport(moduleName, resolvedImports)
+		if def != nil {
+			// Check if we already have a cached host module
+			if synth, exists := syntheticModules[moduleName]; exists {
+				return synth
+			}
+
+			// Create a host module from the definition
+			hostMod := l.createHostModule(ctx, moduleName, def, inst)
+			if hostMod != nil {
+				syntheticModules[moduleName] = hostMod
+				return hostMod
 			}
 		}
 
-		// The instance might be an inline instance - we need to trace through
-		// the inline exports to find the actual source.
-		// An inline instance exports items from the alias index space.
-		if int(instanceIdx) < len(c.CoreInstances) {
-			srcCoreInst := &c.CoreInstances[instanceIdx]
-			if srcCoreInst.Kind == CoreInstanceExprInline {
-				// For inline instances, find the actual source instance
-				// through the inline exports.
-				// Each inline export references an alias, and we need to
-				// find what core instance the alias points to.
-				return l.resolveInlineInstanceSource(inst, c, srcCoreInst)
+		// Fall back to inter-core-instance imports
+		instanceIdx, ok := importMap[moduleName]
+		if ok {
+			// Check if we have a direct core instance
+			if int(instanceIdx) < len(inst.coreInstances) {
+				coreInstance := inst.coreInstances[instanceIdx]
+				if coreInstance != nil {
+					return coreInstance
+				}
+			}
+
+			// The instance might be an inline instance - we need to trace through
+			// the inline exports to find the actual source.
+			if int(instanceIdx) < len(c.CoreInstances) {
+				srcCoreInst := &c.CoreInstances[instanceIdx]
+				if srcCoreInst.Kind == CoreInstanceExprInline {
+					result := l.resolveInlineInstanceSource(inst, c, srcCoreInst)
+					if result != nil {
+						return result
+					}
+				}
 			}
 		}
 
@@ -371,6 +395,7 @@ func (l *ComponentLinker) instantiateCoreModule(
 	coreInst *CoreInstance,
 	compiledModules []CompiledModuleCloser,
 	instanceIdx int,
+	resolvedImports map[string]Definition,
 ) (api.Module, error) {
 	moduleIdx := coreInst.ModuleIdx
 	if int(moduleIdx) >= len(compiledModules) {
@@ -388,11 +413,11 @@ func (l *ComponentLinker) instantiateCoreModule(
 	}
 
 	// Build an import resolver for this instance to resolve imports from
-	// previously instantiated core instances
-	if len(coreInst.Args) > 0 {
-		resolver := l.buildImportResolver(inst, c, coreInst)
-		ctx = experimental.WithImportResolver(ctx, resolver)
-	}
+	// previously instantiated core instances AND component-level imports.
+	// We always build a resolver now since we need to handle component imports
+	// even when there are no inter-core-instance args.
+	resolver := l.buildImportResolver(ctx, inst, c, coreInst, resolvedImports)
+	ctx = experimental.WithImportResolver(ctx, resolver)
 
 	// Try to use the runtime to instantiate the module
 	// The runtime should implement CoreModuleInstantiator interface
@@ -555,3 +580,256 @@ func (l *ComponentLinker) MergeFrom(linker *Linker) {
 		l.definitions[key] = def
 	}
 }
+
+// matchComponentImport tries to find a component-level import that matches the given
+// module name using semver matching. This handles cases where a core module imports
+// from a component interface like "wasi:filesystem/preopens@0.2.2".
+//
+// The matching algorithm:
+// 1. Try exact match in resolvedImports first
+// 2. Try semver-compatible matching in resolvedImports
+// 3. If not found, try matching against linker definitions directly
+func (l *ComponentLinker) matchComponentImport(moduleName string, resolvedImports map[string]Definition) Definition {
+	// Try exact match in resolvedImports first
+	if def, ok := resolvedImports[moduleName]; ok {
+		return def
+	}
+
+	// Parse the requested module name to extract base and version
+	// Module names can be like "wasi:filesystem/preopens@0.2.2"
+	baseReq, reqVersionStr, hasReqVersion := SplitVersion(moduleName)
+	if !hasReqVersion {
+		// No version in request, try exact match in linker definitions
+		if def, ok := l.definitions[moduleName]; ok {
+			return def
+		}
+		return nil
+	}
+
+	reqVersion, err := ParseSemver(reqVersionStr)
+	if err != nil {
+		return nil
+	}
+
+	// Find best compatible match in resolvedImports
+	var bestDef Definition
+	var bestVersion *Semver
+
+	for importName, def := range resolvedImports {
+		// Parse the import name
+		baseAvail, availVersionStr, hasAvailVersion := SplitVersion(importName)
+		if !hasAvailVersion {
+			continue
+		}
+
+		// Check if base names match
+		if baseReq != baseAvail {
+			continue
+		}
+
+		availVersion, err := ParseSemver(availVersionStr)
+		if err != nil {
+			continue
+		}
+
+		// Check semver compatibility
+		if !SemverCompatible(reqVersion, availVersion, l.relaxedSemver) {
+			continue
+		}
+
+		// Select highest compatible version
+		if bestVersion == nil || semverGreater(availVersion, bestVersion) {
+			bestDef = def
+			bestVersion = availVersion
+		}
+	}
+
+	if bestDef != nil {
+		return bestDef
+	}
+
+	// If not found in resolvedImports, try matching against linker definitions directly
+	// This handles cases where the core module imports something that wasn't in the
+	// component's declared imports but is available in the linker
+	for defName, def := range l.definitions {
+		// Parse the definition name
+		baseAvail, availVersionStr, hasAvailVersion := SplitVersion(defName)
+		if !hasAvailVersion {
+			continue
+		}
+
+		// Check if base names match
+		if baseReq != baseAvail {
+			continue
+		}
+
+		availVersion, err := ParseSemver(availVersionStr)
+		if err != nil {
+			continue
+		}
+
+		// Check semver compatibility
+		if !SemverCompatible(reqVersion, availVersion, l.relaxedSemver) {
+			continue
+		}
+
+		// Select highest compatible version
+		if bestVersion == nil || semverGreater(availVersion, bestVersion) {
+			bestDef = def
+			bestVersion = availVersion
+		}
+	}
+
+	return bestDef
+}
+
+// createHostModule creates a real host module from a Definition using the runtime.
+// This is used when core modules need to import from component-level imports
+// that are defined as InstanceDef (containing FuncDef exports) or FuncDef.
+func (l *ComponentLinker) createHostModule(ctx context.Context, moduleName string, def Definition, inst *Instance) api.Module {
+	// Check if the runtime supports host module instantiation
+	hmi, ok := l.runtime.(HostModuleInstantiator)
+	if !ok {
+		return nil
+	}
+
+	var exports []HostModuleExport
+
+	switch d := def.(type) {
+	case *InstanceDef:
+		for name, export := range d.Exports {
+			// For ResourceDef, we need to generate the resource operations
+			// (drop, new, rep) with the correct naming convention
+			if rdef, ok := export.(*ResourceDef); ok {
+				// Generate [resource-drop]<name> function
+				exports = append(exports, l.createResourceDropExport(name, rdef, inst))
+				// Generate [resource-new]<name> function
+				exports = append(exports, l.createResourceNewExport(name, inst))
+				// Generate [resource-rep]<name> function
+				exports = append(exports, l.createResourceRepExport(name, inst))
+			} else {
+				// Regular function or other definition
+				exp := l.createHostModuleExport(ctx, name, export, inst)
+				if exp != nil {
+					exports = append(exports, *exp)
+				}
+			}
+		}
+	case *FuncDef:
+		// Single function - wrap it as a module with one export
+		funcName := extractFuncName(moduleName)
+		exp := l.createHostModuleExport(ctx, funcName, d, inst)
+		if exp != nil {
+			exports = append(exports, *exp)
+		}
+	default:
+		return nil
+	}
+
+	if len(exports) == 0 {
+		return nil
+	}
+
+	// Use empty module name to avoid registering in the store
+	// We'll provide this module through the import resolver only
+	mod, err := hmi.InstantiateHostModule(ctx, "", exports)
+	if err != nil {
+		return nil
+	}
+	return mod
+}
+
+// createResourceDropExport creates a [resource-drop]<name> export for a resource.
+func (l *ComponentLinker) createResourceDropExport(name string, rdef *ResourceDef, inst *Instance) HostModuleExport {
+	return HostModuleExport{
+		Name:        "[resource-drop]" + name,
+		ParamTypes:  []api.ValueType{api.ValueTypeI32},
+		ResultTypes: []api.ValueType{},
+		Func: api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
+			handle := uint32(stack[0])
+			entry, err := inst.resourceTable.Remove(Handle(handle))
+			if err != nil {
+				return // Silently ignore invalid handles per spec
+			}
+			if rdef.Destructor != nil && entry.Rep != nil {
+				switch rep := entry.Rep.(type) {
+				case uint32:
+					rdef.Destructor(rep)
+				case int:
+					rdef.Destructor(uint32(rep))
+				}
+			}
+		}),
+	}
+}
+
+// createResourceNewExport creates a [resource-new]<name> export for a resource.
+func (l *ComponentLinker) createResourceNewExport(name string, inst *Instance) HostModuleExport {
+	return HostModuleExport{
+		Name:        "[resource-new]" + name,
+		ParamTypes:  []api.ValueType{api.ValueTypeI32},
+		ResultTypes: []api.ValueType{api.ValueTypeI32},
+		Func: api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
+			rep := uint32(stack[0])
+			handle := inst.resourceTable.New(rep, true)
+			stack[0] = uint64(handle)
+		}),
+	}
+}
+
+// createResourceRepExport creates a [resource-rep]<name> export for a resource.
+func (l *ComponentLinker) createResourceRepExport(name string, inst *Instance) HostModuleExport {
+	return HostModuleExport{
+		Name:        "[resource-rep]" + name,
+		ParamTypes:  []api.ValueType{api.ValueTypeI32},
+		ResultTypes: []api.ValueType{api.ValueTypeI32},
+		Func: api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
+			handle := uint32(stack[0])
+			rep, err := inst.resourceTable.Rep(Handle(handle))
+			if err != nil {
+				stack[0] = 0
+				return
+			}
+			stack[0] = uint64(rep)
+		}),
+	}
+}
+
+// createHostModuleExport creates a single HostModuleExport from a FuncDef.
+// ResourceDef is handled separately in createHostModule.
+func (l *ComponentLinker) createHostModuleExport(ctx context.Context, name string, def Definition, inst *Instance) *HostModuleExport {
+	// Only handle FuncDef - ResourceDef is handled in createHostModule
+	funcDef, ok := def.(*FuncDef)
+	if !ok {
+		return nil
+	}
+
+	// Create a lowered function using the CanonLower mechanism
+	lowered := CanonLower(funcDef.Callback, funcDef.Type, nil)
+	lowered.SetInstance(inst)
+
+	// Determine the parameter and result types from the lowered function's core type
+	paramTypes, resultTypes := lowered.CoreSignature()
+
+	return &HostModuleExport{
+		Name:        name,
+		ParamTypes:  paramTypes,
+		ResultTypes: resultTypes,
+		Func: api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
+			// Add resource table to context
+			ctx = WithResourceTable(ctx, inst.resourceTable)
+			lowered.CallWithStack(ctx, stack)
+		}),
+	}
+}
+
+// extractFuncName extracts the function name from a full import path.
+// e.g., "wasi:cli/environment@0.2.0/get-environment" -> "get-environment"
+func extractFuncName(importPath string) string {
+	lastSlash := strings.LastIndex(importPath, "/")
+	if lastSlash == -1 {
+		return importPath
+	}
+	return importPath[lastSlash+1:]
+}
+
