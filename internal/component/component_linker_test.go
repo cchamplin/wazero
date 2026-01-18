@@ -181,7 +181,9 @@ func TestComponentLinker_OrderedInstantiation(t *testing.T) {
 	}
 
 	// Build import resolver for core instance 1
-	resolver := linker.buildImportResolver(inst, c, &c.CoreInstances[1])
+	ctx := context.Background()
+	resolvedImports := make(map[string]Definition)
+	resolver := linker.buildImportResolver(ctx, inst, c, &c.CoreInstances[1], resolvedImports)
 	require.NotNil(t, resolver)
 
 	// The resolver should map "provider" to instance 0

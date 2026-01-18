@@ -86,6 +86,8 @@ func decodeAlias(r *bytes.Reader) (component.Alias, error) {
 
 // decodeAliasSection parses the alias section (section ID 6).
 // Multiple alias sections may exist; aliases are accumulated.
+// For core export aliases, the Idx field is assigned based on the current
+// index in the appropriate core index space (func, memory, etc.).
 func decodeAliasSection(c *component.Component, r *bytes.Reader) error {
 	count, _, err := leb128.DecodeUint32(r)
 	if err != nil {
@@ -98,6 +100,20 @@ func decodeAliasSection(c *component.Component, r *bytes.Reader) error {
 		if err != nil {
 			return fmt.Errorf("decoding alias %d: %w", startIdx+i, err)
 		}
+
+		// Assign the target index based on the core sort.
+		// Core export aliases add to the appropriate core index space.
+		if alias.Kind == component.AliasKindCoreExport {
+			switch alias.CoreSort {
+			case component.CoreSortFunc:
+				alias.Idx = c.NextCoreFuncIdx
+				c.NextCoreFuncIdx++
+			case component.CoreSortMemory:
+				alias.Idx = c.NextCoreMemoryIdx
+				c.NextCoreMemoryIdx++
+			}
+		}
+
 		c.Aliases = append(c.Aliases, alias)
 	}
 

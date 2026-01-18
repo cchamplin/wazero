@@ -64,6 +64,15 @@ type Component struct {
 	// NextFuncIdx tracks the next component function index during parsing.
 	// This is used internally by the decoder.
 	NextFuncIdx uint32
+
+	// NextCoreFuncIdx tracks the next core function index during parsing.
+	// This is incremented by alias core export (func), canon lower, and
+	// canon resource.drop/new/rep operations.
+	NextCoreFuncIdx uint32
+
+	// NextCoreMemoryIdx tracks the next core memory index during parsing.
+	// This is incremented by alias core export (memory) operations.
+	NextCoreMemoryIdx uint32
 }
 
 // TypeDef represents a component type definition.
@@ -386,6 +395,12 @@ func (k AliasKind) String() string {
 type Alias struct {
 	Kind AliasKind
 	Sort Sort // What kind of item is being aliased
+
+	// Idx is the target index this alias produces in the appropriate index space.
+	// For core export aliases with CoreSortFunc, this is the core function index.
+	// For core export aliases with CoreSortMemory, this is the core memory index.
+	// This is assigned during binary decoding based on the order of operations.
+	Idx uint32
 
 	// For export aliases (Kind == AliasKindExport or AliasKindCoreExport)
 	InstanceIdx uint32 // Instance to alias from
