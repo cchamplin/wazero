@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"unicode/utf8"
 
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/internal/component/types"
@@ -391,7 +392,13 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 		if resultTypeRef.IsPrimitive {
 			// Special handling for string return type (primitive 0x73)
 			// In Canonical ABI, strings are returned via retptr since FlattenCount=2 > MAX_FLAT_RESULTS=1
-			if resultTypeRef.Primitive == 0x73 && len(coreResults) == 1 && f.memory != nil {
+			if resultTypeRef.Primitive == 0x73 {
+				if len(coreResults) != 1 {
+					return nil, fmt.Errorf("string result expected 1 core result (retptr), got %d", len(coreResults))
+				}
+				if f.memory == nil {
+					return nil, fmt.Errorf("string result requires memory but none available")
+				}
 				retptr := uint32(coreResults[0])
 				str, err := f.liftStringFromRetptr(retptr)
 				if err != nil {
@@ -524,7 +531,11 @@ func (f *ExportedFunc) liftStringFromRetptr(retptr uint32) (string, error) {
 	}
 
 	// The canonical lift for UTF-8 strings validates UTF-8
+	// Per Canonical ABI spec, lift_flat for strings must validate UTF-8
 	// TODO: Support other string encodings based on canonical options
+	if !utf8.Valid(data) {
+		return "", fmt.Errorf("invalid UTF-8 in string at offset %d", ptr)
+	}
 	return string(data), nil
 }
 
