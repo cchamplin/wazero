@@ -8,8 +8,22 @@ import (
 
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/experimental"
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/wasm"
 )
+
+// MaxFlatResults is the maximum number of flattened result values
+// that can be returned directly (for synchronous calls).
+// Beyond this, results spill to memory via a return pointer.
+const MaxFlatResults = 1
+
+// canonLowerInfo stores information about each canon lower operation
+// so we can create the corresponding core function with the correct signature.
+type canonLowerInfo struct {
+	compFuncIdx uint32            // Component function being lowered
+	options     *CanonicalOptions // Memory, realloc, encoding
+	coreFuncIdx uint32            // Resulting core function index
+}
 
 // ComponentLinker resolves component imports and instantiates components
 // with full runtime integration for core module instantiation.
@@ -161,11 +175,32 @@ func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledCom
 	inst.componentFuncs = make(map[uint32]ComponentFunc)
 	l.buildComponentFuncs(inst, c, resolvedImports, instanceToImport)
 
+	// Track canon lower operations by their resulting core function index.
+	// Each canon lower produces a core function that wraps a component function.
+	// We need to track this so inline instances that export canon lower functions
+	// can create proper host modules with correct signatures.
+	canonLowers := make(map[uint32]canonLowerInfo)
+	coreFuncIdx := uint32(0)
+	for _, canon := range c.Canonicals {
+		switch canon.Kind {
+		case CanonKindLower:
+			canonLowers[coreFuncIdx] = canonLowerInfo{
+				compFuncIdx: canon.FuncIdx,
+				options:     &canon.Options,
+				coreFuncIdx: coreFuncIdx,
+			}
+			coreFuncIdx++
+		case CanonKindResourceNew, CanonKindResourceDrop, CanonKindResourceRep:
+			coreFuncIdx++
+		// CanonKindLift produces component funcs, not core funcs
+		}
+	}
+
 	// Step 2: Instantiate core modules
 	for i, coreInst := range c.CoreInstances {
 		switch coreInst.Kind {
 		case CoreInstanceExprInstantiate:
-			module, err := l.instantiateCoreModule(ctx, inst, c, &coreInst, compiledModules, i, resolvedImports)
+			module, err := l.instantiateCoreModule(ctx, inst, c, &coreInst, compiledModules, i, resolvedImports, canonLowers)
 			if err != nil {
 				return nil, fmt.Errorf("instantiate core instance %d: %w", i, err)
 			}
@@ -266,17 +301,307 @@ func (l *ComponentLinker) buildComponentFuncs(inst *Instance, c *Component, reso
 				continue
 			}
 
+			// Try to get the function type from the component's type system.
+			// This is needed when the host uses FuncNoType() and doesn't provide type info.
+			funcType := funcDef.Type
+			if funcType == nil {
+				funcType = l.lookupFuncTypeFromImport(c, alias.InstanceIdx, alias.ExportName)
+			}
+
 			// Add to component functions.
 			// For component-level aliases with SortFunc, alias.Idx should be the
 			// component function index assigned during decoding.
 			// Note: The decoder needs to be updated to track this properly.
 			// For now, we use alias.Idx as the component function index.
 			inst.componentFuncs[alias.Idx] = ComponentFunc{
-				Type: funcDef.Type,
+				Type: funcType,
 				Impl: funcDef.Callback,
 			}
 		}
 	}
+}
+
+// lookupFuncTypeFromImport looks up the function type from the component's import type definitions.
+// This is used when the host defines a function without type information (using FuncNoType).
+func (l *ComponentLinker) lookupFuncTypeFromImport(c *Component, instanceIdx uint32, exportName string) *FuncType {
+	// Find the import that creates this instance
+	compInstanceIdx := uint32(0)
+	for _, imp := range c.Imports {
+		if imp.ExternDesc.Kind == ImportExternDescInstance {
+			if compInstanceIdx == instanceIdx {
+				// Found the import - now look up its type
+				// The TypeIdx references a type in the component's type index space.
+				// This index may be offset or expanded due to nested types.
+				// Instead of directly using TypeIdx (which may be out of bounds),
+				// we scan the component's types to find the instance type that
+				// matches the import based on its position in the instance imports.
+
+				// Use the same instanceIdx to find the corresponding instance type
+				// in the component's type array. Instance types are typically ordered
+				// to match their import positions.
+				if int(instanceIdx) < len(c.Types) {
+					typeDef := &c.Types[instanceIdx]
+					if typeDef.Instance != nil {
+						return l.lookupFuncInInstanceType(typeDef.Instance, exportName)
+					}
+				}
+
+				// Fallback: scan all instance types for one that has this export
+				for i := range c.Types {
+					typeDef := &c.Types[i]
+					if typeDef.Instance != nil {
+						if ft := l.lookupFuncInInstanceType(typeDef.Instance, exportName); ft != nil {
+							return ft
+						}
+					}
+				}
+				return nil
+			}
+			compInstanceIdx++
+		}
+	}
+	return nil
+}
+
+// lookupFuncInInstanceType looks up a function type by export name within an instance type.
+// It resolves nested type references using the instance type's local type namespace.
+func (l *ComponentLinker) lookupFuncInInstanceType(inst *InstanceTypeDef, exportName string) *FuncType {
+	// Build the local type index space for this instance type
+	localTypes := buildLocalTypeIndex(inst)
+
+	for _, decl := range inst.Declarations {
+		if decl.Kind == InstanceDeclKindExport && decl.Export != nil {
+			if decl.Export.Name == exportName && decl.Export.Kind == ExportKindFunc {
+				// For function exports, Idx is the declaration index where the function type is defined
+				funcTypeIdx := decl.Export.Idx
+				if int(funcTypeIdx) < len(inst.Declarations) {
+					typeDecl := inst.Declarations[funcTypeIdx]
+					if typeDecl.Kind == InstanceDeclKindType && typeDecl.Type != nil && typeDecl.Type.Kind == TypeDefKindFunc {
+						// Resolve the FuncType's parameter and result types using local types
+						return resolveFuncType(typeDecl.Type.Func, localTypes)
+					}
+				}
+				return nil
+			}
+		}
+	}
+	return nil
+}
+
+// buildLocalTypeIndex builds a map from declaration index to TypeDef for an instance type.
+// In instance type definitions, type references use declaration indices.
+func buildLocalTypeIndex(inst *InstanceTypeDef) map[uint32]*TypeDef {
+	localTypes := make(map[uint32]*TypeDef)
+	for i, decl := range inst.Declarations {
+		if decl.Kind == InstanceDeclKindType && decl.Type != nil {
+			localTypes[uint32(i)] = decl.Type
+		}
+	}
+	return localTypes
+}
+
+// resolveFuncType creates a new FuncType with resolved parameter and result types.
+// It converts type references to direct types where possible by inlining the TypeDef
+// when we can't resolve to a simple own/borrow reference.
+func resolveFuncType(ft *FuncType, localTypes map[uint32]*TypeDef) *FuncType {
+	if ft == nil {
+		return nil
+	}
+
+	resolved := &FuncType{
+		Params:  make([]NamedValType, len(ft.Params)),
+		Results: make([]NamedValType, len(ft.Results)),
+	}
+
+	for i, p := range ft.Params {
+		resolved.Params[i] = NamedValType{
+			Name:    p.Name,
+			ValType: resolveValTypeRef(p.ValType, localTypes),
+		}
+		// Store the resolved TypeDef for complex types
+		if td := getResolvedTypeDef(p.ValType, localTypes); td != nil {
+			resolved.Params[i].ResolvedType = td
+		}
+	}
+
+	for i, r := range ft.Results {
+		resolved.Results[i] = NamedValType{
+			Name:    r.Name,
+			ValType: resolveValTypeRef(r.ValType, localTypes),
+		}
+		// Store the resolved TypeDef for complex types
+		if td := getResolvedTypeDef(r.ValType, localTypes); td != nil {
+			resolved.Results[i].ResolvedType = td
+		}
+	}
+
+	return resolved
+}
+
+// getResolvedTypeDef returns the TypeDef for a ValTypeRef if it references a local type.
+func getResolvedTypeDef(ref ValTypeRef, localTypes map[uint32]*TypeDef) *TypeDef {
+	if ref.IsPrimitive || ref.IsOwn || ref.IsBorrow {
+		return nil
+	}
+	return localTypes[ref.TypeIdx]
+}
+
+// resolveValTypeRef resolves a ValTypeRef using local type information.
+// If the ref points to a local type, we try to expand it.
+func resolveValTypeRef(ref ValTypeRef, localTypes map[uint32]*TypeDef) ValTypeRef {
+	if ref.IsPrimitive || ref.IsOwn || ref.IsBorrow {
+		return ref // Already resolved
+	}
+
+	// Look up the type at this index
+	if td, ok := localTypes[ref.TypeIdx]; ok {
+		if td.Kind == TypeDefKindDefined && td.Handle != nil {
+			// The type is a handle (own/borrow) - return that directly
+			return *td.Handle
+		}
+		// For other defined types, keep the reference but set a flag
+		// to indicate it was resolved (the TypeDef is available via ResolvedType)
+	}
+
+	return ref
+}
+
+// resolveToValType converts a NamedValType to a types.ValType.
+// It first checks if a ResolvedType is available (for types resolved from instance types),
+// and falls back to the TypeResolver for component-level types.
+func resolveToValType(nvt NamedValType, resolver *TypeResolver) types.ValType {
+	// If we have a ResolvedType (from instance type lookup), use it directly
+	if nvt.ResolvedType != nil {
+		return typeDefToValType(nvt.ResolvedType)
+	}
+
+	// Fall back to resolver for component-level types
+	vt, err := resolver.ResolveValType(nvt.ValType)
+	if err == nil {
+		return vt
+	}
+	return nil
+}
+
+// typeDefToValType converts a TypeDef to a types.ValType.
+func typeDefToValType(td *TypeDef) types.ValType {
+	if td == nil {
+		return nil
+	}
+
+	switch td.Kind {
+	case TypeDefKindDefined:
+		// Handle different defined types
+		if td.Handle != nil {
+			if td.Handle.IsOwn {
+				return types.Own{ResourceIdx: td.Handle.TypeIdx}
+			}
+			if td.Handle.IsBorrow {
+				return types.Borrow{ResourceIdx: td.Handle.TypeIdx}
+			}
+		}
+		if td.Option != nil {
+			inner := valTypeRefToValType(td.Option.InnerType)
+			return types.Option{Some: inner}
+		}
+		if td.Result != nil {
+			var okType, errType types.ValType
+			if td.Result.OkType != nil {
+				okType = valTypeRefToValType(*td.Result.OkType)
+			}
+			if td.Result.ErrType != nil {
+				errType = valTypeRefToValType(*td.Result.ErrType)
+			}
+			return types.Result{Ok: okType, Error: errType}
+		}
+		if td.Record != nil {
+			fields := make([]types.Field, len(td.Record.Fields))
+			for i, f := range td.Record.Fields {
+				fields[i] = types.Field{
+					Name: f.Name,
+					Type: valTypeRefToValType(f.ValType),
+				}
+			}
+			return types.Record{Fields: fields}
+		}
+		if td.Tuple != nil {
+			elemTypes := make([]types.ValType, len(td.Tuple.Types))
+			for i, t := range td.Tuple.Types {
+				elemTypes[i] = valTypeRefToValType(t)
+			}
+			return types.Tuple{Types: elemTypes}
+		}
+		if td.List != nil {
+			return types.List{Element: valTypeRefToValType(td.List.ElementType)}
+		}
+		if td.Variant != nil {
+			cases := make([]types.Case, len(td.Variant.Cases))
+			for i, c := range td.Variant.Cases {
+				var caseType types.ValType
+				if c.ValType != nil {
+					caseType = valTypeRefToValType(*c.ValType)
+				}
+				cases[i] = types.Case{Name: c.Name, Type: caseType}
+			}
+			return types.Variant{Cases: cases}
+		}
+		if td.Flags != nil {
+			return types.Flags{Names: td.Flags.Names}
+		}
+		if td.Enum != nil {
+			return types.Enum{Cases: td.Enum.Names}
+		}
+	case TypeDefKindResource:
+		// Resources don't flatten directly, they're accessed via handles
+		return nil
+	}
+
+	return nil
+}
+
+// valTypeRefToValType converts a ValTypeRef to a types.ValType.
+func valTypeRefToValType(ref ValTypeRef) types.ValType {
+	if ref.IsPrimitive {
+		switch ref.Primitive {
+		case 0x7f:
+			return types.Bool{}
+		case 0x7e:
+			return types.S8{}
+		case 0x7d:
+			return types.U8{}
+		case 0x7c:
+			return types.S16{}
+		case 0x7b:
+			return types.U16{}
+		case 0x7a:
+			return types.S32{}
+		case 0x79:
+			return types.U32{}
+		case 0x78:
+			return types.S64{}
+		case 0x77:
+			return types.U64{}
+		case 0x76:
+			return types.F32{}
+		case 0x75:
+			return types.F64{}
+		case 0x74:
+			return types.Char{}
+		case 0x73:
+			return types.String{}
+		}
+	}
+
+	if ref.IsOwn {
+		return types.Own{ResourceIdx: ref.TypeIdx}
+	}
+	if ref.IsBorrow {
+		return types.Borrow{ResourceIdx: ref.TypeIdx}
+	}
+
+	// For type index references, we can't resolve without context
+	// Return u32 as a placeholder for handles
+	return types.U32{}
 }
 
 // buildImportResolver creates an import resolver function that maps import module names
@@ -299,7 +624,7 @@ func (l *ComponentLinker) buildComponentFuncs(inst *Instance, c *Component, reso
 // If we bypassed the shims and used host modules directly, we would get signature
 // mismatches because our host modules don't match the exact signatures expected by
 // core modules (e.g., resource.drop operations have specific canonical signatures).
-func (l *ComponentLinker) buildImportResolver(ctx context.Context, inst *Instance, c *Component, coreInst *CoreInstance, resolvedImports map[string]Definition) experimental.ImportResolver {
+func (l *ComponentLinker) buildImportResolver(ctx context.Context, inst *Instance, c *Component, coreInst *CoreInstance, resolvedImports map[string]Definition, canonLowers map[uint32]canonLowerInfo) experimental.ImportResolver {
 	// Build a map from import module name to source instance index
 	importMap := make(map[string]uint32)
 	for _, arg := range coreInst.Args {
@@ -333,6 +658,17 @@ func (l *ComponentLinker) buildImportResolver(ctx context.Context, inst *Instanc
 					result := l.resolveInlineInstanceSource(inst, c, srcCoreInst)
 					if result != nil {
 						return result
+					}
+
+					// If resolveInlineInstanceSource returned nil, the exports may come from
+					// canon lower operations. Try to create a host module for them.
+					if synth, exists := syntheticModules[moduleName]; exists {
+						return synth
+					}
+					hostMod := l.createCanonLowerHostModule(ctx, inst, c, srcCoreInst, canonLowers)
+					if hostMod != nil {
+						syntheticModules[moduleName] = hostMod
+						return hostMod
 					}
 				}
 			}
@@ -530,6 +866,7 @@ func (l *ComponentLinker) instantiateCoreModule(
 	compiledModules []CompiledModuleCloser,
 	instanceIdx int,
 	resolvedImports map[string]Definition,
+	canonLowers map[uint32]canonLowerInfo,
 ) (api.Module, error) {
 	moduleIdx := coreInst.ModuleIdx
 	if int(moduleIdx) >= len(compiledModules) {
@@ -550,7 +887,7 @@ func (l *ComponentLinker) instantiateCoreModule(
 	// previously instantiated core instances AND component-level imports.
 	// We always build a resolver now since we need to handle component imports
 	// even when there are no inter-core-instance args.
-	resolver := l.buildImportResolver(ctx, inst, c, coreInst, resolvedImports)
+	resolver := l.buildImportResolver(ctx, inst, c, coreInst, resolvedImports, canonLowers)
 	ctx = experimental.WithImportResolver(ctx, resolver)
 
 	// Try to use the runtime to instantiate the module
@@ -967,5 +1304,489 @@ func extractFuncName(importPath string) string {
 		return importPath
 	}
 	return importPath[lastSlash+1:]
+}
+
+// createCanonLowerHostModule creates a host module from an inline instance
+// that has exports coming from canon lower operations. This creates proper
+// core functions with correct signatures based on the component function types.
+func (l *ComponentLinker) createCanonLowerHostModule(
+	ctx context.Context,
+	inst *Instance,
+	c *Component,
+	inlineInst *CoreInstance,
+	canonLowers map[uint32]canonLowerInfo,
+) api.Module {
+	// Check if the runtime supports host module instantiation
+	hmi, ok := l.runtime.(HostModuleInstantiator)
+	if !ok {
+		return nil
+	}
+
+	var exports []HostModuleExport
+
+	for _, exp := range inlineInst.InlineExports {
+		if exp.Sort != CoreSortFunc {
+			continue
+		}
+
+		// Check if this is a canon lower function
+		info, ok := canonLowers[exp.Idx]
+		if !ok {
+			continue
+		}
+
+		// Get the component function being lowered
+		compFunc, ok := inst.componentFuncs[info.compFuncIdx]
+		if !ok {
+			continue
+		}
+
+		// Convert FuncType to types.ValType slices for CoreSignature
+		var paramTypes, resultTypes []types.ValType
+		if compFunc.Type != nil {
+			resolver := NewTypeResolver(c)
+			for _, p := range compFunc.Type.Params {
+				if vt := resolveToValType(p, resolver); vt != nil {
+					paramTypes = append(paramTypes, vt)
+				}
+			}
+			for _, r := range compFunc.Type.Results {
+				if vt := resolveToValType(r, resolver); vt != nil {
+					resultTypes = append(resultTypes, vt)
+				}
+			}
+		}
+
+		// Get the core signature using the ABI flattening
+		params, results, needsRetptr := coreSignature(paramTypes, resultTypes)
+
+		// Create the lowered function
+		goFunc := l.createCanonLowerFunc(ctx, inst, c, info, compFunc, needsRetptr)
+		if goFunc == nil {
+			continue
+		}
+
+		exports = append(exports, HostModuleExport{
+			Name:        exp.Name,
+			ParamTypes:  params,
+			ResultTypes: results,
+			Func:        goFunc,
+		})
+	}
+
+	if len(exports) == 0 {
+		return nil
+	}
+
+	// Generate a unique module name for this host module
+	moduleName := fmt.Sprintf("$canon_lower_%p", inlineInst)
+	mod, err := hmi.InstantiateHostModule(ctx, moduleName, exports)
+	if err != nil {
+		return nil
+	}
+	return mod
+}
+
+// createCanonLowerFunc creates a GoModuleFunc that implements a canon lower operation.
+// It takes core wasm arguments, lifts them to component values, calls the component
+// function, and lowers the results back to core wasm values.
+func (l *ComponentLinker) createCanonLowerFunc(
+	ctx context.Context,
+	inst *Instance,
+	c *Component,
+	info canonLowerInfo,
+	compFunc ComponentFunc,
+	needsRetptr bool,
+) api.GoModuleFunc {
+	if compFunc.Impl == nil {
+		return nil
+	}
+
+	return api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
+		memory := mod.Memory()
+
+		// Track stack position
+		stackIdx := 0
+
+		// Handle retptr if needed
+		var retptr uint32
+		if needsRetptr {
+			retptr = uint32(stack[0])
+			stackIdx = 1
+		}
+
+		// Lift core args to component values
+		args := make([]Val, 0)
+		if compFunc.Type != nil {
+			for _, paramDef := range compFunc.Type.Params {
+				val, consumed := liftFromStack(stack[stackIdx:], paramDef.ValType, memory)
+				args = append(args, val)
+				stackIdx += consumed
+			}
+		}
+
+		// Call the component function
+		results, err := compFunc.Impl(ctx, args)
+		if err != nil {
+			// Handle error - for now just return without modifying stack
+			// In a full implementation this would trap
+			return
+		}
+
+		// Lower results to core values
+		if needsRetptr && memory != nil {
+			// Write results to memory at retptr
+			writeResultsToMemory(memory, retptr, results, compFunc.Type)
+		} else {
+			// Write results to stack
+			resultIdx := 0
+			for _, result := range results {
+				written := lowerToStack(stack[resultIdx:], result)
+				resultIdx += written
+			}
+		}
+	})
+}
+
+// liftFromStack lifts a value from the core wasm stack based on the component type.
+// Returns the Val and the number of stack slots consumed.
+func liftFromStack(stack []uint64, typeRef ValTypeRef, memory api.Memory) (Val, int) {
+	if typeRef.IsPrimitive {
+		switch typeRef.Primitive {
+		case 0x7f: // bool
+			return ValBool(stack[0] != 0), 1
+		case 0x7e: // s8
+			return ValS8(int8(stack[0])), 1
+		case 0x7d: // u8
+			return ValU8(uint8(stack[0])), 1
+		case 0x7c: // s16
+			return ValS16(int16(stack[0])), 1
+		case 0x7b: // u16
+			return ValU16(uint16(stack[0])), 1
+		case 0x7a: // s32
+			return ValS32(int32(stack[0])), 1
+		case 0x79: // u32
+			return ValU32(uint32(stack[0])), 1
+		case 0x78: // s64
+			return ValS64(int64(stack[0])), 1
+		case 0x77: // u64
+			return ValU64(stack[0]), 1
+		case 0x76: // f32
+			return ValF32(float32(stack[0])), 1
+		case 0x75: // f64
+			return ValF64(float64(stack[0])), 1
+		case 0x74: // char
+			return ValChar(rune(stack[0])), 1
+		case 0x73: // string
+			if memory != nil && len(stack) >= 2 {
+				ptr := uint32(stack[0])
+				length := uint32(stack[1])
+				if data, ok := memory.Read(ptr, length); ok {
+					return ValString(string(data)), 2
+				}
+			}
+			return ValString(""), 2
+		}
+	}
+
+	// Handle own and borrow types
+	if typeRef.IsOwn {
+		return ValOwn(uint32(stack[0])), 1
+	}
+	if typeRef.IsBorrow {
+		return ValBorrow(uint32(stack[0])), 1
+	}
+
+	// For non-primitive types, treat as i32 for now
+	return ValS32(int32(stack[0])), 1
+}
+
+// lowerToStack lowers a component Val to the core wasm stack.
+// Returns the number of stack slots written.
+func lowerToStack(stack []uint64, val Val) int {
+	switch val.Kind() {
+	case ValKindBool:
+		if val.Bool() {
+			stack[0] = 1
+		} else {
+			stack[0] = 0
+		}
+		return 1
+	case ValKindS8:
+		stack[0] = uint64(uint32(int32(val.S8())))
+		return 1
+	case ValKindU8:
+		stack[0] = uint64(val.U8())
+		return 1
+	case ValKindS16:
+		stack[0] = uint64(uint32(int32(val.S16())))
+		return 1
+	case ValKindU16:
+		stack[0] = uint64(val.U16())
+		return 1
+	case ValKindS32:
+		stack[0] = uint64(uint32(val.S32()))
+		return 1
+	case ValKindU32:
+		stack[0] = uint64(val.U32())
+		return 1
+	case ValKindS64:
+		stack[0] = uint64(val.S64())
+		return 1
+	case ValKindU64:
+		stack[0] = val.U64()
+		return 1
+	case ValKindF32:
+		stack[0] = uint64(val.U32()) // F32 bits
+		return 1
+	case ValKindF64:
+		stack[0] = val.U64() // F64 bits
+		return 1
+	case ValKindChar:
+		stack[0] = uint64(val.Char())
+		return 1
+	case ValKindOwn:
+		stack[0] = uint64(val.Own())
+		return 1
+	case ValKindBorrow:
+		stack[0] = uint64(val.Borrow())
+		return 1
+	default:
+		// For unknown types, treat as i32
+		return 1
+	}
+}
+
+// writeResultsToMemory writes component results to linear memory at the given offset.
+// This is used when the function has too many results to return via the stack.
+func writeResultsToMemory(memory api.Memory, retptr uint32, results []Val, funcType *FuncType) {
+	if memory == nil || funcType == nil {
+		return
+	}
+
+	offset := retptr
+	for i, result := range results {
+		if i >= len(funcType.Results) {
+			break
+		}
+
+		switch result.Kind() {
+		case ValKindS32, ValKindU32:
+			memory.WriteUint32Le(offset, result.U32())
+			offset += 4
+		case ValKindS64, ValKindU64:
+			memory.WriteUint64Le(offset, result.U64())
+			offset += 8
+		case ValKindF32:
+			memory.WriteUint32Le(offset, result.U32())
+			offset += 4
+		case ValKindF64:
+			memory.WriteUint64Le(offset, result.U64())
+			offset += 8
+		case ValKindBool:
+			if result.Bool() {
+				memory.WriteByte(offset, 1)
+			} else {
+				memory.WriteByte(offset, 0)
+			}
+			offset += 1
+		case ValKindOwn, ValKindBorrow:
+			memory.WriteUint32Le(offset, result.U32())
+			offset += 4
+		default:
+			// For other types, write as i32 for now
+			memory.WriteUint32Le(offset, result.U32())
+			offset += 4
+		}
+	}
+}
+
+// coreSignature returns the complete core function signature for a lowered function.
+// It computes the flattened parameter and result types according to the Canonical ABI.
+// If needsRetptr is true, an i32 param is prepended for the return pointer.
+func coreSignature(paramTypes, resultTypes []types.ValType) (params, results []api.ValueType, needsRetptr bool) {
+	params = flattenParams(paramTypes)
+	results, needsRetptr = flattenResults(resultTypes)
+
+	if needsRetptr {
+		// Prepend retptr parameter
+		params = append([]api.ValueType{api.ValueTypeI32}, params...)
+	}
+
+	return params, results, needsRetptr
+}
+
+// flattenParams converts component parameter types to core wasm types.
+func flattenParams(params []types.ValType) []api.ValueType {
+	var result []api.ValueType
+	for _, p := range params {
+		result = append(result, flattenValType(p)...)
+	}
+	return result
+}
+
+// flattenResults converts component result types to core wasm types.
+// Returns the flattened types and whether a retptr is needed.
+func flattenResults(results []types.ValType) ([]api.ValueType, bool) {
+	var flat []api.ValueType
+	for _, r := range results {
+		flat = append(flat, flattenValType(r)...)
+	}
+
+	if len(flat) > MaxFlatResults {
+		return nil, true // Use retptr
+	}
+	return flat, false
+}
+
+// flattenValType converts a single component type to core wasm types.
+// This implements the flattening rules from the Canonical ABI specification.
+func flattenValType(t types.ValType) []api.ValueType {
+	switch v := t.(type) {
+	case types.Bool:
+		return []api.ValueType{api.ValueTypeI32}
+	case types.S8, types.U8, types.S16, types.U16, types.S32, types.U32:
+		return []api.ValueType{api.ValueTypeI32}
+	case types.S64, types.U64:
+		return []api.ValueType{api.ValueTypeI64}
+	case types.F32:
+		return []api.ValueType{api.ValueTypeF32}
+	case types.F64:
+		return []api.ValueType{api.ValueTypeF64}
+	case types.Char:
+		return []api.ValueType{api.ValueTypeI32} // Unicode scalar value
+	case types.String:
+		return []api.ValueType{api.ValueTypeI32, api.ValueTypeI32} // ptr, len
+	case types.List:
+		return []api.ValueType{api.ValueTypeI32, api.ValueTypeI32} // ptr, len
+	case types.Own, types.Borrow:
+		return []api.ValueType{api.ValueTypeI32} // Handle index
+	case types.Record:
+		return flattenRecordType(v)
+	case types.Tuple:
+		return flattenTupleType(v)
+	case types.Option:
+		return flattenOptionType(v)
+	case types.Result:
+		return flattenResultType(v)
+	case types.Enum:
+		return []api.ValueType{api.ValueTypeI32} // Discriminant
+	case types.Flags:
+		return flattenFlagsType(v)
+	default:
+		// For unknown types, assume they fit in i32 as a fallback
+		return []api.ValueType{api.ValueTypeI32}
+	}
+}
+
+// flattenRecordType flattens a record type by flattening each field sequentially.
+func flattenRecordType(r types.Record) []api.ValueType {
+	var result []api.ValueType
+	for _, f := range r.Fields {
+		result = append(result, flattenValType(f.Type)...)
+	}
+	return result
+}
+
+// flattenTupleType flattens a tuple type by flattening each element sequentially.
+func flattenTupleType(t types.Tuple) []api.ValueType {
+	var result []api.ValueType
+	for _, elemType := range t.Types {
+		result = append(result, flattenValType(elemType)...)
+	}
+	return result
+}
+
+// flattenOptionType flattens an option type.
+// Option is sugar for variant { none, some(T) }.
+func flattenOptionType(o types.Option) []api.ValueType {
+	// Discriminant (none=0, some=1)
+	result := []api.ValueType{api.ValueTypeI32}
+
+	// Payload for some case
+	if o.Some != nil {
+		result = append(result, flattenValType(o.Some)...)
+	}
+
+	return result
+}
+
+// flattenResultType flattens a result type.
+// Result is sugar for variant { ok(T), error(E) }.
+func flattenResultType(r types.Result) []api.ValueType {
+	// Discriminant (ok=0, error=1)
+	result := []api.ValueType{api.ValueTypeI32}
+
+	// Find max payload between ok and error
+	var okFlat, errFlat []api.ValueType
+	if r.Ok != nil {
+		okFlat = flattenValType(r.Ok)
+	}
+	if r.Error != nil {
+		errFlat = flattenValType(r.Error)
+	}
+
+	// Take the max payload count
+	maxLen := len(okFlat)
+	if len(errFlat) > maxLen {
+		maxLen = len(errFlat)
+	}
+
+	// Join the types at each position
+	for i := 0; i < maxLen; i++ {
+		var okType, errType api.ValueType
+		if i < len(okFlat) {
+			okType = okFlat[i]
+		}
+		if i < len(errFlat) {
+			errType = errFlat[i]
+		}
+		// Use the wider type
+		if isWiderValueType(errType, okType) {
+			result = append(result, errType)
+		} else {
+			result = append(result, okType)
+		}
+	}
+
+	return result
+}
+
+// flattenFlagsType flattens a flags type.
+// Flags are represented as one or more i32 values depending on the number of flags.
+func flattenFlagsType(f types.Flags) []api.ValueType {
+	n := len(f.Names)
+	if n == 0 {
+		return nil
+	}
+	// Number of i32s needed: ceil(n / 32)
+	numI32s := (n + 31) / 32
+	result := make([]api.ValueType, numI32s)
+	for i := range result {
+		result[i] = api.ValueTypeI32
+	}
+	return result
+}
+
+// isWiderValueType returns true if a is a wider type than b.
+// Width order: i32 < f32 < i64 < f64
+func isWiderValueType(a, b api.ValueType) bool {
+	return valueTypeWidth(a) > valueTypeWidth(b)
+}
+
+// valueTypeWidth returns the width ordering of a type.
+func valueTypeWidth(t api.ValueType) int {
+	switch t {
+	case api.ValueTypeI32:
+		return 1
+	case api.ValueTypeF32:
+		return 2
+	case api.ValueTypeI64:
+		return 3
+	case api.ValueTypeF64:
+		return 4
+	default:
+		return 0
+	}
 }
 
