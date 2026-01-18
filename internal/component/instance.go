@@ -389,6 +389,25 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 
 		// Handle primitive result types using TypeResolver
 		if resultTypeRef.IsPrimitive {
+			// Special handling for string return type (primitive 0x73)
+			// In Canonical ABI, strings are returned via retptr since FlattenCount=2 > MAX_FLAT_RESULTS=1
+			if resultTypeRef.Primitive == 0x73 && len(coreResults) == 1 && f.memory != nil {
+				retptr := uint32(coreResults[0])
+				str, err := f.liftStringFromRetptr(retptr)
+				if err != nil {
+					return nil, fmt.Errorf("lift string result: %w", err)
+				}
+				// Release borrow scope and validate before return
+				if borrowScope != nil {
+					if err := borrowScope.Release(); err != nil {
+						return nil, fmt.Errorf("release borrow scope: %w", err)
+					}
+				}
+				if err := callCtx.ValidateReturn(); err != nil {
+					return nil, err
+				}
+				return []Val{ValString(str)}, nil
+			}
 			if len(coreResults) == 1 {
 				val := f.liftPrimitiveVal(coreResults[0], resultTypeRef)
 				// Release borrow scope and validate before return
@@ -471,6 +490,42 @@ func (f *ExportedFunc) liftPrimitiveVal(coreVal uint64, typeRef ValTypeRef) Val 
 	}
 	// Default fallback to s32
 	return ValS32(int32(coreVal))
+}
+
+// liftStringFromRetptr reads a string from a return pointer.
+// In Canonical ABI, when a function returns a string (which has FlattenCount=2),
+// the core function returns a pointer to a {ptr: i32, len: i32} struct in memory.
+// This method reads that struct and then reads the actual string bytes from memory.
+func (f *ExportedFunc) liftStringFromRetptr(retptr uint32) (string, error) {
+	if f.memory == nil {
+		return "", fmt.Errorf("no memory available for string lifting")
+	}
+
+	// Read the (ptr, len) struct from memory at retptr
+	// The struct is {ptr: i32, len: i32} = 8 bytes, aligned to 4 bytes
+	ptr, ok := f.memory.ReadUint32Le(retptr)
+	if !ok {
+		return "", fmt.Errorf("failed to read string ptr from memory at offset %d", retptr)
+	}
+	length, ok := f.memory.ReadUint32Le(retptr + 4)
+	if !ok {
+		return "", fmt.Errorf("failed to read string len from memory at offset %d", retptr+4)
+	}
+
+	// Empty string case
+	if length == 0 {
+		return "", nil
+	}
+
+	// Read the actual string bytes from memory at ptr
+	data, ok := f.memory.Read(ptr, length)
+	if !ok {
+		return "", fmt.Errorf("failed to read string data from memory at ptr=%d len=%d", ptr, length)
+	}
+
+	// The canonical lift for UTF-8 strings validates UTF-8
+	// TODO: Support other string encodings based on canonical options
+	return string(data), nil
 }
 
 // liftRecord reconstructs a record Val from flattened core values.
