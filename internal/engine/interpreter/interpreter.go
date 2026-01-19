@@ -856,7 +856,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 			frame.pc++
 		case operationKindLoad8:
-			val, ok := memoryInst.ReadByte(ce.popMemoryOffset(op))
+			val, ok := memoryInst.ReadByteAt(ce.popMemoryOffset(op))
 			if !ok {
 				panic(wasmruntime.ErrRuntimeOutOfBoundsMemoryAccess)
 			}
@@ -915,7 +915,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 		case operationKindStore8:
 			val := byte(ce.popValue())
 			offset := ce.popMemoryOffset(op)
-			if !memoryInst.WriteByte(offset, val) {
+			if !memoryInst.WriteByteAt(offset, val) {
 				panic(wasmruntime.ErrRuntimeOutOfBoundsMemoryAccess)
 			}
 			frame.pc++
@@ -1995,7 +1995,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 				ce.pushValue(uint64(binary.LittleEndian.Uint32(data)))
 				ce.pushValue(uint64(binary.LittleEndian.Uint32(data[4:])))
 			case v128LoadType8Splat:
-				v, ok := memoryInst.ReadByte(offset)
+				v, ok := memoryInst.ReadByteAt(offset)
 				if !ok {
 					panic(wasmruntime.ErrRuntimeOutOfBoundsMemoryAccess)
 				}
@@ -2047,7 +2047,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			offset := ce.popMemoryOffset(op)
 			switch op.B1 {
 			case 8:
-				b, ok := memoryInst.ReadByte(offset)
+				b, ok := memoryInst.ReadByteAt(offset)
 				if !ok {
 					panic(wasmruntime.ErrRuntimeOutOfBoundsMemoryAccess)
 				}
@@ -2118,9 +2118,9 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			switch op.B1 {
 			case 8:
 				if op.B2 < 8 {
-					ok = memoryInst.WriteByte(offset, byte(lo>>(op.B2*8)))
+					ok = memoryInst.WriteByteAt(offset, byte(lo>>(op.B2*8)))
 				} else {
-					ok = memoryInst.WriteByte(offset, byte(hi>>((op.B2-8)*8)))
+					ok = memoryInst.WriteByteAt(offset, byte(hi>>((op.B2-8)*8)))
 				}
 			case 16:
 				if op.B2 < 4 {
@@ -4082,7 +4082,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 		case operationKindAtomicLoad8:
 			offset := ce.popMemoryOffset(op)
 			memoryInst.Mux.Lock()
-			val, ok := memoryInst.ReadByte(offset)
+			val, ok := memoryInst.ReadByteAt(offset)
 			memoryInst.Mux.Unlock()
 			if !ok {
 				panic(wasmruntime.ErrRuntimeOutOfBoundsMemoryAccess)
@@ -4132,7 +4132,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			val := byte(ce.popValue())
 			offset := ce.popMemoryOffset(op)
 			memoryInst.Mux.Lock()
-			ok := memoryInst.WriteByte(offset, val)
+			ok := memoryInst.WriteByteAt(offset, val)
 			memoryInst.Mux.Unlock()
 			if !ok {
 				panic(wasmruntime.ErrRuntimeOutOfBoundsMemoryAccess)
@@ -4217,7 +4217,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			val := ce.popValue()
 			offset := ce.popMemoryOffset(op)
 			memoryInst.Mux.Lock()
-			old, ok := memoryInst.ReadByte(offset)
+			old, ok := memoryInst.ReadByteAt(offset)
 			if !ok {
 				memoryInst.Mux.Unlock()
 				panic(wasmruntime.ErrRuntimeOutOfBoundsMemoryAccess)
@@ -4238,7 +4238,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			case atomicArithmeticOpNop:
 				newVal = arg
 			}
-			memoryInst.WriteByte(offset, newVal)
+			memoryInst.WriteByteAt(offset, newVal)
 			memoryInst.Mux.Unlock()
 			ce.pushValue(uint64(old))
 			frame.pc++
@@ -4316,13 +4316,13 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			exp := byte(ce.popValue())
 			offset := ce.popMemoryOffset(op)
 			memoryInst.Mux.Lock()
-			old, ok := memoryInst.ReadByte(offset)
+			old, ok := memoryInst.ReadByteAt(offset)
 			if !ok {
 				memoryInst.Mux.Unlock()
 				panic(wasmruntime.ErrRuntimeOutOfBoundsMemoryAccess)
 			}
 			if old == exp {
-				memoryInst.WriteByte(offset, rep)
+				memoryInst.WriteByteAt(offset, rep)
 			}
 			memoryInst.Mux.Unlock()
 			ce.pushValue(uint64(old))

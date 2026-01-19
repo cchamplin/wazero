@@ -8,13 +8,13 @@ import (
 
 func BenchmarkMemory(b *testing.B) {
 	mem := &wasm.MemoryInstance{Buffer: make([]byte, wasm.MemoryPageSize), Min: 1}
-	if !mem.WriteByte(10, 16) {
+	if !mem.WriteByteAt(10, 16) {
 		b.Fail()
 	}
 
 	b.Run("ReadByte", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			if v, ok := mem.ReadByte(10); !ok || v != 16 {
+			if v, ok := mem.ReadByteAt(10); !ok || v != 16 {
 				b.Fail()
 			}
 		}
@@ -30,7 +30,7 @@ func BenchmarkMemory(b *testing.B) {
 
 	b.Run("WriteByte", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			if !mem.WriteByte(10, 16) {
+			if !mem.WriteByteAt(10, 16) {
 				b.Fail()
 			}
 		}

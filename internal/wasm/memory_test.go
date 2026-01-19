@@ -126,14 +126,14 @@ func TestMemoryInstance_NegativeDelta(t *testing.T) {
 
 func TestMemoryInstance_ReadByte(t *testing.T) {
 	mem := &MemoryInstance{Buffer: []byte{0, 0, 0, 0, 0, 0, 0, 16}, Min: 1}
-	v, ok := mem.ReadByte(7)
+	v, ok := mem.ReadByteAt(7)
 	require.True(t, ok)
 	require.Equal(t, byte(16), v)
 
-	_, ok = mem.ReadByte(8)
+	_, ok = mem.ReadByteAt(8)
 	require.False(t, ok)
 
-	_, ok = mem.ReadByte(9)
+	_, ok = mem.ReadByteAt(9)
 	require.False(t, ok)
 }
 

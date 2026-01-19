@@ -588,8 +588,8 @@ type Memory interface {
 	// See MemorySizer Read and https://www.w3.org/TR/2019/REC-wasm-core-1-20191205/#grow-mem
 	Grow(deltaPages uint32) (previousPages uint32, ok bool)
 
-	// ReadByte reads a single byte from the underlying buffer at the offset or returns false if out of range.
-	ReadByte(offset uint32) (byte, bool)
+	// ReadByteAt reads a single byte from the underlying buffer at the offset or returns false if out of range.
+	ReadByteAt(offset uint32) (byte, bool)
 
 	// ReadUint16Le reads a uint16 in little-endian encoding from the underlying buffer at the offset in or returns
 	// false if out of range.
@@ -647,8 +647,8 @@ type Memory interface {
 	// allocated.
 	Read(offset, byteCount uint32) ([]byte, bool)
 
-	// WriteByte writes a single byte to the underlying buffer at the offset in or returns false if out of range.
-	WriteByte(offset uint32, v byte) bool
+	// WriteByteAt writes a single byte to the underlying buffer at the offset in or returns false if out of range.
+	WriteByteAt(offset uint32, v byte) bool
 
 	// WriteUint16Le writes the value in little-endian encoding to the underlying buffer at the offset in or returns
 	// false if out of range.

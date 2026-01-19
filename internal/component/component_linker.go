@@ -1894,9 +1894,9 @@ func writeResultsToMemory(memory api.Memory, retptr uint32, results []Val, funcT
 			offset += 8
 		case ValKindBool:
 			if result.Bool() {
-				memory.WriteByte(offset, 1)
+				memory.WriteByteAt(offset, 1)
 			} else {
-				memory.WriteByte(offset, 0)
+				memory.WriteByteAt(offset, 0)
 			}
 			offset += 1
 		case ValKindOwn, ValKindBorrow:

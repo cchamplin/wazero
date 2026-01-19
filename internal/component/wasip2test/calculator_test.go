@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/imports/wasip2"
@@ -28,8 +29,8 @@ func TestCalculatorPlugins(t *testing.T) {
 		expected              int32
 		relaxedSemverMatching bool
 	}{
-		{"add", "plugins/add.wasm", 5, true},             // 2 + 3 (Rust, requires WASI, uses relaxed semver)
-		{"subtract", "plugins/subtract.wasm", -1, false}, // 2 - 3 (C, no WASI)
+		{"add", "plugins/add.wasm", 31, true},            // 28 + 3 (Rust, requires WASI, uses relaxed semver)
+		{"subtract", "plugins/subtract.wasm", 25, false}, // 28 - 3 (C, no WASI)
 	}
 
 	for _, p := range plugins {
@@ -82,16 +83,34 @@ func TestCalculatorPlugins(t *testing.T) {
 			if evalFunc == nil {
 				t.Fatal("evaluate function not found")
 			}
+			start := time.Now()
 			evalResult, err := evalFunc.Call(ctx,
-				component.ValS32(2),
+				component.ValS32(28),
 				component.ValS32(3),
 			)
+			t.Logf("First call took %v", time.Since(start))
 			if err != nil {
 				t.Fatalf("evaluate: %v", err)
 			}
 			if got := evalResult[0].S32(); got != p.expected {
 				t.Errorf("evaluate(2,3) = %d, want %d", got, p.expected)
 			}
+
+			// Call again
+			start = time.Now()
+			evalResult, err = evalFunc.Call(ctx,
+				component.ValS32(28+1),
+				component.ValS32(3),
+			)
+			t.Logf("Second call took %v", time.Since(start))
+			if err != nil {
+				t.Fatalf("evaluate: %v", err)
+			}
+			if got := evalResult[0].S32(); got != p.expected+1 {
+				t.Errorf("evaluate(2,3) = %d, want %d", got, p.expected)
+			}
+
 		})
+
 	}
 }

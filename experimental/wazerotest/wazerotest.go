@@ -525,7 +525,7 @@ func (m *Memory) Grow(deltaPages uint32) (previousPages uint32, ok bool) {
 	return previousPages, true
 }
 
-func (m *Memory) ReadByte(offset uint32) (byte, bool) {
+func (m *Memory) ReadByteAt(offset uint32) (byte, bool) {
 	if m.isOutOfRange(offset, 1) {
 		return 0, false
 	}
@@ -570,7 +570,7 @@ func (m *Memory) Read(offset, length uint32) ([]byte, bool) {
 	return m.Bytes[offset : offset+length : offset+length], true
 }
 
-func (m *Memory) WriteByte(offset uint32, value byte) bool {
+func (m *Memory) WriteByteAt(offset uint32, value byte) bool {
 	if m.isOutOfRange(offset, 1) {
 		return false
 	}
