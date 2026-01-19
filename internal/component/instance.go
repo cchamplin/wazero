@@ -707,6 +707,30 @@ func (f *ExportedFunc) liftResolvedType(resolvedType types.ValType, coreResults 
 		}
 		return []Val{ValResultError(nil)}, nil
 
+	case types.String:
+		// String results are returned via retptr since FlattenCount=2 > MAX_FLAT_RESULTS=1
+		// The core result is the retptr, and we read (ptr, len) from memory at that location
+		if len(coreResults) < 1 {
+			return nil, fmt.Errorf("not enough core results for string: have %d, need 1", len(coreResults))
+		}
+		if f.memory == nil {
+			return nil, fmt.Errorf("string result requires memory but none available")
+		}
+		retptr := uint32(coreResults[0])
+		str, err := f.liftStringFromRetptr(retptr)
+		if err != nil {
+			return nil, fmt.Errorf("lift string result: %w", err)
+		}
+		if borrowScope != nil {
+			if err := borrowScope.Release(); err != nil {
+				return nil, fmt.Errorf("release borrow scope: %w", err)
+			}
+		}
+		if err := callCtx.ValidateReturn(); err != nil {
+			return nil, err
+		}
+		return []Val{ValString(str)}, nil
+
 	default:
 		// For other types, fall back to legacy handling
 		return nil, fmt.Errorf("unsupported resolved type for lifting: %T", resolvedType)
