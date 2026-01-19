@@ -269,6 +269,14 @@ func TestIntegration_FullLinkingScenario(t *testing.T) {
 				},
 			},
 		},
+		// Canonicals define the lifted functions - required for type lookup
+		Canonicals: []CanonicalDef{
+			{Kind: CanonKindLift, TypeIdx: 0, ComponentFuncIdx: 0},
+		},
+		// FuncIdxToCanonical maps export func index to canonical index
+		FuncIdxToCanonical: map[uint32]uint32{
+			0: 0, // export func 0 -> canonical 0 -> type 0 (addType)
+		},
 		Exports: []Export{
 			{Name: "compute", Kind: ExportKindFunc, Idx: 0},
 		},
