@@ -113,8 +113,8 @@ func (m *MemoryInstance) Size() uint32 {
 	return uint32(len(m.Buffer))
 }
 
-// ReadByte implements the same method as documented on api.Memory.
-func (m *MemoryInstance) ReadByte(offset uint32) (byte, bool) {
+// ReadByteAt implements the same method as documented on api.Memory.
+func (m *MemoryInstance) ReadByteAt(offset uint32) (byte, bool) {
 	if !m.hasSize(offset, 1) {
 		return 0, false
 	}
@@ -165,8 +165,8 @@ func (m *MemoryInstance) Read(offset, byteCount uint32) ([]byte, bool) {
 	return m.Buffer[offset : offset+byteCount : offset+byteCount], true
 }
 
-// WriteByte implements the same method as documented on api.Memory.
-func (m *MemoryInstance) WriteByte(offset uint32, v byte) bool {
+// WriteByteAt implements the same method as documented on api.Memory.
+func (m *MemoryInstance) WriteByteAt(offset uint32, v byte) bool {
 	if !m.hasSize(offset, 1) {
 		return false
 	}

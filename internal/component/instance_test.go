@@ -674,7 +674,7 @@ func (m *mockMemory) Grow(deltaPages uint32) (uint32, bool) {
 	m.data = append(m.data, make([]byte, deltaPages*65536)...)
 	return prev, true
 }
-func (m *mockMemory) ReadByte(offset uint32) (byte, bool) {
+func (m *mockMemory) ReadByteAt(offset uint32) (byte, bool) {
 	if offset >= uint32(len(m.data)) {
 		return 0, false
 	}
@@ -714,7 +714,7 @@ func (m *mockMemory) Read(offset, byteCount uint32) ([]byte, bool) {
 	}
 	return m.data[offset : offset+byteCount], true
 }
-func (m *mockMemory) WriteByte(offset uint32, v byte) bool {
+func (m *mockMemory) WriteByteAt(offset uint32, v byte) bool {
 	if offset >= uint32(len(m.data)) {
 		return false
 	}
