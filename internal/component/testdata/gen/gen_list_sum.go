@@ -80,11 +80,12 @@ func main() {
 	// === Section 11: Export Section ===
 	// Export "sum" as function 0
 	exportSection := []byte{
-		0x01,                   // 1 export
-		0x00,                   // simple name
-		0x03, 's', 'u', 'm',    // name "sum"
-		0x01,                   // sort = func
-		0x00,                   // index = 0
+		0x01,                // 1 export
+		0x00,                // simple name
+		0x03, 's', 'u', 'm', // name "sum"
+		0x01,                // sort = func
+		0x00,                // index = 0
+		0x00,                // no externdesc (REQUIRED)
 	}
 	out = append(out, 0x0b)
 	out = appendLEB128(out, uint32(len(exportSection)))
