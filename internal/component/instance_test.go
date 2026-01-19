@@ -660,3 +660,353 @@ func TestLiftResolvedPrimitiveVal_F64_BitPattern(t *testing.T) {
 		t.Errorf("F64 bit pattern corrupted: expected 0x%016x, got 0x%016x", negInfBits, resultBits)
 	}
 }
+
+// mockMemory implements api.Memory for testing list operations
+type mockMemory struct {
+	internalapi.WazeroOnlyType
+	data []byte
+}
+
+func (m *mockMemory) Definition() api.MemoryDefinition { return nil }
+func (m *mockMemory) Size() uint32                     { return uint32(len(m.data)) }
+func (m *mockMemory) Grow(deltaPages uint32) (uint32, bool) {
+	prev := uint32(len(m.data)) / 65536
+	m.data = append(m.data, make([]byte, deltaPages*65536)...)
+	return prev, true
+}
+func (m *mockMemory) ReadByte(offset uint32) (byte, bool) {
+	if offset >= uint32(len(m.data)) {
+		return 0, false
+	}
+	return m.data[offset], true
+}
+func (m *mockMemory) ReadUint16Le(offset uint32) (uint16, bool) {
+	if offset+2 > uint32(len(m.data)) {
+		return 0, false
+	}
+	return uint16(m.data[offset]) | uint16(m.data[offset+1])<<8, true
+}
+func (m *mockMemory) ReadUint32Le(offset uint32) (uint32, bool) {
+	if offset+4 > uint32(len(m.data)) {
+		return 0, false
+	}
+	return uint32(m.data[offset]) | uint32(m.data[offset+1])<<8 | uint32(m.data[offset+2])<<16 | uint32(m.data[offset+3])<<24, true
+}
+func (m *mockMemory) ReadFloat32Le(offset uint32) (float32, bool) {
+	v, ok := m.ReadUint32Le(offset)
+	return math.Float32frombits(v), ok
+}
+func (m *mockMemory) ReadUint64Le(offset uint32) (uint64, bool) {
+	if offset+8 > uint32(len(m.data)) {
+		return 0, false
+	}
+	lo, _ := m.ReadUint32Le(offset)
+	hi, _ := m.ReadUint32Le(offset + 4)
+	return uint64(lo) | uint64(hi)<<32, true
+}
+func (m *mockMemory) ReadFloat64Le(offset uint32) (float64, bool) {
+	v, ok := m.ReadUint64Le(offset)
+	return math.Float64frombits(v), ok
+}
+func (m *mockMemory) Read(offset, byteCount uint32) ([]byte, bool) {
+	if offset+byteCount > uint32(len(m.data)) {
+		return nil, false
+	}
+	return m.data[offset : offset+byteCount], true
+}
+func (m *mockMemory) WriteByte(offset uint32, v byte) bool {
+	if offset >= uint32(len(m.data)) {
+		return false
+	}
+	m.data[offset] = v
+	return true
+}
+func (m *mockMemory) WriteUint16Le(offset uint32, v uint16) bool {
+	if offset+2 > uint32(len(m.data)) {
+		return false
+	}
+	m.data[offset] = byte(v)
+	m.data[offset+1] = byte(v >> 8)
+	return true
+}
+func (m *mockMemory) WriteUint32Le(offset, v uint32) bool {
+	if offset+4 > uint32(len(m.data)) {
+		return false
+	}
+	m.data[offset] = byte(v)
+	m.data[offset+1] = byte(v >> 8)
+	m.data[offset+2] = byte(v >> 16)
+	m.data[offset+3] = byte(v >> 24)
+	return true
+}
+func (m *mockMemory) WriteFloat32Le(offset uint32, v float32) bool {
+	return m.WriteUint32Le(offset, math.Float32bits(v))
+}
+func (m *mockMemory) WriteUint64Le(offset uint32, v uint64) bool {
+	if offset+8 > uint32(len(m.data)) {
+		return false
+	}
+	m.WriteUint32Le(offset, uint32(v))
+	m.WriteUint32Le(offset+4, uint32(v>>32))
+	return true
+}
+func (m *mockMemory) WriteFloat64Le(offset uint32, v float64) bool {
+	return m.WriteUint64Le(offset, math.Float64bits(v))
+}
+func (m *mockMemory) Write(offset uint32, v []byte) bool {
+	if int(offset)+len(v) > len(m.data) {
+		return false
+	}
+	copy(m.data[offset:], v)
+	return true
+}
+func (m *mockMemory) WriteString(offset uint32, v string) bool {
+	return m.Write(offset, []byte(v))
+}
+
+// mockModule implements api.Module for testing
+type mockModule struct {
+	internalapi.WazeroOnlyType
+	memory api.Memory
+}
+
+func (m *mockModule) String() string                                         { return "mockModule" }
+func (m *mockModule) Name() string                                           { return "test" }
+func (m *mockModule) Memory() api.Memory                                     { return m.memory }
+func (m *mockModule) ExportedFunction(name string) api.Function              { return nil }
+func (m *mockModule) ExportedFunctionDefinitions() map[string]api.FunctionDefinition {
+	return nil
+}
+func (m *mockModule) ExportedMemory(name string) api.Memory                  { return m.memory }
+func (m *mockModule) ExportedMemoryDefinitions() map[string]api.MemoryDefinition {
+	return nil
+}
+func (m *mockModule) ExportedGlobal(name string) api.Global                  { return nil }
+func (m *mockModule) CloseWithExitCode(ctx context.Context, exitCode uint32) error {
+	return nil
+}
+func (m *mockModule) Close(ctx context.Context) error { return nil }
+func (m *mockModule) IsClosed() bool                  { return false }
+
+// TestExportedFunc_Call_ListWithRealloc verifies that list memory is properly allocated via realloc.
+// This test ensures that lists are written to dynamically allocated memory rather than
+// at hardcoded offset 0, which would cause data corruption when multiple lists are passed.
+func TestExportedFunc_Call_ListWithRealloc(t *testing.T) {
+	// Create mock memory large enough for multiple list allocations
+	mem := &mockMemory{data: make([]byte, 4096)}
+
+	// Track all allocations made via realloc
+	type allocation struct {
+		ptr  uint32
+		size uint32
+	}
+	var allocations []allocation
+	nextPtr := uint32(100) // Start allocations at offset 100
+
+	// Mock realloc function - simple bump allocator
+	mockRealloc := &mockFunction{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			// realloc signature: (oldPtr, oldSize, align, newSize) -> ptr
+			if len(params) != 4 {
+				t.Errorf("realloc called with %d params, expected 4", len(params))
+				return []uint64{0}, nil
+			}
+			newSize := uint32(params[3])
+			align := uint32(params[2])
+
+			// Align the pointer
+			if align > 0 && nextPtr%align != 0 {
+				nextPtr = ((nextPtr / align) + 1) * align
+			}
+
+			ptr := nextPtr
+			allocations = append(allocations, allocation{ptr: ptr, size: newSize})
+			nextPtr += newSize
+			return []uint64{uint64(ptr)}, nil
+		},
+	}
+
+	// Track parameters passed to core function
+	var capturedParams []uint64
+	coreFunc := &mockFunction{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			capturedParams = params
+			return []uint64{0}, nil // Return s32 result
+		},
+	}
+
+	// Create instance with mock core module
+	mockMod := &mockModule{memory: mem}
+	inst := &Instance{
+		coreInstances: []api.Module{mockMod},
+		resourceTable: NewResourceTable(),
+	}
+
+	// Create function type with two parameters (the runtime detects lists by Val.Kind())
+	// Each list<s32> parameter flattens to (ptr: i32, len: i32)
+	funcType := &FuncType{
+		Params: []NamedValType{
+			{Name: "list1", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}, // placeholder for list<s32>
+			{Name: "list2", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}, // placeholder for list<s32>
+		},
+		Results: []NamedValType{
+			{Name: "", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}, // s32
+		},
+	}
+
+	f := &ExportedFunc{
+		name:        "sum_lists",
+		funcType:    funcType,
+		coreFunc:    coreFunc,
+		instance:    inst,
+		reallocFunc: mockRealloc,
+	}
+
+	// Create two lists with different data
+	list1 := ValList([]Val{ValS32(1), ValS32(2), ValS32(3)})
+	list2 := ValList([]Val{ValS32(4), ValS32(5)})
+
+	// Call function with two lists
+	_, err := f.Call(context.Background(), list1, list2)
+	require.NoError(t, err)
+
+	// Verify that realloc was called for each list
+	require.Equal(t, 2, len(allocations), "expected 2 realloc calls, one for each list")
+
+	// Verify allocations don't overlap
+	for i := 0; i < len(allocations); i++ {
+		for j := i + 1; j < len(allocations); j++ {
+			a, b := allocations[i], allocations[j]
+			if a.ptr < b.ptr+b.size && b.ptr < a.ptr+a.size {
+				t.Errorf("Allocations overlap: [%d, %d) and [%d, %d)",
+					a.ptr, a.ptr+a.size, b.ptr, b.ptr+b.size)
+			}
+		}
+	}
+
+	// Verify the core function received the correct (ptr, len) pairs
+	// Each list becomes (ptr, len) = 2 params, so 4 total params
+	require.Equal(t, 4, len(capturedParams), "expected 4 core params: ptr1, len1, ptr2, len2")
+
+	ptr1 := uint32(capturedParams[0])
+	len1 := uint32(capturedParams[1])
+	ptr2 := uint32(capturedParams[2])
+	len2 := uint32(capturedParams[3])
+
+	require.Equal(t, uint32(3), len1, "list1 should have length 3")
+	require.Equal(t, uint32(2), len2, "list2 should have length 2")
+
+	// Verify the pointers are different (not both at 0)
+	require.NotEqual(t, ptr1, ptr2, "list pointers should be different")
+
+	// Verify the allocations match the captured pointers
+	require.Equal(t, allocations[0].ptr, ptr1, "first allocation should match ptr1")
+	require.Equal(t, allocations[1].ptr, ptr2, "second allocation should match ptr2")
+
+	// Verify list data was written correctly to memory
+	val1, ok := mem.ReadUint32Le(ptr1)
+	require.True(t, ok)
+	require.Equal(t, uint32(1), val1, "list1[0] should be 1")
+
+	val2, ok := mem.ReadUint32Le(ptr1 + 4)
+	require.True(t, ok)
+	require.Equal(t, uint32(2), val2, "list1[1] should be 2")
+
+	val3, ok := mem.ReadUint32Le(ptr1 + 8)
+	require.True(t, ok)
+	require.Equal(t, uint32(3), val3, "list1[2] should be 3")
+
+	val4, ok := mem.ReadUint32Le(ptr2)
+	require.True(t, ok)
+	require.Equal(t, uint32(4), val4, "list2[0] should be 4")
+
+	val5, ok := mem.ReadUint32Le(ptr2 + 4)
+	require.True(t, ok)
+	require.Equal(t, uint32(5), val5, "list2[1] should be 5")
+}
+
+// TestExportedFunc_Call_ListWithoutRealloc verifies that calling with lists but no realloc
+// function returns an appropriate error.
+func TestExportedFunc_Call_ListWithoutRealloc(t *testing.T) {
+	mem := &mockMemory{data: make([]byte, 1024)}
+
+	coreFunc := &mockFunction{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			return []uint64{0}, nil
+		},
+	}
+
+	mockMod := &mockModule{memory: mem}
+	inst := &Instance{
+		coreInstances: []api.Module{mockMod},
+		resourceTable: NewResourceTable(),
+	}
+
+	funcType := &FuncType{
+		Params: []NamedValType{
+			{Name: "list", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}, // placeholder for list<s32>
+		},
+		Results: []NamedValType{
+			{Name: "", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}},
+		},
+	}
+
+	f := &ExportedFunc{
+		name:        "sum_list",
+		funcType:    funcType,
+		coreFunc:    coreFunc,
+		instance:    inst,
+		reallocFunc: nil, // No realloc function
+	}
+
+	list := ValList([]Val{ValS32(1), ValS32(2)})
+
+	_, err := f.Call(context.Background(), list)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "realloc")
+}
+
+// TestExportedFunc_Call_EmptyList verifies that empty lists don't require realloc.
+func TestExportedFunc_Call_EmptyList(t *testing.T) {
+	mem := &mockMemory{data: make([]byte, 1024)}
+
+	var capturedParams []uint64
+	coreFunc := &mockFunction{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			capturedParams = params
+			return []uint64{0}, nil
+		},
+	}
+
+	mockMod := &mockModule{memory: mem}
+	inst := &Instance{
+		coreInstances: []api.Module{mockMod},
+		resourceTable: NewResourceTable(),
+	}
+
+	funcType := &FuncType{
+		Params: []NamedValType{
+			{Name: "list", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}, // placeholder for list<s32>
+		},
+		Results: []NamedValType{
+			{Name: "", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}},
+		},
+	}
+
+	f := &ExportedFunc{
+		name:        "sum_list",
+		funcType:    funcType,
+		coreFunc:    coreFunc,
+		instance:    inst,
+		reallocFunc: nil, // No realloc - should be OK for empty list
+	}
+
+	emptyList := ValList([]Val{})
+
+	_, err := f.Call(context.Background(), emptyList)
+	require.NoError(t, err)
+
+	// Empty list should still pass (ptr, len) where len is 0
+	require.Equal(t, 2, len(capturedParams))
+	require.Equal(t, uint64(0), capturedParams[1], "empty list should have length 0")
+}

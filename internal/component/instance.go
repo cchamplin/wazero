@@ -187,13 +187,31 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 				return nil, fmt.Errorf("core module has no memory for list data")
 			}
 
-			// Write list elements to memory
-			// For list<s32>, each element is 4 bytes
-			// Currently using a simple allocation strategy: write at offset 0
-			// TODO: In a full implementation, use realloc for proper allocation
-			ptr := uint32(0)
+			// Calculate element size based on element type
+			// For now, support s32/u32 (4 bytes each)
+			elementSize := uint32(4) // TODO: Calculate from element type dynamically
+			listLen := uint32(len(list))
+			listSize := listLen * elementSize
+			alignment := uint32(4) // s32/u32 alignment
+
+			// Allocate memory using realloc per Canonical ABI spec
+			var ptr uint32
+			if listSize > 0 {
+				if f.reallocFunc == nil {
+					return nil, fmt.Errorf("list lowering requires realloc function")
+				}
+				// realloc(old_ptr, old_size, align, new_size) -> new_ptr
+				results, err := f.reallocFunc.Call(ctx, 0, 0, uint64(alignment), uint64(listSize))
+				if err != nil {
+					return nil, fmt.Errorf("realloc for list failed: %w", err)
+				}
+				ptr = uint32(results[0])
+			}
+			// For empty lists (listSize == 0), ptr remains 0, which is valid
+
+			// Write list elements to allocated memory
 			for j, elem := range list {
-				offset := ptr + uint32(j*4)
+				offset := ptr + uint32(j)*elementSize
 				switch elem.Kind() {
 				case ValKindS32:
 					if !mem.WriteUint32Le(offset, uint32(elem.S32())) {
@@ -209,7 +227,7 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 			}
 
 			// Pass (ptr, len) to core function
-			coreParams = append(coreParams, uint64(ptr), uint64(len(list)))
+			coreParams = append(coreParams, uint64(ptr), uint64(listLen))
 		case ValKindOwn:
 			// own<T> argument: Create a new owned handle from the representation
 			// The Val contains a representation value that we turn into a handle
