@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/internalapi"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
@@ -629,5 +630,33 @@ func TestLiftPrimitiveVal_F64_BitPattern(t *testing.T) {
 	resultBits := math.Float64bits(result.F64())
 	if resultBits != nanBits {
 		t.Errorf("F64 bit pattern corrupted: expected 0x%016x, got 0x%016x", nanBits, resultBits)
+	}
+}
+
+// TestLiftResolvedPrimitiveVal_F32_BitPattern tests that F32 bit patterns are preserved during lifting.
+func TestLiftResolvedPrimitiveVal_F32_BitPattern(t *testing.T) {
+	f := &ExportedFunc{}
+
+	// Test infinity bit pattern
+	infBits := uint64(0x7F800000)
+	result := f.liftResolvedPrimitiveVal(infBits, types.F32{})
+
+	resultBits := math.Float32bits(result.F32())
+	if resultBits != uint32(infBits) {
+		t.Errorf("F32 bit pattern corrupted: expected 0x%08x, got 0x%08x", infBits, resultBits)
+	}
+}
+
+// TestLiftResolvedPrimitiveVal_F64_BitPattern tests that F64 bit patterns are preserved during lifting.
+func TestLiftResolvedPrimitiveVal_F64_BitPattern(t *testing.T) {
+	f := &ExportedFunc{}
+
+	// Test negative infinity
+	negInfBits := uint64(0xFFF0000000000000)
+	result := f.liftResolvedPrimitiveVal(negInfBits, types.F64{})
+
+	resultBits := math.Float64bits(result.F64())
+	if resultBits != negInfBits {
+		t.Errorf("F64 bit pattern corrupted: expected 0x%016x, got 0x%016x", negInfBits, resultBits)
 	}
 }

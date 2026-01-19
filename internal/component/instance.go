@@ -763,9 +763,9 @@ func (f *ExportedFunc) liftResolvedPrimitiveVal(coreVal uint64, valType types.Va
 	case types.U64:
 		return ValU64(coreVal)
 	case types.F32:
-		return ValF32(float32(coreVal))
+		return ValF32(math.Float32frombits(uint32(coreVal)))
 	case types.F64:
-		return ValF64(float64(coreVal))
+		return ValF64(math.Float64frombits(coreVal))
 	case types.Char:
 		return ValChar(rune(coreVal))
 	default:
