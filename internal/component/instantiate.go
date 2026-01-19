@@ -61,6 +61,20 @@ func Instantiate(ctx context.Context, instantiator ModuleInstantiator, c *Compon
 		inst.coreInstances[i] = modInst
 	}
 
+	// Build core function and memory index spaces from aliases
+	funcSpace := make(map[uint32]string) // core func idx -> export name
+	memSpace := make(map[uint32]string)  // core memory idx -> export name
+	for _, alias := range c.Aliases {
+		if alias.Kind == AliasKindCoreExport {
+			switch alias.CoreSort {
+			case CoreSortFunc:
+				funcSpace[alias.Idx] = alias.ExportName
+			case CoreSortMemory:
+				memSpace[alias.Idx] = alias.ExportName
+			}
+		}
+	}
+
 	// Wire up exports based on canonical definitions
 	for _, exp := range c.Exports {
 		if exp.Kind != ExportKindFunc {
@@ -88,18 +102,39 @@ func Instantiate(ctx context.Context, instantiator ModuleInstantiator, c *Compon
 		}
 		coreModule := inst.coreInstances[0]
 
-		// Get the core function by index
-		// Note: This is simplified; real impl needs to track function index space
-		coreFuncs := coreModule.ExportedFunctionDefinitions()
+		// Resolve the core function by index using the function space
 		var coreFunc api.Function
-		for name := range coreFuncs {
-			// For now, find any exported function
-			coreFunc = coreModule.ExportedFunction(name)
-			break
+		if exportName, ok := funcSpace[canon.CoreFuncIdx]; ok {
+			coreFunc = coreModule.ExportedFunction(exportName)
+		} else {
+			// Fallback: try to find any exported function (for simple components)
+			coreFuncs := coreModule.ExportedFunctionDefinitions()
+			for name := range coreFuncs {
+				coreFunc = coreModule.ExportedFunction(name)
+				break
+			}
 		}
 
 		if coreFunc == nil {
 			continue
+		}
+
+		// Resolve memory from canonical options
+		var memory api.Memory
+		if canon.Options.MemoryIdx != nil {
+			if exportName, ok := memSpace[*canon.Options.MemoryIdx]; ok {
+				memory = coreModule.ExportedMemory(exportName)
+			} else {
+				memory = coreModule.Memory()
+			}
+		}
+
+		// Resolve realloc function from canonical options
+		var reallocFunc api.Function
+		if canon.Options.ReallocIdx != nil {
+			if exportName, ok := funcSpace[*canon.Options.ReallocIdx]; ok {
+				reallocFunc = coreModule.ExportedFunction(exportName)
+			}
 		}
 
 		// Find the function type
@@ -112,12 +147,14 @@ func Instantiate(ctx context.Context, instantiator ModuleInstantiator, c *Compon
 		}
 
 		inst.exports[exp.Name] = &ExportedFunc{
-			name:      exp.Name,
-			funcType:  funcType,
-			coreFunc:  coreFunc,
-			canonical: canon,
-			component: c,
-			instance:  inst,
+			name:        exp.Name,
+			funcType:    funcType,
+			coreFunc:    coreFunc,
+			canonical:   canon,
+			component:   c,
+			instance:    inst,
+			memory:      memory,
+			reallocFunc: reallocFunc,
 		}
 	}
 
