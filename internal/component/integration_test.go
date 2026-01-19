@@ -497,6 +497,14 @@ func TestIntegration_ComponentWithTypes(t *testing.T) {
 			{Kind: TypeDefKindFunc, Func: funcType},
 			{Kind: TypeDefKindResource, Resource: nil},
 		},
+		// Canonicals define the lifted functions - required for type lookup
+		Canonicals: []CanonicalDef{
+			{Kind: CanonKindLift, TypeIdx: 0, ComponentFuncIdx: 0},
+		},
+		// FuncIdxToCanonical maps export func index to canonical index
+		FuncIdxToCanonical: map[uint32]uint32{
+			0: 0, // export func 0 -> canonical 0 -> type 0 (funcType)
+		},
 		Exports: []Export{
 			{Name: "process", Kind: ExportKindFunc, Idx: 0},
 		},
