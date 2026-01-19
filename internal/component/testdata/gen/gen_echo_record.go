@@ -100,6 +100,7 @@ func main() {
 		0x04, 0x65, 0x63, 0x68, 0x6f, // name "echo"
 		0x01,                         // sort = func
 		0x00,                         // index = 0
+		0x00,                         // no externdesc (REQUIRED)
 	}
 	out = append(out, 0x0b)
 	out = appendLEB128(out, uint32(len(exportSection)))
