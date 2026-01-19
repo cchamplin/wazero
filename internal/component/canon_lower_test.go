@@ -7,6 +7,8 @@ import (
 	"math"
 	"testing"
 
+	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/internal/internalapi"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -550,4 +552,304 @@ func TestCanonLower_MismatchedResultCount(t *testing.T) {
 	_, err := lowered.CallWithStack(context.Background(), []uint64{})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "expected 1 results, got 2")
+}
+
+// mockMemoryForLower implements api.Memory for testing string lowering
+type mockMemoryForLower struct {
+	internalapi.WazeroOnlyType
+	data []byte
+}
+
+func (m *mockMemoryForLower) Definition() api.MemoryDefinition { return nil }
+func (m *mockMemoryForLower) Size() uint32                     { return uint32(len(m.data)) }
+func (m *mockMemoryForLower) Grow(deltaPages uint32) (uint32, bool) {
+	return 0, false
+}
+func (m *mockMemoryForLower) ReadByteAt(offset uint32) (byte, bool) {
+	if offset >= uint32(len(m.data)) {
+		return 0, false
+	}
+	return m.data[offset], true
+}
+func (m *mockMemoryForLower) ReadUint16Le(offset uint32) (uint16, bool) {
+	if offset+2 > uint32(len(m.data)) {
+		return 0, false
+	}
+	return uint16(m.data[offset]) | uint16(m.data[offset+1])<<8, true
+}
+func (m *mockMemoryForLower) ReadUint32Le(offset uint32) (uint32, bool) {
+	if offset+4 > uint32(len(m.data)) {
+		return 0, false
+	}
+	return uint32(m.data[offset]) | uint32(m.data[offset+1])<<8 | uint32(m.data[offset+2])<<16 | uint32(m.data[offset+3])<<24, true
+}
+func (m *mockMemoryForLower) ReadFloat32Le(offset uint32) (float32, bool) {
+	v, ok := m.ReadUint32Le(offset)
+	return math.Float32frombits(v), ok
+}
+func (m *mockMemoryForLower) ReadUint64Le(offset uint32) (uint64, bool) {
+	if offset+8 > uint32(len(m.data)) {
+		return 0, false
+	}
+	lo, _ := m.ReadUint32Le(offset)
+	hi, _ := m.ReadUint32Le(offset + 4)
+	return uint64(lo) | uint64(hi)<<32, true
+}
+func (m *mockMemoryForLower) ReadFloat64Le(offset uint32) (float64, bool) {
+	v, ok := m.ReadUint64Le(offset)
+	return math.Float64frombits(v), ok
+}
+func (m *mockMemoryForLower) Read(offset, byteCount uint32) ([]byte, bool) {
+	if offset+byteCount > uint32(len(m.data)) {
+		return nil, false
+	}
+	return m.data[offset : offset+byteCount], true
+}
+func (m *mockMemoryForLower) WriteByteAt(offset uint32, v byte) bool {
+	if offset >= uint32(len(m.data)) {
+		return false
+	}
+	m.data[offset] = v
+	return true
+}
+func (m *mockMemoryForLower) WriteUint16Le(offset uint32, v uint16) bool {
+	if offset+2 > uint32(len(m.data)) {
+		return false
+	}
+	m.data[offset] = byte(v)
+	m.data[offset+1] = byte(v >> 8)
+	return true
+}
+func (m *mockMemoryForLower) WriteUint32Le(offset, v uint32) bool {
+	if offset+4 > uint32(len(m.data)) {
+		return false
+	}
+	m.data[offset] = byte(v)
+	m.data[offset+1] = byte(v >> 8)
+	m.data[offset+2] = byte(v >> 16)
+	m.data[offset+3] = byte(v >> 24)
+	return true
+}
+func (m *mockMemoryForLower) WriteFloat32Le(offset uint32, v float32) bool {
+	return m.WriteUint32Le(offset, math.Float32bits(v))
+}
+func (m *mockMemoryForLower) WriteUint64Le(offset uint32, v uint64) bool {
+	if offset+8 > uint32(len(m.data)) {
+		return false
+	}
+	m.WriteUint32Le(offset, uint32(v))
+	m.WriteUint32Le(offset+4, uint32(v>>32))
+	return true
+}
+func (m *mockMemoryForLower) WriteFloat64Le(offset uint32, v float64) bool {
+	return m.WriteUint64Le(offset, math.Float64bits(v))
+}
+func (m *mockMemoryForLower) Write(offset uint32, v []byte) bool {
+	if int(offset)+len(v) > len(m.data) {
+		return false
+	}
+	copy(m.data[offset:], v)
+	return true
+}
+func (m *mockMemoryForLower) WriteString(offset uint32, v string) bool {
+	return m.Write(offset, []byte(v))
+}
+
+// mockFunctionForLower implements api.Function for testing realloc
+type mockFunctionForLower struct {
+	internalapi.WazeroOnlyType
+	callFn func(ctx context.Context, params ...uint64) ([]uint64, error)
+}
+
+func (m *mockFunctionForLower) Definition() api.FunctionDefinition { return nil }
+func (m *mockFunctionForLower) Call(ctx context.Context, params ...uint64) ([]uint64, error) {
+	return m.callFn(ctx, params...)
+}
+func (m *mockFunctionForLower) CallWithStack(ctx context.Context, stack []uint64) error {
+	return nil
+}
+
+func TestLoweredFunc_StringLowering(t *testing.T) {
+	// Test that string lowering allocates memory and writes UTF-8 bytes
+	testStr := "Hello, World!"
+
+	var allocatedPtr, allocatedSize uint32
+	mockRealloc := &mockFunctionForLower{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			// realloc(oldPtr, oldSize, align, newSize) -> newPtr
+			newSize := uint32(params[3])
+			allocatedPtr = 0x1000 // Mock allocation
+			allocatedSize = newSize
+			return []uint64{uint64(allocatedPtr)}, nil
+		},
+	}
+
+	memoryData := make([]byte, 0x2000)
+	mockMemory := &mockMemoryForLower{data: memoryData}
+
+	f := &LoweredFunc{
+		funcType: &FuncType{
+			Params: []NamedValType{
+				{Name: "s", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x73}}, // string
+			},
+		},
+		memory:      mockMemory,
+		reallocFunc: mockRealloc,
+	}
+
+	// Lower string argument
+	results, err := f.lowerValToFlatTyped(ValString(testStr), f.funcType.Params[0].ValType)
+	if err != nil {
+		t.Fatalf("string lowering failed: %v", err)
+	}
+
+	// Should return (ptr, len)
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results (ptr, len), got %d", len(results))
+	}
+
+	ptr := uint32(results[0])
+	length := uint32(results[1])
+
+	if length != uint32(len(testStr)) {
+		t.Errorf("expected length %d, got %d", len(testStr), length)
+	}
+
+	// Verify allocatedSize matches expected
+	if allocatedSize != uint32(len(testStr)) {
+		t.Errorf("expected allocated size %d, got %d", len(testStr), allocatedSize)
+	}
+
+	// Verify UTF-8 bytes were written to memory
+	written := string(memoryData[ptr : ptr+length])
+	if written != testStr {
+		t.Errorf("expected %q, got %q", testStr, written)
+	}
+}
+
+func TestLoweredFunc_StringLowering_EmptyString(t *testing.T) {
+	// Test that empty string returns (0, 0) without calling realloc
+	reallocCalled := false
+	mockRealloc := &mockFunctionForLower{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			reallocCalled = true
+			return []uint64{0x1000}, nil
+		},
+	}
+
+	memoryData := make([]byte, 0x2000)
+	mockMemory := &mockMemoryForLower{data: memoryData}
+
+	f := &LoweredFunc{
+		funcType: &FuncType{
+			Params: []NamedValType{
+				{Name: "s", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x73}}, // string
+			},
+		},
+		memory:      mockMemory,
+		reallocFunc: mockRealloc,
+	}
+
+	// Lower empty string
+	results, err := f.lowerValToFlatTyped(ValString(""), f.funcType.Params[0].ValType)
+	if err != nil {
+		t.Fatalf("empty string lowering failed: %v", err)
+	}
+
+	// Should return (0, 0)
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results (ptr, len), got %d", len(results))
+	}
+
+	if results[0] != 0 || results[1] != 0 {
+		t.Errorf("expected (0, 0) for empty string, got (%d, %d)", results[0], results[1])
+	}
+
+	// Realloc should not be called for empty strings
+	if reallocCalled {
+		t.Error("realloc should not be called for empty strings")
+	}
+}
+
+func TestLoweredFunc_StringLowering_NoMemory(t *testing.T) {
+	// Test that string lowering fails without memory
+	f := &LoweredFunc{
+		funcType: &FuncType{
+			Params: []NamedValType{
+				{Name: "s", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x73}}, // string
+			},
+		},
+		memory:      nil, // No memory
+		reallocFunc: nil,
+	}
+
+	_, err := f.lowerValToFlatTyped(ValString("test"), f.funcType.Params[0].ValType)
+	if err == nil {
+		t.Fatal("expected error for string lowering without memory")
+	}
+}
+
+func TestLoweredFunc_StringLowering_NoRealloc(t *testing.T) {
+	// Test that non-empty string lowering fails without realloc
+	memoryData := make([]byte, 0x2000)
+	mockMemory := &mockMemoryForLower{data: memoryData}
+
+	f := &LoweredFunc{
+		funcType: &FuncType{
+			Params: []NamedValType{
+				{Name: "s", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x73}}, // string
+			},
+		},
+		memory:      mockMemory,
+		reallocFunc: nil, // No realloc
+	}
+
+	_, err := f.lowerValToFlatTyped(ValString("test"), f.funcType.Params[0].ValType)
+	if err == nil {
+		t.Fatal("expected error for string lowering without realloc")
+	}
+}
+
+func TestLoweredFunc_StringLowering_Unicode(t *testing.T) {
+	// Test that string lowering works with unicode strings
+	testStr := "Hello, \u4e16\u754c!" // "Hello, 世界!"
+
+	mockRealloc := &mockFunctionForLower{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			return []uint64{0x1000}, nil
+		},
+	}
+
+	memoryData := make([]byte, 0x2000)
+	mockMemory := &mockMemoryForLower{data: memoryData}
+
+	f := &LoweredFunc{
+		funcType: &FuncType{
+			Params: []NamedValType{
+				{Name: "s", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x73}}, // string
+			},
+		},
+		memory:      mockMemory,
+		reallocFunc: mockRealloc,
+	}
+
+	results, err := f.lowerValToFlatTyped(ValString(testStr), f.funcType.Params[0].ValType)
+	if err != nil {
+		t.Fatalf("unicode string lowering failed: %v", err)
+	}
+
+	ptr := uint32(results[0])
+	length := uint32(results[1])
+
+	// Length should be byte length of UTF-8 encoding
+	expectedLen := uint32(len([]byte(testStr)))
+	if length != expectedLen {
+		t.Errorf("expected length %d, got %d", expectedLen, length)
+	}
+
+	// Verify UTF-8 bytes were written correctly
+	written := string(memoryData[ptr : ptr+length])
+	if written != testStr {
+		t.Errorf("expected %q, got %q", testStr, written)
+	}
 }

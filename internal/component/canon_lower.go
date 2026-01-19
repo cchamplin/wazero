@@ -374,11 +374,51 @@ func (f *LoweredFunc) lowerValToFlatTyped(val Val, typeRef ValTypeRef) ([]uint64
 	case 0x74: // char
 		return []uint64{uint64(val.Char())}, nil
 	case 0x73: // string
-		// String needs memory allocation - not yet supported in untyped path
-		return nil, fmt.Errorf("string lowering requires memory context")
+		return f.lowerString(val.StringVal())
 	default:
 		return lowerValToFlat(val)
 	}
+}
+
+// lowerString allocates memory and writes a string using the realloc protocol.
+// This implements string lowering for the canonical ABI.
+//
+// For UTF-8 encoding:
+// 1. Convert string to UTF-8 bytes
+// 2. Allocate memory via realloc(0, 0, 1, len) - alignment 1 for UTF-8
+// 3. Write bytes to allocated memory
+// 4. Return (ptr, len) tuple
+func (f *LoweredFunc) lowerString(s string) ([]uint64, error) {
+	if f.memory == nil {
+		return nil, fmt.Errorf("string lowering requires memory")
+	}
+
+	// Convert string to UTF-8 bytes
+	data := []byte(s)
+	length := uint32(len(data))
+
+	if length == 0 {
+		// Empty string: return (0, 0)
+		return []uint64{0, 0}, nil
+	}
+
+	if f.reallocFunc == nil {
+		return nil, fmt.Errorf("string lowering requires realloc function")
+	}
+
+	// Allocate memory: realloc(0, 0, 1, len) for UTF-8 (alignment = 1)
+	results, err := f.reallocFunc.Call(context.Background(), 0, 0, 1, uint64(length))
+	if err != nil {
+		return nil, fmt.Errorf("realloc for string failed: %w", err)
+	}
+	ptr := uint32(results[0])
+
+	// Write UTF-8 bytes to memory
+	if !f.memory.Write(ptr, data) {
+		return nil, fmt.Errorf("failed to write string to memory at offset %d", ptr)
+	}
+
+	return []uint64{uint64(ptr), uint64(length)}, nil
 }
 
 // lowerValToFlat lowers a Val to flat core wasm values without type information.
