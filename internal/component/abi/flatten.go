@@ -37,14 +37,14 @@ func FlattenResults(results []types.ValType) ([]api.ValueType, bool) {
 
 // CoreSignature returns the complete core function signature for a lowered function.
 // It computes the flattened parameter and result types according to the Canonical ABI.
-// If needsRetptr is true, an i32 param is prepended for the return pointer.
+// If needsRetptr is true, an i32 param is appended for the return pointer.
 func CoreSignature(paramTypes, resultTypes []types.ValType) (params, results []api.ValueType, needsRetptr bool) {
 	params = FlattenParams(paramTypes)
 	results, needsRetptr = FlattenResults(resultTypes)
 
 	if needsRetptr {
-		// Prepend retptr parameter
-		params = append([]api.ValueType{api.ValueTypeI32}, params...)
+		// Append retptr parameter (per Canonical ABI spec, retptr comes after all other params)
+		params = append(params, api.ValueTypeI32)
 	}
 
 	return params, results, needsRetptr

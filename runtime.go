@@ -563,3 +563,48 @@ func (r *runtime) InstantiateHostModule(ctx context.Context, moduleName string, 
 	compiled.(*compiledModule).closeWithModule = true
 	return r.InstantiateModule(ctx, compiled, NewModuleConfig())
 }
+
+// InstantiateHostModuleWithTables implements component.HostModuleInstantiator.
+// This creates a host module with both function exports and shared table exports.
+func (r *runtime) InstantiateHostModuleWithTables(ctx context.Context, moduleName string, exports []component.HostModuleExport, tableExports []component.HostModuleTableExport) (api.Module, error) {
+	// First create the base module with function exports
+	mod, err := r.InstantiateHostModule(ctx, moduleName, exports)
+	if err != nil {
+		return nil, err
+	}
+
+	// Now add table exports by sharing tables from source modules
+	modInst := mod.(*wasm.ModuleInstance)
+	for _, tableExp := range tableExports {
+		// Get the source module's table
+		sourceInst, ok := tableExp.SourceModule.(*wasm.ModuleInstance)
+		if !ok {
+			continue
+		}
+
+		// Find the table in the source module
+		sourceExport, ok := sourceInst.Exports[tableExp.SourceName]
+		if !ok || sourceExport.Type != wasm.ExternTypeTable {
+			continue
+		}
+
+		// Get the source table
+		if int(sourceExport.Index) >= len(sourceInst.Tables) {
+			continue
+		}
+		sourceTable := sourceInst.Tables[sourceExport.Index]
+
+		// Add the table to our module
+		tableIdx := uint32(len(modInst.Tables))
+		modInst.Tables = append(modInst.Tables, sourceTable)
+
+		// Add the export
+		modInst.Exports[tableExp.Name] = &wasm.Export{
+			Type:  wasm.ExternTypeTable,
+			Name:  tableExp.Name,
+			Index: tableIdx,
+		}
+	}
+
+	return mod, nil
+}

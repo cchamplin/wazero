@@ -35,6 +35,13 @@ type HostModuleExport struct {
 	Func     api.GoModuleFunc
 }
 
+// HostModuleTableExport represents a table export that shares a table from another module.
+type HostModuleTableExport struct {
+	Name        string     // Export name
+	SourceModule api.Module // Module containing the source table
+	SourceName  string     // Export name in the source module
+}
+
 // HostModuleInstantiator is an interface for creating host modules dynamically.
 // This is used by the component linker to create synthetic modules that wrap
 // component-level imports for use by core modules.
@@ -42,6 +49,11 @@ type HostModuleInstantiator interface {
 	// InstantiateHostModule creates and instantiates a new host module with the given
 	// name and function exports. Returns the instantiated module or an error.
 	InstantiateHostModule(ctx context.Context, moduleName string, exports []HostModuleExport) (api.Module, error)
+
+	// InstantiateHostModuleWithTables creates and instantiates a new host module with
+	// function exports and shared table exports. This is used when an inline instance
+	// exports both functions (from canon operations) and tables (aliased from other modules).
+	InstantiateHostModuleWithTables(ctx context.Context, moduleName string, exports []HostModuleExport, tableExports []HostModuleTableExport) (api.Module, error)
 }
 
 // CompiledComponent wraps a parsed Component with pre-compiled core modules.

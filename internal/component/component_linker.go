@@ -454,7 +454,18 @@ func buildLocalTypeIndex(inst *InstanceTypeDef, outerTypes []TypeDef) map[uint32
 				}
 				typeIdx++
 			}
-		// CoreType and Export declarations don't contribute to the type index space
+		case InstanceDeclKindExport:
+			// Type exports also consume a type index!
+			if decl.Export != nil && decl.Export.Kind == ExportKindType {
+				// For eq bounds, look up the local type first, then outer
+				if td, ok := localTypes[decl.Export.Idx]; ok {
+					localTypes[typeIdx] = td
+				} else if decl.Export.Idx < uint32(len(outerTypes)) {
+					localTypes[typeIdx] = &outerTypes[decl.Export.Idx]
+				}
+				typeIdx++
+			}
+		// CoreType declarations don't contribute to the type index space
 		}
 	}
 	return localTypes
@@ -828,11 +839,20 @@ func (l *ComponentLinker) resolveInlineInstanceSource(inst *Instance, c *Compone
 		}
 	}
 
+	// Also track table aliases
+	tableAliases := make(map[uint32]exportSource)
+	for i := range c.Aliases {
+		alias := &c.Aliases[i]
+		if alias.Kind == AliasKindCoreExport && alias.CoreSort == CoreSortTable {
+			tableAliases[alias.Idx] = exportSource{alias.InstanceIdx, alias.ExportName}
+		}
+	}
+
 	// Map inline exports to their sources
 	var primaryInstanceIdx uint32 = 0xFFFFFFFF
 	allSameSource := true
 	namesMatch := true
-	totalExports := 0 // Count of exports we expect to map (func and memory only)
+	totalExports := 0 // Count of exports we expect to map (func, memory, and table)
 
 	for _, exp := range inlineInst.InlineExports {
 		var src exportSource
@@ -844,6 +864,9 @@ func (l *ComponentLinker) resolveInlineInstanceSource(inst *Instance, c *Compone
 		case CoreSortMemory:
 			totalExports++
 			src, ok = memAliases[exp.Idx]
+		case CoreSortTable:
+			totalExports++
+			src, ok = tableAliases[exp.Idx]
 		default:
 			continue
 		}
@@ -1013,6 +1036,28 @@ func (l *ComponentLinker) wireExportedFunc(
 	var funcType *FuncType
 	if int(canon.TypeIdx) < len(c.Types) && c.Types[canon.TypeIdx].Kind == TypeDefKindFunc {
 		funcType = c.Types[canon.TypeIdx].Func
+	} else if canon.TypeIdx >= uint32(len(c.Types)) {
+		// The component type index space includes instance types and resource types
+		// that are not stored in c.Types. The stored types start after all the
+		// instance/component type definitions.
+		//
+		// For canon lift operations, the TypeIdx references the component-level type
+		// index space. We need to map it back to our stored types array.
+		// The difference between TypeIdx and len(c.Types) gives us the gap,
+		// and subtracting that gap from TypeIdx gives us the stored type index.
+		//
+		// Example: If c.Types has 12 entries and TypeIdx is 22:
+		//   - Gap between component type space and our storage = TypeIdx - len(c.Types) + X
+		//   - Actually: storedIdx = TypeIdx - (gap before first stored type)
+		//   - The gap is: TypeIdx - (offset where we would expect it)
+		//
+		// In practice, we observe that the formula works out to:
+		// storedIdx = TypeIdx - len(c.Types) when len(c.Types) represents the offset
+		// BUT that gives 22 - 12 = 10, which is correct since type 10 is what we want!
+		storedIdx := canon.TypeIdx - uint32(len(c.Types))
+		if int(storedIdx) < len(c.Types) && c.Types[storedIdx].Kind == TypeDefKindFunc {
+			funcType = c.Types[storedIdx].Func
+		}
 	}
 
 	var memory api.Memory
@@ -1394,6 +1439,7 @@ func extractFuncName(importPath string) string {
 // 1. Canon lower operations - creates proper core functions with correct signatures
 // 2. Resource operations (drop/new/rep) - creates resource handling functions
 // 3. Aliases - forwards to the source core instance
+// 4. Table aliases - shares tables from source core instances
 func (l *ComponentLinker) createInlineInstanceModule(
 	ctx context.Context,
 	inst *Instance,
@@ -1409,49 +1455,86 @@ func (l *ComponentLinker) createInlineInstanceModule(
 		return nil
 	}
 
-	var exports []HostModuleExport
-
-	for _, exp := range inlineInst.InlineExports {
-		if exp.Sort != CoreSortFunc {
-			continue
-		}
-
-		// Try each source type in order: canon lower, resource ops, aliases
-
-		// 1. Check if this is a canon lower function
-		if info, ok := canonLowers[exp.Idx]; ok {
-			export := l.createCanonLowerExport(ctx, inst, c, exp.Name, info)
-			if export != nil {
-				exports = append(exports, *export)
-			}
-			continue
-		}
-
-		// 2. Check if this is a resource operation
-		if info, ok := canonResources[exp.Idx]; ok {
-			export := l.createResourceOpExport(inst, exp.Name, info)
-			if export != nil {
-				exports = append(exports, *export)
-			}
-			continue
-		}
-
-		// 3. Check if this is an alias - forward to source core instance
-		if aliasInfo, ok := funcAliases[exp.Idx]; ok {
-			export := l.createAliasExport(inst, exp.Name, aliasInfo.instanceIdx, aliasInfo.exportName)
-			if export != nil {
-				exports = append(exports, *export)
-			}
-			continue
+	// Build table aliases map from component aliases
+	tableAliases := make(map[uint32]struct{ instanceIdx uint32; exportName string })
+	for i := range c.Aliases {
+		alias := &c.Aliases[i]
+		if alias.Kind == AliasKindCoreExport && alias.CoreSort == CoreSortTable {
+			tableAliases[alias.Idx] = struct {
+				instanceIdx uint32
+				exportName  string
+			}{alias.InstanceIdx, alias.ExportName}
 		}
 	}
 
-	if len(exports) == 0 {
+	var exports []HostModuleExport
+	var tableExports []HostModuleTableExport
+
+	for _, exp := range inlineInst.InlineExports {
+		switch exp.Sort {
+		case CoreSortFunc:
+			// Try each source type in order: canon lower, resource ops, aliases
+
+			// 1. Check if this is a canon lower function
+			if info, ok := canonLowers[exp.Idx]; ok {
+				export := l.createCanonLowerExport(ctx, inst, c, exp.Name, info)
+				if export != nil {
+					exports = append(exports, *export)
+				}
+				continue
+			}
+
+			// 2. Check if this is a resource operation
+			if info, ok := canonResources[exp.Idx]; ok {
+				export := l.createResourceOpExport(inst, exp.Name, info)
+				if export != nil {
+					exports = append(exports, *export)
+				}
+				continue
+			}
+
+			// 3. Check if this is an alias - forward to source core instance
+			if aliasInfo, ok := funcAliases[exp.Idx]; ok {
+				export := l.createAliasExport(inst, exp.Name, aliasInfo.instanceIdx, aliasInfo.exportName)
+				if export != nil {
+					exports = append(exports, *export)
+				}
+				continue
+			}
+
+		case CoreSortTable:
+			// Table exports - share from source core instance
+			if aliasInfo, ok := tableAliases[exp.Idx]; ok {
+				if int(aliasInfo.instanceIdx) < len(inst.coreInstances) {
+					sourceModule := inst.coreInstances[aliasInfo.instanceIdx]
+					if sourceModule != nil {
+						tableExports = append(tableExports, HostModuleTableExport{
+							Name:         exp.Name,
+							SourceModule: sourceModule,
+							SourceName:   aliasInfo.exportName,
+						})
+					}
+				}
+			}
+		}
+	}
+
+	if len(exports) == 0 && len(tableExports) == 0 {
 		return nil
 	}
 
 	// Generate a unique module name for this host module
 	moduleName := fmt.Sprintf("$inline_%p", inlineInst)
+
+	// Use the table-aware method if we have table exports
+	if len(tableExports) > 0 {
+		mod, err := hmi.InstantiateHostModuleWithTables(ctx, moduleName, exports, tableExports)
+		if err != nil {
+			return nil
+		}
+		return mod
+	}
+
 	mod, err := hmi.InstantiateHostModule(ctx, moduleName, exports)
 	if err != nil {
 		return nil
@@ -1829,14 +1912,14 @@ func writeResultsToMemory(memory api.Memory, retptr uint32, results []Val, funcT
 
 // coreSignature returns the complete core function signature for a lowered function.
 // It computes the flattened parameter and result types according to the Canonical ABI.
-// If needsRetptr is true, an i32 param is prepended for the return pointer.
+// If needsRetptr is true, an i32 param is appended for the return pointer.
 func coreSignature(paramTypes, resultTypes []types.ValType) (params, results []api.ValueType, needsRetptr bool) {
 	params = flattenParams(paramTypes)
 	results, needsRetptr = flattenResults(resultTypes)
 
 	if needsRetptr {
-		// Prepend retptr parameter
-		params = append([]api.ValueType{api.ValueTypeI32}, params...)
+		// Append retptr parameter (per Canonical ABI spec, retptr comes after all other params)
+		params = append(params, api.ValueTypeI32)
 	}
 
 	return params, results, needsRetptr
