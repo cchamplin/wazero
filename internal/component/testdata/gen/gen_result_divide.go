@@ -177,6 +177,7 @@ func main() {
 		0x06, 'd', 'i', 'v', 'i', 'd', 'e', // name "divide"
 		0x01, // sort = func
 		0x00, // index = 0
+		0x00, // no externdesc (REQUIRED)
 	}
 	out = append(out, 0x0b)
 	out = appendLEB128(out, uint32(len(exportSection)))
