@@ -5,6 +5,7 @@ package component
 import (
 	"context"
 	"errors"
+	"math"
 	"testing"
 
 	"github.com/tetratelabs/wazero/api"
@@ -601,4 +602,32 @@ func TestExportedFuncCall_CallContextRestored(t *testing.T) {
 
 	// The previous call context should be restored
 	require.Same(t, prevCtx, inst.CallContext())
+}
+
+// TestLiftPrimitiveVal_F32_BitPattern tests that F32 bit patterns are preserved during lifting.
+func TestLiftPrimitiveVal_F32_BitPattern(t *testing.T) {
+	f := &ExportedFunc{}
+
+	// Test NaN bit pattern (0x7FC00000 is a common quiet NaN)
+	nanBits := uint64(0x7FC00000)
+	result := f.liftPrimitiveVal(nanBits, ValTypeRef{IsPrimitive: true, Primitive: 0x76})
+
+	resultBits := math.Float32bits(result.F32())
+	if resultBits != uint32(nanBits) {
+		t.Errorf("F32 bit pattern corrupted: expected 0x%08x, got 0x%08x", nanBits, resultBits)
+	}
+}
+
+// TestLiftPrimitiveVal_F64_BitPattern tests that F64 bit patterns are preserved during lifting.
+func TestLiftPrimitiveVal_F64_BitPattern(t *testing.T) {
+	f := &ExportedFunc{}
+
+	// Test NaN bit pattern
+	nanBits := uint64(0x7FF8000000000000)
+	result := f.liftPrimitiveVal(nanBits, ValTypeRef{IsPrimitive: true, Primitive: 0x75})
+
+	resultBits := math.Float64bits(result.F64())
+	if resultBits != nanBits {
+		t.Errorf("F64 bit pattern corrupted: expected 0x%016x, got 0x%016x", nanBits, resultBits)
+	}
 }
