@@ -187,12 +187,16 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 				return nil, fmt.Errorf("core module has no memory for list data")
 			}
 
-			// Calculate element size based on element type
-			// For now, support s32/u32 (4 bytes each)
-			elementSize := uint32(4) // TODO: Calculate from element type dynamically
+			// Calculate element size and alignment based on element type
+			// Detect from first element, default to s32/u32 if empty
+			var elemSize uint32 = 4
+			var alignment uint32 = 4
+			if len(list) > 0 {
+				elemSize = elementSizeForKind(list[0].Kind())
+				alignment = alignmentForKind(list[0].Kind())
+			}
 			listLen := uint32(len(list))
-			listSize := listLen * elementSize
-			alignment := uint32(4) // s32/u32 alignment
+			listSize := listLen * elemSize
 
 			// Allocate memory using realloc per Canonical ABI spec
 			var ptr uint32
@@ -209,20 +213,11 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 			}
 			// For empty lists (listSize == 0), ptr remains 0, which is valid
 
-			// Write list elements to allocated memory
+			// Write list elements to allocated memory using the helper function
 			for j, elem := range list {
-				offset := ptr + uint32(j)*elementSize
-				switch elem.Kind() {
-				case ValKindS32:
-					if !mem.WriteUint32Le(offset, uint32(elem.S32())) {
-						return nil, fmt.Errorf("failed to write list element %d to memory", j)
-					}
-				case ValKindU32:
-					if !mem.WriteUint32Le(offset, elem.U32()) {
-						return nil, fmt.Errorf("failed to write list element %d to memory", j)
-					}
-				default:
-					return nil, fmt.Errorf("unsupported list element type: %s", elem.Kind())
+				offset := ptr + uint32(j)*elemSize
+				if err := writeListElement(mem, offset, elem); err != nil {
+					return nil, fmt.Errorf("failed to write list element %d: %w", j, err)
 				}
 			}
 
@@ -942,4 +937,100 @@ func (i *Instance) SetCallContext(ctx *CallContext) {
 // CallContext returns the current call context.
 func (i *Instance) CallContext() *CallContext {
 	return i.callContext
+}
+
+// elementSizeForKind returns the size in bytes for a ValKind per the Canonical ABI.
+func elementSizeForKind(kind ValKind) uint32 {
+	switch kind {
+	case ValKindS8, ValKindU8, ValKindBool:
+		return 1
+	case ValKindS16, ValKindU16:
+		return 2
+	case ValKindS32, ValKindU32, ValKindF32, ValKindChar:
+		return 4
+	case ValKindS64, ValKindU64, ValKindF64:
+		return 8
+	default:
+		return 4 // Default to 4 for unknown types
+	}
+}
+
+// alignmentForKind returns the alignment in bytes for a ValKind per the Canonical ABI.
+func alignmentForKind(kind ValKind) uint32 {
+	switch kind {
+	case ValKindS8, ValKindU8, ValKindBool:
+		return 1
+	case ValKindS16, ValKindU16:
+		return 2
+	case ValKindS32, ValKindU32, ValKindF32, ValKindChar:
+		return 4
+	case ValKindS64, ValKindU64, ValKindF64:
+		return 8
+	default:
+		return 4 // Default to 4 for unknown types
+	}
+}
+
+// writeListElement writes a Val to memory at the given offset.
+// Returns an error if the write fails or the element type is not supported.
+func writeListElement(mem api.Memory, offset uint32, elem Val) error {
+	switch elem.Kind() {
+	case ValKindS8:
+		if !mem.WriteByteAt(offset, byte(elem.S8())) {
+			return fmt.Errorf("failed to write s8 at offset %d", offset)
+		}
+	case ValKindU8:
+		if !mem.WriteByteAt(offset, elem.U8()) {
+			return fmt.Errorf("failed to write u8 at offset %d", offset)
+		}
+	case ValKindBool:
+		var b byte
+		if elem.Bool() {
+			b = 1
+		}
+		if !mem.WriteByteAt(offset, b) {
+			return fmt.Errorf("failed to write bool at offset %d", offset)
+		}
+	case ValKindS16:
+		if !mem.WriteUint16Le(offset, uint16(elem.S16())) {
+			return fmt.Errorf("failed to write s16 at offset %d", offset)
+		}
+	case ValKindU16:
+		if !mem.WriteUint16Le(offset, elem.U16()) {
+			return fmt.Errorf("failed to write u16 at offset %d", offset)
+		}
+	case ValKindS32:
+		if !mem.WriteUint32Le(offset, uint32(elem.S32())) {
+			return fmt.Errorf("failed to write s32 at offset %d", offset)
+		}
+	case ValKindU32:
+		if !mem.WriteUint32Le(offset, elem.U32()) {
+			return fmt.Errorf("failed to write u32 at offset %d", offset)
+		}
+	case ValKindChar:
+		if !mem.WriteUint32Le(offset, uint32(elem.Char())) {
+			return fmt.Errorf("failed to write char at offset %d", offset)
+		}
+	case ValKindF32:
+		bits := math.Float32bits(elem.F32())
+		if !mem.WriteUint32Le(offset, bits) {
+			return fmt.Errorf("failed to write f32 at offset %d", offset)
+		}
+	case ValKindS64:
+		if !mem.WriteUint64Le(offset, uint64(elem.S64())) {
+			return fmt.Errorf("failed to write s64 at offset %d", offset)
+		}
+	case ValKindU64:
+		if !mem.WriteUint64Le(offset, elem.U64()) {
+			return fmt.Errorf("failed to write u64 at offset %d", offset)
+		}
+	case ValKindF64:
+		bits := math.Float64bits(elem.F64())
+		if !mem.WriteUint64Le(offset, bits) {
+			return fmt.Errorf("failed to write f64 at offset %d", offset)
+		}
+	default:
+		return fmt.Errorf("unsupported list element type: %s", elem.Kind())
+	}
+	return nil
 }

@@ -1010,3 +1010,741 @@ func TestExportedFunc_Call_EmptyList(t *testing.T) {
 	require.Equal(t, 2, len(capturedParams))
 	require.Equal(t, uint64(0), capturedParams[1], "empty list should have length 0")
 }
+
+// TestExportedFunc_Call_ListOfS64 tests list<s64> element support.
+func TestExportedFunc_Call_ListOfS64(t *testing.T) {
+	mem := &mockMemory{data: make([]byte, 4096)}
+	nextPtr := uint32(100)
+
+	mockRealloc := &mockFunction{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			newSize := uint32(params[3])
+			align := uint32(params[2])
+			if align > 0 && nextPtr%align != 0 {
+				nextPtr = ((nextPtr / align) + 1) * align
+			}
+			ptr := nextPtr
+			nextPtr += newSize
+			return []uint64{uint64(ptr)}, nil
+		},
+	}
+
+	var capturedParams []uint64
+	coreFunc := &mockFunction{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			capturedParams = params
+			return []uint64{0}, nil
+		},
+	}
+
+	mockMod := &mockModule{memory: mem}
+	inst := &Instance{
+		coreInstances: []api.Module{mockMod},
+		resourceTable: NewResourceTable(),
+	}
+
+	funcType := &FuncType{
+		Params: []NamedValType{
+			{Name: "list", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x78}}, // s64
+		},
+		Results: []NamedValType{
+			{Name: "", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}, // s32
+		},
+	}
+
+	f := &ExportedFunc{
+		name:        "sum_s64",
+		funcType:    funcType,
+		coreFunc:    coreFunc,
+		instance:    inst,
+		reallocFunc: mockRealloc,
+	}
+
+	// Test with s64 values including max int64
+	list := ValList([]Val{ValS64(1), ValS64(2), ValS64(math.MaxInt64)})
+
+	_, err := f.Call(context.Background(), list)
+	require.NoError(t, err)
+
+	// Verify (ptr, len) were passed
+	require.Equal(t, 2, len(capturedParams))
+	ptr := uint32(capturedParams[0])
+	length := uint32(capturedParams[1])
+	require.Equal(t, uint32(3), length)
+
+	// Verify 8-byte elements written correctly
+	val1, ok := mem.ReadUint64Le(ptr)
+	require.True(t, ok)
+	require.Equal(t, uint64(1), val1)
+
+	val2, ok := mem.ReadUint64Le(ptr + 8)
+	require.True(t, ok)
+	require.Equal(t, uint64(2), val2)
+
+	val3, ok := mem.ReadUint64Le(ptr + 16)
+	require.True(t, ok)
+	require.Equal(t, uint64(math.MaxInt64), val3)
+}
+
+// TestExportedFunc_Call_ListOfF32 tests list<f32> element support with proper bit encoding.
+func TestExportedFunc_Call_ListOfF32(t *testing.T) {
+	mem := &mockMemory{data: make([]byte, 4096)}
+	nextPtr := uint32(100)
+
+	mockRealloc := &mockFunction{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			newSize := uint32(params[3])
+			align := uint32(params[2])
+			if align > 0 && nextPtr%align != 0 {
+				nextPtr = ((nextPtr / align) + 1) * align
+			}
+			ptr := nextPtr
+			nextPtr += newSize
+			return []uint64{uint64(ptr)}, nil
+		},
+	}
+
+	var capturedParams []uint64
+	coreFunc := &mockFunction{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			capturedParams = params
+			return []uint64{0}, nil
+		},
+	}
+
+	mockMod := &mockModule{memory: mem}
+	inst := &Instance{
+		coreInstances: []api.Module{mockMod},
+		resourceTable: NewResourceTable(),
+	}
+
+	funcType := &FuncType{
+		Params: []NamedValType{
+			{Name: "list", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x76}}, // f32
+		},
+		Results: []NamedValType{
+			{Name: "", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}, // s32
+		},
+	}
+
+	f := &ExportedFunc{
+		name:        "sum_f32",
+		funcType:    funcType,
+		coreFunc:    coreFunc,
+		instance:    inst,
+		reallocFunc: mockRealloc,
+	}
+
+	// Test with f32 values including infinity
+	list := ValList([]Val{ValF32(1.5), ValF32(-3.14), ValF32(float32(math.Inf(1)))})
+
+	_, err := f.Call(context.Background(), list)
+	require.NoError(t, err)
+
+	// Verify (ptr, len) were passed
+	require.Equal(t, 2, len(capturedParams))
+	ptr := uint32(capturedParams[0])
+	length := uint32(capturedParams[1])
+	require.Equal(t, uint32(3), length)
+
+	// Verify 4-byte float elements written with correct bit encoding
+	bits1, ok := mem.ReadUint32Le(ptr)
+	require.True(t, ok)
+	require.Equal(t, math.Float32bits(1.5), bits1)
+
+	bits2, ok := mem.ReadUint32Le(ptr + 4)
+	require.True(t, ok)
+	require.Equal(t, math.Float32bits(-3.14), bits2)
+
+	bits3, ok := mem.ReadUint32Le(ptr + 8)
+	require.True(t, ok)
+	require.Equal(t, math.Float32bits(float32(math.Inf(1))), bits3)
+}
+
+// TestExportedFunc_Call_ListOfF64 tests list<f64> element support with proper bit encoding.
+func TestExportedFunc_Call_ListOfF64(t *testing.T) {
+	mem := &mockMemory{data: make([]byte, 4096)}
+	nextPtr := uint32(100)
+
+	mockRealloc := &mockFunction{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			newSize := uint32(params[3])
+			align := uint32(params[2])
+			if align > 0 && nextPtr%align != 0 {
+				nextPtr = ((nextPtr / align) + 1) * align
+			}
+			ptr := nextPtr
+			nextPtr += newSize
+			return []uint64{uint64(ptr)}, nil
+		},
+	}
+
+	var capturedParams []uint64
+	coreFunc := &mockFunction{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			capturedParams = params
+			return []uint64{0}, nil
+		},
+	}
+
+	mockMod := &mockModule{memory: mem}
+	inst := &Instance{
+		coreInstances: []api.Module{mockMod},
+		resourceTable: NewResourceTable(),
+	}
+
+	funcType := &FuncType{
+		Params: []NamedValType{
+			{Name: "list", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x75}}, // f64
+		},
+		Results: []NamedValType{
+			{Name: "", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}, // s32
+		},
+	}
+
+	f := &ExportedFunc{
+		name:        "sum_f64",
+		funcType:    funcType,
+		coreFunc:    coreFunc,
+		instance:    inst,
+		reallocFunc: mockRealloc,
+	}
+
+	// Test with f64 values including NaN
+	list := ValList([]Val{ValF64(1.5), ValF64(-3.14159265358979), ValF64(math.NaN())})
+
+	_, err := f.Call(context.Background(), list)
+	require.NoError(t, err)
+
+	// Verify (ptr, len) were passed
+	require.Equal(t, 2, len(capturedParams))
+	ptr := uint32(capturedParams[0])
+	length := uint32(capturedParams[1])
+	require.Equal(t, uint32(3), length)
+
+	// Verify 8-byte float elements written with correct bit encoding
+	bits1, ok := mem.ReadUint64Le(ptr)
+	require.True(t, ok)
+	require.Equal(t, math.Float64bits(1.5), bits1)
+
+	bits2, ok := mem.ReadUint64Le(ptr + 8)
+	require.True(t, ok)
+	require.Equal(t, math.Float64bits(-3.14159265358979), bits2)
+
+	bits3, ok := mem.ReadUint64Le(ptr + 16)
+	require.True(t, ok)
+	require.True(t, math.IsNaN(math.Float64frombits(bits3)), "expected NaN")
+}
+
+// TestExportedFunc_Call_ListOfU8 tests list<u8> element support (1-byte elements).
+func TestExportedFunc_Call_ListOfU8(t *testing.T) {
+	mem := &mockMemory{data: make([]byte, 4096)}
+	nextPtr := uint32(100)
+
+	mockRealloc := &mockFunction{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			newSize := uint32(params[3])
+			ptr := nextPtr
+			nextPtr += newSize
+			return []uint64{uint64(ptr)}, nil
+		},
+	}
+
+	var capturedParams []uint64
+	coreFunc := &mockFunction{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			capturedParams = params
+			return []uint64{0}, nil
+		},
+	}
+
+	mockMod := &mockModule{memory: mem}
+	inst := &Instance{
+		coreInstances: []api.Module{mockMod},
+		resourceTable: NewResourceTable(),
+	}
+
+	funcType := &FuncType{
+		Params: []NamedValType{
+			{Name: "list", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7d}}, // u8
+		},
+		Results: []NamedValType{
+			{Name: "", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}, // s32
+		},
+	}
+
+	f := &ExportedFunc{
+		name:        "sum_u8",
+		funcType:    funcType,
+		coreFunc:    coreFunc,
+		instance:    inst,
+		reallocFunc: mockRealloc,
+	}
+
+	// Test with u8 values
+	list := ValList([]Val{ValU8(0), ValU8(127), ValU8(255)})
+
+	_, err := f.Call(context.Background(), list)
+	require.NoError(t, err)
+
+	// Verify (ptr, len) were passed
+	require.Equal(t, 2, len(capturedParams))
+	ptr := uint32(capturedParams[0])
+	length := uint32(capturedParams[1])
+	require.Equal(t, uint32(3), length)
+
+	// Verify 1-byte elements written correctly
+	val1, ok := mem.ReadByteAt(ptr)
+	require.True(t, ok)
+	require.Equal(t, byte(0), val1)
+
+	val2, ok := mem.ReadByteAt(ptr + 1)
+	require.True(t, ok)
+	require.Equal(t, byte(127), val2)
+
+	val3, ok := mem.ReadByteAt(ptr + 2)
+	require.True(t, ok)
+	require.Equal(t, byte(255), val3)
+}
+
+// TestExportedFunc_Call_ListOfS8 tests list<s8> element support (1-byte signed elements).
+func TestExportedFunc_Call_ListOfS8(t *testing.T) {
+	mem := &mockMemory{data: make([]byte, 4096)}
+	nextPtr := uint32(100)
+
+	mockRealloc := &mockFunction{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			newSize := uint32(params[3])
+			ptr := nextPtr
+			nextPtr += newSize
+			return []uint64{uint64(ptr)}, nil
+		},
+	}
+
+	var capturedParams []uint64
+	coreFunc := &mockFunction{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			capturedParams = params
+			return []uint64{0}, nil
+		},
+	}
+
+	mockMod := &mockModule{memory: mem}
+	inst := &Instance{
+		coreInstances: []api.Module{mockMod},
+		resourceTable: NewResourceTable(),
+	}
+
+	funcType := &FuncType{
+		Params: []NamedValType{
+			{Name: "list", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7e}}, // s8
+		},
+		Results: []NamedValType{
+			{Name: "", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}, // s32
+		},
+	}
+
+	f := &ExportedFunc{
+		name:        "sum_s8",
+		funcType:    funcType,
+		coreFunc:    coreFunc,
+		instance:    inst,
+		reallocFunc: mockRealloc,
+	}
+
+	// Test with s8 values including negatives
+	list := ValList([]Val{ValS8(-128), ValS8(0), ValS8(127)})
+
+	_, err := f.Call(context.Background(), list)
+	require.NoError(t, err)
+
+	// Verify (ptr, len) were passed
+	require.Equal(t, 2, len(capturedParams))
+	ptr := uint32(capturedParams[0])
+	length := uint32(capturedParams[1])
+	require.Equal(t, uint32(3), length)
+
+	// Verify 1-byte elements written correctly (s8 stored as 2's complement)
+	val1, ok := mem.ReadByteAt(ptr)
+	require.True(t, ok)
+	require.Equal(t, byte(0x80), val1) // -128 in two's complement
+
+	val2, ok := mem.ReadByteAt(ptr + 1)
+	require.True(t, ok)
+	require.Equal(t, byte(0), val2)
+
+	val3, ok := mem.ReadByteAt(ptr + 2)
+	require.True(t, ok)
+	require.Equal(t, byte(127), val3)
+}
+
+// TestExportedFunc_Call_ListOfU16 tests list<u16> element support (2-byte elements).
+func TestExportedFunc_Call_ListOfU16(t *testing.T) {
+	mem := &mockMemory{data: make([]byte, 4096)}
+	nextPtr := uint32(100)
+
+	mockRealloc := &mockFunction{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			newSize := uint32(params[3])
+			align := uint32(params[2])
+			if align > 0 && nextPtr%align != 0 {
+				nextPtr = ((nextPtr / align) + 1) * align
+			}
+			ptr := nextPtr
+			nextPtr += newSize
+			return []uint64{uint64(ptr)}, nil
+		},
+	}
+
+	var capturedParams []uint64
+	coreFunc := &mockFunction{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			capturedParams = params
+			return []uint64{0}, nil
+		},
+	}
+
+	mockMod := &mockModule{memory: mem}
+	inst := &Instance{
+		coreInstances: []api.Module{mockMod},
+		resourceTable: NewResourceTable(),
+	}
+
+	funcType := &FuncType{
+		Params: []NamedValType{
+			{Name: "list", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7b}}, // u16
+		},
+		Results: []NamedValType{
+			{Name: "", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}, // s32
+		},
+	}
+
+	f := &ExportedFunc{
+		name:        "sum_u16",
+		funcType:    funcType,
+		coreFunc:    coreFunc,
+		instance:    inst,
+		reallocFunc: mockRealloc,
+	}
+
+	// Test with u16 values
+	list := ValList([]Val{ValU16(0), ValU16(32767), ValU16(65535)})
+
+	_, err := f.Call(context.Background(), list)
+	require.NoError(t, err)
+
+	// Verify (ptr, len) were passed
+	require.Equal(t, 2, len(capturedParams))
+	ptr := uint32(capturedParams[0])
+	length := uint32(capturedParams[1])
+	require.Equal(t, uint32(3), length)
+
+	// Verify 2-byte elements written correctly
+	val1, ok := mem.ReadUint16Le(ptr)
+	require.True(t, ok)
+	require.Equal(t, uint16(0), val1)
+
+	val2, ok := mem.ReadUint16Le(ptr + 2)
+	require.True(t, ok)
+	require.Equal(t, uint16(32767), val2)
+
+	val3, ok := mem.ReadUint16Le(ptr + 4)
+	require.True(t, ok)
+	require.Equal(t, uint16(65535), val3)
+}
+
+// TestExportedFunc_Call_ListOfS16 tests list<s16> element support (2-byte signed elements).
+func TestExportedFunc_Call_ListOfS16(t *testing.T) {
+	mem := &mockMemory{data: make([]byte, 4096)}
+	nextPtr := uint32(100)
+
+	mockRealloc := &mockFunction{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			newSize := uint32(params[3])
+			align := uint32(params[2])
+			if align > 0 && nextPtr%align != 0 {
+				nextPtr = ((nextPtr / align) + 1) * align
+			}
+			ptr := nextPtr
+			nextPtr += newSize
+			return []uint64{uint64(ptr)}, nil
+		},
+	}
+
+	var capturedParams []uint64
+	coreFunc := &mockFunction{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			capturedParams = params
+			return []uint64{0}, nil
+		},
+	}
+
+	mockMod := &mockModule{memory: mem}
+	inst := &Instance{
+		coreInstances: []api.Module{mockMod},
+		resourceTable: NewResourceTable(),
+	}
+
+	funcType := &FuncType{
+		Params: []NamedValType{
+			{Name: "list", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7c}}, // s16
+		},
+		Results: []NamedValType{
+			{Name: "", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}, // s32
+		},
+	}
+
+	f := &ExportedFunc{
+		name:        "sum_s16",
+		funcType:    funcType,
+		coreFunc:    coreFunc,
+		instance:    inst,
+		reallocFunc: mockRealloc,
+	}
+
+	// Test with s16 values including negatives
+	list := ValList([]Val{ValS16(-32768), ValS16(0), ValS16(32767)})
+
+	_, err := f.Call(context.Background(), list)
+	require.NoError(t, err)
+
+	// Verify (ptr, len) were passed
+	require.Equal(t, 2, len(capturedParams))
+	ptr := uint32(capturedParams[0])
+	length := uint32(capturedParams[1])
+	require.Equal(t, uint32(3), length)
+
+	// Verify 2-byte elements written correctly
+	val1, ok := mem.ReadUint16Le(ptr)
+	require.True(t, ok)
+	require.Equal(t, uint16(0x8000), val1) // -32768 in two's complement
+
+	val2, ok := mem.ReadUint16Le(ptr + 2)
+	require.True(t, ok)
+	require.Equal(t, uint16(0), val2)
+
+	val3, ok := mem.ReadUint16Le(ptr + 4)
+	require.True(t, ok)
+	require.Equal(t, uint16(32767), val3)
+}
+
+// TestExportedFunc_Call_ListOfU64 tests list<u64> element support.
+func TestExportedFunc_Call_ListOfU64(t *testing.T) {
+	mem := &mockMemory{data: make([]byte, 4096)}
+	nextPtr := uint32(100)
+
+	mockRealloc := &mockFunction{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			newSize := uint32(params[3])
+			align := uint32(params[2])
+			if align > 0 && nextPtr%align != 0 {
+				nextPtr = ((nextPtr / align) + 1) * align
+			}
+			ptr := nextPtr
+			nextPtr += newSize
+			return []uint64{uint64(ptr)}, nil
+		},
+	}
+
+	var capturedParams []uint64
+	coreFunc := &mockFunction{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			capturedParams = params
+			return []uint64{0}, nil
+		},
+	}
+
+	mockMod := &mockModule{memory: mem}
+	inst := &Instance{
+		coreInstances: []api.Module{mockMod},
+		resourceTable: NewResourceTable(),
+	}
+
+	funcType := &FuncType{
+		Params: []NamedValType{
+			{Name: "list", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x77}}, // u64
+		},
+		Results: []NamedValType{
+			{Name: "", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}, // s32
+		},
+	}
+
+	f := &ExportedFunc{
+		name:        "sum_u64",
+		funcType:    funcType,
+		coreFunc:    coreFunc,
+		instance:    inst,
+		reallocFunc: mockRealloc,
+	}
+
+	// Test with u64 values including max uint64
+	list := ValList([]Val{ValU64(1), ValU64(2), ValU64(math.MaxUint64)})
+
+	_, err := f.Call(context.Background(), list)
+	require.NoError(t, err)
+
+	// Verify (ptr, len) were passed
+	require.Equal(t, 2, len(capturedParams))
+	ptr := uint32(capturedParams[0])
+	length := uint32(capturedParams[1])
+	require.Equal(t, uint32(3), length)
+
+	// Verify 8-byte elements written correctly
+	val1, ok := mem.ReadUint64Le(ptr)
+	require.True(t, ok)
+	require.Equal(t, uint64(1), val1)
+
+	val2, ok := mem.ReadUint64Le(ptr + 8)
+	require.True(t, ok)
+	require.Equal(t, uint64(2), val2)
+
+	val3, ok := mem.ReadUint64Le(ptr + 16)
+	require.True(t, ok)
+	require.Equal(t, uint64(math.MaxUint64), val3)
+}
+
+// TestExportedFunc_Call_ListOfBool tests list<bool> element support (1-byte elements).
+func TestExportedFunc_Call_ListOfBool(t *testing.T) {
+	mem := &mockMemory{data: make([]byte, 4096)}
+	nextPtr := uint32(100)
+
+	mockRealloc := &mockFunction{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			newSize := uint32(params[3])
+			ptr := nextPtr
+			nextPtr += newSize
+			return []uint64{uint64(ptr)}, nil
+		},
+	}
+
+	var capturedParams []uint64
+	coreFunc := &mockFunction{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			capturedParams = params
+			return []uint64{0}, nil
+		},
+	}
+
+	mockMod := &mockModule{memory: mem}
+	inst := &Instance{
+		coreInstances: []api.Module{mockMod},
+		resourceTable: NewResourceTable(),
+	}
+
+	funcType := &FuncType{
+		Params: []NamedValType{
+			{Name: "list", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7f}}, // bool
+		},
+		Results: []NamedValType{
+			{Name: "", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}, // s32
+		},
+	}
+
+	f := &ExportedFunc{
+		name:        "any_true",
+		funcType:    funcType,
+		coreFunc:    coreFunc,
+		instance:    inst,
+		reallocFunc: mockRealloc,
+	}
+
+	// Test with bool values
+	list := ValList([]Val{ValBool(false), ValBool(true), ValBool(false)})
+
+	_, err := f.Call(context.Background(), list)
+	require.NoError(t, err)
+
+	// Verify (ptr, len) were passed
+	require.Equal(t, 2, len(capturedParams))
+	ptr := uint32(capturedParams[0])
+	length := uint32(capturedParams[1])
+	require.Equal(t, uint32(3), length)
+
+	// Verify 1-byte elements written correctly
+	val1, ok := mem.ReadByteAt(ptr)
+	require.True(t, ok)
+	require.Equal(t, byte(0), val1)
+
+	val2, ok := mem.ReadByteAt(ptr + 1)
+	require.True(t, ok)
+	require.Equal(t, byte(1), val2)
+
+	val3, ok := mem.ReadByteAt(ptr + 2)
+	require.True(t, ok)
+	require.Equal(t, byte(0), val3)
+}
+
+// TestExportedFunc_Call_ListOfChar tests list<char> element support (4-byte elements for Unicode code points).
+func TestExportedFunc_Call_ListOfChar(t *testing.T) {
+	mem := &mockMemory{data: make([]byte, 4096)}
+	nextPtr := uint32(100)
+
+	mockRealloc := &mockFunction{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			newSize := uint32(params[3])
+			align := uint32(params[2])
+			if align > 0 && nextPtr%align != 0 {
+				nextPtr = ((nextPtr / align) + 1) * align
+			}
+			ptr := nextPtr
+			nextPtr += newSize
+			return []uint64{uint64(ptr)}, nil
+		},
+	}
+
+	var capturedParams []uint64
+	coreFunc := &mockFunction{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			capturedParams = params
+			return []uint64{0}, nil
+		},
+	}
+
+	mockMod := &mockModule{memory: mem}
+	inst := &Instance{
+		coreInstances: []api.Module{mockMod},
+		resourceTable: NewResourceTable(),
+	}
+
+	funcType := &FuncType{
+		Params: []NamedValType{
+			{Name: "list", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x74}}, // char
+		},
+		Results: []NamedValType{
+			{Name: "", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}, // s32
+		},
+	}
+
+	f := &ExportedFunc{
+		name:        "process_chars",
+		funcType:    funcType,
+		coreFunc:    coreFunc,
+		instance:    inst,
+		reallocFunc: mockRealloc,
+	}
+
+	// Test with char values including Unicode
+	list := ValList([]Val{ValChar('A'), ValChar('Z'), ValChar('\U0001F600')}) // emoji
+
+	_, err := f.Call(context.Background(), list)
+	require.NoError(t, err)
+
+	// Verify (ptr, len) were passed
+	require.Equal(t, 2, len(capturedParams))
+	ptr := uint32(capturedParams[0])
+	length := uint32(capturedParams[1])
+	require.Equal(t, uint32(3), length)
+
+	// Verify 4-byte char elements written correctly
+	val1, ok := mem.ReadUint32Le(ptr)
+	require.True(t, ok)
+	require.Equal(t, uint32('A'), val1)
+
+	val2, ok := mem.ReadUint32Le(ptr + 4)
+	require.True(t, ok)
+	require.Equal(t, uint32('Z'), val2)
+
+	val3, ok := mem.ReadUint32Le(ptr + 8)
+	require.True(t, ok)
+	require.Equal(t, uint32(0x1F600), val3) // grinning face emoji
+}
