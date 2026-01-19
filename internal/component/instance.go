@@ -5,6 +5,7 @@ package component
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
 	"unicode/utf8"
 
@@ -515,9 +516,9 @@ func (f *ExportedFunc) liftPrimitiveVal(coreVal uint64, typeRef ValTypeRef) Val 
 		case 0x77: // u64
 			return ValU64(coreVal)
 		case 0x76: // f32
-			return ValF32(float32(coreVal))
+			return ValF32(math.Float32frombits(uint32(coreVal)))
 		case 0x75: // f64
-			return ValF64(float64(coreVal))
+			return ValF64(math.Float64frombits(coreVal))
 		case 0x74: // char
 			return ValChar(rune(coreVal))
 		}
