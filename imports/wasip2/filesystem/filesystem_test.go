@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	wasipIO "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
@@ -116,45 +117,45 @@ func TestInstantiateTypes(t *testing.T) {
 func TestDescriptorReadViaStream(t *testing.T) {
 	// Args: self (borrow<descriptor>), offset (u64)
 	// Returns: result<own<input-stream>, error-code>
+	// Without a valid context/resource table, this should return bad-descriptor error
 	selfHandle := component.ValBorrow(0)
 	offset := component.ValU64(0)
 	result, err := descriptorReadViaStream(context.Background(), []component.Val{selfHandle, offset})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, component.ValKindResult, result[0].Kind())
-	isOk, ok, _ := result[0].Result()
-	require.True(t, isOk, "should return ok result")
-	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindOwn, ok.Kind())
+	isOk, _, errVal := result[0].Result()
+	require.False(t, isOk, "should return error without valid context")
+	require.Equal(t, "bad-descriptor", errVal.Enum())
 }
 
 func TestDescriptorWriteViaStream(t *testing.T) {
 	// Args: self (borrow<descriptor>), offset (u64)
 	// Returns: result<own<output-stream>, error-code>
+	// Without a valid context/resource table, this should return bad-descriptor error
 	selfHandle := component.ValBorrow(0)
 	offset := component.ValU64(0)
 	result, err := descriptorWriteViaStream(context.Background(), []component.Val{selfHandle, offset})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, component.ValKindResult, result[0].Kind())
-	isOk, ok, _ := result[0].Result()
-	require.True(t, isOk, "should return ok result")
-	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindOwn, ok.Kind())
+	isOk, _, errVal := result[0].Result()
+	require.False(t, isOk, "should return error without valid context")
+	require.Equal(t, "bad-descriptor", errVal.Enum())
 }
 
 func TestDescriptorAppendViaStream(t *testing.T) {
 	// Args: self (borrow<descriptor>)
 	// Returns: result<own<output-stream>, error-code>
+	// Without a valid context/resource table, this should return bad-descriptor error
 	selfHandle := component.ValBorrow(0)
 	result, err := descriptorAppendViaStream(context.Background(), []component.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, component.ValKindResult, result[0].Kind())
-	isOk, ok, _ := result[0].Result()
-	require.True(t, isOk, "should return ok result")
-	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindOwn, ok.Kind())
+	isOk, _, errVal := result[0].Result()
+	require.False(t, isOk, "should return error without valid context")
+	require.Equal(t, "bad-descriptor", errVal.Enum())
 }
 
 func TestDescriptorAdvise(t *testing.T) {
@@ -1091,4 +1092,301 @@ func TestDescriptorStatAt_NoEntry(t *testing.T) {
 	require.False(t, isOk, "should return error result")
 	require.NotNil(t, errVal)
 	require.Equal(t, "no-entry", errVal.Enum())
+}
+
+// ====================
+// Stream Method Tests
+// ====================
+
+func TestDescriptorReadViaStream_HostFunction(t *testing.T) {
+	ctx := createTestContext()
+	content := []byte("Hello, WASI!")
+	handle, path := createTestFileDescriptor(t, ctx, content)
+	defer os.Remove(path)
+
+	// Call read-via-stream with offset 0
+	result, err := descriptorReadViaStream(ctx, []component.Val{
+		component.ValBorrow(handle),
+		component.ValU64(0), // offset
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(result))
+	require.Equal(t, component.ValKindResult, result[0].Kind())
+
+	isOk, ok, _ := result[0].Result()
+	require.True(t, isOk, "should return ok result")
+	require.NotNil(t, ok)
+	require.Equal(t, component.ValKindOwn, ok.Kind())
+
+	// Get the input stream handle
+	streamHandle := ok.Own()
+
+	// Now read from the stream using the io package functions
+	table := component.ResourceTableFromContext(ctx)
+	require.NotNil(t, table)
+
+	// Lookup the stream and read from it
+	entry, err := table.Get(component.Handle(streamHandle))
+	require.NoError(t, err)
+	require.NotNil(t, entry)
+
+	// The entry should contain an InputStream
+	_, isInputStream := entry.Rep.(*wasipIO.InputStream)
+	require.True(t, isInputStream, "should return an InputStream")
+}
+
+func TestDescriptorReadViaStream_WithOffset(t *testing.T) {
+	ctx := createTestContext()
+	content := []byte("Hello, WASI!")
+	handle, path := createTestFileDescriptor(t, ctx, content)
+	defer os.Remove(path)
+
+	// Call read-via-stream with offset 7 (should read "WASI!")
+	result, err := descriptorReadViaStream(ctx, []component.Val{
+		component.ValBorrow(handle),
+		component.ValU64(7), // offset
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(result))
+
+	isOk, ok, _ := result[0].Result()
+	require.True(t, isOk, "should return ok result")
+	require.NotNil(t, ok)
+
+	// Get the input stream handle
+	streamHandle := ok.Own()
+
+	// Verify the stream can read from offset
+	table := component.ResourceTableFromContext(ctx)
+	entry, err := table.Get(component.Handle(streamHandle))
+	require.NoError(t, err)
+
+	inputStream, ok2 := entry.Rep.(*wasipIO.InputStream)
+	require.True(t, ok2)
+
+	// Read from the stream
+	data, streamErr := inputStream.Read(100)
+	require.Nil(t, streamErr)
+	require.Equal(t, "WASI!", string(data))
+}
+
+func TestDescriptorReadViaStream_BadDescriptor(t *testing.T) {
+	ctx := createTestContext()
+
+	// Try with invalid handle
+	result, err := descriptorReadViaStream(ctx, []component.Val{
+		component.ValBorrow(999),
+		component.ValU64(0),
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(result))
+
+	isOk, _, errVal := result[0].Result()
+	require.False(t, isOk, "should return error result")
+	require.Equal(t, "bad-descriptor", errVal.Enum())
+}
+
+func TestDescriptorReadViaStream_IsDirectory(t *testing.T) {
+	ctx := createTestContext()
+	handle, _ := createTestDirDescriptor(t, ctx)
+
+	// Try to read via stream from a directory
+	result, err := descriptorReadViaStream(ctx, []component.Val{
+		component.ValBorrow(handle),
+		component.ValU64(0),
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(result))
+
+	isOk, _, errVal := result[0].Result()
+	require.False(t, isOk, "should return error result")
+	require.Equal(t, "is-directory", errVal.Enum())
+}
+
+func TestDescriptorWriteViaStream_HostFunction(t *testing.T) {
+	ctx := createTestContext()
+	handle, path := createTestFileDescriptor(t, ctx, nil)
+	defer os.Remove(path)
+
+	// Call write-via-stream with offset 0
+	result, err := descriptorWriteViaStream(ctx, []component.Val{
+		component.ValBorrow(handle),
+		component.ValU64(0), // offset
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(result))
+	require.Equal(t, component.ValKindResult, result[0].Kind())
+
+	isOk, ok, _ := result[0].Result()
+	require.True(t, isOk, "should return ok result")
+	require.NotNil(t, ok)
+	require.Equal(t, component.ValKindOwn, ok.Kind())
+
+	// Get the output stream handle
+	streamHandle := ok.Own()
+
+	// Verify the stream can be used to write
+	table := component.ResourceTableFromContext(ctx)
+	require.NotNil(t, table)
+
+	entry, err := table.Get(component.Handle(streamHandle))
+	require.NoError(t, err)
+	require.NotNil(t, entry)
+
+	outputStream, isOutputStream := entry.Rep.(*wasipIO.OutputStream)
+	require.True(t, isOutputStream, "should return an OutputStream")
+
+	// Write to the stream
+	streamErr := outputStream.Write([]byte("Test Write"))
+	require.Nil(t, streamErr)
+
+	// Close the stream to flush
+	outputStream.Close()
+
+	// Verify the file content
+	written, readErr := os.ReadFile(path)
+	require.NoError(t, readErr)
+	require.Equal(t, "Test Write", string(written))
+}
+
+func TestDescriptorWriteViaStream_WithOffset(t *testing.T) {
+	ctx := createTestContext()
+	content := []byte("Hello World") // 11 chars, no trailing !
+	handle, path := createTestFileDescriptor(t, ctx, content)
+	defer os.Remove(path)
+
+	// Call write-via-stream with offset 6
+	result, err := descriptorWriteViaStream(ctx, []component.Val{
+		component.ValBorrow(handle),
+		component.ValU64(6), // offset
+	})
+	require.NoError(t, err)
+
+	isOk, ok, _ := result[0].Result()
+	require.True(t, isOk, "should return ok result")
+
+	// Get the output stream handle
+	streamHandle := ok.Own()
+
+	// Get the stream and write
+	table := component.ResourceTableFromContext(ctx)
+	entry, err := table.Get(component.Handle(streamHandle))
+	require.NoError(t, err)
+
+	outputStream := entry.Rep.(*wasipIO.OutputStream)
+
+	// Write "WASI!" at offset 6, replacing "World"
+	streamErr := outputStream.Write([]byte("WASI!"))
+	require.Nil(t, streamErr)
+	outputStream.Close()
+
+	// Verify the file content - "Hello " + "WASI!" = "Hello WASI!"
+	written, readErr := os.ReadFile(path)
+	require.NoError(t, readErr)
+	require.Equal(t, "Hello WASI!", string(written))
+}
+
+func TestDescriptorWriteViaStream_BadDescriptor(t *testing.T) {
+	ctx := createTestContext()
+
+	// Try with invalid handle
+	result, err := descriptorWriteViaStream(ctx, []component.Val{
+		component.ValBorrow(999),
+		component.ValU64(0),
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(result))
+
+	isOk, _, errVal := result[0].Result()
+	require.False(t, isOk, "should return error result")
+	require.Equal(t, "bad-descriptor", errVal.Enum())
+}
+
+func TestDescriptorWriteViaStream_IsDirectory(t *testing.T) {
+	ctx := createTestContext()
+	handle, _ := createTestDirDescriptor(t, ctx)
+
+	// Try to write via stream to a directory
+	result, err := descriptorWriteViaStream(ctx, []component.Val{
+		component.ValBorrow(handle),
+		component.ValU64(0),
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(result))
+
+	isOk, _, errVal := result[0].Result()
+	require.False(t, isOk, "should return error result")
+	require.Equal(t, "is-directory", errVal.Enum())
+}
+
+func TestDescriptorAppendViaStream_HostFunction(t *testing.T) {
+	ctx := createTestContext()
+	content := []byte("Hello")
+	handle, path := createTestFileDescriptor(t, ctx, content)
+	defer os.Remove(path)
+
+	// Call append-via-stream
+	result, err := descriptorAppendViaStream(ctx, []component.Val{
+		component.ValBorrow(handle),
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(result))
+	require.Equal(t, component.ValKindResult, result[0].Kind())
+
+	isOk, ok, _ := result[0].Result()
+	require.True(t, isOk, "should return ok result")
+	require.NotNil(t, ok)
+	require.Equal(t, component.ValKindOwn, ok.Kind())
+
+	// Get the output stream handle
+	streamHandle := ok.Own()
+
+	// Verify the stream can be used to append
+	table := component.ResourceTableFromContext(ctx)
+	entry, err := table.Get(component.Handle(streamHandle))
+	require.NoError(t, err)
+
+	outputStream, isOutputStream := entry.Rep.(*wasipIO.OutputStream)
+	require.True(t, isOutputStream, "should return an OutputStream")
+
+	// Write to the stream (should append)
+	streamErr := outputStream.Write([]byte(", World!"))
+	require.Nil(t, streamErr)
+	outputStream.Close()
+
+	// Verify the file content has been appended
+	written, readErr := os.ReadFile(path)
+	require.NoError(t, readErr)
+	require.Equal(t, "Hello, World!", string(written))
+}
+
+func TestDescriptorAppendViaStream_BadDescriptor(t *testing.T) {
+	ctx := createTestContext()
+
+	// Try with invalid handle
+	result, err := descriptorAppendViaStream(ctx, []component.Val{
+		component.ValBorrow(999),
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(result))
+
+	isOk, _, errVal := result[0].Result()
+	require.False(t, isOk, "should return error result")
+	require.Equal(t, "bad-descriptor", errVal.Enum())
+}
+
+func TestDescriptorAppendViaStream_IsDirectory(t *testing.T) {
+	ctx := createTestContext()
+	handle, _ := createTestDirDescriptor(t, ctx)
+
+	// Try to append via stream to a directory
+	result, err := descriptorAppendViaStream(ctx, []component.Val{
+		component.ValBorrow(handle),
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(result))
+
+	isOk, _, errVal := result[0].Result()
+	require.False(t, isOk, "should return error result")
+	require.Equal(t, "is-directory", errVal.Enum())
 }
