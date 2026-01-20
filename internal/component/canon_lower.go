@@ -10,6 +10,12 @@ import (
 	"github.com/tetratelabs/wazero/api"
 )
 
+// EnumType represents an enumeration type for lowering.
+// It maps enum case names to their discriminant indices.
+type EnumType struct {
+	Cases []string
+}
+
 // LoweredFunc wraps a component-level HostFunc as a core wasm function.
 // This is produced by canon lower, which takes a component function and creates
 // a core wasm function that can be provided as an import to core modules.
@@ -452,7 +458,22 @@ func lowerValToFlat(val Val) ([]uint64, error) {
 		return []uint64{math.Float64bits(val.F64())}, nil
 	case ValKindChar:
 		return []uint64{uint64(val.Char())}, nil
+	case ValKindEnum:
+		// Enum types need type info to map case name to discriminant
+		// For now, return error; full implementation needs type context
+		return nil, fmt.Errorf("enum lowering requires type context")
 	default:
 		return nil, fmt.Errorf("unsupported Val kind for untyped lowering: %s", val.Kind())
 	}
+}
+
+// lowerEnumToFlat converts an enum to its discriminant value.
+func lowerEnumToFlat(val Val, enumType *EnumType) ([]uint64, error) {
+	caseName := val.Enum()
+	for i, name := range enumType.Cases {
+		if name == caseName {
+			return []uint64{uint64(i)}, nil
+		}
+	}
+	return nil, fmt.Errorf("unknown enum case: %s", caseName)
 }

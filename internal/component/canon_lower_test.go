@@ -5,6 +5,7 @@ package component
 import (
 	"context"
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/tetratelabs/wazero/api"
@@ -851,5 +852,44 @@ func TestLoweredFunc_StringLowering_Unicode(t *testing.T) {
 	written := string(memoryData[ptr : ptr+length])
 	if written != testStr {
 		t.Errorf("expected %q, got %q", testStr, written)
+	}
+}
+
+func TestLowerEnumToFlat(t *testing.T) {
+	// Enum cases are encoded as discriminant integers
+	cases := []struct {
+		caseName string
+		expected uint64
+	}{
+		{"case0", 0},
+		{"case1", 1},
+		{"case2", 2},
+	}
+
+	enumType := &EnumType{Cases: []string{"case0", "case1", "case2"}}
+
+	for _, tc := range cases {
+		val := ValEnum(tc.caseName)
+		result, err := lowerEnumToFlat(val, enumType)
+		if err != nil {
+			t.Fatalf("enum lowering failed for %s: %v", tc.caseName, err)
+		}
+		if len(result) != 1 || result[0] != tc.expected {
+			t.Errorf("expected [%d] for %s, got %v", tc.expected, tc.caseName, result)
+		}
+	}
+}
+
+func TestLowerEnumToFlat_UnknownCase(t *testing.T) {
+	// Test that unknown enum case returns an error
+	enumType := &EnumType{Cases: []string{"case0", "case1", "case2"}}
+	val := ValEnum("unknown")
+
+	_, err := lowerEnumToFlat(val, enumType)
+	if err == nil {
+		t.Fatal("expected error for unknown enum case")
+	}
+	if !strings.Contains(err.Error(), "unknown enum case") {
+		t.Errorf("expected error to contain 'unknown enum case', got: %v", err)
 	}
 }
