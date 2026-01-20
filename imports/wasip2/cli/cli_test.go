@@ -54,6 +54,9 @@ func TestInstantiate(t *testing.T) {
 		"wasi:cli/stderr@0.2.0",
 		"wasi:cli/terminal-input@0.2.0",
 		"wasi:cli/terminal-output@0.2.0",
+		"wasi:cli/terminal-stdin@0.2.0",
+		"wasi:cli/terminal-stdout@0.2.0",
+		"wasi:cli/terminal-stderr@0.2.0",
 	}
 
 	for _, iface := range interfaces {

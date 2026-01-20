@@ -47,6 +47,15 @@ func Instantiate(linker *component.Linker) error {
 	if err := instantiateTerminalOutput(linker); err != nil {
 		return err
 	}
+	if err := instantiateTerminalStdin(linker); err != nil {
+		return err
+	}
+	if err := instantiateTerminalStdout(linker); err != nil {
+		return err
+	}
+	if err := instantiateTerminalStderr(linker); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -258,4 +267,127 @@ func instantiateTerminalOutput(linker *component.Linker) error {
 	inst.Resource("terminal-output", func(rep uint32) {})
 
 	return inst.Build()
+}
+
+// instantiateTerminalStdin registers wasi:cli/terminal-stdin@0.2.0
+func instantiateTerminalStdin(linker *component.Linker) error {
+	inst := linker.DefineInstance("wasi:cli/terminal-stdin@0.2.0")
+
+	// get-terminal-stdin: func() -> option<own<terminal-input>>
+	inst.FuncNoType("get-terminal-stdin", getTerminalStdin)
+
+	return inst.Build()
+}
+
+// getTerminalStdin returns Some(terminal-input) if stdin is a terminal, None otherwise
+func getTerminalStdin(ctx context.Context, args []component.Val) ([]component.Val, error) {
+	config := component.WASIConfigFromContext(ctx)
+	if config == nil {
+		return []component.Val{component.ValOption(nil)}, nil
+	}
+
+	isTerminal := false
+	switch config.TerminalMode() {
+	case component.TerminalModeNone:
+		isTerminal = false
+	case component.TerminalModeAuto:
+		isTerminal = detectTerminal(config.Stdin())
+	case component.TerminalModeCustom:
+		isTerminal = config.StdinIsTerminal()
+	}
+
+	if !isTerminal {
+		return []component.Val{component.ValOption(nil)}, nil
+	}
+
+	// Create terminal-input resource and return Some(handle)
+	table := component.ResourceTableFromContext(ctx)
+	if table == nil {
+		return []component.Val{component.ValOption(nil)}, nil
+	}
+	handle := table.New(&TerminalInput{}, true)
+	val := component.ValOwn(uint32(handle))
+	return []component.Val{component.ValOption(&val)}, nil
+}
+
+// instantiateTerminalStdout registers wasi:cli/terminal-stdout@0.2.0
+func instantiateTerminalStdout(linker *component.Linker) error {
+	inst := linker.DefineInstance("wasi:cli/terminal-stdout@0.2.0")
+
+	// get-terminal-stdout: func() -> option<own<terminal-output>>
+	inst.FuncNoType("get-terminal-stdout", getTerminalStdout)
+
+	return inst.Build()
+}
+
+// getTerminalStdout returns Some(terminal-output) if stdout is a terminal, None otherwise
+func getTerminalStdout(ctx context.Context, args []component.Val) ([]component.Val, error) {
+	config := component.WASIConfigFromContext(ctx)
+	if config == nil {
+		return []component.Val{component.ValOption(nil)}, nil
+	}
+
+	isTerminal := false
+	switch config.TerminalMode() {
+	case component.TerminalModeNone:
+		isTerminal = false
+	case component.TerminalModeAuto:
+		isTerminal = detectTerminal(config.Stdout())
+	case component.TerminalModeCustom:
+		isTerminal = config.StdoutIsTerminal()
+	}
+
+	if !isTerminal {
+		return []component.Val{component.ValOption(nil)}, nil
+	}
+
+	// Create terminal-output resource and return Some(handle)
+	table := component.ResourceTableFromContext(ctx)
+	if table == nil {
+		return []component.Val{component.ValOption(nil)}, nil
+	}
+	handle := table.New(&TerminalOutput{}, true)
+	val := component.ValOwn(uint32(handle))
+	return []component.Val{component.ValOption(&val)}, nil
+}
+
+// instantiateTerminalStderr registers wasi:cli/terminal-stderr@0.2.0
+func instantiateTerminalStderr(linker *component.Linker) error {
+	inst := linker.DefineInstance("wasi:cli/terminal-stderr@0.2.0")
+
+	// get-terminal-stderr: func() -> option<own<terminal-output>>
+	inst.FuncNoType("get-terminal-stderr", getTerminalStderr)
+
+	return inst.Build()
+}
+
+// getTerminalStderr returns Some(terminal-output) if stderr is a terminal, None otherwise
+func getTerminalStderr(ctx context.Context, args []component.Val) ([]component.Val, error) {
+	config := component.WASIConfigFromContext(ctx)
+	if config == nil {
+		return []component.Val{component.ValOption(nil)}, nil
+	}
+
+	isTerminal := false
+	switch config.TerminalMode() {
+	case component.TerminalModeNone:
+		isTerminal = false
+	case component.TerminalModeAuto:
+		isTerminal = detectTerminal(config.Stderr())
+	case component.TerminalModeCustom:
+		isTerminal = config.StderrIsTerminal()
+	}
+
+	if !isTerminal {
+		return []component.Val{component.ValOption(nil)}, nil
+	}
+
+	// Create terminal-output resource and return Some(handle)
+	table := component.ResourceTableFromContext(ctx)
+	if table == nil {
+		return []component.Val{component.ValOption(nil)}, nil
+	}
+	handle := table.New(&TerminalOutput{}, true)
+	val := component.ValOwn(uint32(handle))
+	return []component.Val{component.ValOption(&val)}, nil
 }
