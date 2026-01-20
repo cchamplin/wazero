@@ -12,4 +12,6 @@ retract (
 	v1.0.0-beta.1
 )
 
-require golang.org/x/sys v0.38.0
+require golang.org/x/sys v0.40.0
+
+require golang.org/x/term v0.39.0 // indirect
