@@ -498,3 +498,86 @@ func TestInstantiateTerminalStderr(t *testing.T) {
 	_, hasGetTerminalStderr := instDef.Exports["get-terminal-stderr"]
 	require.True(t, hasGetTerminalStderr, "get-terminal-stderr function should be defined")
 }
+
+func TestGetTerminalStdin_NoConfig(t *testing.T) {
+	// Without config, returns None
+	result, err := getTerminalStdin(context.Background(), []component.Val{})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(result))
+	require.Equal(t, component.ValKindOption, result[0].Kind())
+	opt := result[0].Option()
+	require.Nil(t, opt, "should return None when no config")
+}
+
+func TestGetTerminalStdin_ModeNone(t *testing.T) {
+	// With TerminalModeNone, always returns None
+	config := &testConfig{
+		stdin:        bytes.NewReader([]byte("test")),
+		terminalMode: component.TerminalModeNone,
+	}
+	ctx := component.WithWASIConfig(context.Background(), config)
+
+	result, err := getTerminalStdin(ctx, []component.Val{})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(result))
+	require.Equal(t, component.ValKindOption, result[0].Kind())
+	opt := result[0].Option()
+	require.Nil(t, opt, "should return None with TerminalModeNone")
+}
+
+func TestGetTerminalStdin_ModeCustom_False(t *testing.T) {
+	// With TerminalModeCustom and stdinIsTerminal=false, returns None
+	config := &testConfig{
+		stdin:           bytes.NewReader([]byte("test")),
+		terminalMode:    component.TerminalModeCustom,
+		stdinIsTerminal: false,
+	}
+	ctx := component.WithWASIConfig(context.Background(), config)
+
+	result, err := getTerminalStdin(ctx, []component.Val{})
+	require.NoError(t, err)
+	opt := result[0].Option()
+	require.Nil(t, opt, "should return None when stdinIsTerminal=false")
+}
+
+func TestGetTerminalStdin_ModeCustom_True(t *testing.T) {
+	// With TerminalModeCustom and stdinIsTerminal=true, returns Some(terminal-input)
+	config := &testConfig{
+		stdin:           bytes.NewReader([]byte("test")),
+		terminalMode:    component.TerminalModeCustom,
+		stdinIsTerminal: true,
+	}
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+	ctx = component.WithWASIConfig(ctx, config)
+
+	result, err := getTerminalStdin(ctx, []component.Val{})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(result))
+	require.Equal(t, component.ValKindOption, result[0].Kind())
+	opt := result[0].Option()
+	require.NotNil(t, opt, "should return Some when stdinIsTerminal=true")
+	require.Equal(t, component.ValKindOwn, opt.Kind())
+
+	// Verify the resource was created in the table
+	handle := opt.Own()
+	entry, err := table.Get(component.Handle(handle))
+	require.NoError(t, err)
+	require.NotNil(t, entry)
+	_, ok := entry.Rep.(*TerminalInput)
+	require.True(t, ok, "expected TerminalInput resource")
+}
+
+func TestGetTerminalStdin_ModeAuto_NotFile(t *testing.T) {
+	// With TerminalModeAuto and non-file reader, returns None
+	config := &testConfig{
+		stdin:        bytes.NewReader([]byte("test")), // Not an *os.File
+		terminalMode: component.TerminalModeAuto,
+	}
+	ctx := component.WithWASIConfig(context.Background(), config)
+
+	result, err := getTerminalStdin(ctx, []component.Val{})
+	require.NoError(t, err)
+	opt := result[0].Option()
+	require.Nil(t, opt, "should return None when stdin is not an *os.File")
+}
