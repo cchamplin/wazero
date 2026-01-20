@@ -5,11 +5,12 @@ package filesystem
 import (
 	"context"
 	"errors"
-	"io"
+	goio "io"
 	"os"
 	"path/filepath"
 	"syscall"
 
+	wasipIO "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
 )
 
@@ -227,25 +228,141 @@ func instantiateTypes(linker *component.Linker) error {
 // descriptorReadViaStream returns an input-stream for reading from a descriptor at an offset.
 // Signature: func(self: borrow<descriptor>, offset: u64) -> result<own<input-stream>, error-code>
 func descriptorReadViaStream(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return placeholder input-stream handle
-	handle := component.ValOwn(0)
-	return []component.Val{component.ValResultOk(&handle)}, nil
+	descHandle := args[0].Borrow()
+	offset := args[1].U64()
+
+	table := component.ResourceTableFromContext(ctx)
+	if table == nil {
+		return errorResult(ErrorCodeBadDescriptor), nil
+	}
+
+	desc, err := getDescriptor(ctx, descHandle)
+	if err != nil {
+		return errorResult(ErrorCodeBadDescriptor), nil
+	}
+
+	// Cannot read from a directory
+	if desc.IsDir() {
+		return errorResult(ErrorCodeIsDirectory), nil
+	}
+
+	// Check read permission
+	if !desc.Flags().HasRead() {
+		return errorResult(ErrorCodeAccess), nil
+	}
+
+	// Open a new file handle for reading at the specified offset
+	file, err := os.Open(desc.Path())
+	if err != nil {
+		return errorResult(mapOSError(err)), nil
+	}
+
+	// Seek to the specified offset
+	if offset > 0 {
+		_, err = file.Seek(int64(offset), goio.SeekStart)
+		if err != nil {
+			file.Close()
+			return errorResult(mapOSError(err)), nil
+		}
+	}
+
+	// Create an input stream from the file
+	inputStream := wasipIO.NewInputStream(file)
+
+	// Add the stream to the resource table
+	streamHandle := table.New(inputStream, true)
+	handleVal := component.ValOwn(uint32(streamHandle.Index()))
+	return []component.Val{component.ValResultOk(&handleVal)}, nil
 }
 
 // descriptorWriteViaStream returns an output-stream for writing to a descriptor at an offset.
 // Signature: func(self: borrow<descriptor>, offset: u64) -> result<own<output-stream>, error-code>
 func descriptorWriteViaStream(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return placeholder output-stream handle
-	handle := component.ValOwn(0)
-	return []component.Val{component.ValResultOk(&handle)}, nil
+	descHandle := args[0].Borrow()
+	offset := args[1].U64()
+
+	table := component.ResourceTableFromContext(ctx)
+	if table == nil {
+		return errorResult(ErrorCodeBadDescriptor), nil
+	}
+
+	desc, err := getDescriptor(ctx, descHandle)
+	if err != nil {
+		return errorResult(ErrorCodeBadDescriptor), nil
+	}
+
+	// Cannot write to a directory
+	if desc.IsDir() {
+		return errorResult(ErrorCodeIsDirectory), nil
+	}
+
+	// Check write permission
+	if !desc.Flags().HasWrite() {
+		return errorResult(ErrorCodeAccess), nil
+	}
+
+	// Open a new file handle for writing at the specified offset
+	file, err := os.OpenFile(desc.Path(), os.O_WRONLY, 0)
+	if err != nil {
+		return errorResult(mapOSError(err)), nil
+	}
+
+	// Seek to the specified offset
+	if offset > 0 {
+		_, err = file.Seek(int64(offset), goio.SeekStart)
+		if err != nil {
+			file.Close()
+			return errorResult(mapOSError(err)), nil
+		}
+	}
+
+	// Create an output stream from the file
+	outputStream := wasipIO.NewOutputStream(file)
+
+	// Add the stream to the resource table
+	streamHandle := table.New(outputStream, true)
+	handleVal := component.ValOwn(uint32(streamHandle.Index()))
+	return []component.Val{component.ValResultOk(&handleVal)}, nil
 }
 
 // descriptorAppendViaStream returns an output-stream for appending to a descriptor.
 // Signature: func(self: borrow<descriptor>) -> result<own<output-stream>, error-code>
 func descriptorAppendViaStream(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return placeholder output-stream handle
-	handle := component.ValOwn(0)
-	return []component.Val{component.ValResultOk(&handle)}, nil
+	descHandle := args[0].Borrow()
+
+	table := component.ResourceTableFromContext(ctx)
+	if table == nil {
+		return errorResult(ErrorCodeBadDescriptor), nil
+	}
+
+	desc, err := getDescriptor(ctx, descHandle)
+	if err != nil {
+		return errorResult(ErrorCodeBadDescriptor), nil
+	}
+
+	// Cannot append to a directory
+	if desc.IsDir() {
+		return errorResult(ErrorCodeIsDirectory), nil
+	}
+
+	// Check write permission
+	if !desc.Flags().HasWrite() {
+		return errorResult(ErrorCodeAccess), nil
+	}
+
+	// Open a new file handle in append mode
+	file, err := os.OpenFile(desc.Path(), os.O_WRONLY|os.O_APPEND, 0)
+	if err != nil {
+		return errorResult(mapOSError(err)), nil
+	}
+
+	// Create an output stream from the file
+	outputStream := wasipIO.NewOutputStream(file)
+
+	// Add the stream to the resource table
+	streamHandle := table.New(outputStream, true)
+	handleVal := component.ValOwn(uint32(streamHandle.Index()))
+	return []component.Val{component.ValResultOk(&handleVal)}, nil
 }
 
 // descriptorAdvise provides advice about expected access patterns.
@@ -360,7 +477,7 @@ func descriptorRead(ctx context.Context, args []component.Val) ([]component.Val,
 	// Determine EOF status
 	eof := false
 	if readErr != nil {
-		if readErr == io.EOF {
+		if readErr == goio.EOF {
 			eof = true
 		} else {
 			return errorResult(mapOSError(readErr)), nil
