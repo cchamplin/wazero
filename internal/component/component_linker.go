@@ -1076,15 +1076,24 @@ func (l *ComponentLinker) wireExportedFunc(
 		}
 	}
 
+	var postReturnFunc api.Function
+	if canon.Options.PostReturnIdx != nil {
+		postReturnFunc, err = l.resolveCoreFunc(inst, c, *canon.Options.PostReturnIdx, funcSpace)
+		if err != nil {
+			return nil, fmt.Errorf("resolve post-return: %w", err)
+		}
+	}
+
 	return &ExportedFunc{
-		name:        exp.Name,
-		funcType:    funcType,
-		coreFunc:    coreFunc,
-		canonical:   canon,
-		component:   c,
-		instance:    inst,
-		memory:      memory,
-		reallocFunc: reallocFunc,
+		name:           exp.Name,
+		funcType:       funcType,
+		coreFunc:       coreFunc,
+		canonical:      canon,
+		component:      c,
+		instance:       inst,
+		memory:         memory,
+		reallocFunc:    reallocFunc,
+		postReturnFunc: postReturnFunc,
 	}, nil
 }
 
