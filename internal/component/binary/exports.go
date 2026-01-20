@@ -55,13 +55,13 @@ func decodeExport(r *bytes.Reader) (component.Export, error) {
 		case 0x00:
 			exp.Kind = component.ExportKindFunc
 		case 0x01:
-			exp.Kind = component.ExportKindFunc // table
+			exp.Kind = component.ExportKindTable
 		case 0x02:
-			exp.Kind = component.ExportKindFunc // memory
+			exp.Kind = component.ExportKindMemory
 		case 0x03:
-			exp.Kind = component.ExportKindFunc // global
+			exp.Kind = component.ExportKindGlobal
 		default:
-			exp.Kind = component.ExportKindFunc
+			return exp, fmt.Errorf("unknown core sort: 0x%02x", coreSortByte)
 		}
 	} else {
 		// Map sort to ExportKind

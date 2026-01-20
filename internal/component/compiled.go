@@ -164,6 +164,12 @@ func convertExportKind(kind ExportKind) api.ComponentExportKind {
 		return api.ComponentExportKindInstance
 	case ExportKindInstance:
 		return api.ComponentExportKindInstance
+	case ExportKindTable:
+		return api.ComponentExportKindTable
+	case ExportKindMemory:
+		return api.ComponentExportKindMemory
+	case ExportKindGlobal:
+		return api.ComponentExportKindGlobal
 	default:
 		return api.ComponentExportKindFunc
 	}

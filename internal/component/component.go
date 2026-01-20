@@ -302,6 +302,9 @@ const (
 	ExportKindType
 	ExportKindComponent
 	ExportKindInstance
+	ExportKindTable
+	ExportKindMemory
+	ExportKindGlobal
 )
 
 // Sort identifies the kind of component-level item.

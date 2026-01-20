@@ -92,3 +92,39 @@ func TestDecodeExportMultiple(t *testing.T) {
 		t.Errorf("expected second export name 'bar', got '%s'", c.Exports[1].Name)
 	}
 }
+
+func TestDecodeExport_CoreSorts(t *testing.T) {
+	cases := []struct {
+		name     string
+		coreSort byte
+		expected component.ExportKind
+	}{
+		{"core func", 0x00, component.ExportKindFunc},
+		{"core table", 0x01, component.ExportKindTable},
+		{"core memory", 0x02, component.ExportKindMemory},
+		{"core global", 0x03, component.ExportKindGlobal},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Construct minimal export bytes with core sort
+			// Export format: exportname' sortidx [externdesc?]
+			// For core sorts: sort=0x00 followed by core sort byte
+			input := []byte{
+				0x00,                   // simple name (no version)
+				0x04, 't', 'e', 's', 't', // name length=4, "test"
+				0x00,       // sort = core (0x00)
+				tc.coreSort, // core sort byte
+				0x00,       // index = 0
+				0x00,       // no extern desc
+			}
+
+			r := bytes.NewReader(input)
+			exp, err := decodeExport(r)
+			require.NoError(t, err)
+			require.Equal(t, "test", exp.Name)
+			require.Equal(t, tc.expected, exp.Kind, "expected ExportKind %d for core sort 0x%02x, got %d", tc.expected, tc.coreSort, exp.Kind)
+			require.Equal(t, uint32(0), exp.Idx)
+		})
+	}
+}

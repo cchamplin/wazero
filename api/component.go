@@ -15,6 +15,9 @@ const (
 	ComponentExportKindValue    ComponentExportKind = 0x01
 	ComponentExportKindType     ComponentExportKind = 0x02
 	ComponentExportKindInstance ComponentExportKind = 0x04
+	ComponentExportKindTable    ComponentExportKind = 0x05
+	ComponentExportKindMemory   ComponentExportKind = 0x06
+	ComponentExportKindGlobal   ComponentExportKind = 0x07
 )
 
 // ComponentImport describes an import required by a component.

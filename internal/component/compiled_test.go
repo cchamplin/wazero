@@ -88,6 +88,21 @@ func TestConvertExportKind(t *testing.T) {
 			expected: api.ComponentExportKindInstance,
 		},
 		{
+			name:     "ExportKindTable",
+			kind:     ExportKindTable,
+			expected: api.ComponentExportKindTable,
+		},
+		{
+			name:     "ExportKindMemory",
+			kind:     ExportKindMemory,
+			expected: api.ComponentExportKindMemory,
+		},
+		{
+			name:     "ExportKindGlobal",
+			kind:     ExportKindGlobal,
+			expected: api.ComponentExportKindGlobal,
+		},
+		{
 			name:     "unknown kind defaults to Func",
 			kind:     ExportKind(255),
 			expected: api.ComponentExportKindFunc,
