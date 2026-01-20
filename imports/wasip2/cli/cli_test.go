@@ -636,3 +636,58 @@ func TestGetTerminalStdout_ModeAuto_NotFile(t *testing.T) {
 	opt := result[0].Option()
 	require.Nil(t, opt, "should return None when stdout is not an *os.File")
 }
+
+func TestGetTerminalStderr_NoConfig(t *testing.T) {
+	result, err := getTerminalStderr(context.Background(), []component.Val{})
+	require.NoError(t, err)
+	opt := result[0].Option()
+	require.Nil(t, opt, "should return None when no config")
+}
+
+func TestGetTerminalStderr_ModeNone(t *testing.T) {
+	config := &testConfig{
+		stderr:       &bytes.Buffer{},
+		terminalMode: component.TerminalModeNone,
+	}
+	ctx := component.WithWASIConfig(context.Background(), config)
+
+	result, err := getTerminalStderr(ctx, []component.Val{})
+	require.NoError(t, err)
+	opt := result[0].Option()
+	require.Nil(t, opt, "should return None with TerminalModeNone")
+}
+
+func TestGetTerminalStderr_ModeCustom_True(t *testing.T) {
+	config := &testConfig{
+		stderr:           &bytes.Buffer{},
+		terminalMode:     component.TerminalModeCustom,
+		stderrIsTerminal: true,
+	}
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+	ctx = component.WithWASIConfig(ctx, config)
+
+	result, err := getTerminalStderr(ctx, []component.Val{})
+	require.NoError(t, err)
+	opt := result[0].Option()
+	require.NotNil(t, opt, "should return Some when stderrIsTerminal=true")
+
+	handle := opt.Own()
+	entry, err := table.Get(component.Handle(handle))
+	require.NoError(t, err)
+	_, ok := entry.Rep.(*TerminalOutput)
+	require.True(t, ok, "expected TerminalOutput resource")
+}
+
+func TestGetTerminalStderr_ModeAuto_NotFile(t *testing.T) {
+	config := &testConfig{
+		stderr:       &bytes.Buffer{}, // Not an *os.File
+		terminalMode: component.TerminalModeAuto,
+	}
+	ctx := component.WithWASIConfig(context.Background(), config)
+
+	result, err := getTerminalStderr(ctx, []component.Val{})
+	require.NoError(t, err)
+	opt := result[0].Option()
+	require.Nil(t, opt, "should return None when stderr is not an *os.File")
+}
