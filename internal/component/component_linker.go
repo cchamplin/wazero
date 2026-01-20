@@ -207,7 +207,7 @@ func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledCom
 				typeIdx:     canon.TypeIdx,
 				coreFuncIdx: canon.ComponentFuncIdx,
 			}
-		// CanonKindLift produces component funcs, not core funcs
+			// CanonKindLift produces component funcs, not core funcs
 		}
 	}
 
@@ -227,6 +227,9 @@ func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledCom
 	}
 
 	// Step 2: Instantiate core modules
+	// We also wire up memory sharing incrementally after each module that has memory is created.
+	// This is necessary because later modules may call functions (like _initialize) that need
+	// memory access before all modules are instantiated.
 	for i, coreInst := range c.CoreInstances {
 		switch coreInst.Kind {
 		case CoreInstanceExprInstantiate:
@@ -235,6 +238,15 @@ func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledCom
 				return nil, fmt.Errorf("instantiate core instance %d: %w", i, err)
 			}
 			inst.coreInstances = append(inst.coreInstances, module)
+
+			// If this module has memory, immediately wire up memory sharing with other modules.
+			// This ensures that any subsequent module instantiation that triggers function calls
+			// (like _initialize) will have access to memory.
+			if modInst, ok := module.(*wasm.ModuleInstance); ok && modInst.MemoryInstance != nil {
+				if err := l.wireMemorySharing(inst, c); err != nil {
+					return nil, fmt.Errorf("wire memory sharing after instance %d: %w", i, err)
+				}
+			}
 		case CoreInstanceExprInline:
 			inst.coreInstances = append(inst.coreInstances, nil)
 		}
@@ -465,7 +477,7 @@ func buildLocalTypeIndex(inst *InstanceTypeDef, outerTypes []TypeDef) map[uint32
 				}
 				typeIdx++
 			}
-		// CoreType declarations don't contribute to the type index space
+			// CoreType declarations don't contribute to the type index space
 		}
 	}
 	return localTypes
@@ -715,7 +727,10 @@ func (l *ComponentLinker) buildImportResolver(
 	resolvedImports map[string]Definition,
 	canonLowers map[uint32]canonLowerInfo,
 	canonResources map[uint32]canonResourceInfo,
-	funcAliases map[uint32]struct{ instanceIdx uint32; exportName string },
+	funcAliases map[uint32]struct {
+	instanceIdx uint32
+	exportName  string
+},
 ) experimental.ImportResolver {
 	// Build a map from import module name to source instance index
 	importMap := make(map[string]uint32)
@@ -915,6 +930,32 @@ func (l *ComponentLinker) resolveInlineInstanceSource(inst *Instance, c *Compone
 
 	// If all exports come from the same source and names match, return the source directly.
 	// This is the safe path that doesn't require creating a wrapper.
+
+	// Check if the inline instance exports any functions. If it only exports memory/tables,
+	// we can still use the shortcut path safely because those don't require function resolution.
+	hasFuncExports := false
+	for _, exp := range inlineInst.InlineExports {
+		if exp.Sort == CoreSortFunc {
+			hasFuncExports = true
+			break
+		}
+	}
+
+	// Check if the primary source module has imports. If it does, the imported functions
+	// might not be resolved yet (because we're still in the process of instantiation).
+	// In this case, we cannot use the shortcut path for functions - but memory/table exports are ok.
+	if hasFuncExports {
+		if modInst, ok := primarySource.(*wasm.ModuleInstance); ok {
+			importCount := uint32(0)
+			if modInst.Source != nil {
+				importCount = modInst.Source.ImportFunctionCount
+			}
+			if importCount > 0 {
+				return nil
+			}
+		}
+	}
+
 	if allSameSource && namesMatch {
 		return primarySource
 	}
@@ -972,7 +1013,10 @@ func (l *ComponentLinker) instantiateCoreModule(
 	resolvedImports map[string]Definition,
 	canonLowers map[uint32]canonLowerInfo,
 	canonResources map[uint32]canonResourceInfo,
-	funcAliases map[uint32]struct{ instanceIdx uint32; exportName string },
+	funcAliases map[uint32]struct {
+	instanceIdx uint32
+	exportName  string
+},
 ) (api.Module, error) {
 	moduleIdx := coreInst.ModuleIdx
 	if int(moduleIdx) >= len(compiledModules) {
@@ -1187,6 +1231,126 @@ func (l *ComponentLinker) MergeFrom(linker *Linker) {
 	for key, def := range linker.definitions {
 		l.definitions[key] = def
 	}
+}
+
+// wireMemorySharing wires up memory sharing between core instances after all modules
+// are instantiated. Some modules (like the WASI P1 adapter) import memory that aliases
+// another module's memory, but the source module may not exist at import resolution time.
+//
+// This function finds all memory aliases and ensures the importing modules share memory
+// with the source modules.
+func (l *ComponentLinker) wireMemorySharing(inst *Instance, c *Component) error {
+	// Build memory alias map: memIdx -> (instanceIdx, exportName)
+	memoryAliases := make(map[uint32]struct {
+		instanceIdx uint32
+		exportName  string
+	})
+	for i := range c.Aliases {
+		alias := &c.Aliases[i]
+		if alias.Kind == AliasKindCoreExport && alias.CoreSort == CoreSortMemory {
+			memoryAliases[alias.Idx] = struct {
+				instanceIdx uint32
+				exportName  string
+			}{alias.InstanceIdx, alias.ExportName}
+		}
+	}
+
+	// Find the primary memory source - trace through inline instances to find the actual module
+	var primaryMemoryModule api.Module
+	for _, aliasInfo := range memoryAliases {
+		// Trace through to find the actual module with memory
+		sourceModule := l.traceMemorySource(inst, c, aliasInfo.instanceIdx, aliasInfo.exportName)
+		if sourceModule != nil {
+			primaryMemoryModule = sourceModule
+			break
+		}
+	}
+
+	if primaryMemoryModule == nil {
+		return nil
+	}
+
+	// Get the primary memory instance
+	primaryMemoryInst, ok := primaryMemoryModule.(*wasm.ModuleInstance)
+	if !ok || primaryMemoryInst.MemoryInstance == nil {
+		return nil
+	}
+
+	// Share memory with all other modules that don't have their own memory
+	for _, coreInst := range inst.coreInstances {
+		if coreInst == nil {
+			continue
+		}
+		modInst, ok := coreInst.(*wasm.ModuleInstance)
+		if !ok {
+			continue
+		}
+
+		// Skip the primary memory module itself
+		if modInst == primaryMemoryInst {
+			continue
+		}
+
+		hasMemorySection := modInst.Source != nil && modInst.Source.MemorySection != nil
+
+		// If this module has no memory but needs it (imports memory), share the primary memory
+		if modInst.MemoryInstance == nil {
+			// Check if this module imports memory by looking at its import section
+			if modInst.Source != nil {
+				memImportFound := false
+				for _, imp := range modInst.Source.ImportSection {
+					if imp.Type == wasm.ExternTypeMemory {
+						memImportFound = true
+						modInst.MemoryInstance = primaryMemoryInst.MemoryInstance
+						break
+					}
+				}
+				if !memImportFound {
+					// If module has no memory and no memory import but doesn't define its own memory,
+					// it may still need access to memory (e.g., adapter modules). Share memory unconditionally
+					// for modules that don't define their own memory.
+					if !hasMemorySection {
+						modInst.MemoryInstance = primaryMemoryInst.MemoryInstance
+					}
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// traceMemorySource traces through inline instances to find the actual module that exports memory.
+func (l *ComponentLinker) traceMemorySource(inst *Instance, c *Component, instanceIdx uint32, exportName string) api.Module {
+	// Check if this is a direct core instance with memory
+	if int(instanceIdx) < len(inst.coreInstances) {
+		if coreInst := inst.coreInstances[instanceIdx]; coreInst != nil {
+			if modInst, ok := coreInst.(*wasm.ModuleInstance); ok && modInst.MemoryInstance != nil {
+				return coreInst
+			}
+		}
+	}
+
+	// If the instance is nil or has no memory, check if it's an inline instance
+	if int(instanceIdx) < len(c.CoreInstances) {
+		coreInstDef := &c.CoreInstances[instanceIdx]
+		if coreInstDef.Kind == CoreInstanceExprInline {
+			// Find the inline export that provides memory
+			for _, inlineExp := range coreInstDef.InlineExports {
+				if inlineExp.Name == exportName && inlineExp.Sort == CoreSortMemory {
+					// Find the alias that provides this memory
+					for _, alias := range c.Aliases {
+						if alias.Kind == AliasKindCoreExport && alias.CoreSort == CoreSortMemory && alias.Idx == inlineExp.Idx {
+							// Recursively trace
+							return l.traceMemorySource(inst, c, alias.InstanceIdx, alias.ExportName)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 // matchComponentImport tries to find a component-level import that matches the given
@@ -1456,7 +1620,10 @@ func (l *ComponentLinker) createInlineInstanceModule(
 	inlineInst *CoreInstance,
 	canonLowers map[uint32]canonLowerInfo,
 	canonResources map[uint32]canonResourceInfo,
-	funcAliases map[uint32]struct{ instanceIdx uint32; exportName string },
+	funcAliases map[uint32]struct {
+	instanceIdx uint32
+	exportName  string
+},
 ) api.Module {
 	// Check if the runtime supports host module instantiation
 	hmi, ok := l.runtime.(HostModuleInstantiator)
@@ -1465,7 +1632,10 @@ func (l *ComponentLinker) createInlineInstanceModule(
 	}
 
 	// Build table aliases map from component aliases
-	tableAliases := make(map[uint32]struct{ instanceIdx uint32; exportName string })
+	tableAliases := make(map[uint32]struct {
+		instanceIdx uint32
+		exportName  string
+	})
 	for i := range c.Aliases {
 		alias := &c.Aliases[i]
 		if alias.Kind == AliasKindCoreExport && alias.CoreSort == CoreSortTable {
@@ -1476,8 +1646,24 @@ func (l *ComponentLinker) createInlineInstanceModule(
 		}
 	}
 
+	// Build memory aliases map from component aliases
+	memoryAliases := make(map[uint32]struct {
+		instanceIdx uint32
+		exportName  string
+	})
+	for i := range c.Aliases {
+		alias := &c.Aliases[i]
+		if alias.Kind == AliasKindCoreExport && alias.CoreSort == CoreSortMemory {
+			memoryAliases[alias.Idx] = struct {
+				instanceIdx uint32
+				exportName  string
+			}{alias.InstanceIdx, alias.ExportName}
+		}
+	}
+
 	var exports []HostModuleExport
 	var tableExports []HostModuleTableExport
+	var memoryExports []HostModuleMemoryExport
 
 	for _, exp := range inlineInst.InlineExports {
 		switch exp.Sort {
@@ -1504,7 +1690,7 @@ func (l *ComponentLinker) createInlineInstanceModule(
 
 			// 3. Check if this is an alias - forward to source core instance
 			if aliasInfo, ok := funcAliases[exp.Idx]; ok {
-				export := l.createAliasExport(inst, exp.Name, aliasInfo.instanceIdx, aliasInfo.exportName)
+				export := l.createAliasExport(inst, c, exp.Name, aliasInfo.instanceIdx, aliasInfo.exportName)
 				if export != nil {
 					exports = append(exports, *export)
 				}
@@ -1525,19 +1711,53 @@ func (l *ComponentLinker) createInlineInstanceModule(
 					}
 				}
 			}
+
+		case CoreSortMemory:
+			// Memory exports - share from source core instance
+			if aliasInfo, ok := memoryAliases[exp.Idx]; ok {
+				// For memory aliases, we need to find the actual source module.
+				// The aliasInfo.instanceIdx may point to another inline instance, so we need to trace through.
+				sourceModule := l.resolveMemorySource(inst, c, aliasInfo.instanceIdx, aliasInfo.exportName)
+				if sourceModule != nil {
+					memoryExports = append(memoryExports, HostModuleMemoryExport{
+						Name:         exp.Name,
+						SourceModule: sourceModule,
+						SourceName:   aliasInfo.exportName,
+					})
+				}
+			}
 		}
 	}
 
-	if len(exports) == 0 && len(tableExports) == 0 {
+	if len(exports) == 0 && len(tableExports) == 0 && len(memoryExports) == 0 {
 		return nil
 	}
 
 	// Generate a unique module name for this host module
 	moduleName := fmt.Sprintf("$inline_%p", inlineInst)
 
-	// Use the table-aware method if we have table exports
-	if len(tableExports) > 0 {
-		mod, err := hmi.InstantiateHostModuleWithTables(ctx, moduleName, exports, tableExports)
+	// If the inline instance has function exports but no memory exports, and there's a memory alias,
+	// we should still share memory with the host module so that host functions can access memory.
+	// This is important because the host functions (canon lower, alias forwards, etc.) may need
+	// to read/write memory even if the inline instance doesn't explicitly export memory.
+	if len(memoryExports) == 0 && len(memoryAliases) > 0 {
+		// Find the primary memory alias (usually index 0)
+		for _, aliasInfo := range memoryAliases {
+			sourceModule := l.resolveMemorySource(inst, c, aliasInfo.instanceIdx, aliasInfo.exportName)
+			if sourceModule != nil {
+				memoryExports = append(memoryExports, HostModuleMemoryExport{
+					Name:         "memory", // Standard name
+					SourceModule: sourceModule,
+					SourceName:   aliasInfo.exportName,
+				})
+				break // Only need one memory
+			}
+		}
+	}
+
+	// Use the resource-aware method if we have table or memory exports
+	if len(tableExports) > 0 || len(memoryExports) > 0 {
+		mod, err := hmi.InstantiateHostModuleWithResources(ctx, moduleName, exports, tableExports, memoryExports)
 		if err != nil {
 			return nil
 		}
@@ -1549,6 +1769,39 @@ func (l *ComponentLinker) createInlineInstanceModule(
 		return nil
 	}
 	return mod
+}
+
+// resolveMemorySource finds the actual module that contains the memory for a memory alias.
+// Memory aliases may chain through inline instances, so we trace through to find the real source.
+func (l *ComponentLinker) resolveMemorySource(inst *Instance, c *Component, instanceIdx uint32, exportName string) api.Module {
+
+	// First, check if we have a direct core instance
+	if int(instanceIdx) < len(inst.coreInstances) {
+		if coreInst := inst.coreInstances[instanceIdx]; coreInst != nil {
+			return coreInst
+		}
+	}
+
+	// If the instance is nil, it might be an inline instance that we need to trace through
+	if int(instanceIdx) < len(c.CoreInstances) {
+		srcCoreInst := &c.CoreInstances[instanceIdx]
+		if srcCoreInst.Kind == CoreInstanceExprInline {
+			// Find the inline export that matches the requested export name
+			for _, inlineExp := range srcCoreInst.InlineExports {
+				if inlineExp.Name == exportName && inlineExp.Sort == CoreSortMemory {
+					// Find the alias that provides this memory index
+					for _, alias := range c.Aliases {
+						if alias.Kind == AliasKindCoreExport && alias.CoreSort == CoreSortMemory && alias.Idx == inlineExp.Idx {
+							// Recursively resolve
+							return l.resolveMemorySource(inst, c, alias.InstanceIdx, alias.ExportName)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 // createCanonLowerExport creates a HostModuleExport for a canon lower operation.
@@ -1654,46 +1907,157 @@ func (l *ComponentLinker) createResourceOpExport(
 }
 
 // createAliasExport creates a HostModuleExport that forwards to a function from another core instance.
+// The source function is resolved lazily at call time to handle forward references where the
+// source core instance hasn't been instantiated yet.
 func (l *ComponentLinker) createAliasExport(
 	inst *Instance,
+	c *Component,
 	name string,
 	sourceInstanceIdx uint32,
 	sourceExportName string,
 ) *HostModuleExport {
-	// Get the source core instance
-	if int(sourceInstanceIdx) >= len(inst.coreInstances) {
-		return nil
-	}
-	sourceInst := inst.coreInstances[sourceInstanceIdx]
-	if sourceInst == nil {
-		return nil
-	}
+	// Try to get param/result types from the source if available now
+	var paramTypes, resultTypes []api.ValueType
 
-	// Get the source function
-	sourceFunc := sourceInst.ExportedFunction(sourceExportName)
-	if sourceFunc == nil {
-		return nil
-	}
-
-	// Get the function definition to extract param/result types
-	defs := sourceInst.ExportedFunctionDefinitions()
-	def := defs[sourceExportName]
-	if def == nil {
-		return nil
+	if int(sourceInstanceIdx) < len(inst.coreInstances) {
+		sourceInst := inst.coreInstances[sourceInstanceIdx]
+		if sourceInst != nil {
+			defs := sourceInst.ExportedFunctionDefinitions()
+			if def := defs[sourceExportName]; def != nil {
+				paramTypes = def.ParamTypes()
+				resultTypes = def.ResultTypes()
+			}
+		}
 	}
 
-	paramTypes := def.ParamTypes()
-	resultTypes := def.ResultTypes()
+	// If we couldn't get types from the instantiated module, try to get them
+	// from the compiled CoreModule definition. This handles forward references.
+	if paramTypes == nil && c != nil {
+		// Find the core instance definition to get the module index
+		if int(sourceInstanceIdx) < len(c.CoreInstances) {
+			coreInstDef := &c.CoreInstances[sourceInstanceIdx]
+			if coreInstDef.Kind == CoreInstanceExprInstantiate {
+				moduleIdx := coreInstDef.ModuleIdx
+				if int(moduleIdx) < len(c.CoreModules) {
+					coreModule := c.CoreModules[moduleIdx]
+					if coreModule != nil {
+						// Find the export in the core module
+						for _, exp := range coreModule.ExportSection {
+							if exp.Name == sourceExportName && exp.Type == wasm.ExternTypeFunc {
+								// Get the function type
+								funcIdx := exp.Index
+								if funcIdx < coreModule.ImportFunctionCount {
+									// Imported function - get type from imports
+									importIdx := uint32(0)
+									for i := range coreModule.ImportSection {
+										imp := &coreModule.ImportSection[i]
+										if imp.Type == wasm.ExternTypeFunc {
+											if importIdx == funcIdx {
+												typeIdx := imp.DescFunc
+												if int(typeIdx) < len(coreModule.TypeSection) {
+													ft := &coreModule.TypeSection[typeIdx]
+													paramTypes = valTypesToAPITypes(ft.Params)
+													resultTypes = valTypesToAPITypes(ft.Results)
+												}
+												break
+											}
+											importIdx++
+										}
+									}
+								} else {
+									// Local function
+									localIdx := funcIdx - coreModule.ImportFunctionCount
+									if int(localIdx) < len(coreModule.FunctionSection) {
+										typeIdx := coreModule.FunctionSection[localIdx]
+										if int(typeIdx) < len(coreModule.TypeSection) {
+											ft := &coreModule.TypeSection[typeIdx]
+											paramTypes = valTypesToAPITypes(ft.Params)
+											resultTypes = valTypesToAPITypes(ft.Results)
+										}
+									}
+								}
+								break
+							}
+						}
+					}
+				}
+			} else if coreInstDef.Kind == CoreInstanceExprInline {
+				// For inline instances, we need to trace through to find the actual source
+				// Look through the inline exports to find the source function
+				for _, inlineExp := range coreInstDef.InlineExports {
+					if inlineExp.Name == sourceExportName && inlineExp.Sort == CoreSortFunc {
+						// The inlineExp.Idx is a core function index in the component's function index space
+						// We need to trace this back to its source to get the type
+						funcIdx := inlineExp.Idx
 
-	// Create a forwarding function
+						// Check if this is a canon lower operation
+						for i := range c.Canonicals {
+							canon := &c.Canonicals[i]
+							if canon.Kind == CanonKindLower && canon.ComponentFuncIdx == funcIdx {
+								// Get the component function type
+								if compFunc, ok := inst.componentFuncs[canon.FuncIdx]; ok && compFunc.Type != nil {
+									// Convert FuncType to types.ValType slices for CoreSignature
+									var compParamTypes, compResultTypes []types.ValType
+									resolver := NewTypeResolver(c)
+									for _, p := range compFunc.Type.Params {
+										if vt := resolveToValType(p, resolver); vt != nil {
+											compParamTypes = append(compParamTypes, vt)
+										}
+									}
+									for _, r := range compFunc.Type.Results {
+										if vt := resolveToValType(r, resolver); vt != nil {
+											compResultTypes = append(compResultTypes, vt)
+										}
+									}
+									// Get the core signature using the ABI flattening
+									paramTypes, resultTypes, _ = coreSignature(compParamTypes, compResultTypes)
+								}
+								break
+							}
+						}
+						break
+					}
+				}
+			}
+		}
+	}
+
+	// If still nil, use empty (this shouldn't happen with well-formed components)
+	if paramTypes == nil {
+		paramTypes = []api.ValueType{}
+		resultTypes = []api.ValueType{}
+	}
+
+	// Create a forwarding function that resolves the source lazily
 	return &HostModuleExport{
 		Name:        name,
 		ParamTypes:  paramTypes,
 		ResultTypes: resultTypes,
 		Func: api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
-			// Call the source function with the same stack
-			// Note: This assumes the stack layout is compatible
-			results, err := sourceFunc.Call(ctx, stack[:len(paramTypes)]...)
+			// Resolve the source function lazily
+			if int(sourceInstanceIdx) >= len(inst.coreInstances) {
+				// Source instance not available - this shouldn't happen at call time
+				return
+			}
+			sourceInst := inst.coreInstances[sourceInstanceIdx]
+			if sourceInst == nil {
+				return
+			}
+			sourceFunc := sourceInst.ExportedFunction(sourceExportName)
+			if sourceFunc == nil {
+				return
+			}
+
+			// Get the actual param count from the function definition
+			defs := sourceInst.ExportedFunctionDefinitions()
+			def := defs[sourceExportName]
+			if def == nil {
+				return
+			}
+			actualParamCount := len(def.ParamTypes())
+
+			// Call the source function with the correct number of params
+			results, err := sourceFunc.Call(ctx, stack[:actualParamCount]...)
 			if err != nil {
 				return
 			}
@@ -1703,6 +2067,32 @@ func (l *ComponentLinker) createAliasExport(
 			}
 		}),
 	}
+}
+
+// buildMemoryIndexSpace builds a CoreMemoryIndexSpace from the component's aliases.
+// This is used to resolve memory indices to core instance/export pairs at runtime.
+func buildMemoryIndexSpace(c *Component) *CoreMemoryIndexSpace {
+	memSpace := NewCoreMemoryIndexSpace()
+	for i := range c.Aliases {
+		alias := &c.Aliases[i]
+		if alias.Kind == AliasKindCoreExport && alias.CoreSort == CoreSortMemory {
+			memSpace.AddAlias(alias.Idx, alias.InstanceIdx, alias.ExportName)
+		}
+	}
+	return memSpace
+}
+
+// buildFuncIndexSpace builds a CoreFuncIndexSpace from the component's aliases.
+// This is used to resolve function indices (like realloc) to core instance/export pairs at runtime.
+func buildFuncIndexSpace(c *Component) *CoreFuncIndexSpace {
+	funcSpace := NewCoreFuncIndexSpace()
+	for i := range c.Aliases {
+		alias := &c.Aliases[i]
+		if alias.Kind == AliasKindCoreExport && alias.CoreSort == CoreSortFunc {
+			funcSpace.AddAlias(alias.Idx, alias.InstanceIdx, alias.ExportName)
+		}
+	}
+	return funcSpace
 }
 
 // createCanonLowerFunc creates a GoModuleFunc that implements a canon lower operation.
@@ -1721,7 +2111,44 @@ func (l *ComponentLinker) createCanonLowerFunc(
 	}
 
 	return api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
-		memory := mod.Memory()
+		// Resolve memory from canon options if specified, otherwise fallback to mod.Memory()
+		// This is critical for inline instances where the host module doesn't have its own memory.
+		// The memory index in canon options points to a core memory alias which resolves to
+		// the actual core instance's memory (e.g., the Go module's memory).
+		var memory api.Memory
+		var reallocFunc api.Function
+		if info.options != nil && info.options.MemoryIdx != nil {
+			memIdx := *info.options.MemoryIdx
+			// Use memory space to resolve the memory index to instance/export
+			if memSpace := buildMemoryIndexSpace(c); memSpace != nil {
+				if instanceIdx, exportName, err := memSpace.Resolve(memIdx); err == nil {
+					if int(instanceIdx) < len(inst.coreInstances) {
+						if coreInst := inst.coreInstances[instanceIdx]; coreInst != nil {
+							memory = coreInst.ExportedMemory(exportName)
+						}
+					}
+				}
+			}
+		}
+		// Fallback to mod.Memory() if canon options didn't specify memory or resolution failed
+		if memory == nil {
+			memory = mod.Memory()
+		}
+
+		// Resolve realloc function from canon options if specified
+		// This is needed for lowering lists and strings to linear memory
+		if info.options != nil && info.options.ReallocIdx != nil {
+			reallocIdx := *info.options.ReallocIdx
+			if funcSpace := buildFuncIndexSpace(c); funcSpace != nil {
+				if instanceIdx, exportName, err := funcSpace.Resolve(reallocIdx); err == nil {
+					if int(instanceIdx) < len(inst.coreInstances) {
+						if coreInst := inst.coreInstances[instanceIdx]; coreInst != nil {
+							reallocFunc = coreInst.ExportedFunction(exportName)
+						}
+					}
+				}
+			}
+		}
 
 		// Track stack position
 		stackIdx := 0
@@ -1737,7 +2164,7 @@ func (l *ComponentLinker) createCanonLowerFunc(
 		args := make([]Val, 0)
 		if compFunc.Type != nil {
 			for _, paramDef := range compFunc.Type.Params {
-				val, consumed := liftFromStack(stack[stackIdx:], paramDef.ValType, memory)
+				val, consumed := liftFromStack(stack[stackIdx:], paramDef.ValType, paramDef.ResolvedType, memory)
 				args = append(args, val)
 				stackIdx += consumed
 			}
@@ -1754,7 +2181,9 @@ func (l *ComponentLinker) createCanonLowerFunc(
 		// Lower results to core values
 		if needsRetptr && memory != nil {
 			// Write results to memory at retptr
-			writeResultsToMemory(memory, retptr, results, compFunc.Type)
+			if err := writeResultsToMemory(ctx, memory, reallocFunc, retptr, results, compFunc.Type); err != nil {
+				return
+			}
 		} else {
 			// Write results to stack
 			resultIdx := 0
@@ -1768,7 +2197,7 @@ func (l *ComponentLinker) createCanonLowerFunc(
 
 // liftFromStack lifts a value from the core wasm stack based on the component type.
 // Returns the Val and the number of stack slots consumed.
-func liftFromStack(stack []uint64, typeRef ValTypeRef, memory api.Memory) (Val, int) {
+func liftFromStack(stack []uint64, typeRef ValTypeRef, resolvedType *TypeDef, memory api.Memory) (Val, int) {
 	if typeRef.IsPrimitive {
 		switch typeRef.Primitive {
 		case 0x7f: // bool
@@ -1813,6 +2242,31 @@ func liftFromStack(stack []uint64, typeRef ValTypeRef, memory api.Memory) (Val, 
 	}
 	if typeRef.IsBorrow {
 		return ValBorrow(uint32(stack[0])), 1
+	}
+
+	// Handle complex types using ResolvedType
+	if resolvedType != nil && resolvedType.Kind == TypeDefKindDefined {
+		// Handle list types
+		if resolvedType.List != nil {
+			if memory != nil && len(stack) >= 2 {
+				ptr := uint32(stack[0])
+				length := uint32(stack[1])
+				// Check if it's list<u8> (element type is u8 primitive)
+				elemType := resolvedType.List.ElementType
+				if elemType.IsPrimitive && elemType.Primitive == 0x7d { // u8
+					// list<u8> - read bytes from memory
+					if data, ok := memory.Read(ptr, length); ok {
+						vals := make([]Val, len(data))
+						for i, b := range data {
+							vals[i] = ValU8(b)
+						}
+						return ValList(vals), 2
+					}
+				}
+			}
+			// Fallback for other list types or memory read failure
+			return ValList([]Val{}), 2
+		}
 	}
 
 	// For non-primitive types, treat as i32 for now
@@ -1877,9 +2331,10 @@ func lowerToStack(stack []uint64, val Val) int {
 
 // writeResultsToMemory writes component results to linear memory at the given offset.
 // This is used when the function has too many results to return via the stack.
-func writeResultsToMemory(memory api.Memory, retptr uint32, results []Val, funcType *FuncType) {
+// For list types, it allocates memory via realloc and writes (ptr, len) to retptr.
+func writeResultsToMemory(ctx context.Context, memory api.Memory, reallocFunc api.Function, retptr uint32, results []Val, funcType *FuncType) error {
 	if memory == nil || funcType == nil {
-		return
+		return nil
 	}
 
 	offset := retptr
@@ -1911,12 +2366,82 @@ func writeResultsToMemory(memory api.Memory, retptr uint32, results []Val, funcT
 		case ValKindOwn, ValKindBorrow:
 			memory.WriteUint32Le(offset, result.U32())
 			offset += 4
+		case ValKindList:
+			// List lowering: allocate memory, write elements, return (ptr, len)
+			list := result.List()
+			listLen := uint32(len(list))
+
+			// Calculate element size and alignment based on element type
+			var elemSize uint32 = 4
+			var alignment uint32 = 4
+			if len(list) > 0 {
+				elemSize = elementSizeForKind(list[0].Kind())
+				alignment = alignmentForKind(list[0].Kind())
+			}
+			listSize := listLen * elemSize
+
+			// Allocate memory using realloc per Canonical ABI spec
+			var ptr uint32
+			if listSize > 0 {
+				if reallocFunc == nil {
+					return fmt.Errorf("list lowering requires realloc function")
+				}
+				// realloc(old_ptr, old_size, align, new_size) -> new_ptr
+				allocResults, err := reallocFunc.Call(ctx, 0, 0, uint64(alignment), uint64(listSize))
+				if err != nil {
+					return fmt.Errorf("realloc for list failed: %w", err)
+				}
+				ptr = uint32(allocResults[0])
+			}
+			// For empty lists (listSize == 0), ptr remains 0, which is valid
+
+			// Write list elements to allocated memory
+			for j, elem := range list {
+				elemOffset := ptr + uint32(j)*elemSize
+				if err := writeListElement(memory, elemOffset, elem); err != nil {
+					return fmt.Errorf("failed to write list element %d: %w", j, err)
+				}
+			}
+
+			// Write (ptr, len) tuple to retptr
+			memory.WriteUint32Le(offset, ptr)
+			offset += 4
+			memory.WriteUint32Le(offset, listLen)
+			offset += 4
+		case ValKindString:
+			// String lowering: allocate memory, write bytes, return (ptr, len)
+			str := result.StringVal()
+			strLen := uint32(len(str))
+
+			var ptr uint32
+			if strLen > 0 {
+				if reallocFunc == nil {
+					return fmt.Errorf("string lowering requires realloc function")
+				}
+				// realloc(old_ptr, old_size, align, new_size) -> new_ptr
+				// UTF-8 strings have alignment 1
+				allocResults, err := reallocFunc.Call(ctx, 0, 0, 1, uint64(strLen))
+				if err != nil {
+					return fmt.Errorf("realloc for string failed: %w", err)
+				}
+				ptr = uint32(allocResults[0])
+
+				// Write string bytes to memory
+				memory.Write(ptr, []byte(str))
+			}
+
+			// Write (ptr, len) tuple to retptr
+			memory.WriteUint32Le(offset, ptr)
+			offset += 4
+			memory.WriteUint32Le(offset, strLen)
+			offset += 4
 		default:
 			// For other types, write as i32 for now
 			memory.WriteUint32Le(offset, result.U32())
 			offset += 4
 		}
 	}
+	return nil
 }
 
 // coreSignature returns the complete core function signature for a lowered function.
@@ -2108,3 +2633,14 @@ func valueTypeWidth(t api.ValueType) int {
 	}
 }
 
+// valTypesToAPITypes converts a slice of wasm.ValueType to api.ValueType.
+// Since wasm.ValueType is an alias for api.ValueType, this is just a slice copy.
+// Always returns a non-nil slice (empty slice for nil input).
+func valTypesToAPITypes(vals []wasm.ValueType) []api.ValueType {
+	if len(vals) == 0 {
+		return []api.ValueType{}
+	}
+	result := make([]api.ValueType, len(vals))
+	copy(result, vals)
+	return result
+}
