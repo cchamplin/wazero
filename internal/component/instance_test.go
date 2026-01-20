@@ -1674,6 +1674,40 @@ func TestExportedFunc_Call_ListOfBool(t *testing.T) {
 	require.Equal(t, byte(0), val3)
 }
 
+// TestLiftEnum tests lifting an enum from a discriminant to its case name.
+func TestLiftEnum(t *testing.T) {
+	enumType := &EnumType{Cases: []string{"red", "green", "blue"}}
+
+	cases := []struct {
+		discriminant uint64
+		expected     string
+	}{
+		{0, "red"},
+		{1, "green"},
+		{2, "blue"},
+	}
+
+	for _, tc := range cases {
+		result, err := liftEnum(tc.discriminant, enumType)
+		if err != nil {
+			t.Fatalf("enum lifting failed for discriminant %d: %v", tc.discriminant, err)
+		}
+		if result.Enum() != tc.expected {
+			t.Errorf("expected %s, got %s", tc.expected, result.Enum())
+		}
+	}
+}
+
+// TestLiftEnum_InvalidDiscriminant tests that liftEnum returns an error for invalid discriminants.
+func TestLiftEnum_InvalidDiscriminant(t *testing.T) {
+	enumType := &EnumType{Cases: []string{"a", "b"}}
+
+	_, err := liftEnum(5, enumType)
+	if err == nil {
+		t.Error("expected error for invalid discriminant")
+	}
+}
+
 // TestExportedFunc_Call_ListOfChar tests list<char> element support (4-byte elements for Unicode code points).
 func TestExportedFunc_Call_ListOfChar(t *testing.T) {
 	mem := &mockMemory{data: make([]byte, 4096)}
