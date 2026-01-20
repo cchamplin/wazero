@@ -31,6 +31,7 @@ func TestCalculatorPlugins(t *testing.T) {
 	}{
 		{"add", "plugins/add.wasm", 31, true},            // 28 + 3 (Rust, requires WASI, uses relaxed semver)
 		{"subtract", "plugins/subtract.wasm", 25, false}, // 28 - 3 (C, no WASI)
+		{"multi", "plugins/multi.wasm", 25, true},        // 28 * 3 (Go, no WASI)
 	}
 
 	for _, p := range plugins {
