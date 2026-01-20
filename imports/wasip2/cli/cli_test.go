@@ -466,3 +466,35 @@ func TestInstantiateTerminalStdin(t *testing.T) {
 	_, hasGetTerminalStdin := instDef.Exports["get-terminal-stdin"]
 	require.True(t, hasGetTerminalStdin, "get-terminal-stdin function should be defined")
 }
+
+// Terminal stdout interface tests
+func TestInstantiateTerminalStdout(t *testing.T) {
+	linker := component.NewLinker()
+	err := instantiateTerminalStdout(linker)
+	require.NoError(t, err)
+
+	def, err := linker.MatchImport("wasi:cli/terminal-stdout@0.2.0")
+	require.NoError(t, err)
+
+	instDef, ok := def.(*component.InstanceDef)
+	require.True(t, ok, "expected InstanceDef")
+
+	_, hasGetTerminalStdout := instDef.Exports["get-terminal-stdout"]
+	require.True(t, hasGetTerminalStdout, "get-terminal-stdout function should be defined")
+}
+
+// Terminal stderr interface tests
+func TestInstantiateTerminalStderr(t *testing.T) {
+	linker := component.NewLinker()
+	err := instantiateTerminalStderr(linker)
+	require.NoError(t, err)
+
+	def, err := linker.MatchImport("wasi:cli/terminal-stderr@0.2.0")
+	require.NoError(t, err)
+
+	instDef, ok := def.(*component.InstanceDef)
+	require.True(t, ok, "expected InstanceDef")
+
+	_, hasGetTerminalStderr := instDef.Exports["get-terminal-stderr"]
+	require.True(t, hasGetTerminalStderr, "get-terminal-stderr function should be defined")
+}
