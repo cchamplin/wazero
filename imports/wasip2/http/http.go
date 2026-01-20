@@ -284,6 +284,23 @@ func getOutgoingRequest(ctx context.Context, handle uint32) (*OutgoingRequest, e
 	return req, nil
 }
 
+// getIncomingRequest retrieves IncomingRequest from the resource table.
+func getIncomingRequest(ctx context.Context, handle uint32) (*IncomingRequest, error) {
+	table := getOrCreateTable(ctx)
+	if table == nil {
+		return nil, fmt.Errorf("no resource table in context")
+	}
+	entry, err := table.Get(component.Handle(handle))
+	if err != nil {
+		return nil, fmt.Errorf("invalid handle %d: %w", handle, err)
+	}
+	req, ok := entry.Rep.(*IncomingRequest)
+	if !ok {
+		return nil, fmt.Errorf("handle %d is not an IncomingRequest", handle)
+	}
+	return req, nil
+}
+
 // createPollableHandle creates a pollable handle in the resource table.
 func createPollableHandle(ctx context.Context, pollable *io.Pollable) component.Val {
 	table := getOrCreateTable(ctx)
@@ -722,42 +739,98 @@ func schemeFromVariant(v component.Val) Scheme {
 // incomingRequestMethod returns the HTTP method.
 // Signature: func(self: borrow<incoming-request>) -> method
 func incomingRequestMethod(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return GET as placeholder
-	return []component.Val{component.ValVariant("get", nil)}, nil
+	req, err := getIncomingRequest(ctx, args[0].Borrow())
+	if err != nil {
+		// Return GET as fallback for invalid handle
+		return []component.Val{component.ValVariant("get", nil)}, nil
+	}
+	return []component.Val{component.ValVariant(req.Method().String(), nil)}, nil
 }
 
 // incomingRequestPathWithQuery returns the path with query.
 // Signature: func(self: borrow<incoming-request>) -> option<string>
 func incomingRequestPathWithQuery(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return None as placeholder
-	return []component.Val{component.ValOption(nil)}, nil
+	req, err := getIncomingRequest(ctx, args[0].Borrow())
+	if err != nil {
+		return []component.Val{component.ValOption(nil)}, nil
+	}
+
+	path := req.PathWithQuery()
+	if path == nil {
+		return []component.Val{component.ValOption(nil)}, nil
+	}
+	pathVal := component.ValString(*path)
+	return []component.Val{component.ValOption(&pathVal)}, nil
 }
 
 // incomingRequestScheme returns the scheme.
 // Signature: func(self: borrow<incoming-request>) -> option<scheme>
 func incomingRequestScheme(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return None as placeholder
-	return []component.Val{component.ValOption(nil)}, nil
+	req, err := getIncomingRequest(ctx, args[0].Borrow())
+	if err != nil {
+		return []component.Val{component.ValOption(nil)}, nil
+	}
+
+	scheme := req.Scheme()
+	if scheme == nil {
+		return []component.Val{component.ValOption(nil)}, nil
+	}
+
+	// Convert scheme to variant
+	schemeVal := schemeToVariant(scheme)
+	return []component.Val{component.ValOption(&schemeVal)}, nil
 }
 
 // incomingRequestAuthority returns the authority.
 // Signature: func(self: borrow<incoming-request>) -> option<string>
 func incomingRequestAuthority(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return None as placeholder
-	return []component.Val{component.ValOption(nil)}, nil
+	req, err := getIncomingRequest(ctx, args[0].Borrow())
+	if err != nil {
+		return []component.Val{component.ValOption(nil)}, nil
+	}
+
+	authority := req.Authority()
+	if authority == nil {
+		return []component.Val{component.ValOption(nil)}, nil
+	}
+	authorityVal := component.ValString(*authority)
+	return []component.Val{component.ValOption(&authorityVal)}, nil
 }
 
 // incomingRequestHeaders returns the headers.
 // Signature: func(self: borrow<incoming-request>) -> own<fields>
 func incomingRequestHeaders(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	return []component.Val{component.ValOwn(0)}, nil
+	table := getOrCreateTable(ctx)
+	req, err := getIncomingRequest(ctx, args[0].Borrow())
+	if err != nil || table == nil {
+		return []component.Val{component.ValOwn(0)}, nil
+	}
+
+	// Return a handle to the headers (clone them so modifications don't affect request)
+	headers := req.Headers()
+	if headers == nil {
+		headers = NewFields()
+	}
+	handle := table.New(headers, true)
+	return []component.Val{component.ValOwn(uint32(handle))}, nil
 }
 
 // incomingRequestConsume consumes the request body.
 // Signature: func(self: borrow<incoming-request>) -> result<own<incoming-body>, _>
 func incomingRequestConsume(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	body := component.ValOwn(0)
-	return []component.Val{component.ValResultOk(&body)}, nil
+	table := getOrCreateTable(ctx)
+	_, err := getIncomingRequest(ctx, args[0].Borrow())
+	if err != nil || table == nil {
+		body := component.ValOwn(0)
+		return []component.Val{component.ValResultOk(&body)}, nil
+	}
+
+	// Create a new incoming body for the request
+	// TODO: In the future, this should access body data from the actual request
+	body := NewIncomingBody()
+	handle := table.New(body, true)
+	result := component.ValOwn(uint32(handle))
+	return []component.Val{component.ValResultOk(&result)}, nil
 }
 
 // ====================
