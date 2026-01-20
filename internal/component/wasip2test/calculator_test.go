@@ -1,6 +1,7 @@
 package wasip2test
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -25,17 +26,20 @@ func TestCalculatorPlugins(t *testing.T) {
 
 	plugins := []struct {
 		name                  string
+		pluginName            string // expected return value from get-plugin-name
 		file                  string
 		expected              int32
 		relaxedSemverMatching bool
 	}{
-		{"add", "plugins/add.wasm", 31, true},            // 28 + 3 (Rust, requires WASI, uses relaxed semver)
-		{"subtract", "plugins/subtract.wasm", 25, false}, // 28 - 3 (C, no WASI)
-		{"multi", "plugins/multi.wasm", 25, true},        // 28 * 3 (Go, no WASI)
+		{"add", "add", "plugins/add.wasm", 31, true},                 // 28 + 3 (Rust, requires WASI, uses relaxed semver)
+		{"subtract", "subtract", "plugins/subtract.wasm", 25, false}, // 28 - 3 (C, no WASI)
+		// multi.wasm (Go)
+		{"multi", "Simple-Go-Multi", "plugins/multi.wasm", 84, true},
 	}
 
 	for _, p := range plugins {
 		t.Run(p.name, func(t *testing.T) {
+
 			// Load component binary
 			wasmBytes, err := os.ReadFile(filepath.Join(".", p.file))
 			if err != nil {
@@ -60,8 +64,20 @@ func TestCalculatorPlugins(t *testing.T) {
 			// Merge WASI definitions into the component linker
 			linker.MergeFrom(wasiLinker)
 
+			// Set up WASI context with config and resource table
+			// This is required for plugins that use WASI (especially Go plugins with P1->P2 adapter)
+			var stdout, stderr bytes.Buffer
+			wasiConfig := wasip2.NewConfig().
+				WithStdout(&stdout).
+				WithStderr(&stderr).
+				WithArgs([]string{"test"}).
+				WithEnviron([]string{})
+			resourceTable := component.NewResourceTable()
+			testCtx := wasip2.WithConfig(ctx, wasiConfig)
+			testCtx = component.WithResourceTable(testCtx, resourceTable)
+
 			// Instantiate the component
-			instance, err := linker.Instantiate(ctx, compiled.(*component.CompiledComponent))
+			instance, err := linker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
 			if err != nil {
 				t.Fatalf("Instantiate: %v", err)
 			}
@@ -71,21 +87,21 @@ func TestCalculatorPlugins(t *testing.T) {
 			if nameFunc == nil {
 				t.Fatal("get-plugin-name function not found")
 			}
-			nameResult, err := nameFunc.Call(ctx)
+			nameResult, err := nameFunc.Call(testCtx)
 			if err != nil {
 				t.Fatalf("get-plugin-name: %v", err)
 			}
-			if got := nameResult[0].StringVal(); got != p.name {
-				t.Errorf("name = %q, want %q", got, p.name)
+			if got := nameResult[0].StringVal(); got != p.pluginName {
+				t.Errorf("name = %q, want %q", got, p.pluginName)
 			}
 
-			// Test evaluate(2, 3)
+			// Test evaluate(28, 3)
 			evalFunc := instance.ExportedFunction("evaluate")
 			if evalFunc == nil {
 				t.Fatal("evaluate function not found")
 			}
 			start := time.Now()
-			evalResult, err := evalFunc.Call(ctx,
+			evalResult, err := evalFunc.Call(testCtx,
 				component.ValS32(28),
 				component.ValS32(3),
 			)
@@ -94,21 +110,31 @@ func TestCalculatorPlugins(t *testing.T) {
 				t.Fatalf("evaluate: %v", err)
 			}
 			if got := evalResult[0].S32(); got != p.expected {
-				t.Errorf("evaluate(2,3) = %d, want %d", got, p.expected)
+				t.Errorf("evaluate(28,3) = %d, want %d", got, p.expected)
 			}
 
-			// Call again
+			// Call again with incremented first argument
 			start = time.Now()
-			evalResult, err = evalFunc.Call(ctx,
-				component.ValS32(28+1),
+			evalResult, err = evalFunc.Call(testCtx,
+				component.ValS32(29),
 				component.ValS32(3),
 			)
 			t.Logf("Second call took %v", time.Since(start))
 			if err != nil {
 				t.Fatalf("evaluate: %v", err)
 			}
-			if got := evalResult[0].S32(); got != p.expected+1 {
-				t.Errorf("evaluate(2,3) = %d, want %d", got, p.expected)
+			// For add: 29+3=32, for subtract: 29-3=26, for multi: 29*3=87
+			var expectedSecond int32
+			switch p.name {
+			case "add":
+				expectedSecond = 32
+			case "subtract":
+				expectedSecond = 26
+			case "multi":
+				expectedSecond = 87
+			}
+			if got := evalResult[0].S32(); got != expectedSecond {
+				t.Errorf("evaluate(29,3) = %d, want %d", got, expectedSecond)
 			}
 
 		})

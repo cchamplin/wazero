@@ -608,3 +608,48 @@ func (r *runtime) InstantiateHostModuleWithTables(ctx context.Context, moduleNam
 
 	return mod, nil
 }
+
+// InstantiateHostModuleWithResources implements component.HostModuleInstantiator.
+// This creates a host module with function exports, shared table exports, and shared memory exports.
+func (r *runtime) InstantiateHostModuleWithResources(ctx context.Context, moduleName string, exports []component.HostModuleExport, tableExports []component.HostModuleTableExport, memoryExports []component.HostModuleMemoryExport) (api.Module, error) {
+	// First create the base module with function exports and tables
+	mod, err := r.InstantiateHostModuleWithTables(ctx, moduleName, exports, tableExports)
+	if err != nil {
+		return nil, err
+	}
+
+	// Now add memory exports by sharing memory from source modules
+	modInst := mod.(*wasm.ModuleInstance)
+	for _, memExp := range memoryExports {
+		// Get the source module's memory
+		sourceInst, ok := memExp.SourceModule.(*wasm.ModuleInstance)
+		if !ok {
+			continue
+		}
+
+		// Find the memory in the source module
+		sourceExport, ok := sourceInst.Exports[memExp.SourceName]
+		if !ok || sourceExport.Type != wasm.ExternTypeMemory {
+			continue
+		}
+
+		// Share the source module's MemoryInstance
+		// The source module should have a MemoryInstance if it exports memory
+		if sourceInst.MemoryInstance == nil {
+			continue
+		}
+
+		// Share the memory instance - this is the key part!
+		// The host module will use the same memory as the source module.
+		modInst.MemoryInstance = sourceInst.MemoryInstance
+
+		// Add the export
+		modInst.Exports[memExp.Name] = &wasm.Export{
+			Type:  wasm.ExternTypeMemory,
+			Name:  memExp.Name,
+			Index: 0, // Memory index is always 0 in current wasm
+		}
+	}
+
+	return mod, nil
+}
