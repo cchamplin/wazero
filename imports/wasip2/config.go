@@ -41,6 +41,12 @@ type Config struct {
 	// Feature flags
 	allowNetwork bool
 	allowHTTP    bool
+
+	// Terminal configuration
+	terminalMode     component.TerminalMode
+	stdinIsTerminal  bool
+	stdoutIsTerminal bool
+	stderrIsTerminal bool
 }
 
 // NewConfig creates a new config with no defaults set.
@@ -145,3 +151,42 @@ func (c *Config) AllowNetwork() bool { return c.allowNetwork }
 
 // AllowHTTP returns whether HTTP access is allowed.
 func (c *Config) AllowHTTP() bool { return c.allowHTTP }
+
+// TerminalMode returns the terminal detection mode.
+func (c *Config) TerminalMode() component.TerminalMode { return c.terminalMode }
+
+// StdinIsTerminal returns whether stdin is configured as a terminal.
+func (c *Config) StdinIsTerminal() bool { return c.stdinIsTerminal }
+
+// StdoutIsTerminal returns whether stdout is configured as a terminal.
+func (c *Config) StdoutIsTerminal() bool { return c.stdoutIsTerminal }
+
+// StderrIsTerminal returns whether stderr is configured as a terminal.
+func (c *Config) StderrIsTerminal() bool { return c.stderrIsTerminal }
+
+// WithTerminalMode sets the terminal detection mode.
+func (c *Config) WithTerminalMode(mode component.TerminalMode) *Config {
+	c.terminalMode = mode
+	return c
+}
+
+// WithStdinIsTerminal explicitly sets whether stdin is a terminal.
+// Only used when TerminalMode is TerminalModeCustom.
+func (c *Config) WithStdinIsTerminal(isTerminal bool) *Config {
+	c.stdinIsTerminal = isTerminal
+	return c
+}
+
+// WithStdoutIsTerminal explicitly sets whether stdout is a terminal.
+// Only used when TerminalMode is TerminalModeCustom.
+func (c *Config) WithStdoutIsTerminal(isTerminal bool) *Config {
+	c.stdoutIsTerminal = isTerminal
+	return c
+}
+
+// WithStderrIsTerminal explicitly sets whether stderr is a terminal.
+// Only used when TerminalMode is TerminalModeCustom.
+func (c *Config) WithStderrIsTerminal(isTerminal bool) *Config {
+	c.stderrIsTerminal = isTerminal
+	return c
+}
