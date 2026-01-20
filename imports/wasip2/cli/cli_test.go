@@ -450,3 +450,19 @@ func TestExitError(t *testing.T) {
 	require.NotNil(t, err)
 	require.True(t, strings.HasPrefix(err.Error(), "exit:"))
 }
+
+// Terminal stdin interface tests
+func TestInstantiateTerminalStdin(t *testing.T) {
+	linker := component.NewLinker()
+	err := instantiateTerminalStdin(linker)
+	require.NoError(t, err)
+
+	def, err := linker.MatchImport("wasi:cli/terminal-stdin@0.2.0")
+	require.NoError(t, err)
+
+	instDef, ok := def.(*component.InstanceDef)
+	require.True(t, ok, "expected InstanceDef")
+
+	_, hasGetTerminalStdin := instDef.Exports["get-terminal-stdin"]
+	require.True(t, hasGetTerminalStdin, "get-terminal-stdin function should be defined")
+}
