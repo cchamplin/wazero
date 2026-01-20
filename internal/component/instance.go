@@ -68,14 +68,15 @@ func (i *Instance) ExportedFunction(name string) *ExportedFunc {
 
 // ExportedFunc represents an exported component function.
 type ExportedFunc struct {
-	name        string
-	funcType    *FuncType
-	coreFunc    api.Function
-	canonical   *CanonicalDef
-	component   *Component   // reference to parent component for type lookups
-	instance    *Instance    // reference to parent instance for memory access
-	memory      api.Memory   // resolved memory for canonical ABI operations
-	reallocFunc api.Function // resolved realloc function for memory allocation
+	name           string
+	funcType       *FuncType
+	coreFunc       api.Function
+	canonical      *CanonicalDef
+	component      *Component   // reference to parent component for type lookups
+	instance       *Instance    // reference to parent instance for memory access
+	memory         api.Memory   // resolved memory for canonical ABI operations
+	reallocFunc    api.Function // resolved realloc function for memory allocation
+	postReturnFunc api.Function // optional post-return function for cleanup after call
 }
 
 // Name returns the export name of this function.
@@ -254,6 +255,18 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 	coreResults, err := f.coreFunc.Call(ctx, coreParams...)
 	if err != nil {
 		return nil, err
+	}
+
+	// Call the post-return function if specified.
+	// Per Canonical ABI spec, the post-return function is called after the main
+	// function returns but before control returns to the caller. The post-return
+	// function receives the flat return values as arguments and is used for cleanup
+	// (e.g., freeing memory that was allocated by realloc for return values).
+	if f.postReturnFunc != nil {
+		_, postReturnErr := f.postReturnFunc.Call(ctx, coreResults...)
+		if postReturnErr != nil {
+			return nil, fmt.Errorf("post-return function failed: %w", postReturnErr)
+		}
 	}
 
 	// Convert core results back to component Vals using TypeResolver

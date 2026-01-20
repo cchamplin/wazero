@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/internal/internalapi"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -141,6 +142,102 @@ func TestComponentLinkerInstanceBuilderResource(t *testing.T) {
 	require.NotNil(t, instDef.Exports["read"])
 	require.NotNil(t, instDef.Exports["handle"])
 }
+
+// TestPostReturnFunctionCalled verifies that post-return functions are called
+// after the main exported function returns but before control returns to caller.
+// The post-return function is used for cleanup (e.g., freeing memory allocated
+// for return values).
+func TestPostReturnFunctionCalled(t *testing.T) {
+	// Track post-return invocation
+	postReturnCalled := false
+	postReturnArgs := []uint64(nil)
+
+	// Create a mock core function that returns a value
+	mockCoreFunc := &testMockFunction{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			return []uint64{42}, nil // Returns s32 value 42
+		},
+	}
+
+	// Create a mock post-return function
+	mockPostReturnFunc := &testMockFunction{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			postReturnCalled = true
+			postReturnArgs = append([]uint64{}, params...) // Copy params
+			return nil, nil
+		},
+	}
+
+	// Create an ExportedFunc with a post-return function
+	postReturnIdx := uint32(1)
+	exportedFunc := &ExportedFunc{
+		name:     "test-func",
+		funcType: &FuncType{Results: []NamedValType{{ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}}}, // s32
+		coreFunc: mockCoreFunc,
+		canonical: &CanonicalDef{
+			Kind:    CanonKindLift,
+			Options: CanonicalOptions{PostReturnIdx: &postReturnIdx},
+		},
+		postReturnFunc: mockPostReturnFunc,
+	}
+
+	// Call the exported function
+	ctx := context.Background()
+	results, err := exportedFunc.Call(ctx)
+
+	// Verify the main function returned correctly
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+	require.Equal(t, int32(42), results[0].S32())
+
+	// Verify post-return was called
+	require.True(t, postReturnCalled, "post-return function should have been called")
+
+	// Verify post-return received the flat return values as arguments
+	require.Equal(t, 1, len(postReturnArgs))
+	require.Equal(t, uint64(42), postReturnArgs[0])
+}
+
+// TestPostReturnNotCalledWhenNil verifies that when no post-return function
+// is specified, the exported function still works correctly.
+func TestPostReturnNotCalledWhenNil(t *testing.T) {
+	// Create a mock core function that returns a value
+	mockCoreFunc := &testMockFunction{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			return []uint64{99}, nil
+		},
+	}
+
+	// Create an ExportedFunc without a post-return function
+	exportedFunc := &ExportedFunc{
+		name:           "test-func",
+		funcType:       &FuncType{Results: []NamedValType{{ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}}},
+		coreFunc:       mockCoreFunc,
+		canonical:      &CanonicalDef{Kind: CanonKindLift},
+		postReturnFunc: nil, // No post-return
+	}
+
+	// Call should succeed
+	ctx := context.Background()
+	results, err := exportedFunc.Call(ctx)
+
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+	require.Equal(t, int32(99), results[0].S32())
+}
+
+// testMockFunction is a test helper that implements api.Function for unit testing.
+// Named differently to avoid collision with mockFunction in instance_test.go.
+type testMockFunction struct {
+	internalapi.WazeroOnlyType
+	callFn func(ctx context.Context, params ...uint64) ([]uint64, error)
+}
+
+func (m *testMockFunction) Definition() api.FunctionDefinition { return nil }
+func (m *testMockFunction) Call(ctx context.Context, params ...uint64) ([]uint64, error) {
+	return m.callFn(ctx, params...)
+}
+func (m *testMockFunction) CallWithStack(ctx context.Context, stack []uint64) error { return nil }
 
 // TestComponentLinker_OrderedInstantiation verifies that core instances are
 // instantiated in order and that imports can be resolved from previously
