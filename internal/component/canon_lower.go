@@ -16,6 +16,12 @@ type EnumType struct {
 	Cases []string
 }
 
+// FlagsType represents a flags type for lowering.
+// Each flag is represented as a bit in a bitvector.
+type FlagsType struct {
+	Flags []string
+}
+
 // LoweredFunc wraps a component-level HostFunc as a core wasm function.
 // This is produced by canon lower, which takes a component function and creates
 // a core wasm function that can be provided as an import to core modules.
@@ -476,4 +482,43 @@ func lowerEnumToFlat(val Val, enumType *EnumType) ([]uint64, error) {
 		}
 	}
 	return nil, fmt.Errorf("unknown enum case: %s", caseName)
+}
+
+// lowerFlagsToFlat converts flags to a bitvector.
+// Per Canonical ABI: flags with N <= 32 use u32, N <= 64 use u64, else multiple u32s.
+func lowerFlagsToFlat(val Val, flagsType *FlagsType) ([]uint64, error) {
+	flags := val.Flags()
+	n := len(flagsType.Flags)
+
+	if n <= 32 {
+		var bits uint32
+		for i, name := range flagsType.Flags {
+			if flags[name] {
+				bits |= 1 << i
+			}
+		}
+		return []uint64{uint64(bits)}, nil
+	}
+
+	if n <= 64 {
+		var bits uint64
+		for i, name := range flagsType.Flags {
+			if flags[name] {
+				bits |= 1 << i
+			}
+		}
+		return []uint64{bits}, nil
+	}
+
+	// For > 64 flags, use multiple u32 values
+	numU32s := (n + 31) / 32
+	result := make([]uint64, numU32s)
+	for i, name := range flagsType.Flags {
+		if flags[name] {
+			wordIdx := i / 32
+			bitIdx := i % 32
+			result[wordIdx] |= 1 << bitIdx
+		}
+	}
+	return result, nil
 }
