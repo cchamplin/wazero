@@ -939,6 +939,16 @@ func (i *Instance) CallContext() *CallContext {
 	return i.callContext
 }
 
+// liftEnum converts a discriminant to an enum Val.
+func liftEnum(discriminant uint64, enumType *EnumType) (Val, error) {
+	idx := int(discriminant)
+	if idx < 0 || idx >= len(enumType.Cases) {
+		return Val{}, fmt.Errorf("invalid enum discriminant %d for type with %d cases",
+			discriminant, len(enumType.Cases))
+	}
+	return ValEnum(enumType.Cases[idx]), nil
+}
+
 // elementSizeForKind returns the size in bytes for a ValKind per the Canonical ABI.
 func elementSizeForKind(kind ValKind) uint32 {
 	switch kind {
