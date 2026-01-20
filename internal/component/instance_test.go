@@ -1737,6 +1737,116 @@ func TestLiftFlags(t *testing.T) {
 	}
 }
 
+// TestLiftVariant tests lifting a variant from flat representation to a Val.
+func TestLiftVariant(t *testing.T) {
+	// Define a variant type similar to Option<s32>: { none, some(s32) }
+	variantType := &VariantType{
+		Cases: []VariantCaseForLower{
+			{Name: "none", Type: nil},
+			{Name: "some", Type: &PrimitiveType{Name: "s32"}},
+		},
+	}
+
+	t.Run("none case", func(t *testing.T) {
+		// flat representation: [discriminant=0]
+		// For "none" case with no payload, just the discriminant
+		result, err := liftVariant([]uint64{0}, variantType)
+		if err != nil {
+			t.Fatalf("variant lifting failed: %v", err)
+		}
+		caseName, payload := result.Variant()
+		if caseName != "none" {
+			t.Errorf("expected 'none', got %q", caseName)
+		}
+		if payload != nil {
+			t.Error("expected nil payload")
+		}
+	})
+
+	t.Run("some case", func(t *testing.T) {
+		// flat representation: [discriminant=1, payload=42]
+		result, err := liftVariant([]uint64{1, 42}, variantType)
+		if err != nil {
+			t.Fatalf("variant lifting failed: %v", err)
+		}
+		caseName, payload := result.Variant()
+		if caseName != "some" {
+			t.Errorf("expected 'some', got %q", caseName)
+		}
+		if payload == nil || payload.S32() != 42 {
+			t.Errorf("expected payload 42, got %v", payload)
+		}
+	})
+
+	t.Run("invalid discriminant", func(t *testing.T) {
+		// discriminant 5 is out of bounds for a 2-case variant
+		_, err := liftVariant([]uint64{5}, variantType)
+		if err == nil {
+			t.Error("expected error for invalid discriminant")
+		}
+	})
+
+	t.Run("empty flat slice", func(t *testing.T) {
+		// No discriminant provided
+		_, err := liftVariant([]uint64{}, variantType)
+		if err == nil {
+			t.Error("expected error for empty flat slice")
+		}
+	})
+
+	t.Run("missing payload", func(t *testing.T) {
+		// discriminant=1 (some) but no payload value
+		_, err := liftVariant([]uint64{1}, variantType)
+		if err == nil {
+			t.Error("expected error for missing payload")
+		}
+	})
+}
+
+// TestLiftVariant_MultiplePayloadTypes tests lifting variants with different payload types.
+func TestLiftVariant_MultiplePayloadTypes(t *testing.T) {
+	// A variant with multiple cases: { empty, int(s32), float(f32) }
+	variantType := &VariantType{
+		Cases: []VariantCaseForLower{
+			{Name: "empty", Type: nil},
+			{Name: "int", Type: &PrimitiveType{Name: "s32"}},
+			{Name: "float", Type: &PrimitiveType{Name: "f32"}},
+		},
+	}
+
+	t.Run("empty case", func(t *testing.T) {
+		result, err := liftVariant([]uint64{0}, variantType)
+		require.NoError(t, err)
+		caseName, payload := result.Variant()
+		require.Equal(t, "empty", caseName)
+		require.Nil(t, payload)
+	})
+
+	t.Run("int case", func(t *testing.T) {
+		// -42 as signed 32-bit stored in uint64 (two's complement)
+		var negVal uint64 = uint64(0xFFFFFFD6) // -42 in two's complement u32
+		result, err := liftVariant([]uint64{1, negVal}, variantType)
+		require.NoError(t, err)
+		caseName, payload := result.Variant()
+		require.Equal(t, "int", caseName)
+		require.NotNil(t, payload)
+		require.Equal(t, int32(-42), payload.S32())
+	})
+
+	t.Run("float case", func(t *testing.T) {
+		floatBits := uint64(math.Float32bits(3.14))
+		result, err := liftVariant([]uint64{2, floatBits}, variantType)
+		require.NoError(t, err)
+		caseName, payload := result.Variant()
+		require.Equal(t, "float", caseName)
+		require.NotNil(t, payload)
+		// Check that the float value is approximately 3.14
+		if math.Abs(float64(payload.F32())-3.14) > 0.001 {
+			t.Errorf("expected float ~3.14, got %v", payload.F32())
+		}
+	})
+}
+
 // TestExportedFunc_Call_ListOfChar tests list<char> element support (4-byte elements for Unicode code points).
 func TestExportedFunc_Call_ListOfChar(t *testing.T) {
 	mem := &mockMemory{data: make([]byte, 4096)}
