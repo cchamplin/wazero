@@ -28,6 +28,14 @@ func NewReadyPollable() *Pollable {
 	return &Pollable{readyFn: func() bool { return true }}
 }
 
+// NewPollableWithChannel creates a pollable that supports channel-based multiplexing.
+// The readyFn should check if the pollable is ready (non-blocking).
+// The blockFn should block until the pollable becomes ready.
+// This is an alias for NewPollable, kept for API clarity in tests.
+func NewPollableWithChannel(readyFn func() bool, blockFn func()) *Pollable {
+	return &Pollable{readyFn: readyFn, blockFn: blockFn}
+}
+
 // Ready returns true if the pollable is ready.
 func (p *Pollable) Ready() bool {
 	if p.readyFn == nil {
@@ -123,40 +131,74 @@ func pollPoll(ctx context.Context, args []component.Val) ([]component.Val, error
 		pollables[i] = pollable
 	}
 
-	// Check which pollables are ready
-	for {
-		var readyIndices []component.Val
-		for i, p := range pollables {
-			if p.Ready() {
-				readyIndices = append(readyIndices, component.ValU32(uint32(i)))
-			}
-		}
-
-		// If at least one is ready, return the ready indices
-		if len(readyIndices) > 0 {
-			return []component.Val{component.ValList(readyIndices)}, nil
-		}
-
-		// None are ready - block on the first pollable that has a block function
-		// Per WASI spec: "If none of the pollables are ready, the function blocks
-		// until at least one pollable becomes ready."
-		//
-		// In a real implementation, we'd use a more sophisticated approach
-		// (select on channels, etc.) but for now we block on each pollable in turn
-		blocked := false
-		for _, p := range pollables {
-			if p.blockFn != nil {
-				p.Block()
-				blocked = true
-				break
-			}
-		}
-
-		// If no pollable has a block function but none are ready,
-		// we'd spin-wait. For safety, if we can't block and none are ready,
-		// just return an empty list (this shouldn't happen in correct usage).
-		if !blocked {
-			return []component.Val{component.ValList(nil)}, nil
+	// First pass: check which pollables are already ready
+	var readyIndices []component.Val
+	for i, p := range pollables {
+		if p.Ready() {
+			readyIndices = append(readyIndices, component.ValU32(uint32(i)))
 		}
 	}
+
+	// If at least one is ready, return the ready indices immediately
+	if len(readyIndices) > 0 {
+		return []component.Val{component.ValList(readyIndices)}, nil
+	}
+
+	// None are ready - use goroutines and channels for true multiplexing
+	// Per WASI spec: "If none of the pollables are ready, the function blocks
+	// until at least one pollable becomes ready."
+
+	// Check if any pollable has a block function
+	hasBlockFn := false
+	for _, p := range pollables {
+		if p.blockFn != nil {
+			hasBlockFn = true
+			break
+		}
+	}
+
+	// If no pollable has a block function but none are ready,
+	// return an empty list (this shouldn't happen in correct usage).
+	if !hasBlockFn {
+		return []component.Val{component.ValList(nil)}, nil
+	}
+
+	// Use channel-based multiplexing: spawn a goroutine for each pollable
+	// that has a block function, and wait for any one to signal readiness.
+	readyCh := make(chan int, len(pollables))
+
+	for i, p := range pollables {
+		if p.blockFn != nil {
+			go func(idx int, pollable *Pollable) {
+				pollable.Block()
+				// Signal that this pollable is now ready
+				// Use non-blocking send in case we've already returned
+				select {
+				case readyCh <- idx:
+				default:
+				}
+			}(i, p)
+		}
+	}
+
+	// Wait for the first pollable to become ready
+	<-readyCh
+
+	// Now check all pollables again to collect all that are ready
+	// (there may be multiple ready by now)
+	readyIndices = nil
+	for i, p := range pollables {
+		if p.Ready() {
+			readyIndices = append(readyIndices, component.ValU32(uint32(i)))
+		}
+	}
+
+	// At least the one that signaled should be ready
+	if len(readyIndices) == 0 {
+		// Fallback: if somehow nothing is ready, return the one that signaled
+		// This shouldn't happen in correct usage
+		readyIndices = append(readyIndices, component.ValU32(0))
+	}
+
+	return []component.Val{component.ValList(readyIndices)}, nil
 }

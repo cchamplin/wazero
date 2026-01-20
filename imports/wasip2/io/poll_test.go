@@ -455,3 +455,197 @@ func TestGetPollable_WrongType(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "not a Pollable")
 }
+
+// Tests for poll multiplexing - Task 3.4
+
+func TestPoll_MultiplePollables_FastOneReturnsFirst(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	// Create three pollables with different ready times:
+	// - p1: becomes ready after 100ms (slow)
+	// - p2: becomes ready after 10ms (fast)
+	// - p3: becomes ready after 50ms (medium)
+	// The poll function should return when p2 becomes ready (~10ms)
+	// NOT wait for all of them
+
+	var mu1, mu2, mu3 sync.Mutex
+	ready1, ready2, ready3 := false, false, false
+
+	p1 := NewPollableWithChannel(
+		func() bool {
+			mu1.Lock()
+			defer mu1.Unlock()
+			return ready1
+		},
+		func() {
+			time.Sleep(100 * time.Millisecond)
+			mu1.Lock()
+			ready1 = true
+			mu1.Unlock()
+		},
+	)
+
+	p2 := NewPollableWithChannel(
+		func() bool {
+			mu2.Lock()
+			defer mu2.Unlock()
+			return ready2
+		},
+		func() {
+			time.Sleep(10 * time.Millisecond)
+			mu2.Lock()
+			ready2 = true
+			mu2.Unlock()
+		},
+	)
+
+	p3 := NewPollableWithChannel(
+		func() bool {
+			mu3.Lock()
+			defer mu3.Unlock()
+			return ready3
+		},
+		func() {
+			time.Sleep(50 * time.Millisecond)
+			mu3.Lock()
+			ready3 = true
+			mu3.Unlock()
+		},
+	)
+
+	h1 := table.New(p1, true)
+	h2 := table.New(p2, true)
+	h3 := table.New(p3, true)
+
+	args := []component.Val{
+		component.ValList([]component.Val{
+			component.ValBorrow(uint32(h1)),
+			component.ValBorrow(uint32(h2)),
+			component.ValBorrow(uint32(h3)),
+		}),
+	}
+
+	start := time.Now()
+	results, err := pollPoll(ctx, args)
+	elapsed := time.Since(start)
+
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+
+	// Should have returned around 10ms (when p2 became ready), not 100ms
+	// Allow some tolerance for scheduling
+	require.True(t, elapsed >= 5*time.Millisecond, "poll should have blocked for some time")
+	require.True(t, elapsed < 80*time.Millisecond, "poll should not have waited for slowest pollable, elapsed: %v", elapsed)
+
+	// The fast pollable (index 1) should be in the ready list
+	indices := results[0].List()
+	require.True(t, len(indices) >= 1, "at least one pollable should be ready")
+
+	// Check that index 1 (p2, the fast one) is in the ready list
+	foundFast := false
+	for _, idx := range indices {
+		if idx.U32() == 1 {
+			foundFast = true
+			break
+		}
+	}
+	require.True(t, foundFast, "the fast pollable (index 1) should be in the ready list")
+}
+
+func TestPoll_MultiplePollables_AllReadyAtOnce(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	// Create pollables that all become ready at about the same time
+	var mu sync.Mutex
+	allReady := false
+
+	makePollable := func() *Pollable {
+		return NewPollableWithChannel(
+			func() bool {
+				mu.Lock()
+				defer mu.Unlock()
+				return allReady
+			},
+			func() {
+				time.Sleep(10 * time.Millisecond)
+				mu.Lock()
+				allReady = true
+				mu.Unlock()
+			},
+		)
+	}
+
+	p1 := makePollable()
+	p2 := makePollable()
+	p3 := makePollable()
+
+	h1 := table.New(p1, true)
+	h2 := table.New(p2, true)
+	h3 := table.New(p3, true)
+
+	args := []component.Val{
+		component.ValList([]component.Val{
+			component.ValBorrow(uint32(h1)),
+			component.ValBorrow(uint32(h2)),
+			component.ValBorrow(uint32(h3)),
+		}),
+	}
+
+	results, err := pollPoll(ctx, args)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+
+	// All should be ready since they share the same state
+	indices := results[0].List()
+	require.Equal(t, 3, len(indices), "all pollables should be ready")
+}
+
+func TestPoll_ChannelBasedPollable(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	// Create a pollable with a channel for signaling readiness
+	readyCh := make(chan struct{})
+
+	p := NewPollableWithChannel(
+		func() bool {
+			select {
+			case <-readyCh:
+				return true
+			default:
+				return false
+			}
+		},
+		func() {
+			<-readyCh // Block until channel is closed
+		},
+	)
+
+	h := table.New(p, true)
+
+	// Signal readiness after a short delay
+	go func() {
+		time.Sleep(15 * time.Millisecond)
+		close(readyCh)
+	}()
+
+	args := []component.Val{
+		component.ValList([]component.Val{
+			component.ValBorrow(uint32(h)),
+		}),
+	}
+
+	start := time.Now()
+	results, err := pollPoll(ctx, args)
+	elapsed := time.Since(start)
+
+	require.NoError(t, err)
+	require.True(t, elapsed >= 10*time.Millisecond, "should have waited for channel")
+	require.True(t, elapsed < 100*time.Millisecond, "should not have taken too long")
+
+	indices := results[0].List()
+	require.Equal(t, 1, len(indices))
+	require.Equal(t, uint32(0), indices[0].U32())
+}
