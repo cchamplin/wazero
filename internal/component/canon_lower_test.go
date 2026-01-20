@@ -4,6 +4,7 @@ package component
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -891,5 +892,189 @@ func TestLowerEnumToFlat_UnknownCase(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "unknown enum case") {
 		t.Errorf("expected error to contain 'unknown enum case', got: %v", err)
+	}
+}
+
+func TestLowerFlags(t *testing.T) {
+	flagsType := &FlagsType{Flags: []string{"read", "write", "execute"}}
+
+	cases := []struct {
+		flags    map[string]bool
+		expected uint64
+	}{
+		{map[string]bool{}, 0},
+		{map[string]bool{"read": true}, 0b001},
+		{map[string]bool{"write": true}, 0b010},
+		{map[string]bool{"execute": true}, 0b100},
+		{map[string]bool{"read": true, "write": true}, 0b011},
+		{map[string]bool{"read": true, "write": true, "execute": true}, 0b111},
+	}
+
+	for _, tc := range cases {
+		val := ValFlags(tc.flags)
+		result, err := lowerFlagsToFlat(val, flagsType)
+		if err != nil {
+			t.Fatalf("flags lowering failed: %v", err)
+		}
+		if len(result) != 1 || result[0] != tc.expected {
+			t.Errorf("for flags %v, expected %b, got %v", tc.flags, tc.expected, result)
+		}
+	}
+}
+
+func TestLowerFlags_Large(t *testing.T) {
+	// Test N=33-64 flags (uint64 path)
+	// Create a FlagsType with 50 flags (covers 33-64 range)
+	flags := make([]string, 50)
+	for i := 0; i < 50; i++ {
+		flags[i] = fmt.Sprintf("flag%d", i)
+	}
+	flagsType := &FlagsType{Flags: flags}
+
+	cases := []struct {
+		name     string
+		flags    map[string]bool
+		expected uint64
+	}{
+		{
+			name:     "no flags set",
+			flags:    map[string]bool{},
+			expected: 0,
+		},
+		{
+			name:     "flag at position 0",
+			flags:    map[string]bool{"flag0": true},
+			expected: 1 << 0,
+		},
+		{
+			name:     "flag at position 32",
+			flags:    map[string]bool{"flag32": true},
+			expected: 1 << 32,
+		},
+		{
+			name:     "flags at positions 0 and 32",
+			flags:    map[string]bool{"flag0": true, "flag32": true},
+			expected: (1 << 0) | (1 << 32),
+		},
+		{
+			name:     "flag at position 49",
+			flags:    map[string]bool{"flag49": true},
+			expected: 1 << 49,
+		},
+		{
+			name: "multiple flags",
+			flags: map[string]bool{
+				"flag0":  true,
+				"flag15": true,
+				"flag32": true,
+				"flag49": true,
+			},
+			expected: (1 << 0) | (1 << 15) | (1 << 32) | (1 << 49),
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			val := ValFlags(tc.flags)
+			result, err := lowerFlagsToFlat(val, flagsType)
+			if err != nil {
+				t.Fatalf("flags lowering failed: %v", err)
+			}
+			if len(result) != 1 {
+				t.Errorf("expected 1 result, got %d", len(result))
+			}
+			if result[0] != tc.expected {
+				t.Errorf("expected 0x%x, got 0x%x", tc.expected, result[0])
+			}
+		})
+	}
+}
+
+func TestLowerFlags_VeryLarge(t *testing.T) {
+	// Test N>64 flags (multiple u32s path)
+	// Create a FlagsType with 80 flags (requires 3 u32 values)
+	flags := make([]string, 80)
+	for i := 0; i < 80; i++ {
+		flags[i] = fmt.Sprintf("flag%d", i)
+	}
+	flagsType := &FlagsType{Flags: flags}
+
+	cases := []struct {
+		name           string
+		flags          map[string]bool
+		expectedLen    int
+		expectedValues []uint64
+	}{
+		{
+			name:           "no flags set",
+			flags:          map[string]bool{},
+			expectedLen:    3, // (80 + 31) / 32 = 3
+			expectedValues: []uint64{0, 0, 0},
+		},
+		{
+			name:           "flag at position 0",
+			flags:          map[string]bool{"flag0": true},
+			expectedLen:    3,
+			expectedValues: []uint64{1 << 0, 0, 0},
+		},
+		{
+			name:           "flag at position 32",
+			flags:          map[string]bool{"flag32": true},
+			expectedLen:    3,
+			expectedValues: []uint64{0, 1 << 0, 0}, // Position 32 is bit 0 of word 1
+		},
+		{
+			name:           "flag at position 64",
+			flags:          map[string]bool{"flag64": true},
+			expectedLen:    3,
+			expectedValues: []uint64{0, 0, 1 << 0}, // Position 64 is bit 0 of word 2
+		},
+		{
+			name: "flags at positions 0, 32, and 64",
+			flags: map[string]bool{
+				"flag0":  true,
+				"flag32": true,
+				"flag64": true,
+			},
+			expectedLen:    3,
+			expectedValues: []uint64{1 << 0, 1 << 0, 1 << 0},
+		},
+		{
+			name: "multiple flags across all words",
+			flags: map[string]bool{
+				"flag0":  true,
+				"flag15": true,
+				"flag31": true,
+				"flag32": true,
+				"flag47": true,
+				"flag63": true,
+				"flag64": true,
+				"flag79": true,
+			},
+			expectedLen: 3,
+			expectedValues: []uint64{
+				(1 << 0) | (1 << 15) | (1 << 31), // word 0: flags 0-31
+				(1 << 0) | (1 << 15) | (1 << 31), // word 1: flags 32-63 mapped to bits 0-31
+				(1 << 0) | (1 << 15),             // word 2: flags 64-79 mapped to bits 0-15
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			val := ValFlags(tc.flags)
+			result, err := lowerFlagsToFlat(val, flagsType)
+			if err != nil {
+				t.Fatalf("flags lowering failed: %v", err)
+			}
+			if len(result) != tc.expectedLen {
+				t.Errorf("expected %d results, got %d", tc.expectedLen, len(result))
+			}
+			for i, expectedVal := range tc.expectedValues {
+				if i < len(result) && result[i] != expectedVal {
+					t.Errorf("word %d: expected 0x%x, got 0x%x", i, expectedVal, result[i])
+				}
+			}
+		})
 	}
 }
