@@ -7,6 +7,19 @@ import (
 	"io"
 )
 
+// TerminalMode controls how terminal detection behaves for WASI CLI interfaces.
+type TerminalMode int
+
+const (
+	// TerminalModeNone always reports no terminal connection (safe default).
+	TerminalModeNone TerminalMode = iota
+	// TerminalModeAuto detects real TTY by checking if streams are *os.File
+	// with valid terminal file descriptors.
+	TerminalModeAuto
+	// TerminalModeCustom uses explicit host-provided values.
+	TerminalModeCustom
+)
+
 // contextKey is a type for context keys in the component package.
 type contextKey int
 
@@ -42,6 +55,14 @@ type WASIConfig interface {
 	Environ() []string
 	// Args returns command-line arguments.
 	Args() []string
+	// TerminalMode returns the terminal detection mode.
+	TerminalMode() TerminalMode
+	// StdinIsTerminal returns true if stdin is a terminal (used with TerminalModeCustom).
+	StdinIsTerminal() bool
+	// StdoutIsTerminal returns true if stdout is a terminal (used with TerminalModeCustom).
+	StdoutIsTerminal() bool
+	// StderrIsTerminal returns true if stderr is a terminal (used with TerminalModeCustom).
+	StderrIsTerminal() bool
 }
 
 // WithWASIConfig returns a new context with the given WASIConfig stored.
