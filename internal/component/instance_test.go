@@ -1708,6 +1708,35 @@ func TestLiftEnum_InvalidDiscriminant(t *testing.T) {
 	}
 }
 
+// TestLiftFlags tests lifting a bitvector to a flags Val.
+func TestLiftFlags(t *testing.T) {
+	flagsType := &FlagsType{Flags: []string{"a", "b", "c", "d"}}
+
+	cases := []struct {
+		bitvector uint64
+		expected  map[string]bool
+	}{
+		{0b0000, map[string]bool{}},
+		{0b0001, map[string]bool{"a": true}},
+		{0b1010, map[string]bool{"b": true, "d": true}},
+		{0b1111, map[string]bool{"a": true, "b": true, "c": true, "d": true}},
+	}
+
+	for _, tc := range cases {
+		result, err := liftFlags(tc.bitvector, flagsType)
+		if err != nil {
+			t.Fatalf("flags lifting failed: %v", err)
+		}
+		flags := result.Flags()
+		for _, name := range flagsType.Flags {
+			if flags[name] != tc.expected[name] {
+				t.Errorf("for bitvector %b, flag %s: expected %v, got %v",
+					tc.bitvector, name, tc.expected[name], flags[name])
+			}
+		}
+	}
+}
+
 // TestExportedFunc_Call_ListOfChar tests list<char> element support (4-byte elements for Unicode code points).
 func TestExportedFunc_Call_ListOfChar(t *testing.T) {
 	mem := &mockMemory{data: make([]byte, 4096)}

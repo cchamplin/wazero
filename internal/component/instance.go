@@ -949,6 +949,17 @@ func liftEnum(discriminant uint64, enumType *EnumType) (Val, error) {
 	return ValEnum(enumType.Cases[idx]), nil
 }
 
+// liftFlags converts a bitvector to a flags Val.
+func liftFlags(bitvector uint64, flagsType *FlagsType) (Val, error) {
+	flags := make(map[string]bool)
+	for i, name := range flagsType.Flags {
+		if bitvector&(1<<i) != 0 {
+			flags[name] = true
+		}
+	}
+	return ValFlags(flags), nil
+}
+
 // elementSizeForKind returns the size in bytes for a ValKind per the Canonical ABI.
 func elementSizeForKind(kind ValKind) uint32 {
 	switch kind {
