@@ -960,6 +960,81 @@ func liftFlags(bitvector uint64, flagsType *FlagsType) (Val, error) {
 	return ValFlags(flags), nil
 }
 
+// liftVariant converts flat representation to a variant Val.
+// The flat representation consists of a discriminant followed by the payload values.
+// This is the inverse of lowerVariantToFlat in canon_lower.go.
+func liftVariant(flat []uint64, variantType *VariantType) (Val, error) {
+	if len(flat) < 1 {
+		return Val{}, fmt.Errorf("variant requires at least discriminant")
+	}
+
+	disc := int(flat[0])
+	if disc < 0 || disc >= len(variantType.Cases) {
+		return Val{}, fmt.Errorf("invalid variant discriminant %d for type with %d cases",
+			disc, len(variantType.Cases))
+	}
+
+	variantCase := variantType.Cases[disc]
+
+	// If the case has no payload type, return variant with nil payload
+	if variantCase.Type == nil {
+		return ValVariant(variantCase.Name, nil), nil
+	}
+
+	// Case has a payload - we need to lift it from the remaining flat values
+	if len(flat) < 2 {
+		return Val{}, fmt.Errorf("variant case %q requires payload but none provided", variantCase.Name)
+	}
+
+	// Lift the payload based on its type
+	payload, err := liftVariantPayload(flat[1], variantCase.Type)
+	if err != nil {
+		return Val{}, fmt.Errorf("lifting variant payload for case %q: %w", variantCase.Name, err)
+	}
+
+	return ValVariant(variantCase.Name, &payload), nil
+}
+
+// liftVariantPayload lifts a single payload value based on its PayloadType.
+func liftVariantPayload(flatVal uint64, payloadType PayloadType) (Val, error) {
+	// Handle PrimitiveType payloads
+	if prim, ok := payloadType.(*PrimitiveType); ok {
+		switch prim.Name {
+		case "bool":
+			return ValBool(flatVal != 0), nil
+		case "s8":
+			return ValS8(int8(flatVal)), nil
+		case "u8":
+			return ValU8(uint8(flatVal)), nil
+		case "s16":
+			return ValS16(int16(flatVal)), nil
+		case "u16":
+			return ValU16(uint16(flatVal)), nil
+		case "s32":
+			return ValS32(int32(flatVal)), nil
+		case "u32":
+			return ValU32(uint32(flatVal)), nil
+		case "s64":
+			return ValS64(int64(flatVal)), nil
+		case "u64":
+			return ValU64(flatVal), nil
+		case "f32":
+			return ValF32(math.Float32frombits(uint32(flatVal))), nil
+		case "f64":
+			return ValF64(math.Float64frombits(flatVal)), nil
+		case "char":
+			return ValChar(rune(flatVal)), nil
+		default:
+			// For unknown primitive types, default to s32
+			return ValS32(int32(flatVal)), nil
+		}
+	}
+
+	// For non-primitive types, default to s32 (simplified handling)
+	// A full implementation would recursively handle composite types
+	return ValS32(int32(flatVal)), nil
+}
+
 // elementSizeForKind returns the size in bytes for a ValKind per the Canonical ABI.
 func elementSizeForKind(kind ValKind) uint32 {
 	switch kind {
