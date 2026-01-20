@@ -535,6 +535,320 @@ func TestIncomingRequestConsume(t *testing.T) {
 }
 
 // ====================
+// Incoming Request Handler Tests (with resource table)
+// ====================
+
+// TestIncomingRequest_Method_WithResourceTable tests that method accessor
+// returns the correct HTTP method from a registered incoming request.
+func TestIncomingRequest_Method_WithResourceTable(t *testing.T) {
+	// Create resource table and context
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	// Create an incoming request with POST method
+	headers := NewFields()
+	path := "/api/test?foo=bar"
+	authority := "example.com"
+	scheme := NewSchemeHTTPS()
+	req := NewIncomingRequest(MethodPost, &scheme, &authority, &path, headers)
+
+	// Register in resource table
+	handle := table.New(req, true)
+
+	// Call method accessor
+	selfHandle := component.ValBorrow(uint32(handle))
+	result, err := incomingRequestMethod(ctx, []component.Val{selfHandle})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(result))
+	require.Equal(t, component.ValKindVariant, result[0].Kind())
+
+	// Verify returns correct method variant
+	methodName, _ := result[0].Variant()
+	require.Equal(t, "post", methodName, "expected POST method")
+}
+
+// TestIncomingRequest_PathWithQuery_WithResourceTable tests that path-with-query
+// accessor returns the correct path from a registered incoming request.
+func TestIncomingRequest_PathWithQuery_WithResourceTable(t *testing.T) {
+	// Create resource table and context
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	// Create an incoming request with path
+	headers := NewFields()
+	path := "/api/test?foo=bar"
+	authority := "example.com"
+	scheme := NewSchemeHTTPS()
+	req := NewIncomingRequest(MethodGet, &scheme, &authority, &path, headers)
+
+	// Register in resource table
+	handle := table.New(req, true)
+
+	// Call path-with-query accessor
+	selfHandle := component.ValBorrow(uint32(handle))
+	result, err := incomingRequestPathWithQuery(ctx, []component.Val{selfHandle})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(result))
+	require.Equal(t, component.ValKindOption, result[0].Kind())
+
+	// Verify returns Some with correct path
+	optVal := result[0].Option()
+	require.NotNil(t, optVal, "expected Some, got None")
+	require.Equal(t, "/api/test?foo=bar", optVal.StringVal())
+}
+
+// TestIncomingRequest_Scheme_WithResourceTable tests that scheme accessor
+// returns the correct scheme from a registered incoming request.
+func TestIncomingRequest_Scheme_WithResourceTable(t *testing.T) {
+	// Create resource table and context
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	// Create an incoming request with HTTPS scheme
+	headers := NewFields()
+	path := "/api/test"
+	authority := "example.com"
+	scheme := NewSchemeHTTPS()
+	req := NewIncomingRequest(MethodGet, &scheme, &authority, &path, headers)
+
+	// Register in resource table
+	handle := table.New(req, true)
+
+	// Call scheme accessor
+	selfHandle := component.ValBorrow(uint32(handle))
+	result, err := incomingRequestScheme(ctx, []component.Val{selfHandle})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(result))
+	require.Equal(t, component.ValKindOption, result[0].Kind())
+
+	// Verify returns Some with correct scheme variant
+	optVal := result[0].Option()
+	require.NotNil(t, optVal, "expected Some, got None")
+	require.Equal(t, component.ValKindVariant, optVal.Kind())
+	schemeName, _ := optVal.Variant()
+	require.Equal(t, "HTTPS", schemeName, "expected HTTPS scheme")
+}
+
+// TestIncomingRequest_Authority_WithResourceTable tests that authority accessor
+// returns the correct authority from a registered incoming request.
+func TestIncomingRequest_Authority_WithResourceTable(t *testing.T) {
+	// Create resource table and context
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	// Create an incoming request with authority
+	headers := NewFields()
+	path := "/api/test"
+	authority := "example.com:8080"
+	scheme := NewSchemeHTTPS()
+	req := NewIncomingRequest(MethodGet, &scheme, &authority, &path, headers)
+
+	// Register in resource table
+	handle := table.New(req, true)
+
+	// Call authority accessor
+	selfHandle := component.ValBorrow(uint32(handle))
+	result, err := incomingRequestAuthority(ctx, []component.Val{selfHandle})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(result))
+	require.Equal(t, component.ValKindOption, result[0].Kind())
+
+	// Verify returns Some with correct authority
+	optVal := result[0].Option()
+	require.NotNil(t, optVal, "expected Some, got None")
+	require.Equal(t, "example.com:8080", optVal.StringVal())
+}
+
+// TestIncomingRequest_Headers_WithResourceTable tests that headers accessor
+// returns a valid headers handle from a registered incoming request.
+func TestIncomingRequest_Headers_WithResourceTable(t *testing.T) {
+	// Create resource table and context
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	// Create an incoming request with headers
+	headers := NewFields()
+	headers.Set("Content-Type", [][]byte{[]byte("application/json")})
+	headers.Set("Accept", [][]byte{[]byte("*/*")})
+	path := "/api/test"
+	authority := "example.com"
+	scheme := NewSchemeHTTPS()
+	req := NewIncomingRequest(MethodGet, &scheme, &authority, &path, headers)
+
+	// Register in resource table
+	handle := table.New(req, true)
+
+	// Call headers accessor
+	selfHandle := component.ValBorrow(uint32(handle))
+	result, err := incomingRequestHeaders(ctx, []component.Val{selfHandle})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(result))
+	require.Equal(t, component.ValKindOwn, result[0].Kind())
+
+	// Verify the returned handle points to valid headers
+	headersHandle := component.Handle(result[0].Own())
+	entry, err := table.Get(headersHandle)
+	require.NoError(t, err)
+	require.NotNil(t, entry)
+
+	returnedHeaders, ok := entry.Rep.(*Fields)
+	require.True(t, ok, "expected Fields resource")
+	require.NotNil(t, returnedHeaders)
+
+	// Verify headers content
+	contentType := returnedHeaders.Get("Content-Type")
+	require.Equal(t, 1, len(contentType))
+	require.Equal(t, "application/json", string(contentType[0]))
+}
+
+// TestIncomingRequest_Consume_WithResourceTable tests that consume
+// returns a valid incoming body handle from a registered incoming request.
+func TestIncomingRequest_Consume_WithResourceTable(t *testing.T) {
+	// Create resource table and context
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	// Create an incoming request
+	headers := NewFields()
+	path := "/api/test"
+	authority := "example.com"
+	scheme := NewSchemeHTTPS()
+	req := NewIncomingRequest(MethodPost, &scheme, &authority, &path, headers)
+
+	// Register in resource table
+	handle := table.New(req, true)
+
+	// Call consume
+	selfHandle := component.ValBorrow(uint32(handle))
+	result, err := incomingRequestConsume(ctx, []component.Val{selfHandle})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(result))
+	require.Equal(t, component.ValKindResult, result[0].Kind())
+
+	isOk, ok, _ := result[0].Result()
+	require.True(t, isOk, "should return ok result")
+	require.NotNil(t, ok)
+	require.Equal(t, component.ValKindOwn, ok.Kind())
+
+	// Verify the returned handle points to a valid incoming body
+	bodyHandle := component.Handle(ok.Own())
+	require.NotEqual(t, component.Handle(0), bodyHandle, "body handle should not be 0")
+
+	entry, err := table.Get(bodyHandle)
+	require.NoError(t, err)
+	require.NotNil(t, entry)
+
+	_, ok2 := entry.Rep.(*IncomingBody)
+	require.True(t, ok2, "expected IncomingBody resource")
+}
+
+// TestIncomingRequest_AllMethods tests all methods for various HTTP methods.
+func TestIncomingRequest_AllMethods(t *testing.T) {
+	methods := []struct {
+		method       Method
+		expectedName string
+	}{
+		{MethodGet, "get"},
+		{MethodHead, "head"},
+		{MethodPost, "post"},
+		{MethodPut, "put"},
+		{MethodDelete, "delete"},
+		{MethodConnect, "connect"},
+		{MethodOptions, "options"},
+		{MethodTrace, "trace"},
+		{MethodPatch, "patch"},
+	}
+
+	for _, tc := range methods {
+		t.Run(tc.expectedName, func(t *testing.T) {
+			table := component.NewResourceTable()
+			ctx := component.WithResourceTable(context.Background(), table)
+
+			headers := NewFields()
+			path := "/test"
+			authority := "localhost"
+			scheme := NewSchemeHTTP()
+			req := NewIncomingRequest(tc.method, &scheme, &authority, &path, headers)
+
+			handle := table.New(req, true)
+			selfHandle := component.ValBorrow(uint32(handle))
+
+			result, err := incomingRequestMethod(ctx, []component.Val{selfHandle})
+			require.NoError(t, err)
+
+			methodName, _ := result[0].Variant()
+			require.Equal(t, tc.expectedName, methodName)
+		})
+	}
+}
+
+// TestIncomingRequest_NilScheme tests handling of nil scheme.
+func TestIncomingRequest_NilScheme(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	headers := NewFields()
+	path := "/test"
+	authority := "localhost"
+	req := NewIncomingRequest(MethodGet, nil, &authority, &path, headers)
+
+	handle := table.New(req, true)
+	selfHandle := component.ValBorrow(uint32(handle))
+
+	result, err := incomingRequestScheme(ctx, []component.Val{selfHandle})
+	require.NoError(t, err)
+	require.Equal(t, component.ValKindOption, result[0].Kind())
+
+	// Should return None when scheme is nil
+	optVal := result[0].Option()
+	require.Nil(t, optVal, "expected None for nil scheme")
+}
+
+// TestIncomingRequest_NilPathWithQuery tests handling of nil path.
+func TestIncomingRequest_NilPathWithQuery(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	headers := NewFields()
+	authority := "localhost"
+	scheme := NewSchemeHTTP()
+	req := NewIncomingRequest(MethodGet, &scheme, &authority, nil, headers)
+
+	handle := table.New(req, true)
+	selfHandle := component.ValBorrow(uint32(handle))
+
+	result, err := incomingRequestPathWithQuery(ctx, []component.Val{selfHandle})
+	require.NoError(t, err)
+	require.Equal(t, component.ValKindOption, result[0].Kind())
+
+	// Should return None when path is nil
+	optVal := result[0].Option()
+	require.Nil(t, optVal, "expected None for nil path")
+}
+
+// TestIncomingRequest_NilAuthority tests handling of nil authority.
+func TestIncomingRequest_NilAuthority(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	headers := NewFields()
+	path := "/test"
+	scheme := NewSchemeHTTP()
+	req := NewIncomingRequest(MethodGet, &scheme, nil, &path, headers)
+
+	handle := table.New(req, true)
+	selfHandle := component.ValBorrow(uint32(handle))
+
+	result, err := incomingRequestAuthority(ctx, []component.Val{selfHandle})
+	require.NoError(t, err)
+	require.Equal(t, component.ValKindOption, result[0].Kind())
+
+	// Should return None when authority is nil
+	optVal := result[0].Option()
+	require.Nil(t, optVal, "expected None for nil authority")
+}
+
+// ====================
 // Outgoing Response Tests
 // ====================
 
