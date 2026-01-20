@@ -1078,3 +1078,87 @@ func TestLowerFlags_VeryLarge(t *testing.T) {
 		})
 	}
 }
+
+func TestLowerVariant(t *testing.T) {
+	// Variant type: variant { none, some(s32), error(string) }
+	// For this test we use interface{} for type info:
+	// - nil means no payload
+	// - "s32" means s32 payload (1 flat value)
+	// - "string" means string payload (2 flat values: ptr, len)
+	variantType := &VariantType{
+		Cases: []VariantCaseForLower{
+			{Name: "none", Type: nil},                       // No payload
+			{Name: "some", Type: &PrimitiveType{"s32"}},     // s32 payload
+			{Name: "error", Type: &PrimitiveType{"string"}}, // string payload (ptr, len)
+		},
+	}
+
+	cases := []struct {
+		name           string
+		caseName       string
+		payload        *Val
+		expectedDisc   uint64
+		expectedLen    int    // expected total length of result
+	}{
+		{
+			name:         "none case",
+			caseName:     "none",
+			payload:      nil,
+			expectedDisc: 0,
+			expectedLen:  3, // disc + max payload padding (string=2)
+		},
+		{
+			name:         "some case with s32",
+			caseName:     "some",
+			payload:      ptrVal(ValS32(42)),
+			expectedDisc: 1,
+			expectedLen:  3, // disc + 1 payload + 1 padding
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			val := ValVariant(tc.caseName, tc.payload)
+			result, err := lowerVariantToFlat(val, variantType)
+			if err != nil {
+				t.Fatalf("variant lowering failed: %v", err)
+			}
+			if result[0] != tc.expectedDisc {
+				t.Errorf("discriminant: expected %d, got %d", tc.expectedDisc, result[0])
+			}
+			if len(result) != tc.expectedLen {
+				t.Errorf("result length: expected %d, got %d", tc.expectedLen, len(result))
+			}
+			// For "some" case, verify the payload value
+			if tc.caseName == "some" && tc.payload != nil {
+				expectedPayload := uint64(uint32(tc.payload.S32()))
+				if result[1] != expectedPayload {
+					t.Errorf("payload: expected %d, got %d", expectedPayload, result[1])
+				}
+			}
+		})
+	}
+}
+
+func TestLowerVariant_UnknownCase(t *testing.T) {
+	variantType := &VariantType{
+		Cases: []VariantCaseForLower{
+			{Name: "none", Type: nil},
+			{Name: "some", Type: &PrimitiveType{"s32"}},
+		},
+	}
+
+	val := ValVariant("unknown", nil)
+	_, err := lowerVariantToFlat(val, variantType)
+	if err == nil {
+		t.Fatal("expected error for unknown variant case")
+	}
+	if !strings.Contains(err.Error(), "unknown variant case") {
+		t.Errorf("expected error to contain 'unknown variant case', got: %v", err)
+	}
+}
+
+// ptrVal is a helper to create a pointer to a Val
+func ptrVal(v Val) *Val {
+	return &v
+}

@@ -22,6 +22,45 @@ type FlagsType struct {
 	Flags []string
 }
 
+// VariantType represents a variant type for lowering.
+// A variant is a discriminated union with multiple cases.
+type VariantType struct {
+	Cases []VariantCaseForLower
+}
+
+// VariantCaseForLower represents a single case in a variant type for lowering.
+// This is separate from the VariantCase in component.go to have a simpler
+// type representation for the lowering operation.
+type VariantCaseForLower struct {
+	Name string
+	Type PayloadType // nil for cases with no payload
+}
+
+// PayloadType represents type information for a variant case payload.
+// It provides the FlattenCount method to determine how many flat values
+// the payload produces when lowered.
+type PayloadType interface {
+	// FlattenCount returns the number of flat core wasm values this type produces.
+	FlattenCount() int
+}
+
+// PrimitiveType represents a primitive type for variant payload.
+type PrimitiveType struct {
+	Name string // "s32", "u32", "s64", "u64", "f32", "f64", "bool", "string", etc.
+}
+
+// FlattenCount returns the number of flat values for a primitive type.
+func (p *PrimitiveType) FlattenCount() int {
+	switch p.Name {
+	case "string":
+		return 2 // ptr, len
+	case "s64", "u64", "f64":
+		return 1
+	default:
+		return 1 // s32, u32, s8, u8, s16, u16, f32, bool, char
+	}
+}
+
 // LoweredFunc wraps a component-level HostFunc as a core wasm function.
 // This is produced by canon lower, which takes a component function and creates
 // a core wasm function that can be provided as an import to core modules.
@@ -520,5 +559,61 @@ func lowerFlagsToFlat(val Val, flagsType *FlagsType) ([]uint64, error) {
 			result[wordIdx] |= 1 << bitIdx
 		}
 	}
+	return result, nil
+}
+
+// lowerVariantToFlat converts a variant to flat representation.
+// Returns [discriminant, payload..., padding to max case size].
+//
+// Variants in the Component Model are discriminated unions where:
+// 1. The discriminant indicates which case is active
+// 2. The payload is the value for that case (if any)
+// 3. All cases produce the same flat representation size (padded to max case size)
+func lowerVariantToFlat(val Val, variantType *VariantType) ([]uint64, error) {
+	caseName, payload := val.Variant()
+
+	// Find the case index (discriminant)
+	var caseIdx int = -1
+	var caseType PayloadType
+	for i, c := range variantType.Cases {
+		if c.Name == caseName {
+			caseIdx = i
+			caseType = c.Type
+			break
+		}
+	}
+	if caseIdx < 0 {
+		return nil, fmt.Errorf("unknown variant case: %s", caseName)
+	}
+
+	// Calculate max payload flatten count for padding
+	maxPayloadFlat := 0
+	for _, vc := range variantType.Cases {
+		if vc.Type != nil {
+			if n := vc.Type.FlattenCount(); n > maxPayloadFlat {
+				maxPayloadFlat = n
+			}
+		}
+	}
+
+	// Start with discriminant
+	result := []uint64{uint64(caseIdx)}
+
+	// Lower payload if present
+	payloadCount := 0
+	if caseType != nil && payload != nil {
+		payloadFlat, err := lowerValToFlat(*payload)
+		if err != nil {
+			return nil, fmt.Errorf("lowering variant payload: %w", err)
+		}
+		result = append(result, payloadFlat...)
+		payloadCount = len(payloadFlat)
+	}
+
+	// Pad to max case size
+	for i := payloadCount; i < maxPayloadFlat; i++ {
+		result = append(result, 0)
+	}
+
 	return result, nil
 }
