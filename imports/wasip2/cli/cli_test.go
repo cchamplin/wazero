@@ -17,11 +17,15 @@ import (
 
 // testConfig implements component.WASIConfig for testing
 type testConfig struct {
-	stdin   io.Reader
-	stdout  io.Writer
-	stderr  io.Writer
-	environ []string
-	args    []string
+	stdin            io.Reader
+	stdout           io.Writer
+	stderr           io.Writer
+	environ          []string
+	args             []string
+	terminalMode     component.TerminalMode
+	stdinIsTerminal  bool
+	stdoutIsTerminal bool
+	stderrIsTerminal bool
 }
 
 func (c *testConfig) Stdin() io.Reader  { return c.stdin }
@@ -29,6 +33,12 @@ func (c *testConfig) Stdout() io.Writer { return c.stdout }
 func (c *testConfig) Stderr() io.Writer { return c.stderr }
 func (c *testConfig) Environ() []string { return c.environ }
 func (c *testConfig) Args() []string    { return c.args }
+func (c *testConfig) TerminalMode() component.TerminalMode {
+	return c.terminalMode
+}
+func (c *testConfig) StdinIsTerminal() bool  { return c.stdinIsTerminal }
+func (c *testConfig) StdoutIsTerminal() bool { return c.stdoutIsTerminal }
+func (c *testConfig) StderrIsTerminal() bool { return c.stderrIsTerminal }
 
 func TestInstantiate(t *testing.T) {
 	linker := component.NewLinker()
