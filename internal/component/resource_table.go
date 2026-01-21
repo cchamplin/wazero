@@ -25,6 +25,14 @@ var (
 // From the spec, this is 2^28 - 1.
 const MaxTableLength = uint32(1<<28 - 1)
 
+// Destroyable is implemented by resources that need cleanup when deleted.
+// When a resource implementing this interface is deleted from the ResourceTable
+// via Delete(), its Destroy() method will be called automatically if the
+// handle was owned (not borrowed).
+type Destroyable interface {
+	Destroy()
+}
+
 // Handle is a 64-bit resource handle: upper 32 bits = generation, lower 32 = index.
 // Generation counting prevents use-after-free when slots are reused.
 type Handle uint64
@@ -194,6 +202,34 @@ func (t *ResourceTable) Remove(h Handle) (*HandleEntry, error) {
 	t.freeHead = int32(idx)
 
 	return &result, nil
+}
+
+// Delete removes a handle from the table and calls Destroy() if applicable.
+// This is the preferred method for dropping resources as it handles cleanup.
+//
+// For owned handles (entry.Own == true):
+//   - Removes the handle from the table
+//   - If the resource implements Destroyable, calls Destroy()
+//
+// For borrowed handles (entry.Own == false):
+//   - Removes the handle from the table
+//   - Does NOT call Destroy() (borrows don't own the resource)
+//
+// Returns ErrResourceInUse if the handle has active borrows (NumLends > 0).
+func (t *ResourceTable) Delete(h Handle) error {
+	entry, err := t.Remove(h)
+	if err != nil {
+		return err
+	}
+
+	// Only call Destroy for owned handles
+	if entry.Own {
+		if destroyable, ok := entry.Rep.(Destroyable); ok {
+			destroyable.Destroy()
+		}
+	}
+
+	return nil
 }
 
 // IncrementLends increments the borrow count for a handle.

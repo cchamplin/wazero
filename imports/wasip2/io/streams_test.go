@@ -856,3 +856,123 @@ func TestListU8ToBytes(t *testing.T) {
 	require.Equal(t, []byte{1, 2, 3}, data)
 }
 
+// Tests for Destroyable interface implementation
+
+func TestInputStream_Destroy(t *testing.T) {
+	buf := &closerBuffer{}
+	buf.WriteString("test data")
+	stream := NewInputStream(buf)
+
+	// Stream should not be closed yet
+	require.False(t, stream.IsClosed())
+	require.False(t, buf.closed)
+
+	// Destroy should close the reader
+	stream.Destroy()
+
+	// Stream and underlying reader should be closed
+	require.True(t, stream.IsClosed())
+	require.True(t, buf.closed)
+}
+
+func TestInputStream_Destroy_Idempotent(t *testing.T) {
+	buf := &closerBuffer{}
+	buf.WriteString("test")
+	stream := NewInputStream(buf)
+
+	// Multiple calls to Destroy should be safe
+	stream.Destroy()
+	stream.Destroy()
+	stream.Destroy()
+
+	require.True(t, stream.IsClosed())
+	require.True(t, buf.closed)
+}
+
+func TestInputStream_Destroy_NonCloser(t *testing.T) {
+	// bytes.Reader doesn't implement io.Closer
+	reader := bytes.NewReader([]byte("test"))
+	stream := NewInputStream(reader)
+
+	// Destroy should not panic for non-Closer readers
+	stream.Destroy()
+
+	require.True(t, stream.IsClosed())
+}
+
+func TestOutputStream_Destroy(t *testing.T) {
+	buf := &closerWriter{}
+	stream := NewOutputStream(buf)
+
+	// Write some data
+	stream.Write([]byte("hello world"))
+
+	// Stream should not be closed yet
+	require.False(t, stream.IsClosed())
+	require.False(t, buf.closed)
+
+	// Destroy should close the writer
+	stream.Destroy()
+
+	// Stream and underlying writer should be closed
+	require.True(t, stream.IsClosed())
+	require.True(t, buf.closed)
+}
+
+func TestOutputStream_Destroy_Idempotent(t *testing.T) {
+	buf := &closerWriter{}
+	stream := NewOutputStream(buf)
+
+	// Multiple calls to Destroy should be safe
+	stream.Destroy()
+	stream.Destroy()
+	stream.Destroy()
+
+	require.True(t, stream.IsClosed())
+	require.True(t, buf.closed)
+}
+
+func TestOutputStream_Destroy_FlushesFirst(t *testing.T) {
+	buf := &flushableCloserWriter{}
+	stream := NewOutputStream(buf)
+
+	stream.Write([]byte("test data"))
+
+	// Destroy should flush before close
+	stream.Destroy()
+
+	// Both flush and close should have been called
+	require.True(t, buf.flushed, "Destroy should flush before closing")
+	require.True(t, buf.closed)
+}
+
+func TestOutputStream_Destroy_NonCloser(t *testing.T) {
+	// bytes.Buffer doesn't implement io.Closer
+	buf := &bytes.Buffer{}
+	stream := NewOutputStream(buf)
+
+	stream.Write([]byte("test"))
+
+	// Destroy should not panic for non-Closer writers
+	stream.Destroy()
+
+	require.True(t, stream.IsClosed())
+}
+
+// flushableCloserWriter is a test helper that tracks both Flush and Close calls
+type flushableCloserWriter struct {
+	bytes.Buffer
+	flushed bool
+	closed  bool
+}
+
+func (f *flushableCloserWriter) Flush() error {
+	f.flushed = true
+	return nil
+}
+
+func (f *flushableCloserWriter) Close() error {
+	f.closed = true
+	return nil
+}
+

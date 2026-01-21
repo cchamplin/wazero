@@ -129,6 +129,13 @@ func (s *InputStream) IsClosed() bool {
 	return s.closed
 }
 
+// Destroy closes the reader if it implements io.Closer.
+// This implements the Destroyable interface for resource cleanup.
+// Safe to call multiple times (idempotent).
+func (s *InputStream) Destroy() {
+	s.Close()
+}
+
 // OutputStream wraps a Go io.Writer for wasi:io/streams.
 type OutputStream struct {
 	writer goio.Writer
@@ -251,6 +258,17 @@ func (s *OutputStream) Close() {
 // IsClosed returns true if the stream has been closed.
 func (s *OutputStream) IsClosed() bool {
 	return s.closed
+}
+
+// Destroy flushes (if Flusher), then closes (if io.Closer) the writer.
+// This implements the Destroyable interface for resource cleanup.
+// Safe to call multiple times (idempotent).
+func (s *OutputStream) Destroy() {
+	// Flush first if possible (ignore errors during cleanup)
+	if f, ok := s.writer.(interface{ Flush() error }); ok && !s.closed {
+		f.Flush()
+	}
+	s.Close()
 }
 
 func minUint64(a, b uint64) uint64 {

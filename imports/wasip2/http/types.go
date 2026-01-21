@@ -220,6 +220,18 @@ func (f *Fields) Clone() *Fields {
 	return clone
 }
 
+// Destroy clears all entries in the Fields.
+// This implements the Destroyable interface for resource cleanup.
+// Safe to call multiple times (idempotent).
+func (f *Fields) Destroy() {
+	if f.entries != nil {
+		// Clear the map
+		for k := range f.entries {
+			delete(f.entries, k)
+		}
+	}
+}
+
 // OutgoingRequest represents an outgoing HTTP request.
 // Matches wasi:http/types outgoing-request resource.
 type OutgoingRequest struct {
@@ -297,6 +309,18 @@ func (r *OutgoingRequest) Body() (*OutgoingBody, error) {
 	}
 	r.bodyConsumed = true
 	return r.body, nil
+}
+
+// Destroy releases all resources held by the request.
+// This implements the Destroyable interface for resource cleanup.
+// Safe to call multiple times (idempotent).
+func (r *OutgoingRequest) Destroy() {
+	if r.headers != nil {
+		r.headers.Destroy()
+	}
+	if r.body != nil {
+		r.body.Destroy()
+	}
 }
 
 // ToHTTPRequest converts the OutgoingRequest to a Go net/http Request.
@@ -494,6 +518,18 @@ func (r *IncomingResponse) Consume() (*IncomingBody, error) {
 	return r.body, nil
 }
 
+// Destroy releases all resources held by the response.
+// This implements the Destroyable interface for resource cleanup.
+// Safe to call multiple times (idempotent).
+func (r *IncomingResponse) Destroy() {
+	if r.headers != nil {
+		r.headers.Destroy()
+	}
+	if r.body != nil {
+		r.body.Destroy()
+	}
+}
+
 // IncomingBody represents the body of an incoming HTTP message.
 // Matches wasi:http/types incoming-body resource.
 type IncomingBody struct {
@@ -535,6 +571,13 @@ func (b *IncomingBody) Close() {
 	if b.reader != nil {
 		b.reader.Close()
 	}
+}
+
+// Destroy closes the reader and releases resources.
+// This implements the Destroyable interface for resource cleanup.
+// Safe to call multiple times (idempotent).
+func (b *IncomingBody) Destroy() {
+	b.Close()
 }
 
 // OutgoingBody represents the body of an outgoing HTTP message.
@@ -584,6 +627,15 @@ func (b *OutgoingBody) Bytes() []byte {
 		return b.buffer.Bytes()
 	}
 	return nil
+}
+
+// Destroy clears the buffer and releases resources.
+// This implements the Destroyable interface for resource cleanup.
+// Safe to call multiple times (idempotent).
+func (b *OutgoingBody) Destroy() {
+	b.buffer = nil
+	b.stream = nil
+	b.finished = true
 }
 
 // FutureIncomingResponse represents an async incoming response.
@@ -656,6 +708,16 @@ func (f *FutureIncomingResponse) IsReady() bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// Destroy marks the future as consumed and destroys any held response.
+// This implements the Destroyable interface for resource cleanup.
+// Safe to call multiple times (idempotent).
+func (f *FutureIncomingResponse) Destroy() {
+	f.retrieved = true
+	if f.response != nil {
+		f.response.Destroy()
 	}
 }
 

@@ -1112,3 +1112,129 @@ func TestResourceTable_ConcurrentBorrowsMultipleResources(t *testing.T) {
 	_, err = table.Remove(h2)
 	require.NoError(t, err)
 }
+
+// Tests for Destroyable interface - Phase 6: Resource Lifecycle
+
+// mockDestroyable is a test resource that tracks destruction
+type mockDestroyable struct {
+	destroyed bool
+}
+
+func (m *mockDestroyable) Destroy() {
+	m.destroyed = true
+}
+
+func TestResourceTable_DestructorCalled(t *testing.T) {
+	table := NewResourceTable()
+
+	// Create a destroyable resource as owned
+	resource := &mockDestroyable{}
+	h := table.New(resource, true) // own=true
+
+	// Verify it's not destroyed yet
+	require.False(t, resource.destroyed, "resource should not be destroyed yet")
+
+	// Delete the resource
+	err := table.Delete(h)
+	require.NoError(t, err)
+
+	// Verify Destroy() was called
+	require.True(t, resource.destroyed, "resource.Destroy() should have been called")
+}
+
+func TestResourceTable_DestructorNotCalledForBorrow(t *testing.T) {
+	table := NewResourceTable()
+
+	// Create a destroyable resource as borrowed (not owned)
+	resource := &mockDestroyable{}
+	h := table.New(resource, false) // own=false (borrow)
+
+	// Verify it's not destroyed yet
+	require.False(t, resource.destroyed, "resource should not be destroyed yet")
+
+	// Delete the resource (as borrow)
+	err := table.Delete(h)
+	require.NoError(t, err)
+
+	// Verify Destroy() was NOT called for borrows
+	require.False(t, resource.destroyed, "resource.Destroy() should NOT be called for borrowed handles")
+}
+
+func TestResourceTable_DestructorNotCalledForNonDestroyable(t *testing.T) {
+	table := NewResourceTable()
+
+	// Create a non-destroyable resource (string)
+	h := table.New("plain-resource", true) // own=true
+
+	// Delete should work without panicking (no Destroy method)
+	err := table.Delete(h)
+	require.NoError(t, err)
+
+	// Verify handle is invalid after delete
+	_, err = table.Get(h)
+	require.Error(t, err)
+}
+
+// countingDestroyable tracks how many times Destroy is called
+type countingDestroyable struct {
+	count *int
+}
+
+func (c *countingDestroyable) Destroy() {
+	*c.count++
+}
+
+func TestResourceTable_DestructorIdempotent(t *testing.T) {
+	table := NewResourceTable()
+
+	// Create a destroyable resource that tracks call count
+	callCount := 0
+	cd := &countingDestroyable{count: &callCount}
+
+	// Use a wrapper type that implements Destroyable
+	h := table.New(cd, true)
+
+	// First delete
+	err := table.Delete(h)
+	require.NoError(t, err)
+
+	// Verify Destroy was called exactly once
+	require.Equal(t, 1, callCount)
+
+	// Second delete should fail (handle invalid)
+	err = table.Delete(h)
+	require.Error(t, err)
+
+	// Verify Destroy was still only called once (not called on failed delete)
+	require.Equal(t, 1, callCount)
+}
+
+func TestResourceTable_DeleteWithActiveBorrows(t *testing.T) {
+	table := NewResourceTable()
+
+	// Create owned resource
+	resource := &mockDestroyable{}
+	h := table.New(resource, true)
+
+	// Increment borrow count
+	err := table.IncrementLends(h)
+	require.NoError(t, err)
+
+	// Delete should fail because resource is in use
+	err = table.Delete(h)
+	require.ErrorIs(t, err, ErrResourceInUse)
+
+	// Destroy should NOT have been called
+	require.False(t, resource.destroyed)
+
+	// Decrement borrow count
+	err = table.DecrementLends(h)
+	require.NoError(t, err)
+
+	// Now delete should succeed
+	err = table.Delete(h)
+	require.NoError(t, err)
+
+	// Destroy should have been called
+	require.True(t, resource.destroyed)
+}
