@@ -275,6 +275,52 @@ func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledCom
 	return inst, nil
 }
 
+// executeStartFunction executes the component's start function if defined.
+// Called after core module instantiation, before wiring exports.
+func (l *ComponentLinker) executeStartFunction(ctx context.Context, inst *Instance, c *Component) error {
+	if c.Start == nil {
+		return nil // No start function
+	}
+
+	// Get the start function
+	startFunc, ok := inst.componentFuncs[c.Start.FuncIdx]
+	if !ok {
+		return fmt.Errorf("start function %d not found", c.Start.FuncIdx)
+	}
+	if startFunc.Impl == nil {
+		return fmt.Errorf("start function %d has no implementation", c.Start.FuncIdx)
+	}
+
+	// Gather value arguments and mark as consumed
+	args := make([]Val, len(c.Start.ArgValueIdx))
+	for i, argIdx := range c.Start.ArgValueIdx {
+		val, err := inst.ConsumeValue(argIdx)
+		if err != nil {
+			return fmt.Errorf("start arg %d: %w", i, err)
+		}
+		args[i] = val
+	}
+
+	// Call start function
+	results, err := startFunc.Impl(ctx, args)
+	if err != nil {
+		return fmt.Errorf("start function failed: %w", err)
+	}
+
+	// Verify result count matches declaration
+	if uint32(len(results)) != c.Start.ResultCount {
+		return fmt.Errorf("start function returned %d values, expected %d",
+			len(results), c.Start.ResultCount)
+	}
+
+	// Append results to value index space
+	for _, r := range results {
+		inst.AddValue(r)
+	}
+
+	return nil
+}
+
 // buildComponentFuncs populates the componentFuncs map with component-level functions.
 // These come from two sources:
 // 1. Component-level aliases (AliasKindExport with SortFunc) that reference imported instance exports
