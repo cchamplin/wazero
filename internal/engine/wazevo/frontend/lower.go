@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"os"
 	"runtime"
 	"strings"
 
@@ -13,6 +14,8 @@ import (
 	"github.com/tetratelabs/wazero/internal/leb128"
 	"github.com/tetratelabs/wazero/internal/wasm"
 )
+
+var debugInvalidTableAccessLower = os.Getenv("WAZERO_DEBUG_TABLE") != ""
 
 type (
 	// loweringState is used to keep the state of lowering.
@@ -3573,6 +3576,18 @@ func (c *Compiler) prepareCallIndirect(typeIndex, tableIndex uint32) (ssa.Value,
 	state := c.state()
 
 	elementOffsetInTable := state.pop()
+	if debugInvalidTableAccessLower {
+		funcHi := builder.AllocateInstruction().
+			AsIconst64(uint64(c.wasmLocalFunctionIndex) << 32).
+			Insert(builder).Return()
+		combined := builder.AllocateInstruction().
+			AsIadd(funcHi, elementOffsetInTable).
+			Insert(builder).Return()
+		// Stash the function index (high 32 bits) and raw offset (low 32 bits) into the execution context.
+		builder.AllocateInstruction().
+			AsStore(ssa.OpcodeStore, combined, c.execCtxPtrValue, wazevoapi.ExecutionContextOffsetStackGrowRequiredSize.U32()).
+			Insert(builder)
+	}
 	functionInstancePtrAddress := c.lowerAccessTableWithBoundsCheck(tableIndex, elementOffsetInTable)
 	loadFunctionInstancePtr := builder.AllocateInstruction()
 	loadFunctionInstancePtr.AsLoad(functionInstancePtrAddress, 0, ssa.TypeI64)

@@ -526,7 +526,19 @@ func (e *engine) compileHostModule(ctx context.Context, module *wasm.Module, lis
 	be := backend.NewCompiler(ctx, machine, ssa.NewBuilder())
 
 	num := len(module.CodeSection)
-	cm := &compiledModule{module: module, listeners: listeners, executables: &executables{}}
+	cm := &compiledModule{
+		parent:      e,
+		module:      module,
+		offsets:     wazevoapi.NewModuleContextOffsetData(module, len(listeners) > 0),
+		listeners:   listeners,
+		executables: &executables{},
+	}
+	cm.sharedFunctions = e.sharedFunctions
+
+	// Host modules still need entry preambles for each function type so that calls
+	// can set up the stack/parameters consistently with compiled modules.
+	cm.executables.compileEntryPreambles(module, machine, be)
+
 	cm.functionOffsets = make([]int, num)
 	totalSize := 0 // Total binary size of the executable.
 	bodies := make([][]byte, num)
@@ -686,16 +698,20 @@ func (e *engine) compiledModuleOfAddr(addr uintptr) *compiledModule {
 	defer e.mux.RUnlock()
 
 	index := sort.Search(len(e.sortedCompiledModules), func(i int) bool {
-		return uintptr(unsafe.Pointer(&e.sortedCompiledModules[i].executable[0])) > addr
+		cm := e.sortedCompiledModules[i]
+		if cm == nil || len(cm.executable) == 0 {
+			return false
+		}
+		return uintptr(unsafe.Pointer(&cm.executable[0])) > addr
 	})
 	index -= 1
-	if index < 0 {
-		return nil
-	}
-	candidate := e.sortedCompiledModules[index]
-	if checkAddrInBytes(addr, candidate.executable) {
-		// If a module is already deleted, the found module may have been wrong.
-		return candidate
+	for index >= 0 {
+		candidate := e.sortedCompiledModules[index]
+		if candidate != nil && len(candidate.executable) > 0 && checkAddrInBytes(addr, candidate.executable) {
+			// If a module is already deleted, the found module may have been wrong.
+			return candidate
+		}
+		index--
 	}
 	return nil
 }
@@ -720,7 +736,7 @@ func (e *engine) NewModuleEngine(m *wasm.Module, mi *wasm.ModuleInstance) (wasm.
 	me.listeners = compiled.listeners
 
 	if m.IsHostModule {
-		me.opaque = buildHostModuleOpaque(m, compiled.listeners)
+		me.opaque = buildHostModuleOpaque(m, mi, compiled.listeners)
 		me.opaquePtr = &me.opaque[0]
 	} else {
 		if size := compiled.offsets.TotalSize; size != 0 {

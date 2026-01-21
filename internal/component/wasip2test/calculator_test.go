@@ -34,7 +34,8 @@ func TestCalculatorPlugins(t *testing.T) {
 		{"add", "add", "plugins/add.wasm", 31, true},                 // 28 + 3 (Rust, requires WASI, uses relaxed semver)
 		{"subtract", "subtract", "plugins/subtract.wasm", 25, false}, // 28 - 3 (C, no WASI)
 		// multi.wasm (Go)
-		{"multi", "Simple-Go-Multi", "plugins/multi.wasm", 84, true},
+		{"multi", "Simple-Go-Multi", "plugins/multi.wasm", 84, true}, // 28 * 3 (Go, uses relaxed semver, uses wit-bidgen and wasm-tools adapter)
+		{"div", "Simple-Go-Div", "plugins/div.wasm", 9, true},        // 28 / 3 (Go, uses relaxed semver, uses wit-bindgen-go and tinygo wasip2 support)
 	}
 
 	for _, p := range plugins {
@@ -132,6 +133,8 @@ func TestCalculatorPlugins(t *testing.T) {
 				expectedSecond = 26
 			case "multi":
 				expectedSecond = 87
+			case "div":
+				expectedSecond = 9 // integer division
 			}
 			if got := evalResult[0].S32(); got != expectedSecond {
 				t.Errorf("evaluate(29,3) = %d, want %d", got, expectedSecond)
