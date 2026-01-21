@@ -1040,6 +1040,26 @@ func (i *Instance) ExitCall() {
 	}
 }
 
+// CallMightBeRecursive checks if a call from caller into this instance might
+// cause recursive reentrance. Returns true if:
+// 1. caller is the same instance as this instance (self-call)
+// 2. There's already an active call in this instance
+//
+// Per CanonicalABI.md, canon_lift must trap if this returns true.
+func (i *Instance) CallMightBeRecursive(caller *Instance) bool {
+	if i == nil || caller == nil {
+		// Nil callee or nil caller (host) - no reentrance concern
+		return false
+	}
+
+	// Check if this is a self-call with an active call already in progress
+	if caller == i && i.activeCallDepth > 0 {
+		return true
+	}
+
+	return false
+}
+
 // ValidateMayLeave checks if this instance is allowed to make outgoing calls.
 // Returns an error if may_leave is false (during lowering or post-return).
 // This implements the trap_if(not inst.may_leave) check from canon_lower.

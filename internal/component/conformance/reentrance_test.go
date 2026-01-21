@@ -48,3 +48,36 @@ func TestInstance_CallDepthNoUnderflow(t *testing.T) {
 	inst.ExitCall()
 	require.Equal(t, 0, inst.ActiveCallDepth(), "should still be 0")
 }
+
+func TestInstance_CallMightBeRecursive(t *testing.T) {
+	callee := &component.Instance{}
+	caller := &component.Instance{}
+
+	t.Run("different_instances_no_reentrance", func(t *testing.T) {
+		// Caller and callee are different - never recursive
+		callee.EnterCall()
+		recursive := callee.CallMightBeRecursive(caller)
+		require.False(t, recursive, "different instances cannot be recursive")
+		callee.ExitCall()
+	})
+
+	t.Run("same_instance_no_active_call", func(t *testing.T) {
+		// Same instance but no active call - not recursive
+		recursive := callee.CallMightBeRecursive(callee)
+		require.False(t, recursive, "no active call means not recursive")
+	})
+
+	t.Run("same_instance_with_active_call", func(t *testing.T) {
+		// Same instance with active call - RECURSIVE
+		callee.EnterCall()
+		recursive := callee.CallMightBeRecursive(callee)
+		require.True(t, recursive, "same instance with active call is recursive")
+		callee.ExitCall()
+	})
+
+	t.Run("nil_caller", func(t *testing.T) {
+		// Nil caller (host call) - never recursive
+		recursive := callee.CallMightBeRecursive(nil)
+		require.False(t, recursive, "nil caller means host call, not recursive")
+	})
+}
