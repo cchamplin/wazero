@@ -399,7 +399,12 @@ func decodeRecordTypeDef(r *bytes.Reader) (*RecordTypeDef, error) {
 		return nil, fmt.Errorf("read field count: %w", err)
 	}
 
+	if fieldCount == 0 {
+		return nil, fmt.Errorf("record type must have at least 1 field")
+	}
+
 	fields := make([]RecordField, fieldCount)
+	fieldNames := make([]string, fieldCount)
 	for i := uint32(0); i < fieldCount; i++ {
 		name, err := decodeName(r)
 		if err != nil {
@@ -415,6 +420,11 @@ func decodeRecordTypeDef(r *bytes.Reader) (*RecordTypeDef, error) {
 			Name: name,
 			Type: valType,
 		}
+		fieldNames[i] = name
+	}
+
+	if err := checkUniqueNames(fieldNames, "record field"); err != nil {
+		return nil, err
 	}
 
 	return &RecordTypeDef{
@@ -445,7 +455,12 @@ func decodeVariantTypeDef(r *bytes.Reader) (*VariantTypeDef, error) {
 		return nil, fmt.Errorf("read case count: %w", err)
 	}
 
+	if caseCount == 0 {
+		return nil, fmt.Errorf("variant type must have at least 1 case")
+	}
+
 	cases := make([]VariantCase, caseCount)
+	caseNames := make([]string, caseCount)
 	for i := uint32(0); i < caseCount; i++ {
 		name, err := decodeName(r)
 		if err != nil {
@@ -491,6 +506,11 @@ func decodeVariantTypeDef(r *bytes.Reader) (*VariantTypeDef, error) {
 			Refines: refines,
 			Type:    valTypeRef,
 		}
+		caseNames[i] = name
+	}
+
+	if err := checkUniqueNames(caseNames, "variant case"); err != nil {
+		return nil, err
 	}
 
 	return &VariantTypeDef{
@@ -504,6 +524,10 @@ func decodeTupleTypeDef(r *bytes.Reader) (*TupleTypeDef, error) {
 	count, _, err := leb128.DecodeUint32(r)
 	if err != nil {
 		return nil, fmt.Errorf("read tuple element count: %w", err)
+	}
+
+	if count == 0 {
+		return nil, fmt.Errorf("tuple type must have at least 1 element")
 	}
 
 	types := make([]component.ValTypeRef, count)
@@ -522,10 +546,19 @@ func decodeTupleTypeDef(r *bytes.Reader) (*TupleTypeDef, error) {
 
 // decodeFlagsTypeDef reads a flags type definition from the reader.
 // Format: 0x6e <count> <name>*
+// Spec requires: 0 < count <= 32
 func decodeFlagsTypeDef(r *bytes.Reader) (*FlagsTypeDef, error) {
 	count, _, err := leb128.DecodeUint32(r)
 	if err != nil {
 		return nil, fmt.Errorf("read flags count: %w", err)
+	}
+
+	if count == 0 {
+		return nil, fmt.Errorf("flags type must have at least 1 flag")
+	}
+
+	if count > 32 {
+		return nil, fmt.Errorf("flags type must have at most 32 flags, got %d", count)
 	}
 
 	names := make([]string, count)
@@ -535,6 +568,10 @@ func decodeFlagsTypeDef(r *bytes.Reader) (*FlagsTypeDef, error) {
 			return nil, fmt.Errorf("read flag %d name: %w", i, err)
 		}
 		names[i] = name
+	}
+
+	if err := checkUniqueNames(names, "flag"); err != nil {
+		return nil, err
 	}
 
 	return &FlagsTypeDef{
@@ -550,6 +587,10 @@ func decodeEnumTypeDef(r *bytes.Reader) (*EnumTypeDef, error) {
 		return nil, fmt.Errorf("read enum case count: %w", err)
 	}
 
+	if count == 0 {
+		return nil, fmt.Errorf("enum type must have at least 1 case")
+	}
+
 	cases := make([]string, count)
 	for i := uint32(0); i < count; i++ {
 		name, err := decodeName(r)
@@ -557,6 +598,10 @@ func decodeEnumTypeDef(r *bytes.Reader) (*EnumTypeDef, error) {
 			return nil, fmt.Errorf("read enum case %d name: %w", i, err)
 		}
 		cases[i] = name
+	}
+
+	if err := checkUniqueNames(cases, "enum case"); err != nil {
+		return nil, err
 	}
 
 	return &EnumTypeDef{
@@ -677,6 +722,7 @@ func decodeFutureTypeDef(r *bytes.Reader) (*component.FutureTypeDef, error) {
 
 // decodeFixedSizeListTypeDef decodes a fixed-size list type definition.
 // Format: 0x67 <element_type> <size>
+// Spec requires: size > 0
 func decodeFixedSizeListTypeDef(r *bytes.Reader) (*component.FixedSizeListTypeDef, error) {
 	elemType, err := decodeValType(r)
 	if err != nil {
@@ -686,6 +732,10 @@ func decodeFixedSizeListTypeDef(r *bytes.Reader) (*component.FixedSizeListTypeDe
 	size, _, err := leb128.DecodeUint32(r)
 	if err != nil {
 		return nil, fmt.Errorf("read size: %w", err)
+	}
+
+	if size == 0 {
+		return nil, fmt.Errorf("fixed-size list must have length > 0")
 	}
 
 	return &component.FixedSizeListTypeDef{
@@ -772,4 +822,17 @@ func decodeResourceTypeDefWithAsync(r *bytes.Reader, isAsync bool) (*ResourceTyp
 	}
 
 	return result, nil
+}
+
+// checkUniqueNames validates that all names in the slice are unique.
+// It returns an error if a duplicate is found, including the context (e.g., "record field").
+func checkUniqueNames(names []string, context string) error {
+	seen := make(map[string]bool)
+	for i, name := range names {
+		if seen[name] {
+			return fmt.Errorf("duplicate %s name at index %d: %q", context, i, name)
+		}
+		seen[name] = true
+	}
+	return nil
 }
