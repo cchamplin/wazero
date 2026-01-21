@@ -135,6 +135,8 @@ const (
 	ErrorCodeAddressNotBindable       ErrorCode = "address-not-bindable"
 	ErrorCodeAddressInUse             ErrorCode = "address-in-use"
 	ErrorCodeRemoteUnreachable        ErrorCode = "remote-unreachable"
+	ErrorCodeNetworkUnreachable       ErrorCode = "network-unreachable"
+	ErrorCodeNetworkDown              ErrorCode = "network-down"
 	ErrorCodeConnectionRefused        ErrorCode = "connection-refused"
 	ErrorCodeConnectionReset          ErrorCode = "connection-reset"
 	ErrorCodeConnectionAborted        ErrorCode = "connection-aborted"
