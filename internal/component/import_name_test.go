@@ -60,3 +60,20 @@ func TestParseImportName_Hash(t *testing.T) {
 	require.Equal(t, ImportNameKindHash, result.Kind)
 	require.Equal(t, "sha256:abc123", result.Hash)
 }
+
+func TestParseImportName_Invalid(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{"locked-dep without version", "locked-dep=my-pkg"},
+		{"locked-dep with invalid version", "locked-dep=my-pkg:invalid"},
+		{"unlocked-dep without range", "unlocked-dep=my-pkg"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ParseImportName(tt.input)
+			require.Error(t, err)
+		})
+	}
+}
