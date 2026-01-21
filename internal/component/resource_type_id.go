@@ -28,3 +28,39 @@ func (id ResourceTypeID) Index() uint32 {
 func (id ResourceTypeID) IsValid() bool {
 	return id != 0
 }
+
+// ResourceTypeInfo contains extended information about a resource type,
+// including which component instance defines it.
+// This is needed for the lower_borrow same-instance optimization.
+type ResourceTypeInfo struct {
+	typeID     ResourceTypeID
+	instanceID uint32 // ID of the component instance that defines this type
+}
+
+// NewResourceTypeInfo creates a ResourceTypeInfo from a type index and instance ID.
+func NewResourceTypeInfo(typeIndex uint32, instanceID uint32) ResourceTypeInfo {
+	return ResourceTypeInfo{
+		typeID:     NewResourceTypeID(typeIndex),
+		instanceID: instanceID,
+	}
+}
+
+// TypeID returns the ResourceTypeID.
+func (r ResourceTypeInfo) TypeID() ResourceTypeID {
+	return r.typeID
+}
+
+// TypeIndex returns the type index.
+func (r ResourceTypeInfo) TypeIndex() uint32 {
+	return r.typeID.Index()
+}
+
+// InstanceID returns the defining component instance ID.
+func (r ResourceTypeInfo) InstanceID() uint32 {
+	return r.instanceID
+}
+
+// SameInstance returns true if this type is defined in the same instance as other.
+func (r ResourceTypeInfo) SameInstance(other ResourceTypeInfo) bool {
+	return r.instanceID == other.instanceID
+}
