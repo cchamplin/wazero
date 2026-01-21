@@ -43,7 +43,7 @@ type ImportName struct {
 	DepName string
 
 	// VersionRangeStr stores the version range string for unlocked deps.
-	// This will be replaced with a proper SemverRange in Task 2.
+	// This is parsed by ParseSemverRange when matching imports in the linker.
 	VersionRangeStr string
 
 	// URL is used for URL imports.
