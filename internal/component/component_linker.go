@@ -4,6 +4,7 @@ package component
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/tetratelabs/wazero/api"
@@ -846,11 +847,29 @@ func (l *ComponentLinker) buildImportResolver(
 		// translates between core module signatures and the component ABI using
 		// canonical operations (canon lower/lift/resource.drop/etc).
 		instanceIdx, ok := importMap[moduleName]
+		if ok && os.Getenv("WAZERO_DEBUG_TABLE") != "" {
+			fmt.Printf("[import-resolver] looking up moduleName=%q -> instanceIdx=%d (len(coreInstances)=%d)\n",
+				moduleName, instanceIdx, len(inst.coreInstances))
+			if int(instanceIdx) < len(c.CoreInstances) {
+				def := &c.CoreInstances[instanceIdx]
+				fmt.Printf("[import-resolver]   CoreInstance kind=%d\n", def.Kind)
+			}
+		}
 		if ok {
 			// Check if we have a direct core instance
 			if int(instanceIdx) < len(inst.coreInstances) {
 				coreInstance := inst.coreInstances[instanceIdx]
 				if coreInstance != nil {
+					if os.Getenv("WAZERO_DEBUG_TABLE") != "" {
+						if modInst, ok := coreInstance.(*wasm.ModuleInstance); ok {
+							numFuncs := 0
+							if modInst.Source != nil {
+								numFuncs = len(modInst.Source.FunctionSection)
+							}
+							fmt.Printf("[import-resolver]   returning direct coreInstance=%s numFuncs=%d\n",
+								modInst.ModuleName, numFuncs)
+						}
+					}
 					return coreInstance
 				}
 			}
@@ -860,20 +879,54 @@ func (l *ComponentLinker) buildImportResolver(
 			if int(instanceIdx) < len(c.CoreInstances) {
 				srcCoreInst := &c.CoreInstances[instanceIdx]
 				if srcCoreInst.Kind == CoreInstanceExprInline {
+					if os.Getenv("WAZERO_DEBUG_TABLE") != "" {
+						fmt.Printf("[import-resolver]   inline instance, calling resolveInlineInstanceSource\n")
+					}
 					result := l.resolveInlineInstanceSource(inst, c, srcCoreInst)
 					if result != nil {
+						if os.Getenv("WAZERO_DEBUG_TABLE") != "" {
+							if modInst, ok := result.(*wasm.ModuleInstance); ok {
+								numFuncs := 0
+								if modInst.Source != nil {
+									numFuncs = len(modInst.Source.FunctionSection)
+								}
+								fmt.Printf("[import-resolver]   resolveInlineInstanceSource returned module=%s numFuncs=%d\n",
+									modInst.ModuleName, numFuncs)
+							}
+						}
 						return result
 					}
 
 					// If resolveInlineInstanceSource returned nil, the exports may come from
 					// canon operations (lower/resource) or aliases. Create a composite host module.
+					if os.Getenv("WAZERO_DEBUG_TABLE") != "" {
+						fmt.Printf("[import-resolver]   resolveInlineInstanceSource returned nil, trying createInlineInstanceModule\n")
+					}
 					if synth, exists := syntheticModules[moduleName]; exists {
+						if os.Getenv("WAZERO_DEBUG_TABLE") != "" {
+							fmt.Printf("[import-resolver]   returning cached synthetic module\n")
+						}
 						return synth
 					}
 					hostMod := l.createInlineInstanceModule(ctx, inst, c, srcCoreInst, canonLowers, canonResources, funcAliases)
 					if hostMod != nil {
+						if os.Getenv("WAZERO_DEBUG_TABLE") != "" {
+							if modInst, ok := hostMod.(*wasm.ModuleInstance); ok {
+								numFuncs := 0
+								if modInst.Source != nil {
+									numFuncs = len(modInst.Source.FunctionSection)
+								}
+								fmt.Printf("[import-resolver]   createInlineInstanceModule returned module=%s numFuncs=%d\n",
+									modInst.ModuleName, numFuncs)
+							} else {
+								fmt.Printf("[import-resolver]   createInlineInstanceModule returned non-wasm module type=%T\n", hostMod)
+							}
+						}
 						syntheticModules[moduleName] = hostMod
 						return hostMod
+					}
+					if os.Getenv("WAZERO_DEBUG_TABLE") != "" {
+						fmt.Printf("[import-resolver]   createInlineInstanceModule returned nil\n")
 					}
 				}
 			}
@@ -2000,11 +2053,19 @@ func (l *ComponentLinker) createAliasExport(
 	sourceInstanceIdx uint32,
 	sourceExportName string,
 ) *HostModuleExport {
+	if os.Getenv("WAZERO_DEBUG_TABLE") != "" {
+		fmt.Printf("[createAliasExport] name=%q sourceInstanceIdx=%d sourceExportName=%q len(coreInstances)=%d\n",
+			name, sourceInstanceIdx, sourceExportName, len(inst.coreInstances))
+	}
 	// Try to get param/result types from the source if available now
 	var paramTypes, resultTypes []api.ValueType
 
 	if int(sourceInstanceIdx) < len(inst.coreInstances) {
 		sourceInst := inst.coreInstances[sourceInstanceIdx]
+		if os.Getenv("WAZERO_DEBUG_TABLE") != "" {
+			fmt.Printf("[createAliasExport]   sourceInst at idx %d is %v (nil=%t)\n",
+				sourceInstanceIdx, sourceInst, sourceInst == nil)
+		}
 		if sourceInst != nil {
 			defs := sourceInst.ExportedFunctionDefinitions()
 			if def := defs[sourceExportName]; def != nil {
@@ -2012,6 +2073,9 @@ func (l *ComponentLinker) createAliasExport(
 				resultTypes = def.ResultTypes()
 			}
 		}
+	} else if os.Getenv("WAZERO_DEBUG_TABLE") != "" {
+		fmt.Printf("[createAliasExport]   sourceInstanceIdx %d >= len(coreInstances) %d\n",
+			sourceInstanceIdx, len(inst.coreInstances))
 	}
 
 	// If we couldn't get types from the instantiated module, try to get them
@@ -2112,7 +2176,31 @@ func (l *ComponentLinker) createAliasExport(
 		resultTypes = []api.ValueType{}
 	}
 
-	// Create a forwarding function that resolves the source lazily
+	// If the source module is already instantiated, use function forwarding.
+	// This allows the import resolution to trace to the actual source module,
+	// preserving the correct moduleCtxPtr for table initialization.
+	if int(sourceInstanceIdx) < len(inst.coreInstances) {
+		sourceInst := inst.coreInstances[sourceInstanceIdx]
+		if sourceInst != nil {
+			if os.Getenv("WAZERO_DEBUG_TABLE") != "" {
+				fmt.Printf("[createAliasExport]   FORWARDING name=%q to sourceInst (available at idx %d)\n",
+					name, sourceInstanceIdx)
+			}
+			return &HostModuleExport{
+				Name:         name,
+				ParamTypes:   paramTypes,
+				ResultTypes:  resultTypes,
+				SourceModule: sourceInst,
+				SourceName:   sourceExportName,
+			}
+		}
+	}
+
+	if os.Getenv("WAZERO_DEBUG_TABLE") != "" {
+		fmt.Printf("[createAliasExport]   LAZY WRAPPER name=%q (sourceInst not available yet)\n", name)
+	}
+	// Fall back to lazy resolution wrapper for forward references
+	// (when the source instance hasn't been instantiated yet)
 	return &HostModuleExport{
 		Name:        name,
 		ParamTypes:  paramTypes,
@@ -2238,10 +2326,12 @@ func (l *ComponentLinker) createCanonLowerFunc(
 		stackIdx := 0
 
 		// Handle retptr if needed
+		// Per Canonical ABI spec, retptr is appended AFTER all params
 		var retptr uint32
 		if needsRetptr {
-			retptr = uint32(stack[0])
-			stackIdx = 1
+			// retptr is the last parameter in the stack
+			retptr = uint32(stack[len(stack)-1])
+			// Don't modify stackIdx - params start from index 0
 		}
 
 		// Lift core args to component values
@@ -2519,6 +2609,62 @@ func writeResultsToMemory(ctx context.Context, memory api.Memory, reallocFunc ap
 			offset += 4
 			memory.WriteUint32Le(offset, strLen)
 			offset += 4
+		case ValKindResult:
+			// Result lowering: write discriminant + payload
+			isOk, okVal, errVal := result.Result()
+			if isOk {
+				// Ok case: discriminant=0
+				memory.WriteByteAt(offset, 0)
+				offset += 4 // Align to 4 bytes for payload
+				if okVal != nil {
+					// Recursively write the ok payload
+					if err := writeResultsToMemory(ctx, memory, reallocFunc, offset, []Val{*okVal}, nil); err != nil {
+						return fmt.Errorf("failed to write result ok payload: %w", err)
+					}
+					offset += sizeOfVal(*okVal)
+				}
+			} else {
+				// Error case: discriminant=1
+				memory.WriteByteAt(offset, 1)
+				offset += 4 // Align to 4 bytes for payload
+				if errVal != nil {
+					// Recursively write the error payload
+					if err := writeResultsToMemory(ctx, memory, reallocFunc, offset, []Val{*errVal}, nil); err != nil {
+						return fmt.Errorf("failed to write result error payload: %w", err)
+					}
+					offset += sizeOfVal(*errVal)
+				}
+			}
+		case ValKindVariant:
+			// Variant lowering: write discriminant + payload
+			caseName, payload := result.Variant()
+			// For now, write discriminant as first i32 and payload recursively
+			// Note: proper implementation needs type info for discriminant index
+			_ = caseName // Would need type info to map name to index
+			memory.WriteUint32Le(offset, 0) // Placeholder discriminant
+			offset += 4
+			if payload != nil {
+				if err := writeResultsToMemory(ctx, memory, reallocFunc, offset, []Val{*payload}, nil); err != nil {
+					return fmt.Errorf("failed to write variant payload: %w", err)
+				}
+				offset += sizeOfVal(*payload)
+			}
+		case ValKindOption:
+			// Option lowering: write discriminant + payload
+			payload := result.Option()
+			if payload == nil {
+				// None case: discriminant=0
+				memory.WriteByteAt(offset, 0)
+				offset += 4 // Align to 4 bytes
+			} else {
+				// Some case: discriminant=1
+				memory.WriteByteAt(offset, 1)
+				offset += 4 // Align to 4 bytes for payload
+				if err := writeResultsToMemory(ctx, memory, reallocFunc, offset, []Val{*payload}, nil); err != nil {
+					return fmt.Errorf("failed to write option payload: %w", err)
+				}
+				offset += sizeOfVal(*payload)
+			}
 		default:
 			// For other types, write as i32 for now
 			memory.WriteUint32Le(offset, result.U32())
