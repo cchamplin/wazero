@@ -321,6 +321,21 @@ func (t *ResourceTable) ValidateType(h Handle, expected ResourceTypeID) error {
 	return nil
 }
 
+// GetWithType retrieves an entry after validating its type.
+// Returns ErrResourceTypeMismatch if types don't match.
+func (t *ResourceTable) GetWithType(h Handle, expectedRT ResourceTypeID) (*HandleEntry, error) {
+	entry, err := t.Get(h)
+	if err != nil {
+		return nil, err
+	}
+
+	if expectedRT.IsValid() && entry.RT != expectedRT {
+		return nil, fmt.Errorf("%w: expected type %d, got %d", ErrResourceTypeMismatch, expectedRT.Index(), entry.RT.Index())
+	}
+
+	return entry, nil
+}
+
 // RemoveWithType removes a handle from the table after validating its type.
 // Returns ErrResourceTypeMismatch if types don't match.
 // The handle is NOT removed if type validation fails.

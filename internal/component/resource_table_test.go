@@ -620,3 +620,31 @@ func TestResourceTable_RemoveWithType_TypeMismatch(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint32(100), entry.Rep.(uint32))
 }
+
+func TestResourceTable_GetWithType_Success(t *testing.T) {
+	table := NewResourceTable()
+	rtID := NewResourceTypeID(5)
+	h := table.NewWithType(uint32(100), true, rtID)
+
+	entry, err := table.GetWithType(h, rtID)
+	require.NoError(t, err)
+	require.Equal(t, uint32(100), entry.Rep.(uint32))
+}
+
+func TestResourceTable_GetWithType_TypeMismatch(t *testing.T) {
+	table := NewResourceTable()
+	rtID := NewResourceTypeID(5)
+	wrongID := NewResourceTypeID(6)
+	h := table.NewWithType(uint32(100), true, rtID)
+
+	_, err := table.GetWithType(h, wrongID)
+	require.ErrorIs(t, err, ErrResourceTypeMismatch)
+}
+
+func TestResourceTable_GetWithType_InvalidHandle(t *testing.T) {
+	table := NewResourceTable()
+	invalidH := MakeHandle(999, 0)
+
+	_, err := table.GetWithType(invalidH, NewResourceTypeID(1))
+	require.ErrorIs(t, err, ErrInvalidHandle)
+}
