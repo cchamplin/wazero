@@ -376,3 +376,9 @@ func TestCheckDefinition_WrongKind(t *testing.T) {
 		t.Error("wrong definition kind should fail")
 	}
 }
+
+func TestDefinitionTypes(t *testing.T) {
+	// Verify ComponentDef and ImportedValueDef satisfy Definition interface
+	var _ Definition = &ComponentDef{}
+	var _ Definition = &ImportedValueDef{}
+}

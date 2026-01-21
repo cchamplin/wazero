@@ -38,6 +38,23 @@ type ResourceDef struct {
 
 func (*ResourceDef) definition() {}
 
+// ComponentDef represents a component definition for component imports.
+type ComponentDef struct {
+	Component *Component
+}
+
+func (*ComponentDef) definition() {}
+
+// ImportedValueDef represents a value definition for component value imports.
+// Note: This is distinct from ValueDef in component.go which represents
+// binary value data from the component format. ImportedValueDef wraps
+// a runtime Val for use in the linker.
+type ImportedValueDef struct {
+	Value Val
+}
+
+func (*ImportedValueDef) definition() {}
+
 // Linker resolves component imports and instantiates components.
 type Linker struct {
 	definitions    map[string]Definition

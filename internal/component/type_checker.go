@@ -201,16 +201,15 @@ func (tc *TypeChecker) CheckDefinition(expected *ImportExternDesc, importName st
 
 	case ImportExternDescComponent:
 		// Component imports need ComponentDef
-		// ComponentDef may not exist yet - check if definition is at least non-nil
-		if actual == nil {
-			return fmt.Errorf("expected component, got nil")
+		if _, ok := actual.(*ComponentDef); !ok {
+			return fmt.Errorf("expected component, got %T", actual)
 		}
 		return nil
 
 	case ImportExternDescValue:
-		// Value imports need ValueDef
-		if actual == nil {
-			return fmt.Errorf("expected value, got nil")
+		// Value imports need ImportedValueDef
+		if _, ok := actual.(*ImportedValueDef); !ok {
+			return fmt.Errorf("expected value, got %T", actual)
 		}
 		return nil
 
