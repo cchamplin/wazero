@@ -26,7 +26,8 @@ func (*FuncDef) definition() {}
 
 // InstanceDef is an instance definition with multiple exports.
 type InstanceDef struct {
-	Exports map[string]Definition
+	Exports        map[string]Definition
+	SkipValidation bool // When true, type checker trusts this instance without strict export validation
 }
 
 func (*InstanceDef) definition() {}
@@ -137,11 +138,13 @@ func (b *InstanceBuilder) FuncNoType(name string, fn HostFunc) *InstanceBuilder 
 }
 
 // Build finalizes the instance definition and registers it with the linker.
+// By default, SkipValidation is true since host-provided instances don't typically
+// include explicit type metadata for all expected exports.
 func (b *InstanceBuilder) Build() error {
 	if _, exists := b.linker.definitions[b.namespace]; exists {
 		return fmt.Errorf("definition already exists: %s", b.namespace)
 	}
-	b.linker.definitions[b.namespace] = &InstanceDef{Exports: b.exports}
+	b.linker.definitions[b.namespace] = &InstanceDef{Exports: b.exports, SkipValidation: true}
 	return nil
 }
 

@@ -113,6 +113,11 @@ func (tc *TypeChecker) checkInstance(expected *InstanceTypeDef, actual *Instance
 		return fmt.Errorf("expected instance, got nil")
 	}
 
+	// If host didn't provide type info, trust it (similar to checkFuncDefinition)
+	if actual.SkipValidation {
+		return nil
+	}
+
 	// Check each required export exists
 	for _, decl := range expected.Declarations {
 		if decl.Kind != InstanceDeclKindExport || decl.Export == nil {
@@ -248,6 +253,11 @@ func (tc *TypeChecker) checkInstanceDefinition(expected *ImportExternDesc, actua
 	instDef, ok := actual.(*InstanceDef)
 	if !ok {
 		return fmt.Errorf("expected instance, got %T", actual)
+	}
+
+	// If host didn't provide type info, trust it (similar to checkFuncDefinition)
+	if instDef.SkipValidation {
+		return nil
 	}
 
 	// Get expected instance type

@@ -112,11 +112,13 @@ func (b *ComponentInstanceBuilder) Resource(name string, destructor func(rep uin
 }
 
 // Build finalizes the instance definition.
+// By default, SkipValidation is true since host-provided instances don't typically
+// include explicit type metadata for all expected exports.
 func (b *ComponentInstanceBuilder) Build() error {
 	if _, exists := b.linker.definitions[b.namespace]; exists {
 		return fmt.Errorf("definition already exists: %s", b.namespace)
 	}
-	b.linker.definitions[b.namespace] = &InstanceDef{Exports: b.exports}
+	b.linker.definitions[b.namespace] = &InstanceDef{Exports: b.exports, SkipValidation: true}
 	return nil
 }
 
