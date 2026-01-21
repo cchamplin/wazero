@@ -2124,3 +2124,21 @@ func TestInstance_IndexSpaces_OutOfBounds(t *testing.T) {
 		t.Error("empty component space should return nil")
 	}
 }
+
+func TestInstance_ExportedInstances(t *testing.T) {
+	inst := &Instance{}
+	childInst := &Instance{}
+
+	inst.AddExportedInstance("my-service", childInst)
+
+	retrieved := inst.GetExportedInstance("my-service")
+	if retrieved != childInst {
+		t.Error("exported instance should match")
+	}
+
+	// Non-existent should return nil
+	missing := inst.GetExportedInstance("not-found")
+	if missing != nil {
+		t.Error("non-existent export should return nil")
+	}
+}
