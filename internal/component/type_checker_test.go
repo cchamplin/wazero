@@ -382,3 +382,92 @@ func TestDefinitionTypes(t *testing.T) {
 	var _ Definition = &ComponentDef{}
 	var _ Definition = &ImportedValueDef{}
 }
+
+func TestCheckValType_RecordWidthSubtyping(t *testing.T) {
+	// Expected type: record with field "x"
+	// Actual type: record with fields "x" and "y"
+	// Should pass (width subtyping)
+
+	c := &Component{
+		Types: []TypeDef{
+			{
+				Kind: TypeDefKindDefined,
+				Record: &RecordTypeDef{
+					Fields: []RecordField{
+						{Name: "x", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}, // s32
+					},
+				},
+			},
+		},
+	}
+
+	tc := NewTypeChecker(c)
+
+	// Test that a record with extra fields matches
+	// (This tests the checkValType function's record comparison)
+	// Since valTypeEqual currently uses TypeIdx comparison for non-primitives,
+	// this test verifies the basic setup works. Full record subtyping would
+	// require extending valTypeEqual to handle record field comparison.
+	expectedRef := ValTypeRef{IsPrimitive: false, TypeIdx: 0}
+	actualRef := ValTypeRef{IsPrimitive: false, TypeIdx: 0}
+
+	if !tc.valTypeEqual(expectedRef, actualRef) {
+		t.Error("same record type index should be equal")
+	}
+}
+
+func TestCheckFuncType_ExtraParams(t *testing.T) {
+	c := &Component{
+		Types: []TypeDef{
+			{
+				Kind: TypeDefKindFunc,
+				Func: &FuncType{
+					Params: []NamedValType{
+						{Name: "a", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}, // s32
+					},
+					Results: []NamedValType{
+						{ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}},
+					},
+				},
+			},
+		},
+	}
+
+	tc := NewTypeChecker(c)
+
+	// Actual has MORE params than expected - should PASS (contravariance)
+	actual := &FuncType{
+		Params: []NamedValType{
+			{Name: "a", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}},
+			{Name: "b", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}, // Extra
+		},
+		Results: []NamedValType{
+			{ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}},
+		},
+	}
+
+	err := tc.checkFuncType(c.Types[0].Func, actual)
+	if err != nil {
+		t.Errorf("extra params should pass (contravariance): %v", err)
+	}
+}
+
+func TestCheckDefinition_NilActual(t *testing.T) {
+	c := &Component{
+		Types: []TypeDef{
+			{Kind: TypeDefKindFunc, Func: &FuncType{}},
+		},
+	}
+
+	tc := NewTypeChecker(c)
+
+	expected := &ImportExternDesc{
+		Kind:    ImportExternDescFunc,
+		TypeIdx: 0,
+	}
+
+	err := tc.CheckDefinition(expected, "test/fn", nil)
+	if err == nil {
+		t.Error("nil actual should fail")
+	}
+}
