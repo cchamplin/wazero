@@ -316,6 +316,10 @@ type CanonicalOptions struct {
 	MemoryIdx      *uint32 // nil if not specified
 	ReallocIdx     *uint32 // nil if not specified
 	PostReturnIdx  *uint32 // nil if not specified
+	Async          bool    // true if async option specified (gated)
+	CallbackIdx    *uint32 // callback function index (gated)
+	CoreTypeIdx    *uint32 // core type index for lowering
+	GC             bool    // use GC version of canonical ABI
 }
 
 // StringEncoding specifies how strings are encoded.

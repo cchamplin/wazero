@@ -27,6 +27,10 @@ const (
 	CanonOptMemory            byte = 0x03
 	CanonOptRealloc           byte = 0x04
 	CanonOptPostReturn        byte = 0x05
+	CanonOptAsync             byte = 0x06
+	CanonOptCallback          byte = 0x07
+	CanonOptCoreType          byte = 0x08
+	CanonOptGC                byte = 0x09
 )
 
 // decodeCanonical reads a single canonical definition.
@@ -157,6 +161,22 @@ func decodeCanonicalOptions(r *bytes.Reader, opts *component.CanonicalOptions) e
 				return err
 			}
 			opts.PostReturnIdx = &idx
+		case CanonOptAsync:
+			opts.Async = true
+		case CanonOptCallback:
+			idx, _, err := leb128.DecodeUint32(r)
+			if err != nil {
+				return fmt.Errorf("read callback index: %w", err)
+			}
+			opts.CallbackIdx = &idx
+		case CanonOptCoreType:
+			idx, _, err := leb128.DecodeUint32(r)
+			if err != nil {
+				return fmt.Errorf("read core-type index: %w", err)
+			}
+			opts.CoreTypeIdx = &idx
+		case CanonOptGC:
+			opts.GC = true
 		default:
 			return fmt.Errorf("unknown canonical option: 0x%02x", optCode)
 		}
