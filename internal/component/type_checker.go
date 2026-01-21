@@ -157,3 +157,30 @@ func (tc *TypeChecker) checkExportKind(expected *InstanceExport, actual Definiti
 	}
 	return nil
 }
+
+// checkResource validates resource type equality.
+// Resources use exact equality - no subtyping allowed.
+// The first occurrence is recorded; subsequent must match.
+func (tc *TypeChecker) checkResource(typeIdx uint32, importName string, actual *ResourceDef) error {
+	if actual == nil {
+		return fmt.Errorf("expected resource, got nil")
+	}
+
+	existing, seen := tc.importedResources[typeIdx]
+	if seen {
+		// Second occurrence - must be same resource
+		if existing.sourceImport != importName {
+			return fmt.Errorf("resource type mismatch: index %d was %s, now %s",
+				typeIdx, existing.sourceImport, importName)
+		}
+		return nil
+	}
+
+	// First occurrence - record it
+	tc.importedResources[typeIdx] = resourceTypeInfo{
+		sourceImport: importName,
+		localIndex:   typeIdx,
+	}
+
+	return nil
+}
