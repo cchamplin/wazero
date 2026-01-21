@@ -9,12 +9,15 @@ var ErrOutstandingBorrows = errors.New("cannot return: borrow handles still rema
 // CallContext tracks state for a single component function call.
 // Implements the Canonical ABI's Task tracking for borrow validation.
 type CallContext struct {
-	numBorrows int // Number of borrowed handles received by this call
+	numBorrows int      // Number of borrowed handles received by this call
+	lenders    []Handle // Handles that were borrowed FROM during this call
 }
 
 // NewCallContext creates a new call context.
 func NewCallContext() *CallContext {
-	return &CallContext{}
+	return &CallContext{
+		lenders: make([]Handle, 0),
+	}
 }
 
 // IncrementBorrows records receiving a borrowed handle.
@@ -47,4 +50,21 @@ func (c *CallContext) ValidateReturn() error {
 		return ErrOutstandingBorrows
 	}
 	return nil
+}
+
+// AddLender records a handle that was borrowed FROM during this call.
+// This is used by lift_borrow to track which handles need their num_lends
+// decremented when the call exits.
+func (c *CallContext) AddLender(h Handle) {
+	c.lenders = append(c.lenders, h)
+}
+
+// Lenders returns the list of handles that were borrowed from.
+func (c *CallContext) Lenders() []Handle {
+	return c.lenders
+}
+
+// ClearLenders clears the lenders list (called after exit_call processes them).
+func (c *CallContext) ClearLenders() {
+	c.lenders = c.lenders[:0]
 }
