@@ -163,6 +163,10 @@ type LowerContext struct {
 	Realloc       func(oldPtr, oldSize, align, newSize uint32) (uint32, error)
 	ResourceTable *component.ResourceTable
 	CallContext   *component.CallContext
+	// Instance is the component instance performing the lowering.
+	// TODO: Per spec lines 2679-2680, used for borrow optimization when lowering
+	// to the resource's implementing instance. Returns rep directly instead of handle.
+	Instance interface{} // TODO: Use proper ComponentInstance type when available
 }
 
 // writeUint8 writes a uint8 to memory at the given offset.
