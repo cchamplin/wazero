@@ -1,5 +1,7 @@
 package component
 
+import "fmt"
+
 // SubtaskState represents the state of a subtask.
 type SubtaskState int
 
@@ -39,4 +41,52 @@ func (s *Subtask) BorrowScope() *BorrowScope {
 // State returns the current state of this subtask.
 func (s *Subtask) State() SubtaskState {
 	return s.state
+}
+
+// DeliverResolve transitions the subtask from pending to resolved with a result.
+// This is called when the lowered function returns.
+func (s *Subtask) DeliverResolve(result []Val) error {
+	if s.state != SubtaskStatePending {
+		return fmt.Errorf("subtask: cannot resolve in state %d", s.state)
+	}
+	s.result = result
+	s.state = SubtaskStateResolved
+	return nil
+}
+
+// StartFinish transitions from resolved to finishing.
+// This begins the cleanup phase.
+func (s *Subtask) StartFinish() error {
+	if s.state != SubtaskStateResolved {
+		return fmt.Errorf("subtask: cannot start finish in state %d", s.state)
+	}
+	s.state = SubtaskStateFinishing
+	return nil
+}
+
+// Finish transitions from finishing to done.
+// This completes the subtask and releases the borrow scope.
+func (s *Subtask) Finish() error {
+	if s.state == SubtaskStatePending {
+		return fmt.Errorf("subtask: cannot finish before resolve")
+	}
+	if s.state == SubtaskStateDone {
+		return fmt.Errorf("subtask: already done")
+	}
+
+	// Release borrows
+	if s.borrowScope != nil {
+		if err := s.borrowScope.Release(); err != nil {
+			return fmt.Errorf("subtask: release borrows: %w", err)
+		}
+	}
+
+	s.state = SubtaskStateDone
+	return nil
+}
+
+// Result returns the stored result after resolution.
+// Returns nil if not yet resolved.
+func (s *Subtask) Result() []Val {
+	return s.result
 }
