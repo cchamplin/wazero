@@ -979,6 +979,12 @@ func (i *Instance) MayLeave() bool {
 	return !i.mayLeaveDisabled
 }
 
+// SetMayLeave sets whether this instance is allowed to call out.
+// Called with false at the start of lowering/post-return, true at the end.
+func (i *Instance) SetMayLeave(allowed bool) {
+	i.mayLeaveDisabled = !allowed
+}
+
 // AddValue adds a value to the instance's value index space.
 // Returns the index of the added value.
 func (i *Instance) AddValue(v Val) uint32 {
