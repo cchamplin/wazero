@@ -461,5 +461,14 @@ func TestResourceTable_ValidateType(t *testing.T) {
 
 	// Wrong type should fail
 	err := table.ValidateType(h, wrongID)
-	require.Error(t, err)
+	require.ErrorIs(t, err, ErrResourceTypeMismatch)
+}
+
+func TestResourceTable_ValidateType_InvalidHandle(t *testing.T) {
+	table := NewResourceTable()
+	invalidHandle := MakeHandle(999, 0)
+	rtID := NewResourceTypeID(7)
+
+	err := table.ValidateType(invalidHandle, rtID)
+	require.ErrorIs(t, err, ErrInvalidHandle)
 }
