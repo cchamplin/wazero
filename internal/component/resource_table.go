@@ -227,6 +227,17 @@ func (t *ResourceTable) CreateResourceNewFunc(resourceTypeIdx uint32) func(rep u
 	}
 }
 
+// CreateResourceNewFuncWithType creates a core function for resource.new
+// that stores the resource type ID with each created handle.
+// The resourceTypeIdx is the index from the component's type section.
+func (t *ResourceTable) CreateResourceNewFuncWithType(resourceTypeIdx uint32) func(rep uint32) uint32 {
+	rtID := NewResourceTypeID(resourceTypeIdx)
+	return func(rep uint32) uint32 {
+		handle := t.NewWithType(rep, true, rtID)
+		return uint32(handle)
+	}
+}
+
 // CreateResourceDropFunc creates a core function for resource.drop
 // that can be called from core modules to drop resource handles.
 // The destructor is called when the resource is dropped (if provided).
