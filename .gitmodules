@@ -1,3 +1,30 @@
 [submodule "site/themes/hello-friend"]
 	path = site/themes/hello-friend
 	url = https://github.com/panr/hugo-theme-hello-friend.git
+[submodule "debug-vendored/component-model"]
+	path = debug-vendored/component-model
+	url = https://github.com/WebAssembly/component-model.git
+[submodule "debug-vendored/wasmtime"]
+	path = debug-vendored/wasmtime
+	url = https://github.com/bytecodealliance/wasmtime.git
+[submodule "debug-vendored/wasm-tools"]
+	path = debug-vendored/wasm-tools
+	url = https://github.com/bytecodealliance/wasm-tools.git
+[submodule "debug-vendored/WASI"]
+	path = debug-vendored/WASI
+	url = https://github.com/WebAssembly/WASI.git
+[submodule "debug-vendored/wit-bindgen"]
+	path = debug-vendored/wit-bindgen
+	url = https://github.com/bytecodealliance/wit-bindgen.git
+[submodule "debug-vendored/cargo-component"]
+	path = debug-vendored/cargo-component
+	url = https://github.com/bytecodealliance/cargo-component.git
+[submodule "debug-vendored/wac"]
+	path = debug-vendored/wac
+	url = https://github.com/bytecodealliance/wac.git
+[submodule "internal/component/wasip2test/go-mult-plugin/debug-vendored/go-modules"]
+	path = internal/component/wasip2test/go-mult-plugin/debug-vendored/go-modules
+	url = https://github.com/bytecodealliance/go-modules.git
+[submodule "debug-vendored/go-modules"]
+	path = debug-vendored/go-modules
+	url = https://github.com/bytecodealliance/go-modules.git

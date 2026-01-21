@@ -102,21 +102,81 @@ func decodeAliasSection(c *component.Component, r *bytes.Reader) error {
 		}
 
 		// Assign the target index based on the alias kind and sort.
-		// Core export aliases add to the appropriate core index space.
-		// Component export aliases with Sort=func add to the component function index space.
-		if alias.Kind == component.AliasKindCoreExport {
+		// Each alias type increments the appropriate index space counter.
+		switch alias.Kind {
+		case component.AliasKindCoreExport:
+			// Core export aliases add to the appropriate core index space.
 			switch alias.CoreSort {
 			case component.CoreSortFunc:
 				alias.Idx = c.NextCoreFuncIdx
 				c.NextCoreFuncIdx++
+			case component.CoreSortTable:
+				alias.Idx = c.NextCoreTableIdx
+				c.NextCoreTableIdx++
 			case component.CoreSortMemory:
 				alias.Idx = c.NextCoreMemoryIdx
 				c.NextCoreMemoryIdx++
+			case component.CoreSortGlobal:
+				alias.Idx = c.NextCoreGlobalIdx
+				c.NextCoreGlobalIdx++
+			case component.CoreSortType:
+				alias.Idx = c.NextCoreTypeIdx
+				c.NextCoreTypeIdx++
+			case component.CoreSortModule:
+				alias.Idx = c.NextModuleIdx
+				c.NextModuleIdx++
+			case component.CoreSortInstance:
+				alias.Idx = c.NextModuleInstanceIdx
+				c.NextModuleInstanceIdx++
+			default:
+				return fmt.Errorf("unknown core sort in core export alias: 0x%02x", alias.CoreSort)
 			}
-		} else if alias.Kind == component.AliasKindExport && alias.Sort == component.SortFunc {
-			// Component-level function alias creates a component function
-			alias.Idx = c.NextFuncIdx
-			c.NextFuncIdx++
+
+		case component.AliasKindExport:
+			// Component export aliases add to the appropriate component index space.
+			switch alias.Sort {
+			case component.SortFunc:
+				alias.Idx = c.NextFuncIdx
+				c.NextFuncIdx++
+			case component.SortValue:
+				alias.Idx = c.NextValueIdx
+				c.NextValueIdx++
+			case component.SortType:
+				alias.Idx = c.NextTypeIdx
+				c.NextTypeIdx++
+			case component.SortComponent:
+				alias.Idx = c.NextComponentIdx
+				c.NextComponentIdx++
+			case component.SortInstance:
+				alias.Idx = c.NextComponentInstanceIdx
+				c.NextComponentInstanceIdx++
+			default:
+				return fmt.Errorf("unknown sort in export alias: 0x%02x", alias.Sort)
+			}
+
+		case component.AliasKindOuter:
+			// Outer aliases reference items from enclosing scopes.
+			switch alias.Sort {
+			case component.SortType:
+				alias.Idx = c.NextTypeIdx
+				c.NextTypeIdx++
+			case component.SortComponent:
+				alias.Idx = c.NextComponentIdx
+				c.NextComponentIdx++
+			case component.SortCoreSort:
+				switch alias.CoreSort {
+				case component.CoreSortModule:
+					alias.Idx = c.NextModuleIdx
+					c.NextModuleIdx++
+				case component.CoreSortType:
+					alias.Idx = c.NextCoreTypeIdx
+					c.NextCoreTypeIdx++
+				default:
+					return fmt.Errorf("outer alias with core sort 0x%02x not supported (only module and type allowed)", alias.CoreSort)
+				}
+			default:
+				return fmt.Errorf("unknown or unsupported sort in outer alias: 0x%02x", alias.Sort)
+			}
 		}
 
 		c.Aliases = append(c.Aliases, alias)

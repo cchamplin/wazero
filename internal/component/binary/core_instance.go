@@ -112,6 +112,7 @@ func decodeCoreInstanceSection(c *component.Component, r *bytes.Reader) error {
 			return fmt.Errorf("decoding core instance %d: %w", i, err)
 		}
 		c.CoreInstances = append(c.CoreInstances, ci)
+		c.NextModuleInstanceIdx++
 	}
 
 	return nil
