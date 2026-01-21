@@ -36,6 +36,14 @@ type Component struct {
 	// at non-contiguous indices in the component function index space.
 	FuncIdxToCanonical map[uint32]uint32
 
+	// TypeIdxToStoredIdx maps component type index space indices to c.Types indices.
+	// This is needed because type aliases consume component type indices but don't
+	// add entries to c.Types. For example, if type sections define types at indices
+	// 0, 2, 4, 5, 6, 7 (with aliases at 1 and 3), c.Types will have 6 entries at
+	// indices 0-5, and this map allows looking up the stored index from the
+	// component type index.
+	TypeIdxToStoredIdx map[uint32]uint32
+
 	// Exports contains component exports (section ID 11).
 	// These expose functions and instances to the outside world.
 	Exports []Export

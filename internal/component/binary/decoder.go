@@ -46,6 +46,7 @@ func DecodeComponent(binary []byte) (*component.Component, error) {
 
 	c := &component.Component{
 		FuncIdxToCanonical: make(map[uint32]uint32),
+		TypeIdxToStoredIdx: make(map[uint32]uint32),
 	}
 
 	// Parse sections
@@ -369,6 +370,11 @@ func decodeTypeSection(c *component.Component, r *bytes.Reader) error {
 		default:
 			return fmt.Errorf("unsupported type opcode 0x%02x at index %d", opcode, startIdx+i)
 		}
+		// Record the mapping from component type index to stored type index.
+		// This is needed because type aliases consume component type indices
+		// without adding entries to c.Types, creating a gap between the
+		// component type index space and the c.Types indices.
+		c.TypeIdxToStoredIdx[c.NextTypeIdx] = uint32(len(c.Types) - 1)
 		c.NextTypeIdx++
 	}
 
