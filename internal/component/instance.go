@@ -33,6 +33,10 @@ type Instance struct {
 	// Value index space for start function support
 	values         []Val
 	valuesConsumed []bool
+
+	// Nested component support
+	parent   *Instance
+	children []*Instance
 }
 
 // ComponentFunc represents a callable component-level function.
@@ -996,6 +1000,35 @@ func (i *Instance) IsValueConsumed(idx uint32) bool {
 		return false
 	}
 	return i.valuesConsumed[idx]
+}
+
+// Parent returns this instance's parent, or nil if top-level.
+func (i *Instance) Parent() *Instance {
+	return i.parent
+}
+
+// Children returns this instance's child instances.
+func (i *Instance) Children() []*Instance {
+	return i.children
+}
+
+// AddChild adds a child instance and sets its parent.
+func (i *Instance) AddChild(child *Instance) {
+	if i.children == nil {
+		i.children = make([]*Instance, 0)
+	}
+	i.children = append(i.children, child)
+	child.parent = i
+}
+
+// GetAncestor returns the ancestor at the given depth.
+// Depth 0 returns self, depth 1 returns parent, etc.
+func (i *Instance) GetAncestor(depth uint32) *Instance {
+	current := i
+	for d := uint32(0); d < depth && current != nil; d++ {
+		current = current.parent
+	}
+	return current
 }
 
 // liftEnum converts a discriminant to an enum Val.

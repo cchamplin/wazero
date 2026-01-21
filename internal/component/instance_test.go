@@ -1972,3 +1972,74 @@ func TestInstance_ConsumeValue(t *testing.T) {
 		t.Error("consuming same value twice should fail")
 	}
 }
+
+// TestInstance_ParentChild tests parent/child tracking for nested component support.
+func TestInstance_ParentChild(t *testing.T) {
+	parent := &Instance{}
+	child := &Instance{}
+
+	parent.AddChild(child)
+
+	if child.Parent() != parent {
+		t.Error("child.Parent() should return parent")
+	}
+
+	children := parent.Children()
+	if len(children) != 1 {
+		t.Errorf("expected 1 child, got %d", len(children))
+	}
+	if children[0] != child {
+		t.Error("children[0] should be child")
+	}
+}
+
+// TestInstance_ParentChain tests navigating up the component hierarchy.
+func TestInstance_ParentChain(t *testing.T) {
+	grandparent := &Instance{}
+	parent := &Instance{}
+	child := &Instance{}
+
+	grandparent.AddChild(parent)
+	parent.AddChild(child)
+
+	// Navigate up the chain
+	if child.Parent() != parent {
+		t.Error("child.Parent() should be parent")
+	}
+	if parent.Parent() != grandparent {
+		t.Error("parent.Parent() should be grandparent")
+	}
+	if grandparent.Parent() != nil {
+		t.Error("grandparent.Parent() should be nil")
+	}
+}
+
+// TestInstance_GetAncestor tests getting ancestors at specific depths (de Bruijn indexing).
+func TestInstance_GetAncestor(t *testing.T) {
+	grandparent := &Instance{}
+	parent := &Instance{}
+	child := &Instance{}
+
+	grandparent.AddChild(parent)
+	parent.AddChild(child)
+
+	// Depth 0 returns self
+	if child.GetAncestor(0) != child {
+		t.Error("GetAncestor(0) should return self")
+	}
+
+	// Depth 1 returns parent
+	if child.GetAncestor(1) != parent {
+		t.Error("GetAncestor(1) should return parent")
+	}
+
+	// Depth 2 returns grandparent
+	if child.GetAncestor(2) != grandparent {
+		t.Error("GetAncestor(2) should return grandparent")
+	}
+
+	// Depth beyond root returns nil
+	if child.GetAncestor(3) != nil {
+		t.Error("GetAncestor(3) should return nil")
+	}
+}
