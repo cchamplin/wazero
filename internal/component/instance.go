@@ -13,6 +13,24 @@ import (
 	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
+// callerInstanceKey is the context key for the caller instance.
+type callerInstanceKey struct{}
+
+// GetCallerInstance retrieves the caller instance from context.
+// Returns nil if called from host (no caller in context).
+func GetCallerInstance(ctx context.Context) *Instance {
+	if caller, ok := ctx.Value(callerInstanceKey{}).(*Instance); ok {
+		return caller
+	}
+	return nil
+}
+
+// WithCallerInstance returns a context with the caller instance set.
+// Used when a component calls another component.
+func WithCallerInstance(ctx context.Context, caller *Instance) context.Context {
+	return context.WithValue(ctx, callerInstanceKey{}, caller)
+}
+
 // Instance represents an instantiated component.
 type Instance struct {
 	component     *Component
@@ -129,6 +147,17 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 		defer func() {
 			f.instance.callContext = prevCallCtx
 		}()
+
+		// === REENTRANCE CHECK ===
+		// Get caller from context if available (nil for host calls)
+		caller := GetCallerInstance(ctx)
+		if err := f.instance.ValidateNotRecursive(caller); err != nil {
+			return nil, err
+		}
+
+		// Track this call
+		f.instance.EnterCall()
+		defer f.instance.ExitCall()
 	}
 
 	// Create TypeResolver for dynamic type resolution
