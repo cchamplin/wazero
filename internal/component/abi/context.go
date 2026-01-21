@@ -167,6 +167,17 @@ type LowerContext struct {
 	// TODO: Per spec lines 2679-2680, used for borrow optimization when lowering
 	// to the resource's implementing instance. Returns rep directly instead of handle.
 	Instance interface{} // TODO: Use proper ComponentInstance type when available
+	// Subtask is the subtask tracking this lowered call.
+	// Used for borrow tracking during the call.
+	Subtask *component.Subtask
+}
+
+// BorrowScope returns the borrow scope from the subtask, or nil if no subtask.
+func (c *LowerContext) BorrowScope() *component.BorrowScope {
+	if c.Subtask == nil {
+		return nil
+	}
+	return c.Subtask.BorrowScope()
 }
 
 // writeUint8 writes a uint8 to memory at the given offset.
