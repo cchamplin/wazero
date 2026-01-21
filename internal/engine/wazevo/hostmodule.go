@@ -9,11 +9,11 @@ import (
 	"github.com/tetratelabs/wazero/internal/wasm"
 )
 
-func buildHostModuleOpaque(m *wasm.Module, listeners []experimental.FunctionListener) moduleContextOpaque {
+func buildHostModuleOpaque(m *wasm.Module, mi *wasm.ModuleInstance, listeners []experimental.FunctionListener) moduleContextOpaque {
 	size := len(m.CodeSection)*16 + 32
 	ret := newAlignedOpaque(size)
 
-	binary.LittleEndian.PutUint64(ret[0:], uint64(uintptr(unsafe.Pointer(m))))
+	binary.LittleEndian.PutUint64(ret[0:], uint64(uintptr(unsafe.Pointer(mi))))
 
 	if len(listeners) > 0 {
 		//nolint:staticcheck
@@ -33,13 +33,11 @@ func buildHostModuleOpaque(m *wasm.Module, listeners []experimental.FunctionList
 }
 
 func hostModuleFromOpaque(opaqueBegin uintptr) *wasm.Module {
-	var opaqueViewOverSlice []byte
-	//nolint:staticcheck
-	sh := (*reflect.SliceHeader)(unsafe.Pointer(&opaqueViewOverSlice))
-	sh.Data = opaqueBegin
-	sh.Len = 32
-	sh.Cap = 32
-	return *(**wasm.Module)(unsafe.Pointer(&opaqueViewOverSlice[0]))
+	moduleInst := moduleInstanceFromOpaquePtr((*byte)(unsafe.Pointer(opaqueBegin)))
+	if moduleInst == nil {
+		return nil
+	}
+	return moduleInst.Source
 }
 
 func hostModuleListenersSliceFromOpaque(opaqueBegin uintptr) []experimental.FunctionListener {

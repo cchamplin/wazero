@@ -54,7 +54,8 @@ func Test_buildHostModuleOpaque(t *testing.T) {
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			got := buildHostModuleOpaque(tc.m, tc.listeners)
+			mi := &wasm.ModuleInstance{Source: tc.m}
+			got := buildHostModuleOpaque(tc.m, mi, tc.listeners)
 			opaque := uintptr(unsafe.Pointer(&got[0]))
 			require.Equal(t, tc.m, hostModuleFromOpaque(opaque))
 			if len(tc.listeners) > 0 {

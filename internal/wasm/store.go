@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"os"
 	"sync"
 	"sync/atomic"
 
@@ -21,6 +22,8 @@ import (
 // before it starts to be monitored for shrinking.
 // The capacity will never be smaller than this once the threshold is met.
 const nameToModuleShrinkThreshold = 100
+
+var debugTableInit = os.Getenv("WAZERO_DEBUG_TABLE") != ""
 
 type (
 	// Store is the runtime representation of "instantiated" Wasm module and objects.
@@ -216,6 +219,31 @@ func (m *ModuleInstance) applyElements(elems []ElementSegment) {
 
 		table := m.Tables[elem.TableIndex]
 		references := table.References
+		fnCount, importFnCount := 0, 0
+		if m.Source != nil {
+			fnCount = len(m.Source.FunctionSection)
+			importFnCount = int(m.Source.ImportFunctionCount)
+		}
+		if debugTableInit {
+			tableLen := 0
+			if table != nil {
+				tableLen = len(references)
+			}
+			if m.Source != nil && len(m.Source.ImportSection) > 0 && len(m.Source.ImportSection) <= 50 {
+				fmt.Fprintf(os.Stderr, "[module-imports] module=%s funcs=%d imports=%d\n", m.ModuleName, fnCount, importFnCount)
+				for _, imp := range m.Source.ImportSection {
+					fmt.Fprintf(os.Stderr, "  import %s.%s kind=%d\n", imp.Module, imp.Name, imp.Type)
+				}
+			}
+			if m.Source != nil && len(m.Source.ExportSection) > 0 && len(m.Source.ExportSection) <= 50 {
+				fmt.Fprintf(os.Stderr, "[module-exports] module=%s exports=%d\n", m.ModuleName, len(m.Source.ExportSection))
+				for _, exp := range m.Source.ExportSection {
+					fmt.Fprintf(os.Stderr, "  export %s kind=%d index=%d\n", exp.Name, exp.Type, exp.Index)
+				}
+			}
+			fmt.Fprintf(os.Stderr, "[table-init] module=%s funcs=%d imports=%d table=%d offset=%d init_len=%d table_len=%d\n",
+				m.ModuleName, fnCount, importFnCount, elem.TableIndex, offset, len(elem.Init), tableLen)
+		}
 		if int(offset)+len(elem.Init) > len(references) {
 			// ErrElementOffsetOutOfBounds is the error raised when the active element offset exceeds the table length.
 			// Before CoreFeatureReferenceTypes, this was checked statically before instantiation, after the proposal,
@@ -245,6 +273,46 @@ func (m *ModuleInstance) applyElements(elems []ElementSegment) {
 					ref = m.Engine.FunctionInstanceReference(index)
 				}
 				references[offset+uint32(i)] = ref
+			}
+		}
+	}
+
+	if debugTableInit {
+		fnCount, importFnCount := 0, 0
+		if m.Source != nil {
+			fnCount = len(m.Source.FunctionSection)
+			importFnCount = int(m.Source.ImportFunctionCount)
+		}
+		for i, table := range m.Tables {
+			if table == nil {
+				continue
+			}
+			refs := table.References
+			first, last, count := -1, -1, 0
+			for idx, ref := range refs {
+				if ref != 0 {
+					count++
+					if first == -1 {
+						first = idx
+					}
+					last = idx
+				}
+			}
+			sample0 := uintptr(0)
+			sample4096 := uintptr(0)
+			if len(refs) > 0 {
+				sample0 = refs[0]
+			}
+			if len(refs) > 4096 {
+				sample4096 = refs[4096]
+			}
+			fmt.Fprintf(os.Stderr, "[table-state] module=%s funcs=%d imports=%d table=%d len=%d nonzero=%d first=%d last=%d sample0=%#x sample4096=%#x\n",
+				m.ModuleName, fnCount, importFnCount, i, len(refs), count, first, last, sample0, sample4096)
+		}
+		if m.Source != nil && len(m.Source.ExportSection) > 0 && len(m.Source.ExportSection) <= 50 {
+			fmt.Fprintf(os.Stderr, "[module-exports] module=%s exports=%d\n", m.ModuleName, len(m.Source.ExportSection))
+			for _, exp := range m.Source.ExportSection {
+				fmt.Fprintf(os.Stderr, "  export %s kind=%d index=%d\n", exp.Name, exp.Type, exp.Index)
 			}
 		}
 	}

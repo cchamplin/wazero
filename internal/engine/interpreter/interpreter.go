@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"math/bits"
+	"os"
 	"slices"
 	"sync"
 	"unsafe"
@@ -26,7 +27,21 @@ import (
 // wasm.ErrCallStackOverflow instead of overflowing the Go runtime.
 //
 // The default value should suffice for most use cases. Those wishing to change this can via `go build -ldflags`.
-var callStackCeiling = 2000
+var callStackCeiling = func() int {
+	if debugInvalidTableAccess {
+		return 100000
+	}
+	return 2000
+}()
+
+var debugInvalidTableAccess = os.Getenv("WAZERO_DEBUG_TABLE") != ""
+
+func logInvalidTableAccess(ctx string, offset uint64, tableLen int, rawPtr uintptr, typeID wasm.FunctionTypeID) {
+	if !debugInvalidTableAccess {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "[table-trap] %s offset=%d len=%d rawPtr=%#x typeID=%d\n", ctx, offset, tableLen, rawPtr, typeID)
+}
 
 type compiledFunctionWithCount struct {
 	funcs    []compiledFunction
@@ -535,10 +550,12 @@ func (e *moduleEngine) NewFunction(index wasm.Index) (ce api.Function) {
 // LookupFunction implements the same method as documented on wasm.ModuleEngine.
 func (e *moduleEngine) LookupFunction(t *wasm.TableInstance, typeId wasm.FunctionTypeID, tableOffset wasm.Index) (*wasm.ModuleInstance, wasm.Index) {
 	if tableOffset >= uint32(len(t.References)) {
+		logInvalidTableAccess("lookup.bounds", uint64(tableOffset), len(t.References), 0, typeId)
 		panic(wasmruntime.ErrRuntimeInvalidTableAccess)
 	}
 	rawPtr := t.References[tableOffset]
 	if rawPtr == 0 {
+		logInvalidTableAccess("lookup.nil", uint64(tableOffset), len(t.References), rawPtr, typeId)
 		panic(wasmruntime.ErrRuntimeInvalidTableAccess)
 	}
 
@@ -1757,6 +1774,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			table := tables[op.U2]
 			if inElementOffset+copySize > uint64(len(elementInstance)) ||
 				inTableOffset+copySize > uint64(len(table.References)) {
+				logInvalidTableAccess("table.init", inTableOffset, len(table.References), 0, 0)
 				panic(wasmruntime.ErrRuntimeInvalidTableAccess)
 			} else if copySize != 0 {
 				copy(table.References[inTableOffset:inTableOffset+copySize], elementInstance[inElementOffset:])
@@ -1771,6 +1789,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			sourceOffset := ce.popValue()
 			destinationOffset := ce.popValue()
 			if sourceOffset+copySize > uint64(len(srcTable)) || destinationOffset+copySize > uint64(len(dstTable)) {
+				logInvalidTableAccess("table.copy", destinationOffset, len(dstTable), 0, 0)
 				panic(wasmruntime.ErrRuntimeInvalidTableAccess)
 			} else if copySize != 0 {
 				copy(dstTable[destinationOffset:], srcTable[sourceOffset:sourceOffset+copySize])
@@ -1784,6 +1803,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 
 			offset := ce.popValue()
 			if offset >= uint64(len(table.References)) {
+				logInvalidTableAccess("table.get", offset, len(table.References), 0, 0)
 				panic(wasmruntime.ErrRuntimeInvalidTableAccess)
 			}
 
@@ -1795,6 +1815,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 
 			offset := ce.popValue()
 			if offset >= uint64(len(table.References)) {
+				logInvalidTableAccess("table.set", offset, len(table.References), 0, 0)
 				panic(wasmruntime.ErrRuntimeInvalidTableAccess)
 			}
 
@@ -1816,6 +1837,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			ref := uintptr(ce.popValue())
 			offset := ce.popValue()
 			if num+offset > uint64(len(table.References)) {
+				logInvalidTableAccess("table.fill", offset, len(table.References), 0, 0)
 				panic(wasmruntime.ErrRuntimeInvalidTableAccess)
 			} else if num > 0 {
 				// Uses the copy trick for faster filling the region with the value.
@@ -4399,10 +4421,12 @@ func (ce *callEngine) resetPc(frame *callFrame, f *function) (body []unionOperat
 
 func (ce *callEngine) functionForOffset(table *wasm.TableInstance, offset uint64, expectedTypeID wasm.FunctionTypeID) *function {
 	if offset >= uint64(len(table.References)) {
+		logInvalidTableAccess("call_indirect.bounds", offset, len(table.References), 0, expectedTypeID)
 		panic(wasmruntime.ErrRuntimeInvalidTableAccess)
 	}
 	rawPtr := table.References[offset]
 	if rawPtr == 0 {
+		logInvalidTableAccess("call_indirect.nil", offset, len(table.References), rawPtr, expectedTypeID)
 		panic(wasmruntime.ErrRuntimeInvalidTableAccess)
 	}
 

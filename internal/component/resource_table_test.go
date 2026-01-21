@@ -897,3 +897,84 @@ func TestResourceTable_NewWithMayLeaveCheck(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrMayNotLeave)
 }
+
+// Tests for Task 5.4: Reentrance Trap in DropOwned
+
+func TestResourceTable_DropOwned_TrapsOnReentrance(t *testing.T) {
+	table := NewResourceTable()
+	registry := NewDestructorRegistry()
+	tracker := NewReentranceTracker()
+
+	// No destructor registered for this type
+	// (reentrance check only applies when no destructor)
+
+	h := table.NewWithType(uint32(42), true, NewResourceTypeID(1))
+
+	// Instance 100 is currently on the call stack
+	tracker.EnterInstance(100)
+
+	// Dropping a resource defined in instance 100 from instance 200
+	// should trap because of potential reentrance
+	err := table.DropOwnedWithReentranceCheck(
+		h,
+		NewResourceTypeID(1),
+		registry,
+		200,  // current instance
+		100,  // defining instance (on call stack!)
+		nil,
+		tracker,
+	)
+	require.ErrorIs(t, err, ErrReentrance)
+}
+
+func TestResourceTable_DropOwned_NoReentranceWithDestructor(t *testing.T) {
+	table := NewResourceTable()
+	registry := NewDestructorRegistry()
+	tracker := NewReentranceTracker()
+
+	// Register a destructor
+	registry.Register(NewResourceTypeID(1), func(rep uint32) {})
+
+	h := table.NewWithType(uint32(42), true, NewResourceTypeID(1))
+
+	// Instance 100 is on the call stack
+	tracker.EnterInstance(100)
+
+	// But since there's a destructor, reentrance check is skipped
+	// (the destructor will be called via canon_lift/canon_lower which handles reentrance)
+	err := table.DropOwnedWithReentranceCheck(
+		h,
+		NewResourceTypeID(1),
+		registry,
+		200,
+		100,
+		func(rep, inst uint32) {}, // cross-instance dtor
+		tracker,
+	)
+	require.NoError(t, err)
+}
+
+func TestResourceTable_DropOwned_SameInstanceNoReentranceCheck(t *testing.T) {
+	table := NewResourceTable()
+	registry := NewDestructorRegistry()
+	tracker := NewReentranceTracker()
+
+	// No destructor registered
+
+	h := table.NewWithType(uint32(42), true, NewResourceTypeID(1))
+
+	// Instance 100 is on the call stack
+	tracker.EnterInstance(100)
+
+	// Same-instance drop (current=100, defining=100) should NOT check reentrance
+	err := table.DropOwnedWithReentranceCheck(
+		h,
+		NewResourceTypeID(1),
+		registry,
+		100, // current instance
+		100, // defining instance (same!)
+		nil,
+		tracker,
+	)
+	require.NoError(t, err) // Should succeed despite instance being on call stack
+}

@@ -1,0 +1,12 @@
+[package]
+name = "calculator-plugin-host"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+wasmtime = { version = "29", features = ["component-model"] }
+wasmtime-wasi = "29"
+anyhow = "1.0"
+
+[dev-dependencies]
+pretty_assertions = "1.4"

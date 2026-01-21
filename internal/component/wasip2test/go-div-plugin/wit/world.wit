@@ -1,0 +1,8 @@
+package docs:calculator@0.1.0;
+
+world plugin {
+    include wasi:cli/imports@0.2.0;
+
+    export get-plugin-name: func() -> string;
+    export evaluate: func(x: s32, y: s32) -> s32;
+}

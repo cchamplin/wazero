@@ -180,14 +180,39 @@ func (m *moduleEngine) NewFunction(index wasm.Index) api.Function {
 	}
 
 	src := m.module.Source
+	p := m.parent
+	if len(src.FunctionSection) == 0 || int(localIndex) >= len(src.FunctionSection) {
+		name := "<unnamed>"
+		if src != nil && src.NameSection != nil {
+			name = src.NameSection.ModuleName
+		}
+		panic(fmt.Sprintf("wazevo.NewFunction invalid function section index: module=%s importedFns=%d localFns=%d exports=%d requestedIndex=%d localIndex=%d functionSectionLen=%d functionOffsets=%d",
+			name, src.ImportFunctionCount, len(src.FunctionSection), len(src.ExportSection), index, localIndex, len(src.FunctionSection), len(p.functionOffsets)))
+	}
 	typIndex := src.FunctionSection[localIndex]
 	typ := src.TypeSection[typIndex]
 	sizeOfParamResultSlice := typ.ResultNumInUint64
 	if ps := typ.ParamNumInUint64; ps > sizeOfParamResultSlice {
 		sizeOfParamResultSlice = ps
 	}
-	p := m.parent
+	if len(p.functionOffsets) == 0 || int(localIndex) >= len(p.functionOffsets) {
+		name := "<unnamed>"
+		if src != nil && src.NameSection != nil {
+			name = src.NameSection.ModuleName
+		}
+		panic(fmt.Sprintf("wazevo.NewFunction invalid index: module=%s importedFns=%d localFns=%d exports=%d requestedIndex=%d localIndex=%d functionOffsets=%d",
+			name, src.ImportFunctionCount, len(src.FunctionSection), len(src.ExportSection), index, localIndex, len(p.functionOffsets)))
+	}
 	offset := p.functionOffsets[localIndex]
+
+	if len(p.entryPreamblesPtrs) == 0 || int(typIndex) >= len(p.entryPreamblesPtrs) {
+		name := "<unnamed>"
+		if src != nil && src.NameSection != nil {
+			name = src.NameSection.ModuleName
+		}
+		panic(fmt.Sprintf("wazevo.NewFunction missing entry preamble: module=%s importedFns=%d localFns=%d typeLen=%d typIndex=%d entryPreambles=%d",
+			name, src.ImportFunctionCount, len(src.FunctionSection), len(src.TypeSection), typIndex, len(p.entryPreamblesPtrs)))
+	}
 
 	ce := &callEngine{
 		indexInModule:          index,
@@ -345,6 +370,9 @@ func (m *moduleEngine) LookupFunction(t *wasm.TableInstance, typeId wasm.Functio
 }
 
 func moduleInstanceFromOpaquePtr(ptr *byte) *wasm.ModuleInstance {
+	if ptr == nil {
+		return nil
+	}
 	return *(**wasm.ModuleInstance)(unsafe.Pointer(ptr))
 }
 

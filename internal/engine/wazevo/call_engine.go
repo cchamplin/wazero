@@ -3,6 +3,7 @@ package wazevo
 import (
 	"context"
 	"fmt"
+	"os"
 	"reflect"
 	"runtime"
 	"sync/atomic"
@@ -92,6 +93,41 @@ type (
 		memoryNotifyTrampolineAddress *byte
 	}
 )
+
+var debugInvalidTableAccess = os.Getenv("WAZERO_DEBUG_TABLE") != ""
+
+func (c *callEngine) logTableTrap(code wazevoapi.ExitCode) {
+	if !debugInvalidTableAccess {
+		return
+	}
+	mod := c.callerModuleInstance()
+	fnCount, importCount := 0, 0
+	if mod != nil && mod.Source != nil {
+		fnCount = len(mod.Source.FunctionSection)
+		importCount = int(mod.Source.ImportFunctionCount)
+	}
+	tableLens := make([]int, 0, len(mod.Tables))
+	for _, t := range mod.Tables {
+		if t != nil {
+			tableLens = append(tableLens, len(t.References))
+		} else {
+			tableLens = append(tableLens, 0)
+		}
+	}
+	var stackView []uint64
+	if c.execCtx.stackPointerBeforeGoCall != nil {
+		s := goCallStackView(c.execCtx.stackPointerBeforeGoCall)
+		if len(s) > 4 {
+			s = s[:4]
+		}
+		stackView = append(stackView, s...)
+	}
+	raw := uint64(c.execCtx.stackGrowRequiredSize)
+	funcIdx := raw >> 32
+	idx := raw & 0xffffffff
+	fmt.Fprintf(os.Stderr, "[table-trap] code=%s funcs=%d imports=%d tables=%v funcIdx=%d idx=%d stack=%v\n",
+		(code & wazevoapi.ExitCodeMask).String(), fnCount, importCount, tableLens, funcIdx, idx, stackView)
+}
 
 func (c *callEngine) requiredInitialStackSize() int {
 	const initialStackSizeDefault = 10240
@@ -196,6 +232,10 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 	snapshotEnabled := ctx.Value(expctxkeys.EnableSnapshotterKey{}) != nil
 	if snapshotEnabled {
 		ctx = context.WithValue(ctx, expctxkeys.SnapshotterKey{}, c)
+	}
+
+	if debugInvalidTableAccess {
+		c.execCtx.stackGrowRequiredSize = 0
 	}
 
 	if wazevoapi.StackGuardCheckEnabled {
@@ -492,8 +532,10 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 		case wazevoapi.ExitCodeMemoryOutOfBounds:
 			panic(wasmruntime.ErrRuntimeOutOfBoundsMemoryAccess)
 		case wazevoapi.ExitCodeTableOutOfBounds:
+			c.logTableTrap(ec)
 			panic(wasmruntime.ErrRuntimeInvalidTableAccess)
 		case wazevoapi.ExitCodeIndirectCallNullPointer:
+			c.logTableTrap(ec)
 			panic(wasmruntime.ErrRuntimeInvalidTableAccess)
 		case wazevoapi.ExitCodeIndirectCallTypeMismatch:
 			panic(wasmruntime.ErrRuntimeIndirectCallTypeMismatch)

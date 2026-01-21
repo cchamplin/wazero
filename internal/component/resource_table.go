@@ -15,6 +15,8 @@ var (
 	ErrResourceTypeMismatch = errors.New("resource type mismatch")
 	// ErrMayNotLeave is returned when an operation requires may_leave but it's false.
 	ErrMayNotLeave = errors.New("operation not allowed: instance may not leave")
+	// ErrReentrance is returned when an operation would cause invalid reentrance.
+	ErrReentrance = errors.New("operation would cause invalid recursive reentrance")
 )
 
 // Handle is a 64-bit resource handle: upper 32 bits = generation, lower 32 = index.
@@ -567,4 +569,41 @@ func (t *ResourceTable) DropOwned(
 	}
 
 	return nil
+}
+
+// DropOwnedWithReentranceCheck drops an owned handle with full reentrance checking.
+// This implements the complete spec behavior for resource.drop.
+//
+// From spec (CanonicalABI.md:3664-3667):
+//
+//	else:
+//	  trap_if(call_might_be_recursive(thread.task, rt.impl))
+//
+// The reentrance check only applies when there's no destructor.
+func (t *ResourceTable) DropOwnedWithReentranceCheck(
+	h Handle,
+	expectedRT ResourceTypeID,
+	dtorRegistry *DestructorRegistry,
+	currentInstanceID uint32,
+	definingInstanceID uint32,
+	crossInstanceDtor CrossInstanceDestructor,
+	tracker *ReentranceTracker,
+) error {
+	// Validate type first
+	if expectedRT.IsValid() {
+		if err := t.ValidateType(h, expectedRT); err != nil {
+			return err
+		}
+	}
+
+	// Check if this is cross-instance without destructor
+	if currentInstanceID != definingInstanceID {
+		hasDestructor := dtorRegistry != nil && dtorRegistry.Has(expectedRT)
+		if !hasDestructor && tracker != nil && tracker.CallMightBeRecursive(definingInstanceID) {
+			return ErrReentrance
+		}
+	}
+
+	// Proceed with normal DropOwned
+	return t.DropOwned(h, expectedRT, dtorRegistry, currentInstanceID, definingInstanceID, crossInstanceDtor)
 }
