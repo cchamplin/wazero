@@ -48,3 +48,34 @@ func TestCallContext_ValidateReturn_WithBorrows(t *testing.T) {
 	err := ctx.ValidateReturn()
 	require.ErrorIs(t, err, ErrOutstandingBorrows)
 }
+
+func TestCallContext_TrackLenders(t *testing.T) {
+	ctx := NewCallContext()
+
+	// Add some lender handles
+	h1 := MakeHandle(1, 0)
+	h2 := MakeHandle(2, 0)
+	h3 := MakeHandle(3, 0)
+
+	ctx.AddLender(h1)
+	ctx.AddLender(h2)
+	ctx.AddLender(h3)
+
+	lenders := ctx.Lenders()
+	require.Equal(t, 3, len(lenders))
+	require.Equal(t, h1, lenders[0])
+	require.Equal(t, h2, lenders[1])
+	require.Equal(t, h3, lenders[2])
+}
+
+func TestCallContext_ClearLenders(t *testing.T) {
+	ctx := NewCallContext()
+
+	ctx.AddLender(MakeHandle(1, 0))
+	ctx.AddLender(MakeHandle(2, 0))
+
+	require.Equal(t, 2, len(ctx.Lenders()))
+
+	ctx.ClearLenders()
+	require.Equal(t, 0, len(ctx.Lenders()))
+}
