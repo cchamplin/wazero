@@ -665,6 +665,13 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (component.Val
 // It removes the handle from the table and returns the representation value.
 // Traps if the handle has active borrows (NumLends > 0).
 // Traps if the handle is not owned (i.e., it's a borrowed handle).
+//
+// TODO: Per spec lines 2218-2219, should validate:
+//   - trap_if(h.rt is not t.rt) - resource type matches
+//
+// Currently, resource type tracking is not implemented in ResourceTable.
+// Full implementation requires tracking which resource type each handle belongs to,
+// which is a larger architectural change.
 func LiftOwn(ctx *LiftContext, handleIdx uint32) (any, error) {
 	if ctx.ResourceTable == nil {
 		return nil, fmt.Errorf("lift_own: no resource table available")
@@ -740,6 +747,13 @@ func LiftOwn(ctx *LiftContext, handleIdx uint32) (any, error) {
 // LiftBorrow reads a resource representation for borrowing.
 // Unlike LiftOwn, it does NOT remove the handle from the table.
 // It tracks the lend in the BorrowScope to prevent ownership transfer while borrowed.
+//
+// TODO: Per spec lines 2237-2238, should validate:
+//   - trap_if(h.rt is not t.rt) - resource type matches
+//
+// Currently, resource type tracking is not implemented in ResourceTable.
+// Full implementation requires tracking which resource type each handle belongs to,
+// which is a larger architectural change.
 func LiftBorrow(ctx *LiftContext, handleIdx uint32) (any, error) {
 	if ctx.ResourceTable == nil {
 		return nil, fmt.Errorf("lift_borrow: no resource table available")

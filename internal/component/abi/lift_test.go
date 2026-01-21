@@ -2042,6 +2042,91 @@ func TestLiftBorrow_BorrowedHandle(t *testing.T) {
 	require.Equal(t, "borrowed-resource", rep)
 }
 
+// --- Resource Type Validation Tests ---
+
+func TestLiftOwnResourceTypeValidation(t *testing.T) {
+	// This test documents the expected resource type validation behavior.
+	// Per spec lines 2218-2219, lifting a resource should validate that
+	// the handle's resource type matches the expected type.
+	//
+	// TODO: Implement full resource type tracking. Currently the ResourceTable
+	// doesn't track which resource type each handle belongs to.
+
+	// For now, we test that LiftOwn works with valid handles
+	table := component.NewResourceTable()
+
+	// Create a test resource
+	type testRes struct {
+		value string
+	}
+	handle := table.New(&testRes{value: "test"}, true) // true = owned
+
+	ctx := &LiftContext{
+		ResourceTable: table,
+	}
+
+	rep, err := LiftOwn(ctx, handle.Index())
+	if err != nil {
+		t.Fatalf("LiftOwn failed for valid handle: %v", err)
+	}
+
+	// Verify we got the resource back
+	result, ok := rep.(*testRes)
+	require.True(t, ok, "expected *testRes, got %T", rep)
+	require.Equal(t, "test", result.value)
+
+	// TODO: When resource type tracking is implemented, add test for type mismatch:
+	// rtA := &types.ResourceType{...}
+	// rtB := &types.ResourceType{...}
+	// handle := table.NewWithType(&testRes{}, rtA)
+	// _, err := LiftOwnTyped(ctx, handle.Index(), rtB)
+	// require.Error(t, err) // should fail due to type mismatch
+}
+
+func TestLiftBorrowResourceTypeValidation(t *testing.T) {
+	// This test documents the expected resource type validation behavior.
+	// Per spec lines 2237-2238, lifting a borrow should validate that
+	// the handle's resource type matches the expected type.
+	//
+	// TODO: Implement full resource type tracking. Currently the ResourceTable
+	// doesn't track which resource type each handle belongs to.
+
+	// For now, we test that LiftBorrow works with valid handles
+	table := component.NewResourceTable()
+	scope := component.NewBorrowScope(table)
+
+	// Create a test resource
+	type testRes struct {
+		value string
+	}
+	handle := table.New(&testRes{value: "borrowed-test"}, true)
+
+	ctx := &LiftContext{
+		ResourceTable: table,
+		BorrowScope:   scope,
+	}
+
+	rep, err := LiftBorrow(ctx, handle.Index())
+	if err != nil {
+		t.Fatalf("LiftBorrow failed for valid handle: %v", err)
+	}
+
+	// Verify we got the resource back
+	result, ok := rep.(*testRes)
+	require.True(t, ok, "expected *testRes, got %T", rep)
+	require.Equal(t, "borrowed-test", result.value)
+
+	// Clean up borrow scope
+	require.NoError(t, scope.Release())
+
+	// TODO: When resource type tracking is implemented, add test for type mismatch:
+	// rtA := &types.ResourceType{...}
+	// rtB := &types.ResourceType{...}
+	// handle := table.NewWithType(&testRes{}, rtA)
+	// _, err := LiftBorrowTyped(ctx, handle.Index(), rtB)
+	// require.Error(t, err) // should fail due to type mismatch
+}
+
 // --- NaN Canonicalization Tests ---
 
 func TestLiftHeapF32NaNCanonicalization(t *testing.T) {
