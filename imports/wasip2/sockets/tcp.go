@@ -54,7 +54,7 @@ func instantiateTcp(linker *component.Linker) error {
 	inst.FuncNoType("[method]tcp-socket.subscribe", tcpSocketSubscribe)
 	inst.FuncNoType("[method]tcp-socket.shutdown", tcpSocketShutdown)
 
-	return inst.Build()
+	return inst.SkipValidation().Build()
 }
 
 // instantiateTcpCreateSocket registers wasi:sockets/tcp-create-socket@0.2.0
@@ -64,7 +64,7 @@ func instantiateTcpCreateSocket(linker *component.Linker) error {
 	// create-tcp-socket: func(network: borrow<network>, address-family: ip-address-family) -> result<own<tcp-socket>, error-code>
 	inst.FuncNoType("create-tcp-socket", createTcpSocket)
 
-	return inst.Build()
+	return inst.SkipValidation().Build()
 }
 
 // createTcpSocket creates a new TCP socket.

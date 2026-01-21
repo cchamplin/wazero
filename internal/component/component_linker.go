@@ -96,9 +96,10 @@ func (l *ComponentLinker) DefineValue(namespace, name string, value Val) error {
 
 // ComponentInstanceBuilder builds an instance definition for ComponentLinker.
 type ComponentInstanceBuilder struct {
-	linker    *ComponentLinker
-	namespace string
-	exports   map[string]Definition
+	linker         *ComponentLinker
+	namespace      string
+	exports        map[string]Definition
+	skipValidation bool
 }
 
 // DefineInstance starts building an instance definition.
@@ -122,14 +123,21 @@ func (b *ComponentInstanceBuilder) Resource(name string, destructor func(rep uin
 	return b
 }
 
+// SkipValidation disables validation for this instance definition.
+// Use this when providing a partial implementation of a WASI interface.
+func (b *ComponentInstanceBuilder) SkipValidation() *ComponentInstanceBuilder {
+	b.skipValidation = true
+	return b
+}
+
 // Build finalizes the instance definition.
-// By default, SkipValidation is true since host-provided instances don't typically
-// include explicit type metadata for all expected exports.
+// Validation is enabled by default to catch missing required exports.
+// Use SkipValidation() to disable for partial implementations.
 func (b *ComponentInstanceBuilder) Build() error {
 	if _, exists := b.linker.definitions[b.namespace]; exists {
 		return fmt.Errorf("definition already exists: %s", b.namespace)
 	}
-	b.linker.definitions[b.namespace] = &InstanceDef{Exports: b.exports, SkipValidation: true}
+	b.linker.definitions[b.namespace] = &InstanceDef{Exports: b.exports, SkipValidation: b.skipValidation}
 	return nil
 }
 

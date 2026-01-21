@@ -49,7 +49,7 @@ func instantiateRandom(linker *component.Linker) error {
 	inst.FuncNoType("get-random-bytes", getRandomBytes)
 	inst.FuncNoType("get-random-u64", getRandomU64)
 
-	return inst.Build()
+	return inst.SkipValidation().Build()
 }
 
 func getRandomBytes(ctx context.Context, args []component.Val) ([]component.Val, error) {

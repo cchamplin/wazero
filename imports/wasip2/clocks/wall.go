@@ -40,7 +40,7 @@ func instantiateWallClock(linker *component.Linker) error {
 	inst.FuncNoType("now", wallClockNow)
 	inst.FuncNoType("resolution", wallClockResolution)
 
-	return inst.Build()
+	return inst.SkipValidation().Build()
 }
 
 func wallClockNow(ctx context.Context, args []component.Val) ([]component.Val, error) {

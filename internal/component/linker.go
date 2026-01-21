@@ -112,9 +112,10 @@ func (l *Linker) DefineResource(namespace, name string, destructor func(rep uint
 
 // InstanceBuilder builds an instance definition with multiple exports.
 type InstanceBuilder struct {
-	linker    *Linker
-	namespace string
-	exports   map[string]Definition
+	linker         *Linker
+	namespace      string
+	exports        map[string]Definition
+	skipValidation bool
 }
 
 // DefineInstance starts building an instance definition.
@@ -145,14 +146,21 @@ func (b *InstanceBuilder) FuncNoType(name string, fn HostFunc) *InstanceBuilder 
 	return b
 }
 
+// SkipValidation disables validation for this instance definition.
+// Use this when providing a partial implementation of a WASI interface.
+func (b *InstanceBuilder) SkipValidation() *InstanceBuilder {
+	b.skipValidation = true
+	return b
+}
+
 // Build finalizes the instance definition and registers it with the linker.
-// By default, SkipValidation is true since host-provided instances don't typically
-// include explicit type metadata for all expected exports.
+// Validation is enabled by default to catch missing required exports.
+// Use SkipValidation() to disable for partial implementations.
 func (b *InstanceBuilder) Build() error {
 	if _, exists := b.linker.definitions[b.namespace]; exists {
 		return fmt.Errorf("definition already exists: %s", b.namespace)
 	}
-	b.linker.definitions[b.namespace] = &InstanceDef{Exports: b.exports, SkipValidation: true}
+	b.linker.definitions[b.namespace] = &InstanceDef{Exports: b.exports, SkipValidation: b.skipValidation}
 	return nil
 }
 

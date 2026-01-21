@@ -166,7 +166,7 @@ func instantiatePoll(linker *component.Linker) error {
 	// poll: func(in: list<borrow<pollable>>) -> list<u32>
 	inst.FuncNoType("poll", pollPoll)
 
-	return inst.Build()
+	return inst.SkipValidation().Build()
 }
 
 func pollableReady(ctx context.Context, args []component.Val) ([]component.Val, error) {

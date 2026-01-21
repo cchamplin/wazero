@@ -59,7 +59,7 @@ func instantiateMonotonicClock(linker *component.Linker) error {
 	inst.FuncNoType("subscribe-instant", monotonicClockSubscribeInstant)
 	inst.FuncNoType("subscribe-duration", monotonicClockSubscribeDuration)
 
-	return inst.Build()
+	return inst.SkipValidation().Build()
 }
 
 func monotonicClockNow(ctx context.Context, args []component.Val) ([]component.Val, error) {

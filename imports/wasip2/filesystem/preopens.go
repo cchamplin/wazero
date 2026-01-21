@@ -21,7 +21,7 @@ func instantiatePreopens(linker *component.Linker) error {
 
 	inst.FuncNoType("get-directories", getDirectories)
 
-	return inst.Build()
+	return inst.SkipValidation().Build()
 }
 
 // getDirectories returns the list of preopened directories.
