@@ -131,8 +131,9 @@ func (f *ExportedFunc) Name() string {
 // Supports primitive types, records (flattened to their fields), and resource handles.
 // For resource handles (own/borrow), it uses the Canonical ABI lift/lower operations.
 func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
-	// Set up call context and borrow scope for resource tracking
+	// Set up call context and subtask for resource tracking
 	callCtx := NewCallContext()
+	var subtask *Subtask
 	var borrowScope *BorrowScope
 
 	// Initialize resource table if needed
@@ -140,7 +141,21 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 		if f.instance.resourceTable == nil {
 			f.instance.resourceTable = NewResourceTable()
 		}
-		borrowScope = NewBorrowScope(f.instance.resourceTable)
+		// Create subtask which owns the borrow scope
+		subtask = NewSubtask(f.instance.resourceTable)
+		borrowScope = subtask.BorrowScope()
+
+		// Defer subtask cleanup for error paths
+		// This ensures the borrow scope is released even if we return early
+		defer func() {
+			if subtask != nil && subtask.State() == SubtaskStatePending {
+				// If we're returning early (error), resolve with nil result
+				subtask.DeliverResolve(nil)
+				subtask.StartFinish()
+				subtask.Finish() // Ignore errors in defer cleanup
+			}
+		}()
+
 		// Set the call context for this invocation
 		prevCallCtx := f.instance.callContext
 		f.instance.callContext = callCtx
@@ -363,12 +378,6 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 			if err != nil {
 				return nil, fmt.Errorf("lift own result: %w", err)
 			}
-			// Release borrow scope before return
-			if borrowScope != nil {
-				if err := borrowScope.Release(); err != nil {
-					return nil, fmt.Errorf("release borrow scope: %w", err)
-				}
-			}
 			// Validate no outstanding borrows
 			if err := callCtx.ValidateReturn(); err != nil {
 				return nil, err
@@ -376,11 +385,29 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 			// Return the representation as the handle value
 			// The rep is any, so we extract uint32 if it's a handle index
 			if handleVal, ok := rep.(uint32); ok {
-				return []Val{ValOwn(handleVal)}, nil
+				result := []Val{ValOwn(handleVal)}
+				// Complete subtask before return
+				if subtask != nil {
+					subtask.DeliverResolve(result)
+					subtask.StartFinish()
+					if err := subtask.Finish(); err != nil {
+						return nil, fmt.Errorf("subtask finish: %w", err)
+					}
+				}
+				return result, nil
 			}
 			// If rep is not uint32, return it wrapped in ValOwn with index 0
 			// This is a simplification; proper implementation would track the actual handle
-			return []Val{ValOwn(0)}, nil
+			result := []Val{ValOwn(0)}
+			// Complete subtask before return
+			if subtask != nil {
+				subtask.DeliverResolve(result)
+				subtask.StartFinish()
+				if err := subtask.Finish(); err != nil {
+					return nil, fmt.Errorf("subtask finish: %w", err)
+				}
+			}
+			return result, nil
 		}
 
 		// Check for borrow<T> result (rare, but possible)
@@ -391,27 +418,39 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 			if err != nil {
 				return nil, fmt.Errorf("lift borrow result: %w", err)
 			}
-			// Release borrow scope before return
-			if borrowScope != nil {
-				if err := borrowScope.Release(); err != nil {
-					return nil, fmt.Errorf("release borrow scope: %w", err)
-				}
-			}
 			// Validate no outstanding borrows
 			if err := callCtx.ValidateReturn(); err != nil {
 				return nil, err
 			}
 			if handleVal, ok := rep.(uint32); ok {
-				return []Val{ValBorrow(handleVal)}, nil
+				result := []Val{ValBorrow(handleVal)}
+				// Complete subtask before return
+				if subtask != nil {
+					subtask.DeliverResolve(result)
+					subtask.StartFinish()
+					if err := subtask.Finish(); err != nil {
+						return nil, fmt.Errorf("subtask finish: %w", err)
+					}
+				}
+				return result, nil
 			}
-			return []Val{ValBorrow(0)}, nil
+			result := []Val{ValBorrow(0)}
+			// Complete subtask before return
+			if subtask != nil {
+				subtask.DeliverResolve(result)
+				subtask.StartFinish()
+				if err := subtask.Finish(); err != nil {
+					return nil, fmt.Errorf("subtask finish: %w", err)
+				}
+			}
+			return result, nil
 		}
 
 		// Use TypeResolver for defined types when available
 		if resolver != nil && !resultTypeRef.IsPrimitive {
 			resolvedType, resolveErr := resolver.ResolveValType(resultTypeRef)
 			if resolveErr == nil {
-				result, liftErr := f.liftResolvedType(resolvedType, coreResults, borrowScope, callCtx)
+				result, liftErr := f.liftResolvedType(resolvedType, coreResults, subtask, callCtx)
 				if liftErr == nil {
 					return result, nil
 				}
@@ -428,42 +467,51 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 				discriminant := coreResults[0]
 				if discriminant == 0 {
 					// None
-					// Release borrow scope and validate before return
-					if borrowScope != nil {
-						if err := borrowScope.Release(); err != nil {
-							return nil, fmt.Errorf("release borrow scope: %w", err)
-						}
-					}
 					if err := callCtx.ValidateReturn(); err != nil {
 						return nil, err
 					}
-					return []Val{ValOption(nil)}, nil
+					result := []Val{ValOption(nil)}
+					// Complete subtask before return
+					if subtask != nil {
+						subtask.DeliverResolve(result)
+						subtask.StartFinish()
+						if err := subtask.Finish(); err != nil {
+							return nil, fmt.Errorf("subtask finish: %w", err)
+						}
+					}
+					return result, nil
 				}
 				// Some: Use TypeResolver to determine payload type if available
 				payload := f.liftPrimitiveVal(coreResults[1], typeDef.Option.InnerType)
-				// Release borrow scope and validate before return
-				if borrowScope != nil {
-					if err := borrowScope.Release(); err != nil {
-						return nil, fmt.Errorf("release borrow scope: %w", err)
-					}
-				}
 				if err := callCtx.ValidateReturn(); err != nil {
 					return nil, err
 				}
-				return []Val{ValOption(&payload)}, nil
+				result := []Val{ValOption(&payload)}
+				// Complete subtask before return
+				if subtask != nil {
+					subtask.DeliverResolve(result)
+					subtask.StartFinish()
+					if err := subtask.Finish(); err != nil {
+						return nil, fmt.Errorf("subtask finish: %w", err)
+					}
+				}
+				return result, nil
 			} else if typeDef.Record != nil {
 				// Record type: Use TypeResolver to get field names and types dynamically
 				rec := f.liftRecord(typeDef.Record, coreResults)
-				// Release borrow scope and validate before return
-				if borrowScope != nil {
-					if err := borrowScope.Release(); err != nil {
-						return nil, fmt.Errorf("release borrow scope: %w", err)
-					}
-				}
 				if err := callCtx.ValidateReturn(); err != nil {
 					return nil, err
 				}
-				return []Val{ValRecord(rec)}, nil
+				result := []Val{ValRecord(rec)}
+				// Complete subtask before return
+				if subtask != nil {
+					subtask.DeliverResolve(result)
+					subtask.StartFinish()
+					if err := subtask.Finish(); err != nil {
+						return nil, fmt.Errorf("subtask finish: %w", err)
+					}
+				}
+				return result, nil
 			} else if typeDef.Result != nil && len(coreResults) == 2 {
 				// Result type: first result is discriminant, second is payload
 				// discriminant 0 = Ok, 1 = Error
@@ -473,53 +521,67 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 					// Use TypeResolver to determine payload type if available
 					if typeDef.Result.OkType != nil {
 						payload := f.liftPrimitiveVal(coreResults[1], *typeDef.Result.OkType)
-						// Release borrow scope and validate before return
-						if borrowScope != nil {
-							if err := borrowScope.Release(); err != nil {
-								return nil, fmt.Errorf("release borrow scope: %w", err)
-							}
-						}
 						if err := callCtx.ValidateReturn(); err != nil {
 							return nil, err
 						}
-						return []Val{ValResultOk(&payload)}, nil
+						result := []Val{ValResultOk(&payload)}
+						// Complete subtask before return
+						if subtask != nil {
+							subtask.DeliverResolve(result)
+							subtask.StartFinish()
+							if err := subtask.Finish(); err != nil {
+								return nil, fmt.Errorf("subtask finish: %w", err)
+							}
+						}
+						return result, nil
 					}
 					// No ok type, return unit result
-					if borrowScope != nil {
-						if err := borrowScope.Release(); err != nil {
-							return nil, fmt.Errorf("release borrow scope: %w", err)
-						}
-					}
 					if err := callCtx.ValidateReturn(); err != nil {
 						return nil, err
 					}
-					return []Val{ValResultOk(nil)}, nil
+					result := []Val{ValResultOk(nil)}
+					// Complete subtask before return
+					if subtask != nil {
+						subtask.DeliverResolve(result)
+						subtask.StartFinish()
+						if err := subtask.Finish(); err != nil {
+							return nil, fmt.Errorf("subtask finish: %w", err)
+						}
+					}
+					return result, nil
 				}
 				// Error: return error result with error value
 				// Use TypeResolver to determine error type if available
 				if typeDef.Result.ErrType != nil {
 					errVal := f.liftPrimitiveVal(coreResults[1], *typeDef.Result.ErrType)
-					// Release borrow scope and validate before return
-					if borrowScope != nil {
-						if err := borrowScope.Release(); err != nil {
-							return nil, fmt.Errorf("release borrow scope: %w", err)
-						}
-					}
 					if err := callCtx.ValidateReturn(); err != nil {
 						return nil, err
 					}
-					return []Val{ValResultError(&errVal)}, nil
+					result := []Val{ValResultError(&errVal)}
+					// Complete subtask before return
+					if subtask != nil {
+						subtask.DeliverResolve(result)
+						subtask.StartFinish()
+						if err := subtask.Finish(); err != nil {
+							return nil, fmt.Errorf("subtask finish: %w", err)
+						}
+					}
+					return result, nil
 				}
 				// No error type, return unit error
-				if borrowScope != nil {
-					if err := borrowScope.Release(); err != nil {
-						return nil, fmt.Errorf("release borrow scope: %w", err)
-					}
-				}
 				if err := callCtx.ValidateReturn(); err != nil {
 					return nil, err
 				}
-				return []Val{ValResultError(nil)}, nil
+				result := []Val{ValResultError(nil)}
+				// Complete subtask before return
+				if subtask != nil {
+					subtask.DeliverResolve(result)
+					subtask.StartFinish()
+					if err := subtask.Finish(); err != nil {
+						return nil, fmt.Errorf("subtask finish: %w", err)
+					}
+				}
+				return result, nil
 			}
 		}
 
@@ -539,37 +601,36 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 				if err != nil {
 					return nil, fmt.Errorf("lift string result: %w", err)
 				}
-				// Release borrow scope and validate before return
-				if borrowScope != nil {
-					if err := borrowScope.Release(); err != nil {
-						return nil, fmt.Errorf("release borrow scope: %w", err)
-					}
-				}
 				if err := callCtx.ValidateReturn(); err != nil {
 					return nil, err
 				}
-				return []Val{ValString(str)}, nil
+				result := []Val{ValString(str)}
+				// Complete subtask before return
+				if subtask != nil {
+					subtask.DeliverResolve(result)
+					subtask.StartFinish()
+					if err := subtask.Finish(); err != nil {
+						return nil, fmt.Errorf("subtask finish: %w", err)
+					}
+				}
+				return result, nil
 			}
 			if len(coreResults) == 1 {
 				val := f.liftPrimitiveVal(coreResults[0], resultTypeRef)
-				// Release borrow scope and validate before return
-				if borrowScope != nil {
-					if err := borrowScope.Release(); err != nil {
-						return nil, fmt.Errorf("release borrow scope: %w", err)
-					}
-				}
 				if err := callCtx.ValidateReturn(); err != nil {
 					return nil, err
 				}
-				return []Val{val}, nil
+				result := []Val{val}
+				// Complete subtask before return
+				if subtask != nil {
+					subtask.DeliverResolve(result)
+					subtask.StartFinish()
+					if err := subtask.Finish(); err != nil {
+						return nil, fmt.Errorf("subtask finish: %w", err)
+					}
+				}
+				return result, nil
 			}
-		}
-	}
-
-	// Release borrow scope before returning
-	if borrowScope != nil {
-		if err := borrowScope.Release(); err != nil {
-			return nil, fmt.Errorf("release borrow scope: %w", err)
 		}
 	}
 
@@ -584,6 +645,14 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 		for i, r := range coreResults {
 			results[i] = f.liftPrimitiveVal(r, f.funcType.Results[i].ValType)
 		}
+		// Complete subtask before return
+		if subtask != nil {
+			subtask.DeliverResolve(results)
+			subtask.StartFinish()
+			if err := subtask.Finish(); err != nil {
+				return nil, fmt.Errorf("subtask finish: %w", err)
+			}
+		}
 		return results, nil
 	}
 
@@ -591,6 +660,15 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 	results := make([]Val, len(coreResults))
 	for i, r := range coreResults {
 		results[i] = ValS32(int32(r))
+	}
+
+	// Complete subtask before return
+	if subtask != nil {
+		subtask.DeliverResolve(results)
+		subtask.StartFinish()
+		if err := subtask.Finish(); err != nil {
+			return nil, fmt.Errorf("subtask finish: %w", err)
+		}
 	}
 
 	return results, nil
@@ -713,7 +791,7 @@ func (f *ExportedFunc) liftRecord(recordDef *RecordTypeDef, coreResults []uint64
 
 // liftResolvedType lifts core values to a component Val using a resolved type.
 // This is the type-resolver-driven path for lifting complex types.
-func (f *ExportedFunc) liftResolvedType(resolvedType types.ValType, coreResults []uint64, borrowScope *BorrowScope, callCtx *CallContext) ([]Val, error) {
+func (f *ExportedFunc) liftResolvedType(resolvedType types.ValType, coreResults []uint64, subtask *Subtask, callCtx *CallContext) ([]Val, error) {
 	switch t := resolvedType.(type) {
 	case types.Record:
 		if len(coreResults) < len(t.Fields) {
@@ -723,16 +801,19 @@ func (f *ExportedFunc) liftResolvedType(resolvedType types.ValType, coreResults 
 		for i, field := range t.Fields {
 			rec[field.Name] = f.liftResolvedPrimitiveVal(coreResults[i], field.Type)
 		}
-		// Release borrow scope and validate before return
-		if borrowScope != nil {
-			if err := borrowScope.Release(); err != nil {
-				return nil, fmt.Errorf("release borrow scope: %w", err)
-			}
-		}
 		if err := callCtx.ValidateReturn(); err != nil {
 			return nil, err
 		}
-		return []Val{ValRecord(rec)}, nil
+		result := []Val{ValRecord(rec)}
+		// Complete subtask before return
+		if subtask != nil {
+			subtask.DeliverResolve(result)
+			subtask.StartFinish()
+			if err := subtask.Finish(); err != nil {
+				return nil, fmt.Errorf("subtask finish: %w", err)
+			}
+		}
+		return result, nil
 
 	case types.Option:
 		if len(coreResults) < 2 {
@@ -741,27 +822,35 @@ func (f *ExportedFunc) liftResolvedType(resolvedType types.ValType, coreResults 
 		discriminant := coreResults[0]
 		if discriminant == 0 {
 			// None
-			if borrowScope != nil {
-				if err := borrowScope.Release(); err != nil {
-					return nil, fmt.Errorf("release borrow scope: %w", err)
-				}
-			}
 			if err := callCtx.ValidateReturn(); err != nil {
 				return nil, err
 			}
-			return []Val{ValOption(nil)}, nil
+			result := []Val{ValOption(nil)}
+			// Complete subtask before return
+			if subtask != nil {
+				subtask.DeliverResolve(result)
+				subtask.StartFinish()
+				if err := subtask.Finish(); err != nil {
+					return nil, fmt.Errorf("subtask finish: %w", err)
+				}
+			}
+			return result, nil
 		}
 		// Some
 		payload := f.liftResolvedPrimitiveVal(coreResults[1], t.Some)
-		if borrowScope != nil {
-			if err := borrowScope.Release(); err != nil {
-				return nil, fmt.Errorf("release borrow scope: %w", err)
-			}
-		}
 		if err := callCtx.ValidateReturn(); err != nil {
 			return nil, err
 		}
-		return []Val{ValOption(&payload)}, nil
+		result := []Val{ValOption(&payload)}
+		// Complete subtask before return
+		if subtask != nil {
+			subtask.DeliverResolve(result)
+			subtask.StartFinish()
+			if err := subtask.Finish(); err != nil {
+				return nil, fmt.Errorf("subtask finish: %w", err)
+			}
+		}
+		return result, nil
 
 	case types.Result:
 		if len(coreResults) < 2 {
@@ -772,48 +861,64 @@ func (f *ExportedFunc) liftResolvedType(resolvedType types.ValType, coreResults 
 			// Ok
 			if t.Ok != nil {
 				payload := f.liftResolvedPrimitiveVal(coreResults[1], t.Ok)
-				if borrowScope != nil {
-					if err := borrowScope.Release(); err != nil {
-						return nil, fmt.Errorf("release borrow scope: %w", err)
-					}
-				}
 				if err := callCtx.ValidateReturn(); err != nil {
 					return nil, err
 				}
-				return []Val{ValResultOk(&payload)}, nil
-			}
-			if borrowScope != nil {
-				if err := borrowScope.Release(); err != nil {
-					return nil, fmt.Errorf("release borrow scope: %w", err)
+				result := []Val{ValResultOk(&payload)}
+				// Complete subtask before return
+				if subtask != nil {
+					subtask.DeliverResolve(result)
+					subtask.StartFinish()
+					if err := subtask.Finish(); err != nil {
+						return nil, fmt.Errorf("subtask finish: %w", err)
+					}
 				}
+				return result, nil
 			}
 			if err := callCtx.ValidateReturn(); err != nil {
 				return nil, err
 			}
-			return []Val{ValResultOk(nil)}, nil
+			result := []Val{ValResultOk(nil)}
+			// Complete subtask before return
+			if subtask != nil {
+				subtask.DeliverResolve(result)
+				subtask.StartFinish()
+				if err := subtask.Finish(); err != nil {
+					return nil, fmt.Errorf("subtask finish: %w", err)
+				}
+			}
+			return result, nil
 		}
 		// Error
 		if t.Error != nil {
 			errVal := f.liftResolvedPrimitiveVal(coreResults[1], t.Error)
-			if borrowScope != nil {
-				if err := borrowScope.Release(); err != nil {
-					return nil, fmt.Errorf("release borrow scope: %w", err)
-				}
-			}
 			if err := callCtx.ValidateReturn(); err != nil {
 				return nil, err
 			}
-			return []Val{ValResultError(&errVal)}, nil
-		}
-		if borrowScope != nil {
-			if err := borrowScope.Release(); err != nil {
-				return nil, fmt.Errorf("release borrow scope: %w", err)
+			result := []Val{ValResultError(&errVal)}
+			// Complete subtask before return
+			if subtask != nil {
+				subtask.DeliverResolve(result)
+				subtask.StartFinish()
+				if err := subtask.Finish(); err != nil {
+					return nil, fmt.Errorf("subtask finish: %w", err)
+				}
 			}
+			return result, nil
 		}
 		if err := callCtx.ValidateReturn(); err != nil {
 			return nil, err
 		}
-		return []Val{ValResultError(nil)}, nil
+		result := []Val{ValResultError(nil)}
+		// Complete subtask before return
+		if subtask != nil {
+			subtask.DeliverResolve(result)
+			subtask.StartFinish()
+			if err := subtask.Finish(); err != nil {
+				return nil, fmt.Errorf("subtask finish: %w", err)
+			}
+		}
+		return result, nil
 
 	case types.String:
 		// String results are returned via retptr since FlattenCount=2 > MAX_FLAT_RESULTS=1
@@ -829,15 +934,19 @@ func (f *ExportedFunc) liftResolvedType(resolvedType types.ValType, coreResults 
 		if err != nil {
 			return nil, fmt.Errorf("lift string result: %w", err)
 		}
-		if borrowScope != nil {
-			if err := borrowScope.Release(); err != nil {
-				return nil, fmt.Errorf("release borrow scope: %w", err)
-			}
-		}
 		if err := callCtx.ValidateReturn(); err != nil {
 			return nil, err
 		}
-		return []Val{ValString(str)}, nil
+		result := []Val{ValString(str)}
+		// Complete subtask before return
+		if subtask != nil {
+			subtask.DeliverResolve(result)
+			subtask.StartFinish()
+			if err := subtask.Finish(); err != nil {
+				return nil, fmt.Errorf("subtask finish: %w", err)
+			}
+		}
+		return result, nil
 
 	default:
 		// For other types, fall back to legacy handling
