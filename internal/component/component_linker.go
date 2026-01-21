@@ -1175,31 +1175,17 @@ func (l *ComponentLinker) wireExportedFunc(
 		return nil, fmt.Errorf("resolve core func %d: %w", canon.CoreFuncIdx, err)
 	}
 
+	// Look up the function type using the type index mapping.
+	// The component type index space can include type aliases that don't add entries
+	// to c.Types, so we need the mapping to find the correct stored index.
 	var funcType *FuncType
-	if int(canon.TypeIdx) < len(c.Types) && c.Types[canon.TypeIdx].Kind == TypeDefKindFunc {
-		funcType = c.Types[canon.TypeIdx].Func
-	} else if canon.TypeIdx >= uint32(len(c.Types)) {
-		// The component type index space includes instance types and resource types
-		// that are not stored in c.Types. The stored types start after all the
-		// instance/component type definitions.
-		//
-		// For canon lift operations, the TypeIdx references the component-level type
-		// index space. We need to map it back to our stored types array.
-		// The difference between TypeIdx and len(c.Types) gives us the gap,
-		// and subtracting that gap from TypeIdx gives us the stored type index.
-		//
-		// Example: If c.Types has 12 entries and TypeIdx is 22:
-		//   - Gap between component type space and our storage = TypeIdx - len(c.Types) + X
-		//   - Actually: storedIdx = TypeIdx - (gap before first stored type)
-		//   - The gap is: TypeIdx - (offset where we would expect it)
-		//
-		// In practice, we observe that the formula works out to:
-		// storedIdx = TypeIdx - len(c.Types) when len(c.Types) represents the offset
-		// BUT that gives 22 - 12 = 10, which is correct since type 10 is what we want!
-		storedIdx := canon.TypeIdx - uint32(len(c.Types))
+	if storedIdx, ok := c.TypeIdxToStoredIdx[canon.TypeIdx]; ok {
 		if int(storedIdx) < len(c.Types) && c.Types[storedIdx].Kind == TypeDefKindFunc {
 			funcType = c.Types[storedIdx].Func
 		}
+	} else if int(canon.TypeIdx) < len(c.Types) && c.Types[canon.TypeIdx].Kind == TypeDefKindFunc {
+		// Direct lookup fallback for components without the mapping (backward compatibility)
+		funcType = c.Types[canon.TypeIdx].Func
 	}
 
 	var memory api.Memory
