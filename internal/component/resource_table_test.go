@@ -796,3 +796,85 @@ func TestResourceTable_DropOwned_BorrowHandle_NoDestructor(t *testing.T) {
 	_, err = table.Get(h)
 	require.ErrorIs(t, err, ErrInvalidHandle)
 }
+
+// Tests for CreateResourceDropFuncWithContext - Task 4.4
+
+func TestCreateResourceDropFuncWithContext_CallsDestructor(t *testing.T) {
+	table := NewResourceTable()
+	registry := NewDestructorRegistry()
+	callCtx := NewCallContext()
+
+	var destructorCalledWith uint32
+	registry.Register(NewResourceTypeID(1), func(rep uint32) {
+		destructorCalledWith = rep
+	})
+
+	// Create the drop function
+	dropFunc := table.CreateResourceDropFuncWithContext(1, registry, 100, 100, callCtx, nil, func(err error) {
+		t.Fatalf("unexpected trap: %v", err)
+	})
+
+	// Create and drop an owned handle
+	h := table.NewWithType(uint32(42), true, NewResourceTypeID(1))
+	dropFunc(uint32(h))
+
+	require.Equal(t, uint32(42), destructorCalledWith)
+}
+
+func TestCreateResourceDropFuncWithContext_DecrementsBorrowCount(t *testing.T) {
+	table := NewResourceTable()
+	registry := NewDestructorRegistry()
+	callCtx := NewCallContext()
+
+	dropFunc := table.CreateResourceDropFuncWithContext(1, registry, 100, 100, callCtx, nil, func(err error) {
+		t.Fatalf("unexpected trap: %v", err)
+	})
+
+	// Create a borrow handle and increment borrow count
+	h := table.NewWithType(uint32(42), false, NewResourceTypeID(1)) // own=false
+	callCtx.IncrementBorrows()
+
+	require.Equal(t, 1, callCtx.NumBorrows())
+
+	// Drop the borrow
+	dropFunc(uint32(h))
+
+	// Borrow count should be decremented
+	require.Equal(t, 0, callCtx.NumBorrows())
+}
+
+func TestCreateResourceDropFuncWithContext_TrapsOnInvalidHandle(t *testing.T) {
+	table := NewResourceTable()
+	registry := NewDestructorRegistry()
+	callCtx := NewCallContext()
+
+	var trappedErr error
+	dropFunc := table.CreateResourceDropFuncWithContext(1, registry, 100, 100, callCtx, nil, func(err error) {
+		trappedErr = err
+	})
+
+	// Try to drop a non-existent handle
+	dropFunc(999)
+
+	require.ErrorIs(t, trappedErr, ErrInvalidHandle)
+}
+
+func TestCreateResourceDropFuncWithContext_TrapsOnTypeMismatch(t *testing.T) {
+	table := NewResourceTable()
+	registry := NewDestructorRegistry()
+	callCtx := NewCallContext()
+
+	var trappedErr error
+	// Create drop function for type 1
+	dropFunc := table.CreateResourceDropFuncWithContext(1, registry, 100, 100, callCtx, nil, func(err error) {
+		trappedErr = err
+	})
+
+	// Create handle of type 2
+	h := table.NewWithType(uint32(42), true, NewResourceTypeID(2))
+
+	// Try to drop with wrong type
+	dropFunc(uint32(h))
+
+	require.ErrorIs(t, trappedErr, ErrResourceTypeMismatch)
+}

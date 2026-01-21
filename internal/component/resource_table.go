@@ -422,6 +422,64 @@ func (t *ResourceTable) CreateResourceDropFuncWithTrap(resourceTypeIdx uint32, d
 // The caller is responsible for routing this to the proper canonical ABI path.
 type CrossInstanceDestructor func(rep uint32, definingInstanceID uint32)
 
+// CreateResourceDropFuncWithContext creates a fully-featured resource.drop function
+// that handles destructor invocation, borrow count tracking, and type validation.
+//
+// This is the spec-compliant implementation that:
+//   - Validates the handle type matches expectedRT
+//   - For owned handles: uses DropOwned for destructor handling
+//   - For borrowed handles: removes and decrements borrow count in callCtx
+//
+// Parameters:
+//   - resourceTypeIdx: the resource type index from the component's type section
+//   - dtorRegistry: registry to look up same-instance destructors
+//   - currentInstanceID: the instance performing the drop
+//   - definingInstanceID: the instance that defined the resource type
+//   - callCtx: the call context for borrow tracking (may be nil if no borrow tracking needed)
+//   - crossInstanceDtor: callback for cross-instance destructor invocation
+//   - trap: handler called when an error occurs
+func (t *ResourceTable) CreateResourceDropFuncWithContext(
+	resourceTypeIdx uint32,
+	dtorRegistry *DestructorRegistry,
+	currentInstanceID uint32,
+	definingInstanceID uint32,
+	callCtx *CallContext,
+	crossInstanceDtor CrossInstanceDestructor,
+	trap TrapHandler,
+) func(handle uint32) {
+	expectedRT := NewResourceTypeID(resourceTypeIdx)
+
+	return func(handle uint32) {
+		h := Handle(handle)
+
+		// Get entry first to check if it's a borrow
+		entry, err := t.GetWithType(h, expectedRT)
+		if err != nil {
+			trap(err)
+			return
+		}
+
+		if entry.Own {
+			// Owned handle: use DropOwned for destructor handling
+			err = t.DropOwned(h, expectedRT, dtorRegistry, currentInstanceID, definingInstanceID, crossInstanceDtor)
+			if err != nil {
+				trap(err)
+			}
+		} else {
+			// Borrowed handle: just remove and decrement borrow count
+			_, err = t.Remove(h)
+			if err != nil {
+				trap(err)
+				return
+			}
+			// Spec: h.borrow_scope.num_borrows -= 1
+			if callCtx != nil {
+				callCtx.DecrementBorrows()
+			}
+		}
+	}
+}
+
 // DropOwned drops an owned handle, invoking the destructor if appropriate.
 // This implements the spec's resource.drop for owned handles.
 //
