@@ -52,7 +52,7 @@ func instantiateUdp(linker *component.Linker) error {
 	inst.FuncNoType("[method]outgoing-datagram-stream.send", outgoingDatagramStreamSend)
 	inst.FuncNoType("[method]outgoing-datagram-stream.subscribe", outgoingDatagramStreamSubscribe)
 
-	return inst.Build()
+	return inst.SkipValidation().Build()
 }
 
 // instantiateUdpCreateSocket registers wasi:sockets/udp-create-socket@0.2.0
@@ -62,7 +62,7 @@ func instantiateUdpCreateSocket(linker *component.Linker) error {
 	// create-udp-socket: func(network: borrow<network>, address-family: ip-address-family) -> result<own<udp-socket>, error-code>
 	inst.FuncNoType("create-udp-socket", createUdpSocket)
 
-	return inst.Build()
+	return inst.SkipValidation().Build()
 }
 
 // createUdpSocket creates a new UDP socket.

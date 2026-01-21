@@ -176,7 +176,7 @@ func instantiateTypes(linker *component.Linker) error {
 	})
 	inst.FuncNoType("[method]directory-entry-stream.read-directory-entry", directoryEntryStreamReadEntry)
 
-	return inst.Build()
+	return inst.SkipValidation().Build()
 }
 
 // descriptorReadViaStream returns an input-stream for reading from a descriptor at an offset.

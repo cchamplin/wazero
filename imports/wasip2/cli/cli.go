@@ -67,7 +67,7 @@ func instantiateEnvironment(linker *component.Linker) error {
 	inst.FuncNoType("get-arguments", getArguments)
 	inst.FuncNoType("initial-cwd", initialCwd)
 
-	return inst.Build()
+	return inst.SkipValidation().Build()
 }
 
 // getEnvironment returns the environment variables as list<tuple<string, string>>
@@ -130,7 +130,7 @@ func instantiateExit(linker *component.Linker) error {
 
 	inst.FuncNoType("exit", exit)
 
-	return inst.Build()
+	return inst.SkipValidation().Build()
 }
 
 // exit handles program termination with result<_, _>
@@ -159,7 +159,7 @@ func instantiateStdin(linker *component.Linker) error {
 		},
 	}, getStdin)
 
-	return inst.Build()
+	return inst.SkipValidation().Build()
 }
 
 // getStdin returns stdin as own<input-stream>
@@ -193,7 +193,7 @@ func instantiateStdout(linker *component.Linker) error {
 		},
 	}, getStdout)
 
-	return inst.Build()
+	return inst.SkipValidation().Build()
 }
 
 // getStdout returns stdout as own<output-stream>
@@ -227,7 +227,7 @@ func instantiateStderr(linker *component.Linker) error {
 		},
 	}, getStderr)
 
-	return inst.Build()
+	return inst.SkipValidation().Build()
 }
 
 // getStderr returns stderr as own<output-stream>
@@ -256,7 +256,7 @@ func instantiateTerminalInput(linker *component.Linker) error {
 	// Define terminal-input resource with no-op destructor
 	inst.Resource("terminal-input", func(rep uint32) {})
 
-	return inst.Build()
+	return inst.SkipValidation().Build()
 }
 
 // instantiateTerminalOutput registers wasi:cli/terminal-output@0.2.0
@@ -266,7 +266,7 @@ func instantiateTerminalOutput(linker *component.Linker) error {
 	// Define terminal-output resource with no-op destructor
 	inst.Resource("terminal-output", func(rep uint32) {})
 
-	return inst.Build()
+	return inst.SkipValidation().Build()
 }
 
 // instantiateTerminalStdin registers wasi:cli/terminal-stdin@0.2.0
@@ -276,7 +276,7 @@ func instantiateTerminalStdin(linker *component.Linker) error {
 	// get-terminal-stdin: func() -> option<own<terminal-input>>
 	inst.FuncNoType("get-terminal-stdin", getTerminalStdin)
 
-	return inst.Build()
+	return inst.SkipValidation().Build()
 }
 
 // getTerminalStdin returns Some(terminal-input) if stdin is a terminal, None otherwise
@@ -317,7 +317,7 @@ func instantiateTerminalStdout(linker *component.Linker) error {
 	// get-terminal-stdout: func() -> option<own<terminal-output>>
 	inst.FuncNoType("get-terminal-stdout", getTerminalStdout)
 
-	return inst.Build()
+	return inst.SkipValidation().Build()
 }
 
 // getTerminalStdout returns Some(terminal-output) if stdout is a terminal, None otherwise
@@ -358,7 +358,7 @@ func instantiateTerminalStderr(linker *component.Linker) error {
 	// get-terminal-stderr: func() -> option<own<terminal-output>>
 	inst.FuncNoType("get-terminal-stderr", getTerminalStderr)
 
-	return inst.Build()
+	return inst.SkipValidation().Build()
 }
 
 // getTerminalStderr returns Some(terminal-output) if stderr is a terminal, None otherwise

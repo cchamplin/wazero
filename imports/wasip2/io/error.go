@@ -127,7 +127,7 @@ func instantiateError(linker *component.Linker) error {
 	// [method]error.to-debug-string: func(self: borrow<error>) -> string
 	inst.FuncNoType("[method]error.to-debug-string", errorToDebugString)
 
-	return inst.Build()
+	return inst.SkipValidation().Build()
 }
 
 // errorToDebugString implements [method]error.to-debug-string

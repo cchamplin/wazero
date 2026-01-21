@@ -170,7 +170,7 @@ func instantiateTypes(linker *component.Linker) error {
 	// ==================
 	inst.FuncNoType("http-error-code", httpErrorCode)
 
-	return inst.Build()
+	return inst.SkipValidation().Build()
 }
 
 // ====================

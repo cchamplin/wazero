@@ -392,7 +392,7 @@ func instantiateStreams(linker *component.Linker) error {
 	inst.FuncNoType("[method]output-stream.splice", outputStreamSplice)
 	inst.FuncNoType("[method]output-stream.blocking-splice", outputStreamBlockingSplice)
 
-	return inst.Build()
+	return inst.SkipValidation().Build()
 }
 
 // Host function implementations - use ResourceTable to look up stream handles

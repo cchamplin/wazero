@@ -69,7 +69,7 @@ func instantiateInsecure(linker *component.Linker) error {
 	inst.FuncNoType("get-insecure-random-bytes", getInsecureRandomBytes)
 	inst.FuncNoType("get-insecure-random-u64", getInsecureRandomU64)
 
-	return inst.Build()
+	return inst.SkipValidation().Build()
 }
 
 func instantiateInsecureSeed(linker *component.Linker) error {
@@ -77,7 +77,7 @@ func instantiateInsecureSeed(linker *component.Linker) error {
 
 	inst.FuncNoType("insecure-seed", insecureSeedFunc)
 
-	return inst.Build()
+	return inst.SkipValidation().Build()
 }
 
 func getInsecureRandomBytes(ctx context.Context, args []component.Val) ([]component.Val, error) {

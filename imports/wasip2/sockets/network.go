@@ -17,7 +17,7 @@ func instantiateNetwork(linker *component.Linker) error {
 		// Destructor - nothing to clean up for now
 	})
 
-	return inst.Build()
+	return inst.SkipValidation().Build()
 }
 
 // instantiateInstanceNetwork registers wasi:sockets/instance-network@0.2.0
@@ -27,7 +27,7 @@ func instantiateInstanceNetwork(linker *component.Linker) error {
 	// instance-network: func() -> own<network>
 	inst.FuncNoType("instance-network", instanceNetwork)
 
-	return inst.Build()
+	return inst.SkipValidation().Build()
 }
 
 // instanceNetwork returns the network capability for this instance.
@@ -55,7 +55,7 @@ func instantiateIpNameLookup(linker *component.Linker) error {
 	// [method]resolve-address-stream.subscribe: func() -> own<pollable>
 	inst.FuncNoType("[method]resolve-address-stream.subscribe", resolveAddressStreamSubscribe)
 
-	return inst.Build()
+	return inst.SkipValidation().Build()
 }
 
 // resolveAddresses starts name resolution.

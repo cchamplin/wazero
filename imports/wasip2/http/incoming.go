@@ -15,7 +15,7 @@ func instantiateIncomingHandler(linker *component.Linker) error {
 	// handle: func(request: own<incoming-request>, response-out: own<response-outparam>)
 	inst.FuncNoType("handle", incomingHandlerHandle)
 
-	return inst.Build()
+	return inst.SkipValidation().Build()
 }
 
 // incomingHandlerHandle handles an incoming HTTP request.

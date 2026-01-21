@@ -20,7 +20,7 @@ func instantiateOutgoingHandler(linker *component.Linker) error {
 	// handle: func(request: own<outgoing-request>, options: option<own<request-options>>) -> result<own<future-incoming-response>, error-code>
 	inst.FuncNoType("handle", outgoingHandlerHandle)
 
-	return inst.Build()
+	return inst.SkipValidation().Build()
 }
 
 // errorCodeToVariant converts an ErrorCode to a component.Val variant.
