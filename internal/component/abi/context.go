@@ -21,6 +21,29 @@ const (
 	MaxFlatResults = 1
 )
 
+// Canonical NaN bit patterns as per Canonical ABI spec.
+// All NaN values are canonicalized to these patterns when lifting.
+const (
+	CanonicalFloat32NaN = uint32(0x7fc00000)
+	CanonicalFloat64NaN = uint64(0x7ff8000000000000)
+)
+
+// canonicalizeNaN32 returns the canonical NaN if f is NaN, otherwise returns f unchanged.
+func canonicalizeNaN32(f float32) float32 {
+	if math.IsNaN(float64(f)) {
+		return math.Float32frombits(CanonicalFloat32NaN)
+	}
+	return f
+}
+
+// canonicalizeNaN64 returns the canonical NaN if f is NaN, otherwise returns f unchanged.
+func canonicalizeNaN64(f float64) float64 {
+	if math.IsNaN(f) {
+		return math.Float64frombits(CanonicalFloat64NaN)
+	}
+	return f
+}
+
 // StringEncoding specifies the string encoding for Canonical ABI.
 type StringEncoding uint8
 

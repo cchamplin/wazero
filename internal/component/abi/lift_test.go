@@ -2040,3 +2040,169 @@ func TestLiftBorrow_BorrowedHandle(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "borrowed-resource", rep)
 }
+
+// --- NaN Canonicalization Tests ---
+
+func TestLiftHeapF32NaNCanonicalization(t *testing.T) {
+	// Different NaN bit patterns that should all canonicalize to 0x7fc00000
+	nanPatterns := []uint32{
+		0x7fc00000, // Canonical quiet NaN
+		0x7fc00001, // Quiet NaN with payload
+		0x7f800001, // Signaling NaN
+		0xffc00000, // Negative quiet NaN
+		0xff800001, // Negative signaling NaN
+	}
+
+	for _, pattern := range nanPatterns {
+		t.Run(fmt.Sprintf("pattern_0x%08x", pattern), func(t *testing.T) {
+			mem := &mockMemory{data: make([]byte, 8)}
+			binary.LittleEndian.PutUint32(mem.data[0:], pattern)
+
+			ctx := &LiftContext{Memory: mem, Opts: &Options{}}
+			val, err := LiftHeap(ctx, types.F32{}, 0)
+			if err != nil {
+				t.Fatalf("LiftHeap failed: %v", err)
+			}
+
+			// All NaNs should canonicalize to the same value
+			resultBits := math.Float32bits(val.F32())
+			canonicalNaN := uint32(0x7fc00000)
+			if resultBits != canonicalNaN {
+				t.Errorf("NaN not canonicalized: got 0x%08x, want 0x%08x", resultBits, canonicalNaN)
+			}
+		})
+	}
+}
+
+func TestLiftHeapF64NaNCanonicalization(t *testing.T) {
+	// Different NaN bit patterns that should all canonicalize to 0x7ff8000000000000
+	nanPatterns := []uint64{
+		0x7ff8000000000000, // Canonical quiet NaN
+		0x7ff8000000000001, // Quiet NaN with payload
+		0x7ff0000000000001, // Signaling NaN
+		0xfff8000000000000, // Negative quiet NaN
+	}
+
+	for _, pattern := range nanPatterns {
+		t.Run(fmt.Sprintf("pattern_0x%016x", pattern), func(t *testing.T) {
+			mem := &mockMemory{data: make([]byte, 16)}
+			binary.LittleEndian.PutUint64(mem.data[0:], pattern)
+
+			ctx := &LiftContext{Memory: mem, Opts: &Options{}}
+			val, err := LiftHeap(ctx, types.F64{}, 0)
+			if err != nil {
+				t.Fatalf("LiftHeap failed: %v", err)
+			}
+
+			resultBits := math.Float64bits(val.F64())
+			canonicalNaN := uint64(0x7ff8000000000000)
+			if resultBits != canonicalNaN {
+				t.Errorf("NaN not canonicalized: got 0x%016x, want 0x%016x", resultBits, canonicalNaN)
+			}
+		})
+	}
+}
+
+func TestLiftFlatF32NaNCanonicalization(t *testing.T) {
+	// Different NaN bit patterns that should all canonicalize to 0x7fc00000
+	nanPatterns := []uint32{
+		0x7fc00000, // Canonical quiet NaN
+		0x7fc00001, // Quiet NaN with payload
+		0x7f800001, // Signaling NaN
+		0xffc00000, // Negative quiet NaN
+		0xff800001, // Negative signaling NaN
+	}
+
+	for _, pattern := range nanPatterns {
+		t.Run(fmt.Sprintf("pattern_0x%08x", pattern), func(t *testing.T) {
+			iter := &FlatIter{values: []uint64{uint64(pattern)}}
+			val, err := LiftFlat(nil, types.F32{}, iter)
+			if err != nil {
+				t.Fatalf("LiftFlat failed: %v", err)
+			}
+
+			// All NaNs should canonicalize to the same value
+			resultBits := math.Float32bits(val.F32())
+			canonicalNaN := uint32(0x7fc00000)
+			if resultBits != canonicalNaN {
+				t.Errorf("NaN not canonicalized: got 0x%08x, want 0x%08x", resultBits, canonicalNaN)
+			}
+		})
+	}
+}
+
+func TestLiftFlatF64NaNCanonicalization(t *testing.T) {
+	// Different NaN bit patterns that should all canonicalize to 0x7ff8000000000000
+	nanPatterns := []uint64{
+		0x7ff8000000000000, // Canonical quiet NaN
+		0x7ff8000000000001, // Quiet NaN with payload
+		0x7ff0000000000001, // Signaling NaN
+		0xfff8000000000000, // Negative quiet NaN
+	}
+
+	for _, pattern := range nanPatterns {
+		t.Run(fmt.Sprintf("pattern_0x%016x", pattern), func(t *testing.T) {
+			iter := &FlatIter{values: []uint64{pattern}}
+			val, err := LiftFlat(nil, types.F64{}, iter)
+			if err != nil {
+				t.Fatalf("LiftFlat failed: %v", err)
+			}
+
+			resultBits := math.Float64bits(val.F64())
+			canonicalNaN := uint64(0x7ff8000000000000)
+			if resultBits != canonicalNaN {
+				t.Errorf("NaN not canonicalized: got 0x%016x, want 0x%016x", resultBits, canonicalNaN)
+			}
+		})
+	}
+}
+
+func TestLiftHeapF32NonNaNUnchanged(t *testing.T) {
+	// Non-NaN values should pass through unchanged
+	testCases := []float32{
+		0.0,
+		-0.0,
+		1.0,
+		-1.0,
+		3.14159,
+		float32(math.Inf(1)),
+		float32(math.Inf(-1)),
+	}
+
+	for _, tc := range testCases {
+		t.Run(fmt.Sprintf("value_%v", tc), func(t *testing.T) {
+			mem := &mockMemory{data: make([]byte, 8)}
+			binary.LittleEndian.PutUint32(mem.data[0:], math.Float32bits(tc))
+
+			ctx := &LiftContext{Memory: mem, Opts: &Options{}}
+			val, err := LiftHeap(ctx, types.F32{}, 0)
+			require.NoError(t, err)
+			require.Equal(t, math.Float32bits(tc), math.Float32bits(val.F32()))
+		})
+	}
+}
+
+func TestLiftHeapF64NonNaNUnchanged(t *testing.T) {
+	// Non-NaN values should pass through unchanged
+	testCases := []float64{
+		0.0,
+		-0.0,
+		1.0,
+		-1.0,
+		3.14159265359,
+		math.Inf(1),
+		math.Inf(-1),
+	}
+
+	for _, tc := range testCases {
+		t.Run(fmt.Sprintf("value_%v", tc), func(t *testing.T) {
+			mem := &mockMemory{data: make([]byte, 16)}
+			binary.LittleEndian.PutUint64(mem.data[0:], math.Float64bits(tc))
+
+			ctx := &LiftContext{Memory: mem, Opts: &Options{}}
+			val, err := LiftHeap(ctx, types.F64{}, 0)
+			require.NoError(t, err)
+			require.Equal(t, math.Float64bits(tc), math.Float64bits(val.F64()))
+		})
+	}
+}
