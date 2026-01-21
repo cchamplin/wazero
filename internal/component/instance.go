@@ -30,6 +30,11 @@ type Instance struct {
 	destructors   map[uint32]func(any)    // Destructor functions by resource type index
 	callContext   *CallContext            // Current call context for borrow tracking
 
+	// mayLeaveDisabled tracks whether the component cannot call out.
+	// Set to true during lowering and post-return to prevent reentrance.
+	// Per Canonical ABI spec, may_leave defaults to true (so this defaults to false).
+	mayLeaveDisabled bool
+
 	// Value index space for start function support
 	values         []Val
 	valuesConsumed []bool
@@ -966,6 +971,12 @@ func (i *Instance) SetCallContext(ctx *CallContext) {
 // CallContext returns the current call context.
 func (i *Instance) CallContext() *CallContext {
 	return i.callContext
+}
+
+// MayLeave returns whether this instance is allowed to call out.
+// Returns true by default, false during lowering and post-return.
+func (i *Instance) MayLeave() bool {
+	return !i.mayLeaveDisabled
 }
 
 // AddValue adds a value to the instance's value index space.
