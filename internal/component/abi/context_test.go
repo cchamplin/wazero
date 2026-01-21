@@ -5,6 +5,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -326,4 +327,30 @@ func (m *mockMemory) Write(offset uint32, data []byte) bool {
 
 func (m *mockMemory) Size() uint32 {
 	return uint32(len(m.data))
+}
+
+func TestLowerContext_WithSubtask(t *testing.T) {
+	mem := &mockMemory{data: make([]byte, 1024)}
+	rt := component.NewResourceTable()
+	subtask := component.NewSubtask(rt)
+
+	ctx := &LowerContext{
+		Memory:  mem,
+		Opts:    &Options{StringEncoding: StringEncodingUTF8},
+		Subtask: subtask,
+	}
+
+	require.Same(t, subtask, ctx.Subtask)
+	require.Same(t, subtask.BorrowScope(), ctx.BorrowScope())
+}
+
+func TestLowerContext_BorrowScope_NilSubtask(t *testing.T) {
+	ctx := &LowerContext{
+		Memory: &mockMemory{data: make([]byte, 64)},
+		Opts:   &Options{StringEncoding: StringEncodingUTF8},
+		// Subtask is nil
+	}
+
+	// BorrowScope should return nil when Subtask is nil
+	require.Nil(t, ctx.BorrowScope())
 }
