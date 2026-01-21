@@ -878,3 +878,22 @@ func TestCreateResourceDropFuncWithContext_TrapsOnTypeMismatch(t *testing.T) {
 
 	require.ErrorIs(t, trappedErr, ErrResourceTypeMismatch)
 }
+
+func TestResourceTable_NewWithMayLeaveCheck(t *testing.T) {
+	table := NewResourceTable()
+	state := NewInstanceState(1)
+
+	// When may_leave is true, New succeeds
+	h, err := table.NewWithMayLeaveCheck(uint32(42), true, NewResourceTypeID(1), state)
+	require.NoError(t, err)
+	// Verify the handle is valid by retrieving its entry
+	entry, err := table.Get(h)
+	require.NoError(t, err)
+	require.Equal(t, uint32(42), entry.Rep.(uint32))
+
+	// When may_leave is false, New fails
+	state.Enter()
+	_, err = table.NewWithMayLeaveCheck(uint32(43), true, NewResourceTypeID(1), state)
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrMayNotLeave)
+}
