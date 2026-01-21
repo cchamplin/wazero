@@ -284,3 +284,95 @@ func TestCheckResource_NilResource(t *testing.T) {
 		t.Error("nil resource should fail")
 	}
 }
+
+func TestCheckDefinition_Func(t *testing.T) {
+	c := &Component{
+		Types: []TypeDef{
+			{
+				Kind: TypeDefKindFunc,
+				Func: &FuncType{
+					Params:  []NamedValType{{Name: "x", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}},
+					Results: []NamedValType{{ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}},
+				},
+			},
+		},
+	}
+
+	tc := NewTypeChecker(c)
+
+	expected := &ImportExternDesc{
+		Kind:    ImportExternDescFunc,
+		TypeIdx: 0,
+	}
+
+	actual := &FuncDef{
+		Type: &FuncType{
+			Params:  []NamedValType{{Name: "x", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}},
+			Results: []NamedValType{{ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}},
+		},
+	}
+
+	err := tc.CheckDefinition(expected, "test/fn", actual)
+	if err != nil {
+		t.Errorf("matching func should pass: %v", err)
+	}
+}
+
+func TestCheckDefinition_Instance(t *testing.T) {
+	c := &Component{
+		Types: []TypeDef{
+			{
+				Kind: TypeDefKindInstance,
+				Instance: &InstanceTypeDef{
+					Declarations: []InstanceDecl{
+						{
+							Kind:   InstanceDeclKindExport,
+							Export: &InstanceExport{Name: "fn", Kind: ExportKindFunc},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	tc := NewTypeChecker(c)
+
+	expected := &ImportExternDesc{
+		Kind:    ImportExternDescInstance,
+		TypeIdx: 0,
+	}
+
+	actual := &InstanceDef{
+		Exports: map[string]Definition{
+			"fn": &FuncDef{},
+		},
+	}
+
+	err := tc.CheckDefinition(expected, "test/inst", actual)
+	if err != nil {
+		t.Errorf("matching instance should pass: %v", err)
+	}
+}
+
+func TestCheckDefinition_WrongKind(t *testing.T) {
+	c := &Component{
+		Types: []TypeDef{
+			{Kind: TypeDefKindFunc, Func: &FuncType{}},
+		},
+	}
+
+	tc := NewTypeChecker(c)
+
+	expected := &ImportExternDesc{
+		Kind:    ImportExternDescFunc,
+		TypeIdx: 0,
+	}
+
+	// Provide instance instead of func
+	actual := &InstanceDef{}
+
+	err := tc.CheckDefinition(expected, "test/fn", actual)
+	if err == nil {
+		t.Error("wrong definition kind should fail")
+	}
+}
