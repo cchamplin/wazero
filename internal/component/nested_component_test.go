@@ -362,3 +362,211 @@ func TestResolveFromParentScope_UnsupportedSort(t *testing.T) {
 		t.Fatal("should fail for unsupported sort")
 	}
 }
+
+func TestInstantiateNestedComponent_ThreeLevels(t *testing.T) {
+	// Create grandparent -> parent -> child hierarchy (3 levels)
+
+	// Level 3: Grandchild component (deepest level)
+	grandchild := &Component{
+		Imports: []Import{
+			{
+				Name: "grandchild-fn",
+				ExternDesc: ImportExternDesc{
+					Kind:    ImportExternDescFunc,
+					TypeIdx: 0,
+				},
+			},
+		},
+		Types: []TypeDef{
+			{Kind: TypeDefKindFunc, Func: &FuncType{}},
+		},
+	}
+
+	// Level 2: Child component that contains grandchild
+	child := &Component{
+		Imports: []Import{
+			{
+				Name: "child-fn",
+				ExternDesc: ImportExternDesc{
+					Kind:    ImportExternDescFunc,
+					TypeIdx: 0,
+				},
+			},
+		},
+		Types: []TypeDef{
+			{Kind: TypeDefKindFunc, Func: &FuncType{}},
+		},
+		Components: []*Component{grandchild},
+	}
+
+	// Level 1: Parent component that contains child
+	parentComponent := &Component{
+		Components: []*Component{child},
+		Types: []TypeDef{
+			{Kind: TypeDefKindFunc, Func: &FuncType{}},
+		},
+	}
+
+	// Root instance (grandparent)
+	grandparent := &Instance{
+		componentFuncs: map[uint32]ComponentFunc{
+			0: {
+				Impl: func(ctx context.Context, args []Val) ([]Val, error) {
+					return []Val{ValS32(1)}, nil
+				},
+			},
+		},
+	}
+
+	l := &ComponentLinker{}
+	ctx := context.Background()
+
+	// Instantiate level 2 (child) from grandparent
+	childCompInst := &ComponentInstance{
+		Kind:         ComponentInstanceExprInstantiate,
+		ComponentIdx: 0,
+		Args: []ComponentInstantiateArg{
+			{Name: "child-fn", Sort: SortFunc, Idx: 0},
+		},
+	}
+
+	childInst, err := l.instantiateNestedComponent(ctx, grandparent, childCompInst, parentComponent)
+	if err != nil {
+		t.Fatalf("instantiating child (level 2) failed: %v", err)
+	}
+
+	if childInst == nil {
+		t.Fatal("child instance should not be nil")
+	}
+
+	if childInst.Parent() != grandparent {
+		t.Error("child's parent should be grandparent")
+	}
+
+	// Add a function to child instance for grandchild to import
+	childInst.componentFuncs[0] = ComponentFunc{
+		Impl: func(ctx context.Context, args []Val) ([]Val, error) {
+			return []Val{ValS32(2)}, nil
+		},
+	}
+
+	// Instantiate level 3 (grandchild) from child
+	grandchildCompInst := &ComponentInstance{
+		Kind:         ComponentInstanceExprInstantiate,
+		ComponentIdx: 0,
+		Args: []ComponentInstantiateArg{
+			{Name: "grandchild-fn", Sort: SortFunc, Idx: 0},
+		},
+	}
+
+	grandchildInst, err := l.instantiateNestedComponent(ctx, childInst, grandchildCompInst, child)
+	if err != nil {
+		t.Fatalf("instantiating grandchild (level 3) failed: %v", err)
+	}
+
+	if grandchildInst == nil {
+		t.Fatal("grandchild instance should not be nil")
+	}
+
+	// Verify parent chain: grandchild -> child -> grandparent
+	if grandchildInst.Parent() != childInst {
+		t.Error("grandchild's parent should be child")
+	}
+
+	if grandchildInst.Parent().Parent() != grandparent {
+		t.Error("grandchild's grandparent should be grandparent")
+	}
+
+	// Verify children relationships
+	if len(grandparent.Children()) != 1 {
+		t.Errorf("grandparent should have 1 child, got %d", len(grandparent.Children()))
+	}
+
+	if len(childInst.Children()) != 1 {
+		t.Errorf("child should have 1 child (grandchild), got %d", len(childInst.Children()))
+	}
+
+	if len(grandchildInst.Children()) != 0 {
+		t.Errorf("grandchild should have 0 children, got %d", len(grandchildInst.Children()))
+	}
+}
+
+func TestInstantiateNestedComponent_ExportsInstance(t *testing.T) {
+	// Create a child component that will be instantiated
+	child := &Component{
+		Imports: []Import{
+			{
+				Name: "util-fn",
+				ExternDesc: ImportExternDesc{
+					Kind:    ImportExternDescFunc,
+					TypeIdx: 0,
+				},
+			},
+		},
+		Types: []TypeDef{
+			{Kind: TypeDefKindFunc, Func: &FuncType{}},
+		},
+	}
+
+	// Parent instance with the function to provide
+	parent := &Instance{
+		componentFuncs: map[uint32]ComponentFunc{
+			0: {
+				Impl: func(ctx context.Context, args []Val) ([]Val, error) {
+					return []Val{ValS32(42)}, nil
+				},
+			},
+		},
+	}
+
+	parentComponent := &Component{
+		Components: []*Component{child},
+	}
+
+	// Component instance definition
+	compInst := &ComponentInstance{
+		Kind:         ComponentInstanceExprInstantiate,
+		ComponentIdx: 0,
+		Args: []ComponentInstantiateArg{
+			{Name: "util-fn", Sort: SortFunc, Idx: 0},
+		},
+	}
+
+	l := &ComponentLinker{}
+	ctx := context.Background()
+
+	nestedInst, err := l.instantiateNestedComponent(ctx, parent, compInst, parentComponent)
+	if err != nil {
+		t.Fatalf("instantiateNestedComponent failed: %v", err)
+	}
+
+	if nestedInst == nil {
+		t.Fatal("nested instance should not be nil")
+	}
+
+	// Export the nested instance from the parent
+	exportName := "child-instance"
+	parent.AddExportedInstance(exportName, nestedInst)
+
+	// Verify the exported instance is accessible
+	exported := parent.GetExportedInstance(exportName)
+	if exported == nil {
+		t.Fatal("exported instance should be retrievable")
+	}
+
+	if exported != nestedInst {
+		t.Error("exported instance should be the same as the nested instance")
+	}
+
+	// Verify parent-child relationship is preserved
+	if exported.Parent() != parent {
+		t.Error("exported instance parent should be the parent")
+	}
+
+	// Verify that adding to instance space also works (separate from exports)
+	parent.AddInstanceToSpace(nestedInst)
+	fromSpace := parent.GetInstanceFromSpace(0)
+	if fromSpace != nestedInst {
+		t.Error("instance from space should match nested instance")
+	}
+}
