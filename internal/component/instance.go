@@ -29,6 +29,10 @@ type Instance struct {
 	resourceTable *ResourceTable          // Table for tracking resource handles
 	destructors   map[uint32]func(any)    // Destructor functions by resource type index
 	callContext   *CallContext            // Current call context for borrow tracking
+
+	// Value index space for start function support
+	values         []Val
+	valuesConsumed []bool
 }
 
 // ComponentFunc represents a callable component-level function.
@@ -950,6 +954,48 @@ func (i *Instance) SetCallContext(ctx *CallContext) {
 // CallContext returns the current call context.
 func (i *Instance) CallContext() *CallContext {
 	return i.callContext
+}
+
+// AddValue adds a value to the instance's value index space.
+// Returns the index of the added value.
+func (i *Instance) AddValue(v Val) uint32 {
+	if i.values == nil {
+		i.values = make([]Val, 0)
+		i.valuesConsumed = make([]bool, 0)
+	}
+	idx := uint32(len(i.values))
+	i.values = append(i.values, v)
+	i.valuesConsumed = append(i.valuesConsumed, false)
+	return idx
+}
+
+// GetValue retrieves a value from the value index space.
+func (i *Instance) GetValue(idx uint32) (Val, error) {
+	if idx >= uint32(len(i.values)) {
+		return Val{}, fmt.Errorf("value index %d out of range (have %d)", idx, len(i.values))
+	}
+	return i.values[idx], nil
+}
+
+// ConsumeValue retrieves and marks a value as consumed.
+// Returns error if value already consumed or index out of range.
+func (i *Instance) ConsumeValue(idx uint32) (Val, error) {
+	if idx >= uint32(len(i.values)) {
+		return Val{}, fmt.Errorf("value index %d out of range (have %d)", idx, len(i.values))
+	}
+	if i.valuesConsumed[idx] {
+		return Val{}, fmt.Errorf("value %d already consumed", idx)
+	}
+	i.valuesConsumed[idx] = true
+	return i.values[idx], nil
+}
+
+// IsValueConsumed returns whether a value has been consumed.
+func (i *Instance) IsValueConsumed(idx uint32) bool {
+	if idx >= uint32(len(i.valuesConsumed)) {
+		return false
+	}
+	return i.valuesConsumed[idx]
 }
 
 // liftEnum converts a discriminant to an enum Val.

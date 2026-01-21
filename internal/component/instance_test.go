@@ -1921,3 +1921,54 @@ func TestExportedFunc_Call_ListOfChar(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, uint32(0x1F600), val3) // grinning face emoji
 }
+
+// TestInstance_ValueIndexSpace tests the value index space for start function support.
+func TestInstance_ValueIndexSpace(t *testing.T) {
+	inst := &Instance{}
+
+	// Should be able to add values
+	idx := inst.AddValue(ValS32(42))
+	if idx != 0 {
+		t.Errorf("first value should be index 0, got %d", idx)
+	}
+
+	// Should be able to get values
+	val, err := inst.GetValue(0)
+	if err != nil {
+		t.Errorf("GetValue failed: %v", err)
+	}
+	if val.S32() != 42 {
+		t.Errorf("expected 42, got %d", val.S32())
+	}
+
+	// Values should not be consumed initially
+	if inst.IsValueConsumed(0) {
+		t.Error("value should not be consumed initially")
+	}
+}
+
+// TestInstance_ConsumeValue tests consuming values from the value index space.
+func TestInstance_ConsumeValue(t *testing.T) {
+	inst := &Instance{}
+	inst.AddValue(ValS32(42))
+
+	// Consume the value
+	val, err := inst.ConsumeValue(0)
+	if err != nil {
+		t.Errorf("ConsumeValue failed: %v", err)
+	}
+	if val.S32() != 42 {
+		t.Errorf("expected 42, got %d", val.S32())
+	}
+
+	// Should be marked consumed
+	if !inst.IsValueConsumed(0) {
+		t.Error("value should be consumed after ConsumeValue")
+	}
+
+	// Consuming again should fail
+	_, err = inst.ConsumeValue(0)
+	if err == nil {
+		t.Error("consuming same value twice should fail")
+	}
+}
