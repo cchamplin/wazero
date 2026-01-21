@@ -187,3 +187,71 @@ func TestResolveOuterAlias_Grandparent(t *testing.T) {
 		t.Error("resolved type should match grandparent's type")
 	}
 }
+
+func TestResolveOuterAlias_ValueSort(t *testing.T) {
+	parent := &Instance{}
+	parent.AddValue(ValS32(42))
+
+	child := &Instance{}
+	parent.AddChild(child)
+
+	// Try to outer-alias a value (mutable, not allowed)
+	alias := &Alias{
+		Kind:       AliasKindOuter,
+		Sort:       SortValue,
+		OuterCount: 1,
+		OuterIndex: 0,
+	}
+
+	_, err := ResolveOuterAlias(child, alias)
+	if err == nil {
+		t.Error("should fail when outer-aliasing mutable items (values)")
+	}
+}
+
+func TestResolveOuterAlias_ZeroDepth(t *testing.T) {
+	inst := &Instance{}
+	instType := &TypeDef{Kind: TypeDefKindFunc}
+	inst.AddTypeToSpace(instType)
+
+	// Depth 0 should refer to the current instance's scope
+	alias := &Alias{
+		Kind:       AliasKindOuter,
+		Sort:       SortType,
+		OuterCount: 0,
+		OuterIndex: 0,
+	}
+
+	resolved, err := ResolveOuterAlias(inst, alias)
+	if err != nil {
+		t.Fatalf("ResolveOuterAlias failed: %v", err)
+	}
+
+	resolvedType, ok := resolved.(*TypeDef)
+	if !ok {
+		t.Fatalf("expected *TypeDef, got %T", resolved)
+	}
+	if resolvedType != instType {
+		t.Error("resolved type should match instance's own type")
+	}
+}
+
+func TestResolveOuterAlias_ComponentNotFound(t *testing.T) {
+	parent := &Instance{}
+	// Parent has NO components in component space
+
+	child := &Instance{}
+	parent.AddChild(child)
+
+	alias := &Alias{
+		Kind:       AliasKindOuter,
+		Sort:       SortComponent,
+		OuterCount: 1,
+		OuterIndex: 99, // Out of range
+	}
+
+	_, err := ResolveOuterAlias(child, alias)
+	if err == nil {
+		t.Error("should fail when component index is out of range")
+	}
+}
