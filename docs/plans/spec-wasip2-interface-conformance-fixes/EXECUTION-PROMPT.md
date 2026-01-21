@@ -49,7 +49,7 @@ All plan documents are in: `docs/plans/spec-wasip2-interface-conformance-fixes/`
 go test -v ./internal/component/wasip2test/... -run "TestCalculator"
 ```
 
-**This test MUST pass.** It validates that the `add` and `subtract` calculator plugins still work. These tests exercise:
+**This test MUST pass (excluding div and mult which might be broken for other reasons).** It validates that the `add` and `subtract` calculator plugins still work. These tests exercise:
 - wasi:cli/environment (args/env)
 - wasi:io/streams (stdin/stdout)
 - Basic resource table operations

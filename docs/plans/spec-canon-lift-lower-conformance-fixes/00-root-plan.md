@@ -45,9 +45,9 @@ Both `add` and `subtract` plugins must continue working throughout all phases.
 
 | Phase | Document | Description | Priority | Status |
 |-------|----------|-------------|----------|--------|
-| 1 | [01-may-leave-flag.md](./01-may-leave-flag.md) | Implement may_leave flag and enforcement | P0 | ⬜ TODO |
-| 2 | [02-reentrance-guard.md](./02-reentrance-guard.md) | Implement call_might_be_recursive guard | P0 | ⬜ TODO |
-| 3 | [03-subtask-management.md](./03-subtask-management.md) | Implement Subtask for borrow scope tracking | P1 | ⬜ TODO |
+| 1 | [01-may-leave-flag.md](./01-may-leave-flag.md) | Implement may_leave flag and enforcement | P0 | ✅ DONE |
+| 2 | [02-reentrance-guard.md](./02-reentrance-guard.md) | Implement call_might_be_recursive guard | P0 | ✅ DONE |
+| 3 | [03-subtask-management.md](./03-subtask-management.md) | Implement Subtask for borrow scope tracking | P1 | ✅ DONE |
 | 4 | [04-parameter-spilling.md](./04-parameter-spilling.md) | Implement MAX_FLAT_PARAMS spilling | P1 | ⬜ TODO |
 | 5 | [05-alignment-validation.md](./05-alignment-validation.md) | Add alignment assertion on load/store | P3 | ⬜ TODO |
 
@@ -91,31 +91,31 @@ Phase 2 (reentrance) ┘                              │
 
 ## Progress Tracking
 
-### Phase 1: may_leave Flag
-- [ ] Task 1.1: Add mayLeave field to Instance
-- [ ] Task 1.2: Implement setMayLeave helper
-- [ ] Task 1.3: Set mayLeave=false during parameter lowering
-- [ ] Task 1.4: Set mayLeave=false during post-return
-- [ ] Task 1.5: Check mayLeave in lowered call path
-- [ ] Task 1.6: Add conformance tests
-- [ ] **REGRESSION CHECK**
+### Phase 1: may_leave Flag ✅ COMPLETE
+- [x] Task 1.1: Add mayLeave field to Instance
+- [x] Task 1.2: Implement setMayLeave helper
+- [x] Task 1.3: Set mayLeave=false during parameter lowering
+- [x] Task 1.4: Set mayLeave=false during post-return
+- [x] Task 1.5: Check mayLeave in lowered call path
+- [x] Task 1.6: Add conformance tests
+- [x] **REGRESSION CHECK** (TestAdd/TestSubtract pass)
 
-### Phase 2: Reentrance Guard
-- [ ] Task 2.1: Add call tracking fields to Instance
-- [ ] Task 2.2: Implement callMightBeRecursive check
-- [ ] Task 2.3: Add guard at canon_lift entry
-- [ ] Task 2.4: Track caller across calls
-- [ ] Task 2.5: Add conformance tests
-- [ ] **REGRESSION CHECK**
+### Phase 2: Reentrance Guard ✅ COMPLETE
+- [x] Task 2.1: Add call tracking fields to Instance
+- [x] Task 2.2: Implement callMightBeRecursive check
+- [x] Task 2.3: Add ValidateNotRecursive check
+- [x] Task 2.4: Integrate reentrance check into Call path with caller context
+- [x] Task 2.5: Add conformance tests
+- [x] **REGRESSION CHECK** (TestAdd/TestSubtract pass)
 
-### Phase 3: Subtask Management
-- [ ] Task 3.1: Define Subtask struct
-- [ ] Task 3.2: Create Subtask at canon_lower
-- [ ] Task 3.3: Add borrow scope to Subtask
-- [ ] Task 3.4: Track lends in Subtask
-- [ ] Task 3.5: Deliver resolve and cleanup
-- [ ] Task 3.6: Add conformance tests
-- [ ] **REGRESSION CHECK**
+### Phase 3: Subtask Management ✅ COMPLETE
+- [x] Task 3.1: Define Subtask struct with SubtaskState enum
+- [x] Task 3.2: Implement Subtask state transitions (DeliverResolve, StartFinish, Finish)
+- [x] Task 3.3: Add lend tracking (TrackLend, LendCount)
+- [x] Task 3.4: Add Subtask field to LowerContext with BorrowScope() helper
+- [x] Task 3.5: Use Subtask for borrow tracking in ExportedFunc.Call
+- [x] Task 3.6: Add comprehensive conformance tests
+- [x] **REGRESSION CHECK** (TestAdd/TestSubtract pass)
 
 ### Phase 4: Parameter Spilling
 - [ ] Task 4.1: Detect >MAX_FLAT_PARAMS condition

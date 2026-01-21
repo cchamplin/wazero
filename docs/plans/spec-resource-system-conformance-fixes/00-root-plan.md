@@ -92,12 +92,12 @@ Both `add` and `subtract` plugin tests MUST pass before proceeding to the next p
 - [x] **REGRESSION CHECK**
 
 ### Phase 5: Advanced Features
-- [ ] Task 5.1: Add may_leave field to instance state
-- [ ] Task 5.2: Add may_leave checks to resource operations
-- [ ] Task 5.3: Implement call_might_be_recursive
-- [ ] Task 5.4: Add reentrance trap to resource.drop
-- [ ] Task 5.5: Add table MAX_LENGTH enforcement
-- [ ] **REGRESSION CHECK**
+- [x] Task 5.1: Add may_leave field to instance state
+- [x] Task 5.2: Add may_leave checks to resource operations
+- [x] Task 5.3: Implement call_might_be_recursive
+- [x] Task 5.4: Add reentrance trap to resource.drop
+- [x] Task 5.5: Add table MAX_LENGTH enforcement
+- [x] **REGRESSION CHECK**
 
 ---
 
