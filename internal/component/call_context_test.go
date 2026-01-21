@@ -79,3 +79,44 @@ func TestCallContext_ClearLenders(t *testing.T) {
 	ctx.ClearLenders()
 	require.Equal(t, 0, len(ctx.Lenders()))
 }
+
+func TestCallContext_ExitCall_UndoesLends(t *testing.T) {
+	table := NewResourceTable()
+
+	// Create a resource
+	h := table.New("resource", true)
+
+	// Simulate lift_borrow: increment lends on the source handle
+	require.NoError(t, table.IncrementLends(h))
+	require.NoError(t, table.IncrementLends(h))
+
+	// Verify lends are incremented
+	entry, _ := table.Get(h)
+	require.Equal(t, uint32(2), entry.NumLends)
+
+	// Create call context and track lenders
+	ctx := NewCallContext()
+	ctx.AddLender(h)
+	ctx.AddLender(h) // Same handle borrowed twice
+
+	// Exit call should undo all lends
+	err := ctx.ExitCall(table)
+	require.NoError(t, err)
+
+	// Verify lends are decremented
+	entry, _ = table.Get(h)
+	require.Equal(t, uint32(0), entry.NumLends)
+
+	// Lenders should be cleared
+	require.Equal(t, 0, len(ctx.Lenders()))
+}
+
+func TestCallContext_ExitCall_FailsWithOutstandingBorrows(t *testing.T) {
+	table := NewResourceTable()
+
+	ctx := NewCallContext()
+	ctx.IncrementBorrows() // Simulate unreleased borrow
+
+	err := ctx.ExitCall(table)
+	require.ErrorIs(t, err, ErrOutstandingBorrows)
+}

@@ -68,3 +68,23 @@ func (c *CallContext) Lenders() []Handle {
 func (c *CallContext) ClearLenders() {
 	c.lenders = c.lenders[:0]
 }
+
+// ExitCall validates that the call can return and undoes all lend operations.
+// This is called when a call scope completes.
+// Returns an error if there are outstanding borrows (handles not dropped).
+func (c *CallContext) ExitCall(table *ResourceTable) error {
+	// Spec: trap if borrow_count > 0
+	if err := c.ValidateReturn(); err != nil {
+		return err
+	}
+
+	// Undo all lend operations (decrement num_lends on source handles)
+	for _, h := range c.lenders {
+		// Ignore errors from already-removed handles (can happen if
+		// the source handle was transferred during the call)
+		_ = table.DecrementLends(h)
+	}
+
+	c.ClearLenders()
+	return nil
+}
