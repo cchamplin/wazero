@@ -125,6 +125,15 @@ func (t *ResourceTable) Get(h Handle) (*HandleEntry, error) {
 // Remove removes a handle from the table and returns its entry.
 // Used for lift_own to transfer ownership out of the component.
 // Traps if the handle has active borrows (NumLends > 0).
+//
+// For borrow handles (Own == false), the caller (resource.drop implementation)
+// is responsible for decrementing the borrow count in the call context:
+//
+//	entry, err := table.Remove(h)
+//	if err != nil { return err }
+//	if !entry.Own {
+//	    callCtx.DecrementBorrows()  // Caller must do this!
+//	}
 func (t *ResourceTable) Remove(h Handle) (*HandleEntry, error) {
 	idx := h.Index()
 	if idx >= uint32(len(t.entries)) {
