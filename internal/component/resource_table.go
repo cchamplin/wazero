@@ -17,7 +17,13 @@ var (
 	ErrMayNotLeave = errors.New("operation not allowed: instance may not leave")
 	// ErrReentrance is returned when an operation would cause invalid reentrance.
 	ErrReentrance = errors.New("operation would cause invalid recursive reentrance")
+	// ErrTableFull is returned when the resource table has reached its maximum size.
+	ErrTableFull = errors.New("resource table full: maximum length exceeded")
 )
+
+// MaxTableLength is the maximum number of entries in a resource table.
+// From the spec, this is 2^28 - 1.
+const MaxTableLength = uint32(1<<28 - 1)
 
 // Handle is a 64-bit resource handle: upper 32 bits = generation, lower 32 = index.
 // Generation counting prevents use-after-free when slots are reused.
@@ -119,6 +125,14 @@ func (t *ResourceTable) NewWithType(rep any, own bool, rtID ResourceTypeID) Hand
 func (t *ResourceTable) NewWithMayLeaveCheck(rep any, own bool, rtID ResourceTypeID, state *InstanceState) (Handle, error) {
 	if state != nil && !state.MayLeave() {
 		return 0, ErrMayNotLeave
+	}
+	return t.NewWithType(rep, own, rtID), nil
+}
+
+// NewWithLimit creates a new resource handle, returning an error if the table is full.
+func (t *ResourceTable) NewWithLimit(rep any, own bool, rtID ResourceTypeID) (Handle, error) {
+	if uint32(len(t.entries)) >= MaxTableLength && t.freeHead < 0 {
+		return 0, ErrTableFull
 	}
 	return t.NewWithType(rep, own, rtID), nil
 }
