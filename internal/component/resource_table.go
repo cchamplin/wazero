@@ -321,6 +321,20 @@ func (t *ResourceTable) ValidateType(h Handle, expected ResourceTypeID) error {
 	return nil
 }
 
+// RemoveWithType removes a handle from the table after validating its type.
+// Returns ErrResourceTypeMismatch if types don't match.
+// The handle is NOT removed if type validation fails.
+func (t *ResourceTable) RemoveWithType(h Handle, expectedRT ResourceTypeID) (*HandleEntry, error) {
+	// Validate type first (before removal)
+	if expectedRT.IsValid() {
+		if err := t.ValidateType(h, expectedRT); err != nil {
+			return nil, err
+		}
+	}
+
+	return t.Remove(h)
+}
+
 // TrapHandler is a function called when a resource operation should trap.
 // In production, this typically panics or records the error for the runtime.
 type TrapHandler func(err error)
