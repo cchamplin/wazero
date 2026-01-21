@@ -247,6 +247,25 @@ func LowerFlat(ctx *LowerContext, typ types.ValType, val component.Val) ([]uint6
 	case types.List:
 		t := typ.(types.List)
 		elements := val.List()
+
+		if t.Length != nil {
+			// Fixed-length list: validate length and lower each element
+			if uint32(len(elements)) != *t.Length {
+				return nil, fmt.Errorf("fixed list length mismatch: got %d, expected %d", len(elements), *t.Length)
+			}
+
+			var result []uint64
+			for i, elem := range elements {
+				flat, err := LowerFlat(ctx, t.Element, elem)
+				if err != nil {
+					return nil, fmt.Errorf("lower fixed list element %d: %w", i, err)
+				}
+				result = append(result, flat...)
+			}
+			return result, nil
+		}
+
+		// Dynamic list: existing code
 		length := uint32(len(elements))
 
 		// Empty list case - no allocation needed
@@ -567,6 +586,24 @@ func LowerHeap(ctx *LowerContext, typ types.ValType, val component.Val, offset u
 	case types.List:
 		t := typ.(types.List)
 		elements := val.List()
+
+		if t.Length != nil {
+			// Fixed-length list: validate length and write elements inline
+			if uint32(len(elements)) != *t.Length {
+				return fmt.Errorf("fixed list length mismatch: got %d, expected %d", len(elements), *t.Length)
+			}
+
+			elemSize := t.Element.Size()
+			for i, elem := range elements {
+				elemOffset := offset + uint32(i)*elemSize
+				if err := LowerHeap(ctx, t.Element, elem, elemOffset); err != nil {
+					return fmt.Errorf("lower fixed list element %d: %w", i, err)
+				}
+			}
+			return nil
+		}
+
+		// Dynamic list: existing code
 		length := uint32(len(elements))
 
 		// Empty list case
