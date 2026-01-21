@@ -90,3 +90,20 @@ func (s *Subtask) Finish() error {
 func (s *Subtask) Result() []Val {
 	return s.result
 }
+
+// TrackLend records that a handle has been lent (borrowed) during this subtask.
+// The lend will be released when the subtask finishes.
+func (s *Subtask) TrackLend(handle Handle) error {
+	if s.borrowScope == nil {
+		return fmt.Errorf("subtask: no borrow scope")
+	}
+	return s.borrowScope.AddLender(handle)
+}
+
+// LendCount returns the number of active lends in this subtask.
+func (s *Subtask) LendCount() int {
+	if s.borrowScope == nil {
+		return 0
+	}
+	return s.borrowScope.LendCount()
+}
