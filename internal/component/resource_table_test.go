@@ -595,3 +595,28 @@ func TestCreateResourceRepFuncWithTrap_ReturnsRepOnSuccess(t *testing.T) {
 	require.False(t, trapCalled, "should not trap on valid handle")
 	require.Equal(t, uint32(42), rep)
 }
+
+func TestResourceTable_RemoveWithType_Success(t *testing.T) {
+	table := NewResourceTable()
+	rtID := NewResourceTypeID(5)
+	h := table.NewWithType(uint32(100), true, rtID)
+
+	entry, err := table.RemoveWithType(h, rtID)
+	require.NoError(t, err)
+	require.Equal(t, uint32(100), entry.Rep.(uint32))
+}
+
+func TestResourceTable_RemoveWithType_TypeMismatch(t *testing.T) {
+	table := NewResourceTable()
+	rtID := NewResourceTypeID(5)
+	wrongID := NewResourceTypeID(6)
+	h := table.NewWithType(uint32(100), true, rtID)
+
+	_, err := table.RemoveWithType(h, wrongID)
+	require.ErrorIs(t, err, ErrResourceTypeMismatch)
+
+	// Handle should still be valid (not removed on type error)
+	entry, err := table.Get(h)
+	require.NoError(t, err)
+	require.Equal(t, uint32(100), entry.Rep.(uint32))
+}
