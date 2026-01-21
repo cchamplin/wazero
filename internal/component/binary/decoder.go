@@ -113,6 +113,7 @@ func DecodeComponent(binary []byte) (*component.Component, error) {
 				return nil, fmt.Errorf("section %s: %w", sectionID, err)
 			}
 			c.Components = append(c.Components, nestedComponent)
+			c.NextComponentIdx++
 		case SectionIDStart:
 			if err := decodeStartSection(c, bytes.NewReader(sectionContent)); err != nil {
 				return nil, fmt.Errorf("section %s: %w", sectionID, err)
@@ -146,6 +147,7 @@ func decodeCoreModuleSection(c *component.Component, content []byte) error {
 	c.CoreModules = append(c.CoreModules, m)
 	// Store raw bytes for instantiation via wazero's public API
 	c.CoreModuleData = append(c.CoreModuleData, content)
+	c.NextModuleIdx++
 	return nil
 }
 
@@ -355,6 +357,7 @@ func decodeTypeSection(c *component.Component, r *bytes.Reader) error {
 		default:
 			return fmt.Errorf("unsupported type opcode 0x%02x at index %d", opcode, startIdx+i)
 		}
+		c.NextTypeIdx++
 	}
 
 	return nil

@@ -61,18 +61,60 @@ type Component struct {
 	// Values contains component value definitions (section ID 12).
 	Values []ValueDef
 
+	// Component-level index spaces (5 total)
+
 	// NextFuncIdx tracks the next component function index during parsing.
 	// This is used internally by the decoder.
 	NextFuncIdx uint32
+
+	// NextValueIdx tracks the next component value index during parsing.
+	// This is incremented by value definitions and import value operations.
+	NextValueIdx uint32
+
+	// NextTypeIdx tracks the next component type index during parsing.
+	// This is incremented by type definitions and alias outer type operations.
+	NextTypeIdx uint32
+
+	// NextComponentInstanceIdx tracks the next component instance index during parsing.
+	// This is incremented by component instance definitions and alias export instance operations.
+	NextComponentInstanceIdx uint32
+
+	// NextComponentIdx tracks the next nested component index during parsing.
+	// This is incremented by component definitions and alias outer component operations.
+	NextComponentIdx uint32
+
+	// Core WebAssembly 1.0 index spaces (5 total)
 
 	// NextCoreFuncIdx tracks the next core function index during parsing.
 	// This is incremented by alias core export (func), canon lower, and
 	// canon resource.drop/new/rep operations.
 	NextCoreFuncIdx uint32
 
+	// NextCoreTableIdx tracks the next core table index during parsing.
+	// This is incremented by alias core export (table) operations.
+	NextCoreTableIdx uint32
+
 	// NextCoreMemoryIdx tracks the next core memory index during parsing.
 	// This is incremented by alias core export (memory) operations.
 	NextCoreMemoryIdx uint32
+
+	// NextCoreGlobalIdx tracks the next core global index during parsing.
+	// This is incremented by alias core export (global) operations.
+	NextCoreGlobalIdx uint32
+
+	// NextCoreTypeIdx tracks the next core type index during parsing.
+	// This is incremented by core type definitions.
+	NextCoreTypeIdx uint32
+
+	// Core Extended index spaces (2 total)
+
+	// NextModuleInstanceIdx tracks the next core module instance index during parsing.
+	// This is incremented by core instance definitions.
+	NextModuleInstanceIdx uint32
+
+	// NextModuleIdx tracks the next core module index during parsing.
+	// This is incremented by core module definitions and alias outer module operations.
+	NextModuleIdx uint32
 }
 
 // TypeDef represents a component type definition.

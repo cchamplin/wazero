@@ -100,13 +100,14 @@ func decodeInstanceSection(c *component.Component, r *bytes.Reader) error {
 		return fmt.Errorf("reading instance count: %w", err)
 	}
 
-	c.ComponentInstances = make([]component.ComponentInstance, count)
+	// Append to existing ComponentInstances instead of replacing
 	for i := uint32(0); i < count; i++ {
 		ci, err := decodeComponentInstance(r)
 		if err != nil {
 			return fmt.Errorf("decoding instance %d: %w", i, err)
 		}
-		c.ComponentInstances[i] = ci
+		c.ComponentInstances = append(c.ComponentInstances, ci)
+		c.NextComponentInstanceIdx++
 	}
 
 	return nil
