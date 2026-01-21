@@ -1,6 +1,7 @@
 package abi
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/tetratelabs/wazero/api"
@@ -288,6 +289,60 @@ func TestFlattenType(t *testing.T) {
 				if result[i] != tt.expected[i] {
 					t.Errorf("flattenType(%s)[%d] = %v, want %v", tt.name, i, result[i], tt.expected[i])
 				}
+			}
+		})
+	}
+}
+
+func TestFlattenVariantJoinSemantics(t *testing.T) {
+	tests := []struct {
+		name     string
+		variant  types.Variant
+		expected []api.ValueType
+	}{
+		{
+			name: "i32_and_f32_join_to_i32",
+			variant: types.Variant{Cases: []types.Case{
+				{Name: "a", Type: types.S32{}},
+				{Name: "b", Type: types.F32{}},
+			}},
+			// Discriminant (i32) + payload joined to i32 (f32 reinterpreted as i32)
+			expected: []api.ValueType{api.ValueTypeI32, api.ValueTypeI32},
+		},
+		{
+			name: "i32_and_i64_join_to_i64",
+			variant: types.Variant{Cases: []types.Case{
+				{Name: "a", Type: types.S32{}},
+				{Name: "b", Type: types.S64{}},
+			}},
+			// Discriminant (i32) + payload joined to i64
+			expected: []api.ValueType{api.ValueTypeI32, api.ValueTypeI64},
+		},
+		{
+			name: "f32_and_f64_join_to_i64",
+			variant: types.Variant{Cases: []types.Case{
+				{Name: "a", Type: types.F32{}},
+				{Name: "b", Type: types.F64{}},
+			}},
+			// Discriminant (i32) + payload joined to i64 (since f32!=f64, join returns i64)
+			expected: []api.ValueType{api.ValueTypeI32, api.ValueTypeI64},
+		},
+		{
+			name: "f64_and_i64_join_to_i64",
+			variant: types.Variant{Cases: []types.Case{
+				{Name: "a", Type: types.F64{}},
+				{Name: "b", Type: types.S64{}},
+			}},
+			// Same type width, join returns i64
+			expected: []api.ValueType{api.ValueTypeI32, api.ValueTypeI64},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := flattenType(tt.variant)
+			if !reflect.DeepEqual(result, tt.expected) {
+				t.Errorf("flattenType() = %v, want %v", result, tt.expected)
 			}
 		})
 	}

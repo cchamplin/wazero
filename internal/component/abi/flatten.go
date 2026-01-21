@@ -111,43 +111,28 @@ func flattenTuple(t types.Tuple) []api.ValueType {
 }
 
 // flattenVariant flattens a variant type.
-// The flattened form is: discriminant (i32) + max payload flattening.
-// The payload uses the largest flattening among all cases.
+// The flattened form is: discriminant (i32) + joined payload types.
+// Per spec, payload types are joined across all cases using the join function.
 func flattenVariant(v types.Variant) []api.ValueType {
 	// Start with discriminant
 	result := []api.ValueType{api.ValueTypeI32}
 
-	// Find max payload flattening
-	var maxPayload []api.ValueType
+	// Find max payload length and compute joined types
+	var flat []api.ValueType
 	for _, c := range v.Cases {
 		if c.Type != nil {
-			payload := flattenType(c.Type)
-			if len(payload) > len(maxPayload) {
-				maxPayload = payload
-			}
-		}
-	}
-
-	// Append flattened payload slots
-	// For variants, we need to use the join of all payload types
-	// For simplicity, we use the widest type (i64) for each slot
-	for i := 0; i < len(maxPayload); i++ {
-		// Find the widest type at this position across all cases
-		widestType := api.ValueTypeI32
-		for _, c := range v.Cases {
-			if c.Type != nil {
-				caseFlat := flattenType(c.Type)
-				if i < len(caseFlat) {
-					if isWiderType(caseFlat[i], widestType) {
-						widestType = caseFlat[i]
-					}
+			caseFlat := flattenType(c.Type)
+			for i, ft := range caseFlat {
+				if i < len(flat) {
+					flat[i] = join(flat[i], ft)
+				} else {
+					flat = append(flat, ft)
 				}
 			}
 		}
-		result = append(result, widestType)
 	}
 
-	return result
+	return append(result, flat...)
 }
 
 // flattenOption flattens an option type.
@@ -170,7 +155,7 @@ func flattenResult(r types.Result) []api.ValueType {
 	// Discriminant (ok=0, error=1)
 	result := []api.ValueType{api.ValueTypeI32}
 
-	// Find max payload between ok and error
+	// Find max payload between ok and error using join
 	var okFlat, errFlat []api.ValueType
 	if r.Ok != nil {
 		okFlat = flattenType(r.Ok)
@@ -179,30 +164,24 @@ func flattenResult(r types.Result) []api.ValueType {
 		errFlat = flattenType(r.Error)
 	}
 
-	// Take the max payload count
-	maxLen := len(okFlat)
-	if len(errFlat) > maxLen {
-		maxLen = len(errFlat)
-	}
-
-	// Join the types at each position
-	for i := 0; i < maxLen; i++ {
-		var okType, errType api.ValueType
-		if i < len(okFlat) {
-			okType = okFlat[i]
-		}
-		if i < len(errFlat) {
-			errType = errFlat[i]
-		}
-		// Use the wider type
-		if isWiderType(errType, okType) {
-			result = append(result, errType)
+	// Join types at each position (similar to flattenVariant)
+	var flat []api.ValueType
+	for i, ft := range okFlat {
+		if i < len(flat) {
+			flat[i] = join(flat[i], ft)
 		} else {
-			result = append(result, okType)
+			flat = append(flat, ft)
+		}
+	}
+	for i, ft := range errFlat {
+		if i < len(flat) {
+			flat[i] = join(flat[i], ft)
+		} else {
+			flat = append(flat, ft)
 		}
 	}
 
-	return result
+	return append(result, flat...)
 }
 
 // flattenFlags flattens a flags type.
@@ -221,24 +200,18 @@ func flattenFlags(f types.Flags) []api.ValueType {
 	return result
 }
 
-// isWiderType returns true if a is a wider type than b.
-// Width order: i32 < f32 < i64 < f64
-func isWiderType(a, b api.ValueType) bool {
-	return typeWidth(a) > typeWidth(b)
-}
-
-// typeWidth returns the width ordering of a type.
-func typeWidth(t api.ValueType) int {
-	switch t {
-	case api.ValueTypeI32:
-		return 1
-	case api.ValueTypeF32:
-		return 2
-	case api.ValueTypeI64:
-		return 3
-	case api.ValueTypeF64:
-		return 4
-	default:
-		return 0
+// join returns the joined type per Canonical ABI spec.
+// The join of two types is the type that can represent both:
+// - Same types return that type
+// - i32 and f32 return i32 (f32 reinterpreted as i32)
+// - Any other combination returns i64
+func join(a, b api.ValueType) api.ValueType {
+	if a == b {
+		return a
 	}
+	if (a == api.ValueTypeI32 && b == api.ValueTypeF32) ||
+		(a == api.ValueTypeF32 && b == api.ValueTypeI32) {
+		return api.ValueTypeI32
+	}
+	return api.ValueTypeI64
 }
