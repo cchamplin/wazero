@@ -152,7 +152,8 @@ func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledCom
 		}
 	}
 
-	// Step 1: Validate imports and build instance-to-import mapping
+	// Step 1: Validate imports with type checking and build instance-to-import mapping
+	typeChecker := NewTypeChecker(c)
 	resolvedImports := make(map[string]Definition)
 	// instanceToImport maps component instance indices to import names.
 	// Instance imports (ImportExternDescInstance) contribute to the component instance index space.
@@ -164,6 +165,12 @@ func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledCom
 		if err != nil {
 			return nil, fmt.Errorf("import %q: %w", imp.Name, err)
 		}
+
+		// TYPE CHECK: Validate definition matches expected type
+		if err := typeChecker.CheckDefinition(&imp.ExternDesc, imp.Name, def); err != nil {
+			return nil, fmt.Errorf("import %q type mismatch: %w", imp.Name, err)
+		}
+
 		resolvedImports[imp.Name] = def
 
 		// Instance imports create entries in the component instance index space
