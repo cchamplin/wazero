@@ -283,10 +283,22 @@ func decodeTypeSection(c *component.Component, r *bytes.Reader) error {
 			})
 
 		case TypeOpResourceSync:
-			// Decode resource type (opcode already consumed)
-			resourceDef, err := decodeResourceTypeDef(r)
+			// Decode sync resource type (opcode already consumed)
+			resourceDef, err := decodeResourceTypeDefWithAsync(r, false)
 			if err != nil {
 				return fmt.Errorf("decode resource type %d: %w", startIdx+i, err)
+			}
+
+			c.Types = append(c.Types, component.TypeDef{
+				Kind:     component.TypeDefKindResource,
+				Resource: resourceDef,
+			})
+
+		case TypeOpResourceAsync:
+			// Decode async resource type (opcode already consumed)
+			resourceDef, err := decodeResourceTypeDefWithAsync(r, true)
+			if err != nil {
+				return fmt.Errorf("decode async resource type %d: %w", startIdx+i, err)
 			}
 
 			c.Types = append(c.Types, component.TypeDef{
