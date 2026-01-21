@@ -53,3 +53,36 @@ func TestResourceType(t *testing.T) {
 	}
 	require.Nil(t, r2.Destructor)
 }
+
+func TestResourceType_HasDestructor(t *testing.T) {
+	// Resource with destructor
+	rt := ResourceType{
+		Destructor: ptrTo(uint32(5)),
+	}
+	require.True(t, rt.HasDestructor())
+
+	// Resource without destructor
+	rtNoDtor := ResourceType{}
+	require.False(t, rtNoDtor.HasDestructor())
+}
+
+func TestResourceType_InstanceID(t *testing.T) {
+	rt := ResourceType{
+		InstanceID: 42,
+	}
+	require.Equal(t, uint32(42), rt.InstanceID)
+}
+
+func TestResourceType_AsyncDestructor(t *testing.T) {
+	rt := ResourceType{
+		Destructor:   ptrTo(uint32(5)),
+		DtorAsync:    true,
+		DtorCallback: ptrTo(uint32(6)),
+	}
+	require.True(t, rt.DtorAsync)
+	require.NotNil(t, rt.DtorCallback)
+}
+
+func ptrTo(v uint32) *uint32 {
+	return &v
+}
