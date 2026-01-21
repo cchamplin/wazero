@@ -2043,3 +2043,84 @@ func TestInstance_GetAncestor(t *testing.T) {
 		t.Error("GetAncestor(3) should return nil")
 	}
 }
+
+// TestInstance_IndexSpaces tests index spaces for nested component support.
+func TestInstance_IndexSpaces(t *testing.T) {
+	inst := &Instance{}
+
+	// Add items to instance index space
+	childInst := &Instance{}
+	idx := inst.AddInstanceToSpace(childInst)
+	if idx != 0 {
+		t.Errorf("expected index 0, got %d", idx)
+	}
+
+	// Retrieve from space
+	retrieved := inst.GetInstanceFromSpace(0)
+	if retrieved != childInst {
+		t.Error("retrieved instance should match")
+	}
+
+	// Add to type index space
+	typeDef := &TypeDef{Kind: TypeDefKindFunc}
+	typeIdx := inst.AddTypeToSpace(typeDef)
+	if typeIdx != 0 {
+		t.Errorf("expected type index 0, got %d", typeIdx)
+	}
+
+	retrievedType := inst.GetTypeFromSpace(0)
+	if retrievedType != typeDef {
+		t.Error("retrieved type should match")
+	}
+}
+
+// TestInstance_IndexSpaces_Component tests the component index space.
+func TestInstance_IndexSpaces_Component(t *testing.T) {
+	inst := &Instance{}
+
+	// Add to component index space
+	comp := &Component{}
+	idx := inst.AddComponentToSpace(comp)
+	if idx != 0 {
+		t.Errorf("expected component index 0, got %d", idx)
+	}
+
+	// Second component should be at index 1
+	comp2 := &Component{}
+	idx2 := inst.AddComponentToSpace(comp2)
+	if idx2 != 1 {
+		t.Errorf("expected component index 1, got %d", idx2)
+	}
+
+	// Retrieve components
+	retrieved := inst.GetComponentFromSpace(0)
+	if retrieved != comp {
+		t.Error("retrieved component should match first")
+	}
+
+	retrieved2 := inst.GetComponentFromSpace(1)
+	if retrieved2 != comp2 {
+		t.Error("retrieved component should match second")
+	}
+
+	// Out of bounds should return nil
+	if inst.GetComponentFromSpace(99) != nil {
+		t.Error("out of bounds should return nil")
+	}
+}
+
+// TestInstance_IndexSpaces_OutOfBounds tests out of bounds access returns nil.
+func TestInstance_IndexSpaces_OutOfBounds(t *testing.T) {
+	inst := &Instance{}
+
+	// All spaces should return nil for out of bounds
+	if inst.GetInstanceFromSpace(0) != nil {
+		t.Error("empty instance space should return nil")
+	}
+	if inst.GetTypeFromSpace(0) != nil {
+		t.Error("empty type space should return nil")
+	}
+	if inst.GetComponentFromSpace(0) != nil {
+		t.Error("empty component space should return nil")
+	}
+}
