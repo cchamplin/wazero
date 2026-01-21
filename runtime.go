@@ -548,11 +548,57 @@ func (r *runtime) InstantiateCoreModule(ctx context.Context, compiled component.
 // component-level imports for use by core modules.
 func (r *runtime) InstantiateHostModule(ctx context.Context, moduleName string, exports []component.HostModuleExport) (api.Module, error) {
 	builder := r.NewHostModuleBuilder(moduleName)
-	for _, exp := range exports {
-		builder.NewFunctionBuilder().
-			WithGoModuleFunction(exp.Func, exp.ParamTypes, exp.ResultTypes).
-			Export(exp.Name)
+
+	// Track which exports need function forwarding (for table initialization)
+	type forwardingInfo struct {
+		localFuncIndex uint32
+		sourceModule   api.Module
+		sourceName     string
 	}
+	var forwardings []forwardingInfo
+
+	for i, exp := range exports {
+		if exp.SourceModule != nil {
+			// This is a forwarded export - create a forwarding function
+			sourceModule := exp.SourceModule
+			sourceName := exp.SourceName
+			builder.NewFunctionBuilder().
+				WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
+					// Resolve the source function and call it
+					sourceFunc := sourceModule.ExportedFunction(sourceName)
+					if sourceFunc == nil {
+						return
+					}
+					defs := sourceModule.ExportedFunctionDefinitions()
+					def := defs[sourceName]
+					if def == nil {
+						return
+					}
+					actualParamCount := len(def.ParamTypes())
+					results, err := sourceFunc.Call(ctx, stack[:actualParamCount]...)
+					if err != nil {
+						return
+					}
+					for j, result := range results {
+						stack[j] = result
+					}
+				}), exp.ParamTypes, exp.ResultTypes).
+				Export(exp.Name)
+
+			// Track for function forwarding setup after instantiation
+			forwardings = append(forwardings, forwardingInfo{
+				localFuncIndex: uint32(i), // Local function index (no imports in host modules)
+				sourceModule:   sourceModule,
+				sourceName:     sourceName,
+			})
+		} else {
+			// Regular host function export
+			builder.NewFunctionBuilder().
+				WithGoModuleFunction(exp.Func, exp.ParamTypes, exp.ResultTypes).
+				Export(exp.Name)
+		}
+	}
+
 	// We need to return the raw *wasm.ModuleInstance, not the hostModuleInstance wrapper.
 	// The wrapper prevents calling ExportedFunction, but the import resolver needs the raw
 	// module to properly resolve imports.
@@ -561,7 +607,34 @@ func (r *runtime) InstantiateHostModule(ctx context.Context, moduleName string, 
 		return nil, err
 	}
 	compiled.(*compiledModule).closeWithModule = true
-	return r.InstantiateModule(ctx, compiled, NewModuleConfig())
+	mod, err := r.InstantiateModule(ctx, compiled, NewModuleConfig())
+	if err != nil {
+		return nil, err
+	}
+
+	// Set up function forwarding for aliased exports
+	// This ensures that FunctionInstanceReference returns the source's reference
+	// (with correct moduleCtxPtr) for table initialization
+	if len(forwardings) > 0 {
+		modInst := mod.(*wasm.ModuleInstance)
+		for _, fwd := range forwardings {
+			sourceInst, ok := fwd.sourceModule.(*wasm.ModuleInstance)
+			if !ok {
+				continue
+			}
+			// Get the source function's export
+			sourceExport, ok := sourceInst.Exports[fwd.sourceName]
+			if !ok || sourceExport.Type != wasm.ExternTypeFunc {
+				continue
+			}
+			// Get the function reference from the source module
+			forwardedRef := sourceInst.Engine.FunctionInstanceReference(sourceExport.Index)
+			// Set up forwarding in the host module's engine
+			modInst.Engine.SetForwardedFunction(fwd.localFuncIndex, forwardedRef)
+		}
+	}
+
+	return mod, nil
 }
 
 // InstantiateHostModuleWithTables implements component.HostModuleInstantiator.

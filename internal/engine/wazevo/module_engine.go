@@ -23,6 +23,13 @@ type (
 		localFunctionInstances []*functionInstance
 		importedFunctions      []importedFunction
 		listeners              []experimental.FunctionListener
+
+		// forwardedFunctions tracks local function indices that should forward to
+		// functions in other modules. This is used for component model inline instances
+		// where aliased functions need to preserve the source module's context.
+		// Key: local function index (after subtracting import count)
+		// Value: reference to the source function
+		forwardedFunctions map[wasm.Index]wasm.Reference
 	}
 
 	functionInstance struct {
@@ -276,6 +283,25 @@ func (m *moduleEngine) ResolveImportedFunction(index, descFunc, indexInImportedM
 		return // Recursively resolve the imported function.
 	}
 
+	// Check if the imported module has a forwarding entry for this function.
+	// This is used for component model inline instances where aliased functions
+	// need to preserve the source module's context (opaquePtr).
+	localIndex := indexInImportedModule
+	if importedME.forwardedFunctions != nil {
+		if forwardedRef, ok := importedME.forwardedFunctions[localIndex]; ok {
+			// Use the forwarded function instance instead of creating a new one
+			fwdFi := wazevoapi.PtrFromUintptr[functionInstance](forwardedRef)
+			typeID := m.module.TypeIDs[descFunc]
+			binary.LittleEndian.PutUint64(m.opaque[executableOffset:], uint64(uintptr(unsafe.Pointer(fwdFi.executable))))
+			binary.LittleEndian.PutUint64(m.opaque[moduleCtxOffset:], uint64(uintptr(unsafe.Pointer(fwdFi.moduleContextOpaquePtr))))
+			binary.LittleEndian.PutUint64(m.opaque[typeIDOffset:], uint64(typeID))
+
+			// Write importedFunction - use the forwarded module engine if available
+			m.importedFunctions[index] = importedFunction{me: importedME, indexInModule: localIndex}
+			return
+		}
+	}
+
 	offset := importedME.parent.functionOffsets[indexInImportedModule]
 	typeID := m.module.TypeIDs[descFunc]
 	executable := &importedME.parent.executable[offset]
@@ -322,6 +348,16 @@ func (m *moduleEngine) FunctionInstanceReference(funcIndex wasm.Index) wasm.Refe
 		return uintptr(unsafe.Pointer(&m.opaque[begin]))
 	}
 	localIndex := funcIndex - m.module.Source.ImportFunctionCount
+
+	// Check if this local function has a forwarding entry.
+	// This is used for component model inline instances where aliased functions
+	// need to preserve the source module's context (opaquePtr).
+	if m.forwardedFunctions != nil {
+		if ref, ok := m.forwardedFunctions[localIndex]; ok {
+			return ref
+		}
+	}
+
 	p := m.parent
 	executable := &p.executable[p.functionOffsets[localIndex]]
 	typeID := m.module.TypeIDs[m.module.Source.FunctionSection[localIndex]]
@@ -334,6 +370,15 @@ func (m *moduleEngine) FunctionInstanceReference(funcIndex wasm.Index) wasm.Refe
 	}
 	m.localFunctionInstances = append(m.localFunctionInstances, lf)
 	return uintptr(unsafe.Pointer(lf))
+}
+
+// SetForwardedFunction implements wasm.ModuleEngine.
+// It sets up function forwarding for component model inline instances.
+func (m *moduleEngine) SetForwardedFunction(localFuncIndex wasm.Index, forwardedRef wasm.Reference) {
+	if m.forwardedFunctions == nil {
+		m.forwardedFunctions = make(map[wasm.Index]wasm.Reference)
+	}
+	m.forwardedFunctions[localFuncIndex] = forwardedRef
 }
 
 // LookupFunction implements wasm.ModuleEngine.

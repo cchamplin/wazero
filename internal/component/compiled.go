@@ -29,10 +29,17 @@ type CoreModuleInstantiator interface {
 
 // HostModuleExport represents a single function export in a host module.
 type HostModuleExport struct {
-	Name     string
-	ParamTypes []api.ValueType
+	Name        string
+	ParamTypes  []api.ValueType
 	ResultTypes []api.ValueType
-	Func     api.GoModuleFunc
+	Func        api.GoModuleFunc
+
+	// For function forwarding (aliased functions that should preserve the source's moduleCtxPtr):
+	// When SourceModule is set, this export forwards to SourceModule.ExportedFunction(SourceName)
+	// and the function reference will use the source module's opaquePtr, not the host module's.
+	// This is used for component model inline instances that alias functions from other core instances.
+	SourceModule api.Module
+	SourceName   string
 }
 
 // HostModuleTableExport represents a table export that shares a table from another module.
