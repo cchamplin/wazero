@@ -1277,3 +1277,325 @@ func TestLowerBorrow_RoundTripWithLiftBorrow(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "my-resource", entry.Rep)
 }
+
+// --- Variant Type Coercion Tests (Task 1.6) ---
+
+func TestLowerFlatVariantTypeCoercion(t *testing.T) {
+	// Variant with i32 and f32 cases - payload joined to i32
+	variantType := types.Variant{Cases: []types.Case{
+		{Name: "int_case", Type: types.S32{}},
+		{Name: "float_case", Type: types.F32{}},
+	}}
+
+	// Lower float_case with value 3.14
+	floatPayload := component.ValF32(3.14)
+	val := component.ValVariant("float_case", &floatPayload)
+
+	ctx := &LowerContext{Opts: &Options{}}
+	flat, err := LowerFlat(ctx, variantType, val)
+	if err != nil {
+		t.Fatalf("LowerFlat failed: %v", err)
+	}
+
+	// Expected: [1, f32_bits_as_i32]
+	if len(flat) != 2 {
+		t.Fatalf("expected 2 flat values, got %d", len(flat))
+	}
+	if flat[0] != 1 {
+		t.Errorf("discriminant = %d, want 1", flat[0])
+	}
+
+	// The f32 should be encoded as i32 bits
+	expectedBits := uint64(math.Float32bits(3.14))
+	if flat[1] != expectedBits {
+		t.Errorf("payload bits = 0x%x, want 0x%x", flat[1], expectedBits)
+	}
+}
+
+func TestLowerFlatVariantI32ToI64Coercion(t *testing.T) {
+	// Variant with i32 and i64 cases - payload joined to i64
+	variantType := types.Variant{Cases: []types.Case{
+		{Name: "small", Type: types.S32{}},
+		{Name: "large", Type: types.S64{}},
+	}}
+
+	// Lower small case with value 42
+	intPayload := component.ValS32(42)
+	val := component.ValVariant("small", &intPayload)
+
+	ctx := &LowerContext{Opts: &Options{}}
+	flat, err := LowerFlat(ctx, variantType, val)
+	if err != nil {
+		t.Fatalf("LowerFlat failed: %v", err)
+	}
+
+	// Expected: [0, 42] where 42 is zero-extended to i64
+	if len(flat) != 2 {
+		t.Fatalf("expected 2 flat values, got %d", len(flat))
+	}
+	if flat[0] != 0 {
+		t.Errorf("discriminant = %d, want 0", flat[0])
+	}
+	if flat[1] != 42 {
+		t.Errorf("payload = %d, want 42", flat[1])
+	}
+}
+
+func TestLowerFlatVariantF32ToI64Coercion(t *testing.T) {
+	// Variant with f32 and i64 cases - payload joined to i64
+	variantType := types.Variant{Cases: []types.Case{
+		{Name: "float_val", Type: types.F32{}},
+		{Name: "int_val", Type: types.S64{}},
+	}}
+
+	// Lower float_val case with value 2.5
+	floatPayload := component.ValF32(2.5)
+	val := component.ValVariant("float_val", &floatPayload)
+
+	ctx := &LowerContext{Opts: &Options{}}
+	flat, err := LowerFlat(ctx, variantType, val)
+	if err != nil {
+		t.Fatalf("LowerFlat failed: %v", err)
+	}
+
+	// Expected: [0, f32_bits_zero_extended_to_i64]
+	if len(flat) != 2 {
+		t.Fatalf("expected 2 flat values, got %d", len(flat))
+	}
+	if flat[0] != 0 {
+		t.Errorf("discriminant = %d, want 0", flat[0])
+	}
+
+	// The f32 bits should be zero-extended to i64
+	expectedBits := uint64(math.Float32bits(2.5))
+	if flat[1] != expectedBits {
+		t.Errorf("payload bits = 0x%x, want 0x%x", flat[1], expectedBits)
+	}
+}
+
+func TestLowerFlatVariantF64ToI64Coercion(t *testing.T) {
+	// Variant with f64 and i64 cases - payload joined to i64
+	variantType := types.Variant{Cases: []types.Case{
+		{Name: "float_val", Type: types.F64{}},
+		{Name: "int_val", Type: types.S64{}},
+	}}
+
+	// Lower float_val case with value 3.14159
+	floatPayload := component.ValF64(3.14159)
+	val := component.ValVariant("float_val", &floatPayload)
+
+	ctx := &LowerContext{Opts: &Options{}}
+	flat, err := LowerFlat(ctx, variantType, val)
+	if err != nil {
+		t.Fatalf("LowerFlat failed: %v", err)
+	}
+
+	// Expected: [0, f64_bits_as_i64]
+	if len(flat) != 2 {
+		t.Fatalf("expected 2 flat values, got %d", len(flat))
+	}
+	if flat[0] != 0 {
+		t.Errorf("discriminant = %d, want 0", flat[0])
+	}
+
+	// The f64 bits should be encoded as i64
+	expectedBits := math.Float64bits(3.14159)
+	if flat[1] != expectedBits {
+		t.Errorf("payload bits = 0x%x, want 0x%x", flat[1], expectedBits)
+	}
+}
+
+func TestLowerFlatVariantRoundTripWithCoercion(t *testing.T) {
+	// Test that lower followed by lift produces the same value
+	// This tests the complete round-trip including type coercion
+
+	// Variant with i32 and i64 cases - payload joined to i64
+	variantType := types.Variant{Cases: []types.Case{
+		{Name: "small", Type: types.S32{}},
+		{Name: "large", Type: types.S64{}},
+	}}
+
+	// Test small case
+	intPayload := component.ValS32(-42) // Negative to test sign extension
+	val := component.ValVariant("small", &intPayload)
+
+	flat, err := LowerFlat(nil, variantType, val)
+	if err != nil {
+		t.Fatalf("LowerFlat failed: %v", err)
+	}
+
+	// Lift back
+	iter := NewFlatIter(flat)
+	lifted, err := LiftFlat(nil, variantType, iter)
+	if err != nil {
+		t.Fatalf("LiftFlat failed: %v", err)
+	}
+
+	caseName, payload := lifted.Variant()
+	if caseName != "small" {
+		t.Errorf("case name = %q, want %q", caseName, "small")
+	}
+	if payload == nil {
+		t.Fatal("payload is nil, want *Val")
+	}
+	if payload.S32() != -42 {
+		t.Errorf("payload = %d, want -42", payload.S32())
+	}
+}
+
+func TestLowerFlatVariantF32RoundTrip(t *testing.T) {
+	// Variant with i32 and f32 cases
+	variantType := types.Variant{Cases: []types.Case{
+		{Name: "int_case", Type: types.S32{}},
+		{Name: "float_case", Type: types.F32{}},
+	}}
+
+	// Test float case
+	floatPayload := component.ValF32(3.14)
+	val := component.ValVariant("float_case", &floatPayload)
+
+	flat, err := LowerFlat(nil, variantType, val)
+	if err != nil {
+		t.Fatalf("LowerFlat failed: %v", err)
+	}
+
+	// Lift back
+	iter := NewFlatIter(flat)
+	lifted, err := LiftFlat(nil, variantType, iter)
+	if err != nil {
+		t.Fatalf("LiftFlat failed: %v", err)
+	}
+
+	caseName, payload := lifted.Variant()
+	if caseName != "float_case" {
+		t.Errorf("case name = %q, want %q", caseName, "float_case")
+	}
+	if payload == nil {
+		t.Fatal("payload is nil, want *Val")
+	}
+	// Float comparison with bits
+	if math.Float32bits(payload.F32()) != math.Float32bits(3.14) {
+		t.Errorf("payload = %v, want 3.14", payload.F32())
+	}
+}
+
+func TestLowerFlatVariantDifferentPayloadCounts(t *testing.T) {
+	// Variant with different payload counts:
+	// Case 1: single i32 (flattens to [i32])
+	// Case 2: record with two i32 fields (flattens to [i32, i32])
+	// Joined type: [i32, i32]
+	recType := types.Record{
+		Fields: []types.Field{
+			{Name: "x", Type: types.S32{}},
+			{Name: "y", Type: types.S32{}},
+		},
+	}
+	variantType := types.Variant{Cases: []types.Case{
+		{Name: "single", Type: types.S32{}},
+		{Name: "pair", Type: recType},
+	}}
+
+	// Lower single case - should produce [0, value, 0] (discriminant + payload + padding)
+	intPayload := component.ValS32(42)
+	val := component.ValVariant("single", &intPayload)
+
+	flat, err := LowerFlat(nil, variantType, val)
+	if err != nil {
+		t.Fatalf("LowerFlat failed: %v", err)
+	}
+
+	// Expected: [0, 42, 0] - discriminant, payload, padding
+	if len(flat) != 3 {
+		t.Fatalf("expected 3 flat values, got %d: %v", len(flat), flat)
+	}
+	if flat[0] != 0 {
+		t.Errorf("discriminant = %d, want 0", flat[0])
+	}
+	if flat[1] != 42 {
+		t.Errorf("payload = %d, want 42", flat[1])
+	}
+	if flat[2] != 0 {
+		t.Errorf("padding = %d, want 0", flat[2])
+	}
+
+	// Round-trip test
+	iter := NewFlatIter(flat)
+	lifted, err := LiftFlat(nil, variantType, iter)
+	if err != nil {
+		t.Fatalf("LiftFlat failed: %v", err)
+	}
+
+	caseName, payload := lifted.Variant()
+	if caseName != "single" {
+		t.Errorf("case name = %q, want %q", caseName, "single")
+	}
+	if payload == nil {
+		t.Fatal("payload is nil, want *Val")
+	}
+	if payload.S32() != 42 {
+		t.Errorf("payload = %d, want 42", payload.S32())
+	}
+}
+
+func TestLowerFlatVariantCoercionMatchesJoinedType(t *testing.T) {
+	// Verify that the lowered flat values use the joined types correctly.
+	// Variant with i32 and i64 - joined type is i64.
+	// When lowering i32 case, the value should be zero-extended to fill the i64 slot.
+	variantType := types.Variant{Cases: []types.Case{
+		{Name: "small", Type: types.S32{}},
+		{Name: "large", Type: types.S64{}},
+	}}
+
+	// Test: lower small case, verify flat representation matches what lift expects
+	intPayload := component.ValS32(0x7FFFFFFF) // max positive i32
+	val := component.ValVariant("small", &intPayload)
+
+	flat, err := LowerFlat(nil, variantType, val)
+	if err != nil {
+		t.Fatalf("LowerFlat failed: %v", err)
+	}
+
+	// Expected: [0, 0x7FFFFFFF] - i32 value zero-extended to i64
+	if len(flat) != 2 {
+		t.Fatalf("expected 2 flat values, got %d", len(flat))
+	}
+	if flat[0] != 0 {
+		t.Errorf("discriminant = %d, want 0", flat[0])
+	}
+	// The i32 value should be zero-extended (not sign-extended) in the i64 slot
+	if flat[1] != 0x7FFFFFFF {
+		t.Errorf("payload = 0x%x, want 0x7FFFFFFF", flat[1])
+	}
+
+	// Also test negative value - should be zero-extended (treated as unsigned i32)
+	intPayload2 := component.ValS32(-1) // 0xFFFFFFFF as unsigned
+	val2 := component.ValVariant("small", &intPayload2)
+
+	flat2, err := LowerFlat(nil, variantType, val2)
+	if err != nil {
+		t.Fatalf("LowerFlat failed: %v", err)
+	}
+
+	// Expected: [0, 0xFFFFFFFF] - i32 bits zero-extended to i64
+	if flat2[1] != 0xFFFFFFFF {
+		t.Errorf("payload = 0x%x, want 0xFFFFFFFF", flat2[1])
+	}
+
+	// Round-trip test to verify correctness
+	iter := NewFlatIter(flat2)
+	lifted, err := LiftFlat(nil, variantType, iter)
+	if err != nil {
+		t.Fatalf("LiftFlat failed: %v", err)
+	}
+
+	caseName, payload := lifted.Variant()
+	if caseName != "small" {
+		t.Errorf("case name = %q, want %q", caseName, "small")
+	}
+	if payload == nil {
+		t.Fatal("payload is nil")
+	}
+	if payload.S32() != -1 {
+		t.Errorf("payload = %d, want -1", payload.S32())
+	}
+}

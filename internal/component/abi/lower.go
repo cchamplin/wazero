@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/component/types"
 )
@@ -87,30 +88,35 @@ func LowerFlat(ctx *LowerContext, typ types.ValType, val component.Val) ([]uint6
 			return nil, fmt.Errorf("variant case %q requires a payload", caseName)
 		}
 
-		// Calculate max payload flatten count for padding
-		maxPayloadFlat := 0
-		for _, vc := range t.Cases {
-			if vc.Type != nil {
-				if n := vc.Type.FlattenCount(); n > maxPayloadFlat {
-					maxPayloadFlat = n
-				}
-			}
-		}
+		// Calculate joined flat types per Canonical ABI spec lines 3077-3098
+		flatTypes := flattenVariantPayload(t)
 
 		result := []uint64{uint64(caseIdx)}
-		payloadCount := 0
+
 		if caseType != nil && payload != nil {
-			flat, err := LowerFlat(ctx, caseType, *payload)
+			// Lower the payload
+			payloadFlat, err := LowerFlat(ctx, caseType, *payload)
 			if err != nil {
 				return nil, fmt.Errorf("lower variant payload: %w", err)
 			}
-			result = append(result, flat...)
-			payloadCount = len(flat)
-		}
 
-		// Add padding zeros for remaining slots
-		for i := payloadCount; i < maxPayloadFlat; i++ {
-			result = append(result, 0)
+			// Coerce each payload value from case type to joined type
+			caseFlat := flattenType(caseType)
+			for i, pv := range payloadFlat {
+				have := caseFlat[i]
+				want := flatTypes[i]
+				result = append(result, coerceFlatValueForLower(pv, have, want))
+			}
+
+			// Pad remaining slots with zeros
+			for i := len(payloadFlat); i < len(flatTypes); i++ {
+				result = append(result, 0)
+			}
+		} else {
+			// No payload - pad all slots with zeros
+			for i := 0; i < len(flatTypes); i++ {
+				result = append(result, 0)
+			}
 		}
 
 		return result, nil
@@ -652,4 +658,33 @@ func isValidUnicodeScalarRune(r rune) bool {
 		return false
 	}
 	return true
+}
+
+// coerceFlatValueForLower coerces a flat value from 'have' type to 'want' type for lowering.
+// This implements the coercion rules from Canonical ABI spec lines 3088-3094.
+// When lowering variants, payload values must be coerced from the case type to the joined type:
+// - f32 to i32: value already contains f32 bits encoded as uint64
+// - i32 to i64: value is already zero-extended in uint64
+// - f32 to i64: value contains f32 bits, already zero-extended in uint64
+// - f64 to i64: value already contains f64 bits encoded as uint64
+func coerceFlatValueForLower(value uint64, have, want api.ValueType) uint64 {
+	if have == want {
+		return value
+	}
+	switch {
+	case have == api.ValueTypeF32 && want == api.ValueTypeI32:
+		// f32 bits encoded as i32 - value already has the bits
+		return value
+	case have == api.ValueTypeI32 && want == api.ValueTypeI64:
+		// i32 zero-extended to i64 - value is already in uint64
+		return value
+	case have == api.ValueTypeF32 && want == api.ValueTypeI64:
+		// f32 bits encoded as i32, then zero-extended to i64
+		return value
+	case have == api.ValueTypeF64 && want == api.ValueTypeI64:
+		// f64 bits encoded as i64 - value already has the bits
+		return value
+	default:
+		return value
+	}
 }
