@@ -21,9 +21,8 @@ func (Record) valType() {}
 
 func (r Record) Size() uint32 {
 	if len(r.Fields) == 0 {
-		// Per spec, empty types are not permitted.
-		// Return 1 as minimum size for defensive programming.
-		return 1
+		// Per Canonical ABI spec, empty records have size 0.
+		return 0
 	}
 	size := uint32(0)
 	maxAlign := uint32(1)
