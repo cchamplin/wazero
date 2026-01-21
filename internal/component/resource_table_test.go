@@ -413,3 +413,20 @@ func TestResourceTable_New_HasInvalidTypeByDefault(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, entry.RT.IsValid(), "legacy New() should have invalid RT")
 }
+
+func TestCreateResourceNewFunc_StoresResourceType(t *testing.T) {
+	table := NewResourceTable()
+
+	// Create the resource.new function for type index 3
+	newFunc := table.CreateResourceNewFuncWithType(3)
+
+	// Call it to create a resource with rep=42
+	handleIdx := newFunc(42)
+
+	// Verify the handle has the correct type
+	entry, err := table.Get(Handle(handleIdx))
+	require.NoError(t, err)
+	require.True(t, entry.RT.IsValid())
+	require.Equal(t, uint32(3), entry.RT.Index())
+	require.Equal(t, uint32(42), entry.Rep.(uint32))
+}
