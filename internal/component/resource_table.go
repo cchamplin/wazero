@@ -31,10 +31,11 @@ func MakeHandle(idx, gen uint32) Handle {
 
 // HandleEntry represents an active resource in the table.
 type HandleEntry struct {
-	Rep         any    // The resource representation value
-	Own         bool   // True if this is an owning handle
-	NumLends    uint32 // Number of active borrows from this handle
-	BorrowScope any    // The scope that created this borrow (for borrowed handles)
+	RT          ResourceTypeID // Resource type this handle belongs to
+	Rep         any            // The resource representation value
+	Own         bool           // True if this is an owning handle
+	NumLends    uint32         // Number of active borrows from this handle
+	BorrowScope any            // The scope that created this borrow (for borrowed handles)
 }
 
 type entryState uint8
@@ -88,6 +89,36 @@ func (t *ResourceTable) New(rep any, own bool) Handle {
 			state:      entryOccupied,
 			generation: gen,
 			entry:      HandleEntry{Rep: rep, Own: own},
+			nextFree:   -1,
+		})
+	}
+
+	return MakeHandle(idx, gen)
+}
+
+// NewWithType creates a new resource handle with a specific resource type.
+func (t *ResourceTable) NewWithType(rep any, own bool, rtID ResourceTypeID) Handle {
+	var idx uint32
+	var gen uint32
+
+	if t.freeHead >= 0 {
+		// Reuse a free slot
+		idx = uint32(t.freeHead)
+		entry := &t.entries[idx]
+		t.freeHead = entry.nextFree
+		gen = entry.generation + 1
+		entry.state = entryOccupied
+		entry.generation = gen
+		entry.entry = HandleEntry{RT: rtID, Rep: rep, Own: own}
+		entry.nextFree = -1
+	} else {
+		// Allocate new slot
+		idx = uint32(len(t.entries))
+		gen = 0
+		t.entries = append(t.entries, tableEntry{
+			state:      entryOccupied,
+			generation: gen,
+			entry:      HandleEntry{RT: rtID, Rep: rep, Own: own},
 			nextFree:   -1,
 		})
 	}

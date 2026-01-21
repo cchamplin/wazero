@@ -389,3 +389,16 @@ func TestResourceTable_CreateResourceRepFunc_InvalidHandle(t *testing.T) {
 		t.Errorf("expected rep=0 for invalid handle, got %d", rep)
 	}
 }
+
+func TestHandleEntry_HasResourceTypeID(t *testing.T) {
+	table := NewResourceTable()
+
+	// Create a handle with a specific resource type
+	rtID := NewResourceTypeID(5)
+	h := table.NewWithType(uint32(100), true, rtID)
+
+	entry, err := table.Get(h)
+	require.NoError(t, err)
+	require.Equal(t, rtID, entry.RT)
+	require.Equal(t, uint32(100), entry.Rep.(uint32))
+}
