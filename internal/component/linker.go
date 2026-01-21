@@ -56,6 +56,14 @@ type ImportedValueDef struct {
 
 func (*ImportedValueDef) definition() {}
 
+// TypeDefDef wraps a TypeDef to implement Definition.
+// This is used when passing types as arguments to nested component instantiation.
+type TypeDefDef struct {
+	TypeDef *TypeDef
+}
+
+func (*TypeDefDef) definition() {}
+
 // Linker resolves component imports and instantiates components.
 type Linker struct {
 	definitions    map[string]Definition
