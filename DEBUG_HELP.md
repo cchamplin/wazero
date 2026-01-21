@@ -2,15 +2,6 @@
 
 This document describes the tooling and reference repositories available for debugging WebAssembly and Component Model issues in this project.
 
-## Environment Setup
-
-Before using the tools, ensure your environment is configured:
-
-```bash
-source "$HOME/.cargo/env"
-export PATH="$HOME/.wasmtime/bin:$PATH"
-```
-
 ## Installed Tools
 
 ### Rust & Cargo (v1.92.0)
