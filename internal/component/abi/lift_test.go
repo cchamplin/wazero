@@ -2252,4 +2252,7 @@ func TestLiftFlatListAlignmentValidation(t *testing.T) {
 	if err == nil {
 		t.Error("expected error for misaligned list element pointer in flat lift, got nil")
 	}
+	if err != nil && !strings.Contains(err.Error(), "align") {
+		t.Errorf("expected alignment error, got: %v", err)
+	}
 }
