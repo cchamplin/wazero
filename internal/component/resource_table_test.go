@@ -648,3 +648,23 @@ func TestResourceTable_GetWithType_InvalidHandle(t *testing.T) {
 	_, err := table.GetWithType(invalidH, NewResourceTypeID(1))
 	require.ErrorIs(t, err, ErrInvalidHandle)
 }
+
+func TestResourceTable_RepWithType_Success(t *testing.T) {
+	table := NewResourceTable()
+	rtID := NewResourceTypeID(5)
+	h := table.NewWithType(uint32(100), true, rtID)
+
+	rep, err := table.RepWithType(h, rtID)
+	require.NoError(t, err)
+	require.Equal(t, uint32(100), rep)
+}
+
+func TestResourceTable_RepWithType_TypeMismatch(t *testing.T) {
+	table := NewResourceTable()
+	rtID := NewResourceTypeID(5)
+	wrongID := NewResourceTypeID(6)
+	h := table.NewWithType(uint32(100), true, rtID)
+
+	_, err := table.RepWithType(h, wrongID)
+	require.ErrorIs(t, err, ErrResourceTypeMismatch)
+}

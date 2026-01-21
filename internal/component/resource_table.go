@@ -336,6 +336,24 @@ func (t *ResourceTable) GetWithType(h Handle, expectedRT ResourceTypeID) (*Handl
 	return entry, nil
 }
 
+// RepWithType returns the representation value after validating the handle's type.
+// Returns ErrResourceTypeMismatch if types don't match.
+func (t *ResourceTable) RepWithType(h Handle, expectedRT ResourceTypeID) (uint32, error) {
+	entry, err := t.GetWithType(h, expectedRT)
+	if err != nil {
+		return 0, err
+	}
+
+	switch v := entry.Rep.(type) {
+	case uint32:
+		return v, nil
+	case int:
+		return uint32(v), nil
+	default:
+		return 0, fmt.Errorf("resource rep is not a uint32: %T", entry.Rep)
+	}
+}
+
 // RemoveWithType removes a handle from the table after validating its type.
 // Returns ErrResourceTypeMismatch if types don't match.
 // The handle is NOT removed if type validation fails.
