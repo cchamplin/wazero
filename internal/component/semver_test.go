@@ -125,3 +125,54 @@ func TestSemverCompatibleRelaxed(t *testing.T) {
 		})
 	}
 }
+
+func TestParseSemverRange_MatchAll(t *testing.T) {
+	r, err := ParseSemverRange("*")
+	require.NoError(t, err)
+	require.True(t, r.MatchAll)
+
+	// Should match any version
+	v1, _ := ParseSemver("0.1.0")
+	v2, _ := ParseSemver("5.0.0")
+	require.True(t, r.Matches(v1))
+	require.True(t, r.Matches(v2))
+}
+
+func TestParseSemverRange_LowerBound(t *testing.T) {
+	r, err := ParseSemverRange(">=1.0.0")
+	require.NoError(t, err)
+
+	below, _ := ParseSemver("0.9.0")
+	atMin, _ := ParseSemver("1.0.0")
+	above, _ := ParseSemver("2.0.0")
+
+	require.False(t, r.Matches(below))
+	require.True(t, r.Matches(atMin))
+	require.True(t, r.Matches(above))
+}
+
+func TestParseSemverRange_UpperBound(t *testing.T) {
+	r, err := ParseSemverRange("<2.0.0")
+	require.NoError(t, err)
+
+	below, _ := ParseSemver("1.5.0")
+	atMax, _ := ParseSemver("2.0.0")
+	above, _ := ParseSemver("2.1.0")
+
+	require.True(t, r.Matches(below))
+	require.False(t, r.Matches(atMax)) // exclusive
+	require.False(t, r.Matches(above))
+}
+
+func TestParseSemverRange_Combined(t *testing.T) {
+	r, err := ParseSemverRange("{>=1.0.0 <2.0.0}")
+	require.NoError(t, err)
+
+	below, _ := ParseSemver("0.9.0")
+	inRange, _ := ParseSemver("1.5.0")
+	atMax, _ := ParseSemver("2.0.0")
+
+	require.False(t, r.Matches(below))
+	require.True(t, r.Matches(inRange))
+	require.False(t, r.Matches(atMax))
+}
