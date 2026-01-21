@@ -156,27 +156,54 @@ func (v Variant) PayloadOffset() uint32 {
 	return alignTo(v.DiscriminantSize(), payloadAlign)
 }
 
-// List represents a variable-length list type.
+// List represents a list type.
+// If Length is nil, it's a dynamic list (ptr + len in memory).
+// If Length is set, it's a fixed-length list (inline elements).
 type List struct {
 	Element ValType
+	Length  *uint32 // nil for dynamic lists, set for fixed-length
 }
 
 func (List) valType() {}
 
-// Size returns the size of the list in memory (pointer + length).
-func (List) Size() uint32 { return 8 } // ptr: i32, len: i32
+// Size returns the size of the list in memory.
+// Dynamic lists: 8 bytes (ptr: i32, len: i32)
+// Fixed lists: length * element_size
+func (l List) Size() uint32 {
+	if l.Length != nil {
+		return *l.Length * l.Element.Size()
+	}
+	return 8 // ptr + len
+}
 
-// Align returns the alignment of the list (i32 alignment).
-func (List) Align() uint32 { return 4 }
+// Align returns the alignment of the list.
+// Dynamic lists: 4 (pointer alignment)
+// Fixed lists: element alignment
+func (l List) Align() uint32 {
+	if l.Length != nil {
+		return l.Element.Align()
+	}
+	return 4
+}
 
-// FlattenCount returns 2 (pointer and length).
-func (List) FlattenCount() int { return 2 }
+// FlattenCount returns the number of core wasm values when flattened.
+// Dynamic lists: 2 (pointer and length)
+// Fixed lists: length * element_flatten_count
+func (l List) FlattenCount() int {
+	if l.Length != nil {
+		return int(*l.Length) * l.Element.FlattenCount()
+	}
+	return 2
+}
 
 // ElementSize returns the size of each element.
 func (l List) ElementSize() uint32 { return l.Element.Size() }
 
 // ElementAlign returns the alignment of each element.
 func (l List) ElementAlign() uint32 { return l.Element.Align() }
+
+// IsFixedLength returns true if this is a fixed-length list.
+func (l List) IsFixedLength() bool { return l.Length != nil }
 
 // Option represents an optional value type (sugar for variant { none, some(T) }).
 type Option struct {
