@@ -430,3 +430,36 @@ func TestCreateResourceNewFunc_StoresResourceType(t *testing.T) {
 	require.Equal(t, uint32(3), entry.RT.Index())
 	require.Equal(t, uint32(42), entry.Rep.(uint32))
 }
+
+func TestResourceTable_GetType(t *testing.T) {
+	table := NewResourceTable()
+	rtID := NewResourceTypeID(7)
+	h := table.NewWithType(uint32(100), true, rtID)
+
+	// GetType should return the resource type
+	gotType, err := table.GetType(h)
+	require.NoError(t, err)
+	require.Equal(t, rtID, gotType)
+}
+
+func TestResourceTable_GetType_InvalidHandle(t *testing.T) {
+	table := NewResourceTable()
+
+	invalidHandle := MakeHandle(999, 0)
+	_, err := table.GetType(invalidHandle)
+	require.ErrorIs(t, err, ErrInvalidHandle)
+}
+
+func TestResourceTable_ValidateType(t *testing.T) {
+	table := NewResourceTable()
+	rtID := NewResourceTypeID(7)
+	wrongID := NewResourceTypeID(8)
+	h := table.NewWithType(uint32(100), true, rtID)
+
+	// Correct type should pass
+	require.NoError(t, table.ValidateType(h, rtID))
+
+	// Wrong type should fail
+	err := table.ValidateType(h, wrongID)
+	require.Error(t, err)
+}
