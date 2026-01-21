@@ -1,6 +1,7 @@
 package conformance
 
 import (
+	"context"
 	"testing"
 
 	"github.com/tetratelabs/wazero/internal/component"
@@ -115,4 +116,61 @@ func TestInstance_ValidateNotRecursive(t *testing.T) {
 		err := inst.ValidateNotRecursive(nil)
 		require.NoError(t, err)
 	})
+}
+
+func TestReentrance_CallerInstanceContext(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("no_caller_returns_nil", func(t *testing.T) {
+		caller := component.GetCallerInstance(ctx)
+		require.Nil(t, caller)
+	})
+
+	t.Run("with_caller_returns_instance", func(t *testing.T) {
+		inst := &component.Instance{}
+		ctxWithCaller := component.WithCallerInstance(ctx, inst)
+
+		caller := component.GetCallerInstance(ctxWithCaller)
+		require.Same(t, inst, caller)
+	})
+
+	t.Run("nested_contexts", func(t *testing.T) {
+		inst1 := &component.Instance{}
+		inst2 := &component.Instance{}
+
+		ctx1 := component.WithCallerInstance(ctx, inst1)
+		ctx2 := component.WithCallerInstance(ctx1, inst2)
+
+		// Most recent caller wins
+		require.Same(t, inst2, component.GetCallerInstance(ctx2))
+		// Original context still has inst1
+		require.Same(t, inst1, component.GetCallerInstance(ctx1))
+	})
+}
+
+func TestReentrance_DeepCallStack(t *testing.T) {
+	inst := &component.Instance{}
+
+	// Simulate deep call stack
+	depth := 100
+	for i := 0; i < depth; i++ {
+		inst.EnterCall()
+	}
+	require.Equal(t, depth, inst.ActiveCallDepth())
+
+	for i := 0; i < depth; i++ {
+		inst.ExitCall()
+	}
+	require.Equal(t, 0, inst.ActiveCallDepth())
+}
+
+func TestReentrance_ExitCallNeverNegative(t *testing.T) {
+	inst := &component.Instance{}
+
+	// Exit without enter should not go negative
+	inst.ExitCall()
+	inst.ExitCall()
+	inst.ExitCall()
+
+	require.Equal(t, 0, inst.ActiveCallDepth(), "call depth should never go negative")
 }
