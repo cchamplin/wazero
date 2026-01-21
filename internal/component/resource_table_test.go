@@ -511,3 +511,33 @@ func TestCreateResourceDropFunc_TrapsOnTypeMismatch(t *testing.T) {
 	require.True(t, trapCalled, "should trap on type mismatch")
 	require.ErrorIs(t, trapErr, ErrResourceTypeMismatch)
 }
+
+func TestCreateResourceDropFuncWithTrap_SuccessfulDrop(t *testing.T) {
+	table := NewResourceTable()
+
+	// Create a handle with type 1
+	h := table.NewWithType(uint32(42), true, NewResourceTypeID(1))
+
+	var destructorCalledWith uint32
+	destructor := func(rep uint32) {
+		destructorCalledWith = rep
+	}
+
+	var trapCalled bool
+	dropFunc := table.CreateResourceDropFuncWithTrap(1, destructor, func(err error) {
+		trapCalled = true
+	})
+
+	// Drop the handle
+	dropFunc(uint32(h))
+
+	// Verify trap was NOT called
+	require.False(t, trapCalled, "should not trap on valid drop")
+
+	// Verify destructor was called with correct rep
+	require.Equal(t, uint32(42), destructorCalledWith)
+
+	// Verify handle is now invalid
+	_, err := table.Get(h)
+	require.ErrorIs(t, err, ErrInvalidHandle)
+}
