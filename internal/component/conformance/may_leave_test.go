@@ -45,3 +45,20 @@ func TestInstance_MayLeaveFalseDuringLowering(t *testing.T) {
 	inst.SetMayLeave(true)
 	require.True(t, inst.MayLeave(), "should be true after lowering")
 }
+
+func TestInstance_MayLeaveFalseDuringPostReturn(t *testing.T) {
+	// This test documents that may_leave should be false during post-return.
+	// The actual logic is in instance.go where postReturnFunc is called.
+	// Per CanonicalABI.md lines 3287-3289, may_leave must be false during
+	// post-return execution to ensure synchronous lowered calls can always
+	// be implemented by plain synchronous function calls.
+
+	inst := &component.Instance{}
+
+	// Simulate post-return execution
+	inst.SetMayLeave(false)
+	require.False(t, inst.MayLeave(), "should be false during post-return")
+
+	inst.SetMayLeave(true)
+	require.True(t, inst.MayLeave(), "should be true after post-return")
+}

@@ -301,11 +301,17 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 
 	// Call the post-return function if specified.
 	// Per Canonical ABI spec, the post-return function is called after the main
-	// function returns but before control returns to the caller. The post-return
-	// function receives the flat return values as arguments and is used for cleanup
-	// (e.g., freeing memory that was allocated by realloc for return values).
+	// function returns but before control returns to the caller.
+	// IMPORTANT: may_leave must be false during post-return to prevent callbacks.
+	// Per CanonicalABI.md lines 3287-3289
 	if f.postReturnFunc != nil {
+		if f.instance != nil {
+			f.instance.SetMayLeave(false)
+		}
 		_, postReturnErr := f.postReturnFunc.Call(ctx, coreResults...)
+		if f.instance != nil {
+			f.instance.SetMayLeave(true)
+		}
 		if postReturnErr != nil {
 			return nil, fmt.Errorf("post-return function failed: %w", postReturnErr)
 		}
