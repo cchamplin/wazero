@@ -687,17 +687,54 @@ type FixedSizeListTypeDef struct {
 
 // CoreTypeDef represents a core type definition.
 type CoreTypeDef struct {
-	Kind   CoreTypeDefKind
-	Func   *CoreFuncTypeDef
-	Module *CoreModuleTypeDef
+	Kind     CoreTypeDefKind
+	Func     *CoreFuncTypeDef
+	Module   *CoreModuleTypeDef
+	RecGroup *CoreRecGroupTypeDef
 }
 
 // CoreTypeDefKind identifies the kind of core type definition.
 type CoreTypeDefKind uint8
 
 const (
-	CoreTypeDefKindFunc   CoreTypeDefKind = 0x60
-	CoreTypeDefKindModule CoreTypeDefKind = 0x50
+	CoreTypeDefKindFunc     CoreTypeDefKind = 0x60
+	CoreTypeDefKindModule   CoreTypeDefKind = 0x50
+	CoreTypeDefKindRecGroup CoreTypeDefKind = 0x00 // GC proposal rec group (0x00 0x50 prefix)
+)
+
+// CoreRecGroupTypeDef represents a GC proposal recursive group type.
+// This is used when a non-final sub type is encoded as a top-level core type
+// with the 0x00 0x50 prefix to disambiguate from module type.
+type CoreRecGroupTypeDef struct {
+	// Types contains the sub types in this rec group.
+	// For now, we store raw bytes since full GC type parsing isn't required.
+	Types []CoreSubType
+}
+
+// CoreSubType represents a sub type within a rec group.
+type CoreSubType struct {
+	// IsFinal indicates if this is a final type (no further subtypes allowed).
+	IsFinal bool
+	// SuperTypeIndices contains indices of super types.
+	SuperTypeIndices []uint32
+	// CompositeType is the underlying composite type (func, struct, array).
+	CompositeType CoreCompositeType
+}
+
+// CoreCompositeType represents a composite type in the GC proposal.
+type CoreCompositeType struct {
+	Kind CoreCompositeTypeKind
+	Func *CoreFuncTypeDef
+	// Struct and Array fields could be added for full GC support
+}
+
+// CoreCompositeTypeKind identifies the kind of composite type.
+type CoreCompositeTypeKind uint8
+
+const (
+	CoreCompositeTypeKindFunc   CoreCompositeTypeKind = 0x60
+	CoreCompositeTypeKindStruct CoreCompositeTypeKind = 0x5f
+	CoreCompositeTypeKindArray  CoreCompositeTypeKind = 0x5e
 )
 
 // CoreFuncTypeDef describes a core function type.

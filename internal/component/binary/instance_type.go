@@ -327,7 +327,15 @@ func decodeNestedTypeDef(r *bytes.Reader) (*component.TypeDef, error) {
 		typeDef.Result = convertResultTypeDef(result)
 
 	case TypeOpResourceSync:
-		resourceDef, err := decodeResourceTypeDef(r)
+		resourceDef, err := decodeResourceTypeDefWithAsync(r, false)
+		if err != nil {
+			return nil, err
+		}
+		typeDef.Kind = component.TypeDefKindResource
+		typeDef.Resource = resourceDef
+
+	case TypeOpResourceAsync:
+		resourceDef, err := decodeResourceTypeDefWithAsync(r, true)
 		if err != nil {
 			return nil, err
 		}

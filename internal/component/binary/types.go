@@ -13,11 +13,12 @@ import (
 
 // Type definition opcodes
 const (
-	TypeOpFuncSync     byte = 0x40 // Sync function type
-	TypeOpFuncAsync    byte = 0x43 // Async function type
-	TypeOpComponent    byte = 0x41 // Component type
-	TypeOpInstance     byte = 0x42 // Instance type
-	TypeOpResourceSync byte = 0x3f // Resource type (sync destructor)
+	TypeOpFuncSync      byte = 0x40 // Sync function type
+	TypeOpFuncAsync     byte = 0x43 // Async function type
+	TypeOpComponent     byte = 0x41 // Component type
+	TypeOpInstance      byte = 0x42 // Instance type
+	TypeOpResourceSync  byte = 0x3f // Resource type (sync destructor)
+	TypeOpResourceAsync byte = 0x3e // Resource type (async destructor)
 )
 
 // Result encoding
@@ -125,6 +126,10 @@ type ResultTypeDef struct {
 type ResourceTypeDef struct {
 	// Destructor is the index of the destructor function, or nil if no destructor.
 	Destructor *uint32
+	// AsyncDestructor indicates if this resource has an async destructor (0x3e opcode).
+	AsyncDestructor bool
+	// Callback is the index of the callback function for async destructors, or nil if not specified.
+	Callback *uint32
 }
 
 // decodeValType reads a valtype from the reader.
@@ -690,10 +695,18 @@ func decodeFixedSizeListTypeDef(r *bytes.Reader) (*component.FixedSizeListTypeDe
 }
 
 // decodeResourceTypeDef reads a resource type definition from the reader.
-// Format: 0x7f dtor_flag [dtor_idx]
+// For sync resources (0x3f): Format is 0x7f dtor_flag [dtor_idx]
+// For async resources (0x3e): Format is 0x7f f:<funcidx> cb?:<funcidx>?
 // The 0x7f byte indicates i32 representation (always required).
-// dtor_flag: 0x00 = no destructor, 0x01 = has destructor followed by funcidx.
+// For sync: dtor_flag 0x00 = no destructor, 0x01 = has destructor followed by funcidx.
+// For async: destructor funcidx is required, followed by optional callback flag and index.
 func decodeResourceTypeDef(r *bytes.Reader) (*ResourceTypeDef, error) {
+	return decodeResourceTypeDefWithAsync(r, false)
+}
+
+// decodeResourceTypeDefWithAsync reads a resource type definition from the reader.
+// The isAsync parameter indicates whether this is an async resource type (0x3e opcode).
+func decodeResourceTypeDefWithAsync(r *bytes.Reader, isAsync bool) (*ResourceTypeDef, error) {
 	// Read rep type (must be 0x7f for i32)
 	repType, err := r.ReadByte()
 	if err != nil {
@@ -703,27 +716,59 @@ func decodeResourceTypeDef(r *bytes.Reader) (*ResourceTypeDef, error) {
 		return nil, fmt.Errorf("unsupported resource rep type: 0x%02x (expected 0x7f for i32)", repType)
 	}
 
-	// Read destructor flag
-	dtorFlag, err := r.ReadByte()
-	if err != nil {
-		return nil, fmt.Errorf("read resource destructor flag: %w", err)
+	result := &ResourceTypeDef{
+		AsyncDestructor: isAsync,
 	}
 
-	result := &ResourceTypeDef{}
-
-	switch dtorFlag {
-	case 0x00:
-		// No destructor
-		result.Destructor = nil
-	case 0x01:
-		// Has destructor, read function index
+	if isAsync {
+		// Async resource: destructor funcidx is required
 		dtorIdx, _, err := leb128.DecodeUint32(r)
 		if err != nil {
-			return nil, fmt.Errorf("read resource destructor index: %w", err)
+			return nil, fmt.Errorf("read async resource destructor index: %w", err)
 		}
 		result.Destructor = &dtorIdx
-	default:
-		return nil, fmt.Errorf("invalid resource destructor flag: 0x%02x (expected 0x00 or 0x01)", dtorFlag)
+
+		// Optional callback flag
+		callbackFlag, err := r.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("read async resource callback flag: %w", err)
+		}
+
+		switch callbackFlag {
+		case 0x00:
+			// No callback
+			result.Callback = nil
+		case 0x01:
+			// Has callback, read function index
+			callbackIdx, _, err := leb128.DecodeUint32(r)
+			if err != nil {
+				return nil, fmt.Errorf("read async resource callback index: %w", err)
+			}
+			result.Callback = &callbackIdx
+		default:
+			return nil, fmt.Errorf("invalid async resource callback flag: 0x%02x (expected 0x00 or 0x01)", callbackFlag)
+		}
+	} else {
+		// Sync resource: destructor is optional via flag
+		dtorFlag, err := r.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("read resource destructor flag: %w", err)
+		}
+
+		switch dtorFlag {
+		case 0x00:
+			// No destructor
+			result.Destructor = nil
+		case 0x01:
+			// Has destructor, read function index
+			dtorIdx, _, err := leb128.DecodeUint32(r)
+			if err != nil {
+				return nil, fmt.Errorf("read resource destructor index: %w", err)
+			}
+			result.Destructor = &dtorIdx
+		default:
+			return nil, fmt.Errorf("invalid resource destructor flag: 0x%02x (expected 0x00 or 0x01)", dtorFlag)
+		}
 	}
 
 	return result, nil
