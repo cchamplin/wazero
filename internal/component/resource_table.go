@@ -8,10 +8,11 @@ import (
 )
 
 var (
-	ErrInvalidHandle       = errors.New("invalid resource handle")
-	ErrHandleNotOwned      = errors.New("handle is not owned")
-	ErrResourceInUse       = errors.New("resource has active borrows")
+	ErrInvalidHandle        = errors.New("invalid resource handle")
+	ErrHandleNotOwned       = errors.New("handle is not owned")
+	ErrResourceInUse        = errors.New("resource has active borrows")
 	ErrNoBorrowsToDecrement = errors.New("no active borrows to decrement")
+	ErrResourceTypeMismatch = errors.New("resource type mismatch")
 )
 
 // Handle is a 64-bit resource handle: upper 32 bits = generation, lower 32 = index.
@@ -270,4 +271,26 @@ func (t *ResourceTable) CreateResourceRepFunc(resourceTypeIdx uint32) func(handl
 		}
 		return rep
 	}
+}
+
+// GetType returns the ResourceTypeID for a handle.
+func (t *ResourceTable) GetType(h Handle) (ResourceTypeID, error) {
+	entry, err := t.Get(h)
+	if err != nil {
+		return InvalidResourceTypeID(), err
+	}
+	return entry.RT, nil
+}
+
+// ValidateType checks that a handle has the expected resource type.
+// Returns ErrResourceTypeMismatch if types don't match.
+func (t *ResourceTable) ValidateType(h Handle, expected ResourceTypeID) error {
+	actual, err := t.GetType(h)
+	if err != nil {
+		return err
+	}
+	if actual != expected {
+		return fmt.Errorf("%w: expected type %d, got %d", ErrResourceTypeMismatch, expected.Index(), actual.Index())
+	}
+	return nil
 }
