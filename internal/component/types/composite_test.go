@@ -42,7 +42,9 @@ func TestRecordOffset(t *testing.T) {
 
 func TestRecordEmpty(t *testing.T) {
 	r := Record{Fields: []Field{}}
-	require.Equal(t, uint32(0), r.Size())
+	// Per spec lines 1930-1932, empty types are not permitted.
+	// For defensive programming, we return minimum size of 1.
+	require.Equal(t, uint32(1), r.Size())
 	require.Equal(t, uint32(1), r.Align())
 	require.Equal(t, 0, r.FlattenCount())
 }
@@ -375,7 +377,9 @@ func TestTupleType(t *testing.T) {
 
 func TestTupleEmpty(t *testing.T) {
 	tup := Tuple{Types: []ValType{}}
-	require.Equal(t, uint32(0), tup.Size())
+	// Per spec lines 1930-1932, empty types are not permitted.
+	// For defensive programming, we return minimum size of 1.
+	require.Equal(t, uint32(1), tup.Size())
 	require.Equal(t, uint32(1), tup.Align())
 	require.Equal(t, 0, tup.FlattenCount())
 }
@@ -460,5 +464,30 @@ func TestFixedLengthListIsFixedLength(t *testing.T) {
 	dynamicList := List{Element: U32{}}
 	if dynamicList.IsFixedLength() {
 		t.Error("dynamic list should return false for IsFixedLength()")
+	}
+}
+
+func TestEmptyRecordSize(t *testing.T) {
+	// Per spec line 1963, empty records should have size > 0
+	// The spec says "Empty types, such as records with no fields, are not permitted"
+	// However, for defensive programming we return minimum size of 1
+
+	emptyRecord := Record{Fields: []Field{}}
+	size := emptyRecord.Size()
+	t.Logf("Empty record size = %d", size)
+
+	// The spec says size must be > 0, assert 1963
+	if size == 0 {
+		t.Error("Empty record should have non-zero size")
+	}
+}
+
+func TestEmptyTupleSize(t *testing.T) {
+	emptyTuple := Tuple{Types: []ValType{}}
+	size := emptyTuple.Size()
+	t.Logf("Empty tuple size = %d", size)
+
+	if size == 0 {
+		t.Error("Empty tuple should have non-zero size")
 	}
 }
