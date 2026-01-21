@@ -136,6 +136,21 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 	// Convert component Vals to core wasm values
 	// Records are flattened into their constituent fields
 	var coreParams []uint64
+
+	// === BEGIN LOWERING PARAMS - may_leave = false ===
+	// Per CanonicalABI.md lines 3133, 3151: may_leave must be false during lower_flat_values
+	if f.instance != nil {
+		f.instance.SetMayLeave(false)
+	}
+	// Use a flag to track if we've restored mayLeave, so we can do it in defer for errors
+	// and explicitly after the loop for the success path
+	loweringComplete := false
+	defer func() {
+		if !loweringComplete && f.instance != nil {
+			f.instance.SetMayLeave(true)
+		}
+	}()
+
 	for i, p := range params {
 		switch p.Kind() {
 		case ValKindS32:
@@ -271,6 +286,12 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 			return nil, fmt.Errorf("unsupported parameter type: %s", p.Kind())
 		}
 	}
+
+	// === END LOWERING PARAMS - may_leave = true ===
+	if f.instance != nil {
+		f.instance.SetMayLeave(true)
+	}
+	loweringComplete = true
 
 	// Call the core function
 	coreResults, err := f.coreFunc.Call(ctx, coreParams...)
