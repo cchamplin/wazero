@@ -404,3 +404,61 @@ func TestTupleOffsets(t *testing.T) {
 	require.Equal(t, uint32(4), offsets[1])  // u32 at 4 (aligned)
 	require.Equal(t, uint32(8), offsets[2])  // u16 at 8
 }
+
+func TestFixedLengthListAlignment(t *testing.T) {
+	// Fixed-length list alignment = element alignment
+	length := uint32(3)
+	fixedList := List{Element: U32{}, Length: &length}
+	if got := fixedList.Align(); got != 4 {
+		t.Errorf("fixed list Align() = %d, want 4 (element alignment)", got)
+	}
+
+	// Dynamic list alignment = 4 (pointer alignment)
+	dynamicList := List{Element: U8{}}
+	if got := dynamicList.Align(); got != 4 {
+		t.Errorf("dynamic list Align() = %d, want 4 (pointer alignment)", got)
+	}
+}
+
+func TestFixedLengthListSize(t *testing.T) {
+	// Fixed-length list size = length * element_size
+	length := uint32(3)
+	fixedList := List{Element: U32{}, Length: &length}
+	if got := fixedList.Size(); got != 12 { // 3 * 4
+		t.Errorf("fixed list Size() = %d, want 12", got)
+	}
+
+	// Dynamic list size = 8 (ptr + len)
+	dynamicList := List{Element: U32{}}
+	if got := dynamicList.Size(); got != 8 {
+		t.Errorf("dynamic list Size() = %d, want 8", got)
+	}
+}
+
+func TestFixedLengthListFlattenCount(t *testing.T) {
+	// Fixed-length list flattens to length * element_flatten_count
+	length := uint32(3)
+	fixedList := List{Element: U32{}, Length: &length}
+	if got := fixedList.FlattenCount(); got != 3 { // 3 * 1
+		t.Errorf("fixed list FlattenCount() = %d, want 3", got)
+	}
+
+	// Dynamic list flattens to 2 (ptr, len)
+	dynamicList := List{Element: U32{}}
+	if got := dynamicList.FlattenCount(); got != 2 {
+		t.Errorf("dynamic list FlattenCount() = %d, want 2", got)
+	}
+}
+
+func TestFixedLengthListIsFixedLength(t *testing.T) {
+	length := uint32(5)
+	fixedList := List{Element: U32{}, Length: &length}
+	if !fixedList.IsFixedLength() {
+		t.Error("fixed list should return true for IsFixedLength()")
+	}
+
+	dynamicList := List{Element: U32{}}
+	if dynamicList.IsFixedLength() {
+		t.Error("dynamic list should return false for IsFixedLength()")
+	}
+}
