@@ -81,3 +81,38 @@ func TestInstance_CallMightBeRecursive(t *testing.T) {
 		require.False(t, recursive, "nil caller means host call, not recursive")
 	})
 }
+
+func TestInstance_ValidateNotRecursive(t *testing.T) {
+	inst := &component.Instance{}
+
+	t.Run("no_active_call_passes", func(t *testing.T) {
+		err := inst.ValidateNotRecursive(inst)
+		require.NoError(t, err)
+	})
+
+	t.Run("active_call_from_same_instance_fails", func(t *testing.T) {
+		inst.EnterCall()
+		defer inst.ExitCall()
+
+		err := inst.ValidateNotRecursive(inst)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "recursive")
+	})
+
+	t.Run("active_call_from_different_instance_passes", func(t *testing.T) {
+		other := &component.Instance{}
+		inst.EnterCall()
+		defer inst.ExitCall()
+
+		err := inst.ValidateNotRecursive(other)
+		require.NoError(t, err)
+	})
+
+	t.Run("host_call_always_passes", func(t *testing.T) {
+		inst.EnterCall()
+		defer inst.ExitCall()
+
+		err := inst.ValidateNotRecursive(nil)
+		require.NoError(t, err)
+	})
+}

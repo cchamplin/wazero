@@ -1074,6 +1074,16 @@ func (i *Instance) ValidateMayLeave() error {
 	return nil
 }
 
+// ValidateNotRecursive checks if a call from caller would be recursive reentrance.
+// Returns an error that should cause a trap if reentrance is detected.
+// This implements the trap_if(call_might_be_recursive(caller, inst)) check.
+func (i *Instance) ValidateNotRecursive(caller *Instance) error {
+	if i.CallMightBeRecursive(caller) {
+		return fmt.Errorf("trap: recursive call into same component instance")
+	}
+	return nil
+}
+
 // AddValue adds a value to the instance's value index space.
 // Returns the index of the added value.
 func (i *Instance) AddValue(v Val) uint32 {
