@@ -44,3 +44,8 @@ func (s *BorrowScope) Release() error {
 func (s *BorrowScope) HasOutstandingBorrows() bool {
 	return len(s.lenders) > 0
 }
+
+// LendCount returns the number of active lends in this scope.
+func (s *BorrowScope) LendCount() int {
+	return len(s.lenders)
+}

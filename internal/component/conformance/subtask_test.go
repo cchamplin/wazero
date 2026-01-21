@@ -58,3 +58,33 @@ func TestSubtask_InvalidTransitions(t *testing.T) {
 		require.Error(t, err, "should not finish before resolve")
 	})
 }
+
+func TestSubtask_LendTracking(t *testing.T) {
+	rt := component.NewResourceTable()
+
+	// Create a resource to borrow
+	handle := rt.New("test-resource", true)
+
+	subtask := component.NewSubtask(rt)
+
+	t.Run("track_lend", func(t *testing.T) {
+		err := subtask.TrackLend(handle)
+		require.NoError(t, err)
+		require.Equal(t, 1, subtask.LendCount())
+	})
+
+	t.Run("multiple_lends", func(t *testing.T) {
+		handle2 := rt.New("test-resource-2", true)
+		err := subtask.TrackLend(handle2)
+		require.NoError(t, err)
+		require.Equal(t, 2, subtask.LendCount())
+	})
+
+	t.Run("finish_releases_lends", func(t *testing.T) {
+		subtask.DeliverResolve(nil)
+		subtask.StartFinish()
+		err := subtask.Finish()
+		require.NoError(t, err)
+		require.Equal(t, component.SubtaskStateDone, subtask.State())
+	})
+}
