@@ -649,3 +649,160 @@ func TestPoll_ChannelBasedPollable(t *testing.T) {
 	require.Equal(t, 1, len(indices))
 	require.Equal(t, uint32(0), indices[0].U32())
 }
+
+// Tests for Task 1.1: Channel-based ready state infrastructure
+
+func TestPollable_IsReady_InitiallyFalse(t *testing.T) {
+	p := NewChannelPollable()
+	if p.IsReady() {
+		t.Error("new channel pollable should not be ready initially")
+	}
+}
+
+func TestPollable_SetReady(t *testing.T) {
+	p := NewChannelPollable()
+	p.SetReady()
+	if !p.IsReady() {
+		t.Error("pollable should be ready after SetReady")
+	}
+}
+
+func TestPollable_ReadyChan(t *testing.T) {
+	p := NewChannelPollable()
+
+	done := make(chan struct{})
+	go func() {
+		<-p.ReadyChan()
+		close(done)
+	}()
+
+	// Should not be done yet
+	select {
+	case <-done:
+		t.Error("ReadyChan should block before SetReady")
+	case <-time.After(50 * time.Millisecond):
+		// Good
+	}
+
+	p.SetReady()
+
+	select {
+	case <-done:
+		// Good
+	case <-time.After(100 * time.Millisecond):
+		t.Error("ReadyChan should unblock after SetReady")
+	}
+}
+
+func TestPollable_Block_WithChannel(t *testing.T) {
+	p := NewChannelPollable()
+
+	done := make(chan struct{})
+	go func() {
+		p.Block()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		t.Error("Block should not return before SetReady")
+	case <-time.After(50 * time.Millisecond):
+		// Good
+	}
+
+	p.SetReady()
+
+	select {
+	case <-done:
+		// Good
+	case <-time.After(100 * time.Millisecond):
+		t.Error("Block should return after SetReady")
+	}
+}
+
+func TestPollable_BackwardCompatibility(t *testing.T) {
+	// Existing callback-based pollables should still work
+	ready := false
+	p := NewPollable(
+		func() bool { return ready },
+		func() { ready = true },
+	)
+
+	if p.Ready() {
+		t.Error("should not be ready initially")
+	}
+
+	p.Block()
+
+	if !p.Ready() {
+		t.Error("should be ready after block")
+	}
+}
+
+func TestPollable_SetReady_Idempotent(t *testing.T) {
+	// SetReady should be safe to call multiple times
+	p := NewChannelPollable()
+	p.SetReady()
+	p.SetReady() // Should not panic
+	if !p.IsReady() {
+		t.Error("pollable should still be ready after multiple SetReady calls")
+	}
+}
+
+func TestPollable_OnReadyCallback(t *testing.T) {
+	p := NewChannelPollable()
+
+	callbackCalled := false
+	p.onReady = func() {
+		callbackCalled = true
+	}
+
+	p.SetReady()
+
+	if !callbackCalled {
+		t.Error("onReady callback should have been called")
+	}
+}
+
+func TestPollable_Ready_ChecksBothIsReadyAndReadyFn(t *testing.T) {
+	// Test that Ready() checks isReady flag even when readyFn returns false
+	p := NewChannelPollable()
+	p.readyFn = func() bool { return false }
+
+	if p.Ready() {
+		t.Error("should not be ready initially")
+	}
+
+	p.SetReady()
+
+	if !p.Ready() {
+		t.Error("should be ready after SetReady even if readyFn returns false")
+	}
+}
+
+func TestPollable_IsReady_ThreadSafe(t *testing.T) {
+	p := NewChannelPollable()
+
+	var wg sync.WaitGroup
+	numGoroutines := 100
+
+	// Multiple goroutines checking and setting ready
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			if n%2 == 0 {
+				p.SetReady()
+			} else {
+				_ = p.IsReady()
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// After all goroutines complete, pollable should be ready
+	if !p.IsReady() {
+		t.Error("pollable should be ready after SetReady was called")
+	}
+}
