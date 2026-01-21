@@ -12,10 +12,11 @@ import (
 
 // Compile-time checks that our types implement the api interfaces.
 var (
-	_ api.ComponentLinker         = (*ComponentLinkerWrapper)(nil)
+	_ api.ComponentLinker          = (*ComponentLinkerWrapper)(nil)
 	_ api.ComponentInstanceBuilder = (*ComponentInstanceBuilderWrapper)(nil)
-	_ api.Component               = (*ComponentWrapper)(nil)
-	_ api.ComponentFunc           = (*ComponentFuncWrapper)(nil)
+	_ api.Component                = (*ComponentWrapper)(nil)
+	_ api.Component                = (*ComponentInstanceWrapper)(nil)
+	_ api.ComponentFunc            = (*ComponentFuncWrapper)(nil)
 )
 
 // ComponentLinkerWrapper wraps the internal ComponentLinker to implement api.ComponentLinker.
@@ -160,8 +161,14 @@ func (c *ComponentWrapper) ExportedFunction(name string) api.ComponentFunc {
 
 // ExportedInstance returns a nested exported instance.
 func (c *ComponentWrapper) ExportedInstance(name string) api.Component {
-	// Not yet implemented - return nil for now
-	return nil
+	if c.instance == nil {
+		return nil
+	}
+	nested := c.instance.GetExportedInstance(name)
+	if nested == nil {
+		return nil
+	}
+	return &ComponentInstanceWrapper{instance: nested}
 }
 
 // Close releases resources associated with this component instance.
@@ -196,6 +203,42 @@ func (f *ComponentFuncWrapper) Call(ctx context.Context, params ...any) ([]any, 
 	}
 
 	return out, nil
+}
+
+// ComponentInstanceWrapper wraps an exported component instance for API access.
+type ComponentInstanceWrapper struct {
+	internalapi.WazeroOnlyType
+	instance *Instance
+}
+
+// ExportedFunction returns an exported function by name.
+func (w *ComponentInstanceWrapper) ExportedFunction(name string) api.ComponentFunc {
+	if w.instance == nil {
+		return nil
+	}
+	fn, ok := w.instance.exports[name]
+	if !ok || fn == nil {
+		return nil
+	}
+	return &ComponentFuncWrapper{fn: fn}
+}
+
+// ExportedInstance returns a nested exported instance by name.
+func (w *ComponentInstanceWrapper) ExportedInstance(name string) api.Component {
+	if w.instance == nil {
+		return nil
+	}
+	nested := w.instance.GetExportedInstance(name)
+	if nested == nil {
+		return nil
+	}
+	return &ComponentInstanceWrapper{instance: nested}
+}
+
+// Close releases resources associated with this component instance.
+func (w *ComponentInstanceWrapper) Close(ctx context.Context) error {
+	// No cleanup needed for nested instances
+	return nil
 }
 
 // anyToVal converts a Go value to a component Val.
