@@ -261,6 +261,11 @@ func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledCom
 		}
 	}
 
+	// Step 2.5: Execute start function if defined
+	if err := l.executeStartFunction(ctx, inst, c); err != nil {
+		return nil, fmt.Errorf("start function: %w", err)
+	}
+
 	// Step 3: Wire exports
 	for _, exp := range c.Exports {
 		if exp.Kind == ExportKindFunc {
