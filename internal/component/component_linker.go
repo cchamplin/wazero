@@ -204,9 +204,17 @@ func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledCom
 		}
 	}
 
-	// Component instance definitions also add to the instance index space
-	// (after imports)
-	for range c.ComponentInstances {
+	// Process nested component instances
+	for i := range c.ComponentInstances {
+		compInst := &c.ComponentInstances[i]
+		if compInst.Kind == ComponentInstanceExprInstantiate {
+			nestedInst, err := l.instantiateNestedComponent(ctx, inst, compInst, c)
+			if err != nil {
+				return nil, fmt.Errorf("component instance %d: %w", i, err)
+			}
+			inst.AddInstanceToSpace(nestedInst)
+		}
+		// Handle inline component instances if needed (future enhancement)
 		compInstanceIdx++
 	}
 
