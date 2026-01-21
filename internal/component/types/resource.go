@@ -6,8 +6,13 @@ package types
 
 // Own represents an owning handle to a resource.
 // When an own<T> is dropped, the resource's destructor is called.
+//
+// TODO: Per spec, should track ResourceType reference for validation during lift/lower.
+// This would enable validation that the handle's resource type matches the expected type
+// (spec lines 2218-2219).
 type Own struct {
 	ResourceIdx uint32 // Index of the resource type in component's type section
+	// TODO: ResourceType *ResourceType // Reference to the resource type (for validation)
 }
 
 func (Own) valType() {}
@@ -23,8 +28,13 @@ func (Own) FlattenCount() int { return 1 }
 
 // Borrow represents a borrowed handle to a resource.
 // Borrows do not own the resource and must not outlive the call scope.
+//
+// TODO: Per spec, should track ResourceType reference for validation during lift/lower.
+// This would enable validation that the handle's resource type matches the expected type
+// (spec lines 2237-2238).
 type Borrow struct {
 	ResourceIdx uint32 // Index of the resource type in component's type section
+	// TODO: ResourceType *ResourceType // Reference to the resource type (for validation)
 }
 
 func (Borrow) valType() {}
