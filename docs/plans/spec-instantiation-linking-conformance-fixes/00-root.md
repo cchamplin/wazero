@@ -56,7 +56,7 @@ Both `add` and `subtract` tests MUST pass. These validate the core instantiation
 | 2 | [Start Function Support](./02-phase2-start-function.md) | [x] Complete | [x] Verified |
 | 3 | [Nested Component Support](./03-phase3-nested-components.md) | [x] Complete | [x] Verified |
 | 4 | [Export Instance API](./04-phase4-export-instance-api.md) | [x] Complete | [x] Verified |
-| 5 | [Advanced Import Names](./05-phase5-advanced-imports.md) | [ ] Not Started | [ ] Verified |
+| 5 | [Advanced Import Names](./05-phase5-advanced-imports.md) | [x] Complete | [x] Verified |
 
 ---
 
