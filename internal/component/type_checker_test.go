@@ -196,3 +196,91 @@ func TestCheckInstance_MissingExport(t *testing.T) {
 		t.Error("missing required export should fail")
 	}
 }
+
+func TestCheckResource_FirstOccurrence(t *testing.T) {
+	c := &Component{
+		Types: []TypeDef{
+			{Kind: TypeDefKindResource},
+		},
+	}
+
+	tc := NewTypeChecker(c)
+
+	// First occurrence should be recorded
+	actual := &ResourceDef{Destructor: func(rep uint32) {}}
+
+	err := tc.checkResource(0, "wasi:test/res", actual)
+	if err != nil {
+		t.Errorf("first resource occurrence should pass: %v", err)
+	}
+
+	// Verify it was recorded
+	if _, ok := tc.importedResources[0]; !ok {
+		t.Error("resource should be recorded in importedResources")
+	}
+}
+
+func TestCheckResource_SameResourceTwice(t *testing.T) {
+	c := &Component{
+		Types: []TypeDef{
+			{Kind: TypeDefKindResource},
+		},
+	}
+
+	tc := NewTypeChecker(c)
+
+	actual := &ResourceDef{Destructor: func(rep uint32) {}}
+
+	// First occurrence
+	err := tc.checkResource(0, "wasi:test/res", actual)
+	if err != nil {
+		t.Fatalf("first occurrence failed: %v", err)
+	}
+
+	// Same resource from same import - should pass
+	err = tc.checkResource(0, "wasi:test/res", actual)
+	if err != nil {
+		t.Errorf("same resource should pass: %v", err)
+	}
+}
+
+func TestCheckResource_DifferentResource(t *testing.T) {
+	c := &Component{
+		Types: []TypeDef{
+			{Kind: TypeDefKindResource},
+		},
+	}
+
+	tc := NewTypeChecker(c)
+
+	actual1 := &ResourceDef{Destructor: func(rep uint32) {}}
+	actual2 := &ResourceDef{Destructor: func(rep uint32) {}}
+
+	// First occurrence from import A
+	err := tc.checkResource(0, "wasi:test/res-a", actual1)
+	if err != nil {
+		t.Fatalf("first occurrence failed: %v", err)
+	}
+
+	// Same index but different import - should fail
+	err = tc.checkResource(0, "wasi:test/res-b", actual2)
+	if err == nil {
+		t.Error("different resource at same index should fail")
+	}
+}
+
+func TestCheckResource_NilResource(t *testing.T) {
+	c := &Component{
+		Types: []TypeDef{
+			{Kind: TypeDefKindResource},
+		},
+	}
+
+	tc := NewTypeChecker(c)
+
+	// Nil resource should fail
+	err := tc.checkResource(0, "wasi:test/res", nil)
+	if err == nil {
+		t.Error("nil resource should fail")
+	}
+}
