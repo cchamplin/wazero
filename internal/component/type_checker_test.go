@@ -2,6 +2,7 @@
 package component
 
 import (
+	"context"
 	"testing"
 )
 
@@ -119,5 +120,79 @@ func TestCheckFuncType_ResultCountMismatch(t *testing.T) {
 	err := tc.checkFuncType(c.Types[0].Func, actual)
 	if err == nil {
 		t.Error("result count mismatch should fail")
+	}
+}
+
+func TestCheckInstance_ExtraExportsOK(t *testing.T) {
+	// Instance type expects one export
+	c := &Component{
+		Types: []TypeDef{
+			{
+				Kind: TypeDefKindInstance,
+				Instance: &InstanceTypeDef{
+					Declarations: []InstanceDecl{
+						{
+							Kind: InstanceDeclKindExport,
+							Export: &InstanceExport{
+								Name: "required-fn",
+								Kind: ExportKindFunc,
+								Idx:  0,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	tc := NewTypeChecker(c)
+
+	// Actual has more exports - should pass (width subtyping)
+	actual := &InstanceDef{
+		Exports: map[string]Definition{
+			"required-fn": &FuncDef{Callback: func(ctx context.Context, args []Val) ([]Val, error) { return nil, nil }},
+			"extra-fn":    &FuncDef{Callback: func(ctx context.Context, args []Val) ([]Val, error) { return nil, nil }},
+		},
+	}
+
+	err := tc.checkInstance(c.Types[0].Instance, actual)
+	if err != nil {
+		t.Errorf("extra exports should be OK: %v", err)
+	}
+}
+
+func TestCheckInstance_MissingExport(t *testing.T) {
+	c := &Component{
+		Types: []TypeDef{
+			{
+				Kind: TypeDefKindInstance,
+				Instance: &InstanceTypeDef{
+					Declarations: []InstanceDecl{
+						{
+							Kind: InstanceDeclKindExport,
+							Export: &InstanceExport{
+								Name: "required-fn",
+								Kind: ExportKindFunc,
+								Idx:  0,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	tc := NewTypeChecker(c)
+
+	// Actual missing required export - should fail
+	actual := &InstanceDef{
+		Exports: map[string]Definition{
+			"wrong-name": &FuncDef{},
+		},
+	}
+
+	err := tc.checkInstance(c.Types[0].Instance, actual)
+	if err == nil {
+		t.Error("missing required export should fail")
 	}
 }
