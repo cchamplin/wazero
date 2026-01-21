@@ -668,3 +668,29 @@ func TestResourceTable_RepWithType_TypeMismatch(t *testing.T) {
 	_, err := table.RepWithType(h, wrongID)
 	require.ErrorIs(t, err, ErrResourceTypeMismatch)
 }
+
+// TestResourceTable_RemoveBorrow_DecrementsBorrowCount documents the integration
+// pattern for borrow count decrement. The actual decrement happens in calling
+// code (resource.drop), not in Remove itself.
+func TestResourceTable_RemoveBorrow_DecrementsBorrowCount(t *testing.T) {
+	table := NewResourceTable()
+	callCtx := NewCallContext()
+
+	// Simulate lower_borrow: create borrow handle and increment borrow count
+	h := table.NewWithType(uint32(42), false, NewResourceTypeID(1)) // own=false
+	callCtx.IncrementBorrows()
+
+	require.Equal(t, 1, callCtx.NumBorrows())
+
+	// Remove the borrow handle (simulates resource.drop on a borrow)
+	entry, err := table.Remove(h)
+	require.NoError(t, err)
+	require.False(t, entry.Own)
+
+	// If this was a borrow, we need to decrement the borrow count
+	if !entry.Own {
+		callCtx.DecrementBorrows()
+	}
+
+	require.Equal(t, 0, callCtx.NumBorrows())
+}
