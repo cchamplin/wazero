@@ -1465,3 +1465,69 @@ func TestTcpInputStream_ReadWrite(t *testing.T) {
 	inStream.Close()
 	outStream.Close()
 }
+
+// Tests for Destroyable interface implementation
+
+func TestUdpSocket_Destroy(t *testing.T) {
+	sock := NewUdpSocket(IpAddressFamilyIpv4)
+
+	// Set some state
+	addr := NewIpv4SocketAddress([4]byte{127, 0, 0, 1}, 8080)
+	sock.localAddr = &addr
+	sock.remoteAddr = &addr
+
+	// Verify state is set
+	require.NotNil(t, sock.LocalAddress())
+	require.NotNil(t, sock.RemoteAddress())
+
+	// Destroy should clear state
+	sock.Destroy()
+
+	// Verify state is cleared
+	require.Equal(t, udpStateClosed, sock.State())
+	require.Nil(t, sock.LocalAddress())
+	require.Nil(t, sock.RemoteAddress())
+}
+
+func TestUdpSocket_Destroy_Idempotent(t *testing.T) {
+	sock := NewUdpSocket(IpAddressFamilyIpv4)
+
+	// Multiple calls to Destroy should be safe
+	sock.Destroy()
+	sock.Destroy()
+	sock.Destroy()
+
+	require.Equal(t, udpStateClosed, sock.State())
+}
+
+func TestUdpSocket_Destroy_WithConnection(t *testing.T) {
+	ctx := contextWithResourceTable()
+	network := component.ValBorrow(0)
+	family := component.ValEnum("ipv4")
+
+	// Create and bind a UDP socket
+	result, _ := createUdpSocket(ctx, []component.Val{network, family})
+	isOk, ok, _ := result[0].Result()
+	require.True(t, isOk)
+	sockHandle := ok.Own()
+
+	sock1Borrow := component.ValBorrow(sockHandle)
+	localAddr := makeIPv4SocketAddrVal(127, 0, 0, 1, 0)
+	result, _ = udpSocketStartBind(ctx, []component.Val{sock1Borrow, network, localAddr})
+	isOk, _, _ = result[0].Result()
+	require.True(t, isOk)
+
+	result, _ = udpSocketFinishBind(ctx, []component.Val{sock1Borrow})
+	isOk, _, _ = result[0].Result()
+	require.True(t, isOk)
+
+	// Get the socket and verify it has a connection
+	sock, _ := getUdpSocket(ctx, sockHandle)
+	require.NotNil(t, sock.conn, "socket should have connection after bind")
+
+	// Destroy should close the connection
+	sock.Destroy()
+
+	require.Nil(t, sock.conn, "connection should be nil after Destroy")
+	require.Equal(t, udpStateClosed, sock.State())
+}

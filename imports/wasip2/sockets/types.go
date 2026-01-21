@@ -753,3 +753,12 @@ func (s *UdpSocket) Close() error {
 	s.state = udpStateClosed
 	return err
 }
+
+// Destroy closes the socket and clears all state.
+// This implements the Destroyable interface for resource cleanup.
+// Safe to call multiple times (idempotent).
+func (s *UdpSocket) Destroy() {
+	s.Close()
+	s.localAddr = nil
+	s.remoteAddr = nil
+}
