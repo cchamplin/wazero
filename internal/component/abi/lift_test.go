@@ -2256,3 +2256,350 @@ func TestLiftFlatListAlignmentValidation(t *testing.T) {
 		t.Errorf("expected alignment error, got: %v", err)
 	}
 }
+
+// --- Variant Type Coercion Tests ---
+
+func TestLiftFlatVariantTypeCoercion(t *testing.T) {
+	// Variant with i32 and f32 cases - payload joined to i32
+	// When lifting f32 case, must decode i32 bits as f32
+	variantType := types.Variant{Cases: []types.Case{
+		{Name: "int_case", Type: types.S32{}},
+		{Name: "float_case", Type: types.F32{}},
+	}}
+
+	// Create flat values for float_case with f32 value 3.14 encoded as i32
+	f32Bits := math.Float32bits(3.14)
+	iter := NewFlatIter([]uint64{
+		1,               // discriminant = 1 (float_case)
+		uint64(f32Bits), // payload as i32 bits
+	})
+
+	ctx := &LiftContext{Opts: &Options{}}
+	val, err := LiftFlat(ctx, variantType, iter)
+	if err != nil {
+		t.Fatalf("LiftFlat failed: %v", err)
+	}
+
+	caseName, payload := val.Variant()
+	if caseName != "float_case" {
+		t.Errorf("case name = %q, want %q", caseName, "float_case")
+	}
+	if payload == nil {
+		t.Fatal("expected payload, got nil")
+	}
+
+	// The float value should be correctly decoded
+	gotFloat := payload.F32()
+	if math.Abs(float64(gotFloat-3.14)) > 0.001 {
+		t.Errorf("payload = %v, want ~3.14", gotFloat)
+	}
+}
+
+func TestLiftFlatVariantI64Coercion(t *testing.T) {
+	// Variant with i32 and i64 cases - payload joined to i64
+	// When lifting i32 case, must wrap i64 to i32
+	variantType := types.Variant{Cases: []types.Case{
+		{Name: "small", Type: types.S32{}},
+		{Name: "large", Type: types.S64{}},
+	}}
+
+	// Flat values for small case with i32 value in i64 slot
+	iter := NewFlatIter([]uint64{
+		0,  // discriminant = 0 (small)
+		42, // payload as i64 (will be truncated to i32)
+	})
+
+	ctx := &LiftContext{Opts: &Options{}}
+	val, err := LiftFlat(ctx, variantType, iter)
+	if err != nil {
+		t.Fatalf("LiftFlat failed: %v", err)
+	}
+
+	caseName, payload := val.Variant()
+	if caseName != "small" {
+		t.Errorf("case name = %q, want %q", caseName, "small")
+	}
+	if payload == nil {
+		t.Fatal("expected payload, got nil")
+	}
+	if got := payload.S32(); got != 42 {
+		t.Errorf("payload = %d, want 42", got)
+	}
+}
+
+func TestLiftFlatVariantF64Coercion(t *testing.T) {
+	// Variant with i64 and f64 cases - payload joined to i64
+	// When lifting f64 case, must decode i64 bits as f64
+	variantType := types.Variant{Cases: []types.Case{
+		{Name: "int_case", Type: types.S64{}},
+		{Name: "float_case", Type: types.F64{}},
+	}}
+
+	// Create flat values for float_case with f64 value 3.14159 encoded as i64
+	f64Bits := math.Float64bits(3.14159)
+	iter := NewFlatIter([]uint64{
+		1,       // discriminant = 1 (float_case)
+		f64Bits, // payload as i64 bits
+	})
+
+	ctx := &LiftContext{Opts: &Options{}}
+	val, err := LiftFlat(ctx, variantType, iter)
+	if err != nil {
+		t.Fatalf("LiftFlat failed: %v", err)
+	}
+
+	caseName, payload := val.Variant()
+	if caseName != "float_case" {
+		t.Errorf("case name = %q, want %q", caseName, "float_case")
+	}
+	if payload == nil {
+		t.Fatal("expected payload, got nil")
+	}
+
+	// The float value should be correctly decoded
+	gotFloat := payload.F64()
+	if math.Abs(gotFloat-3.14159) > 0.00001 {
+		t.Errorf("payload = %v, want ~3.14159", gotFloat)
+	}
+}
+
+func TestLiftFlatVariantI64ToF32Coercion(t *testing.T) {
+	// Variant with i64 and f32 cases - payload joined to i64
+	// When lifting f32 case, must wrap i64 to i32 and decode as f32
+	variantType := types.Variant{Cases: []types.Case{
+		{Name: "large_int", Type: types.S64{}},
+		{Name: "float_case", Type: types.F32{}},
+	}}
+
+	// Create flat values for float_case with f32 value 2.5 encoded as i32 bits in i64 slot
+	f32Bits := math.Float32bits(2.5)
+	iter := NewFlatIter([]uint64{
+		1,               // discriminant = 1 (float_case)
+		uint64(f32Bits), // payload as i64 (low 32 bits contain f32)
+	})
+
+	ctx := &LiftContext{Opts: &Options{}}
+	val, err := LiftFlat(ctx, variantType, iter)
+	if err != nil {
+		t.Fatalf("LiftFlat failed: %v", err)
+	}
+
+	caseName, payload := val.Variant()
+	if caseName != "float_case" {
+		t.Errorf("case name = %q, want %q", caseName, "float_case")
+	}
+	if payload == nil {
+		t.Fatal("expected payload, got nil")
+	}
+
+	// The float value should be correctly decoded
+	gotFloat := payload.F32()
+	if gotFloat != 2.5 {
+		t.Errorf("payload = %v, want 2.5", gotFloat)
+	}
+}
+
+func TestLiftFlatVariantWithMultiValuePayload(t *testing.T) {
+	// This tests a variant where one case has a record with 2 fields
+	// and another case has different types, testing proper coercion
+	// Variant { empty, pair(record { x: s32, y: s64 }) }
+	// Flat layout: [disc(i32), x_or_padding(i64), y(i64)]
+	// When x is s32, it needs to be read from an i64 slot and truncated
+	variantType := types.Variant{Cases: []types.Case{
+		{Name: "empty", Type: nil},
+		{Name: "pair", Type: types.Record{
+			Fields: []types.Field{
+				{Name: "x", Type: types.S32{}},
+				{Name: "y", Type: types.S64{}},
+			},
+		}},
+	}}
+
+	// Flat values for pair case
+	// Joined types: [i32, i64, i64] -> but x (s32) needs coercion from i64 joined slot
+	// Actually per spec: each field flattens independently and joins happen per position
+	// s32 flattens to i32, s64 flattens to i64
+	// For variant { empty, pair(record{x:s32, y:s64}) }
+	// empty has 0 flat values, pair has 2 [i32, i64]
+	// joined is [i32, i64]
+	iter := NewFlatIter([]uint64{
+		1,  // discriminant = 1 (pair)
+		10, // x = 10
+		20, // y = 20
+	})
+
+	ctx := &LiftContext{Opts: &Options{}}
+	val, err := LiftFlat(ctx, variantType, iter)
+	if err != nil {
+		t.Fatalf("LiftFlat failed: %v", err)
+	}
+
+	caseName, payload := val.Variant()
+	if caseName != "pair" {
+		t.Errorf("case name = %q, want %q", caseName, "pair")
+	}
+	if payload == nil {
+		t.Fatal("expected payload, got nil")
+	}
+
+	rec := payload.Record()
+	if got := rec["x"].S32(); got != 10 {
+		t.Errorf("x = %d, want 10", got)
+	}
+	if got := rec["y"].S64(); got != 20 {
+		t.Errorf("y = %d, want 20", got)
+	}
+}
+
+func TestLiftFlatVariantMixedTypesCorrectIteratorConsumption(t *testing.T) {
+	// This tests that the iterator consumes the right number of values
+	// when there's padding due to different payload sizes
+	// Variant { small(s32), large(s64) }
+	// Flat layout: [disc(i32), payload(i64)]
+	// For small case, we need to read the payload as i64 and coerce to s32,
+	// not read as s32 and skip padding
+	variantType := types.Variant{Cases: []types.Case{
+		{Name: "small", Type: types.S32{}},
+		{Name: "large", Type: types.S64{}},
+	}}
+
+	// The key insight: the flat representation uses the JOINED types
+	// s32 joins with s64 to get i64 (per join function)
+	// So the flat layout is [i32, i64] not [i32, i32]
+
+	// For small case, the implementation must:
+	// 1. Read discriminant as i32
+	// 2. Read payload slot as i64 (the joined type)
+	// 3. Coerce i64 to i32 (truncate)
+
+	// Let's make a value that would fail if we read as i32 instead of i64
+	// Put value 42 in what would be i64 slot
+	iter := NewFlatIter([]uint64{
+		0,  // discriminant = 0 (small)
+		42, // this should be read as i64 and truncated to i32
+	})
+
+	ctx := &LiftContext{Opts: &Options{}}
+	val, err := LiftFlat(ctx, variantType, iter)
+	if err != nil {
+		t.Fatalf("LiftFlat failed: %v", err)
+	}
+
+	caseName, payload := val.Variant()
+	if caseName != "small" {
+		t.Errorf("case name = %q, want %q", caseName, "small")
+	}
+	if payload == nil {
+		t.Fatal("expected payload, got nil")
+	}
+	if got := payload.S32(); got != 42 {
+		t.Errorf("payload = %d, want 42", got)
+	}
+}
+
+func TestLiftFlatVariantDifferentFlatCounts(t *testing.T) {
+	// Variant where cases have different numbers of flat values
+	// Case A: Record{x:s32, y:s32} -> flattens to [i32, i32]
+	// Case B: Record{z:s64} -> flattens to [i64]
+	// Joined: [i64, i32] (first position: i32 join i64 = i64, second position: i32)
+	//
+	// When lifting case B (z:s64), we need to read from [i64] properly
+	// and skip the second padding slot
+	variantType := types.Variant{Cases: []types.Case{
+		{Name: "pair", Type: types.Record{
+			Fields: []types.Field{
+				{Name: "x", Type: types.S32{}},
+				{Name: "y", Type: types.S32{}},
+			},
+		}},
+		{Name: "single", Type: types.Record{
+			Fields: []types.Field{
+				{Name: "z", Type: types.S64{}},
+			},
+		}},
+	}}
+
+	// Test case A (pair): discriminant=0, x=10, y=20
+	// The flat layout should be: [disc(i32), slot0(i64), slot1(i32)]
+	// But for pair case: x=i32, y=i32
+	// slot0 has x=10 (stored as i64), slot1 has y=20 (stored as i32)
+	iter := NewFlatIter([]uint64{
+		0,  // discriminant = 0 (pair)
+		10, // x (in i64 slot due to join with s64 in other case)
+		20, // y (in i32 slot)
+	})
+
+	ctx := &LiftContext{Opts: &Options{}}
+	val, err := LiftFlat(ctx, variantType, iter)
+	if err != nil {
+		t.Fatalf("LiftFlat failed: %v", err)
+	}
+
+	caseName, payload := val.Variant()
+	if caseName != "pair" {
+		t.Errorf("case name = %q, want %q", caseName, "pair")
+	}
+	if payload == nil {
+		t.Fatal("expected payload, got nil")
+	}
+
+	rec := payload.Record()
+	if got := rec["x"].S32(); got != 10 {
+		t.Errorf("x = %d, want 10", got)
+	}
+	if got := rec["y"].S32(); got != 20 {
+		t.Errorf("y = %d, want 20", got)
+	}
+}
+
+func TestLiftFlatVariantSingleCaseSkipsPadding(t *testing.T) {
+	// Test that when lifting a case with fewer flat values than the max,
+	// we properly skip the remaining padding slots.
+	// Case A: Record{x:s32, y:s32} -> flattens to [i32, i32]
+	// Case B: Record{z:s64} -> flattens to [i64]
+	// Joined: [i64, i32]
+	//
+	// When lifting case B (single), we should:
+	// 1. Read z from slot 0 (i64)
+	// 2. Skip slot 1 (padding)
+	variantType := types.Variant{Cases: []types.Case{
+		{Name: "pair", Type: types.Record{
+			Fields: []types.Field{
+				{Name: "x", Type: types.S32{}},
+				{Name: "y", Type: types.S32{}},
+			},
+		}},
+		{Name: "single", Type: types.Record{
+			Fields: []types.Field{
+				{Name: "z", Type: types.S64{}},
+			},
+		}},
+	}}
+
+	// Test case B (single): discriminant=1, z=12345
+	// Layout: [disc(i32), slot0(i64 for z), slot1(i32 padding)]
+	iter := NewFlatIter([]uint64{
+		1,     // discriminant = 1 (single)
+		12345, // z = 12345
+		99999, // padding (should be skipped)
+	})
+
+	ctx := &LiftContext{Opts: &Options{}}
+	val, err := LiftFlat(ctx, variantType, iter)
+	if err != nil {
+		t.Fatalf("LiftFlat failed: %v", err)
+	}
+
+	caseName, payload := val.Variant()
+	if caseName != "single" {
+		t.Errorf("case name = %q, want %q", caseName, "single")
+	}
+	if payload == nil {
+		t.Fatal("expected payload, got nil")
+	}
+
+	rec := payload.Record()
+	if got := rec["z"].S64(); got != 12345 {
+		t.Errorf("z = %d, want 12345", got)
+	}
+}
