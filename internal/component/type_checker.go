@@ -102,3 +102,58 @@ func (tc *TypeChecker) resourceTypesEqual(idx1, idx2 uint32) bool {
 	}
 	return idx1 == idx2 // Same local index
 }
+
+// checkInstance validates that actual instance matches expected instance type.
+// Instance subtyping allows extra exports (width subtyping).
+func (tc *TypeChecker) checkInstance(expected *InstanceTypeDef, actual *InstanceDef) error {
+	if expected == nil {
+		return nil
+	}
+	if actual == nil {
+		return fmt.Errorf("expected instance, got nil")
+	}
+
+	// Check each required export exists
+	for _, decl := range expected.Declarations {
+		if decl.Kind != InstanceDeclKindExport || decl.Export == nil {
+			continue
+		}
+
+		// Skip type exports (metadata only)
+		if decl.Export.Kind == ExportKindType {
+			continue
+		}
+
+		exportName := decl.Export.Name
+		actualExport, ok := actual.Exports[exportName]
+		if !ok {
+			return fmt.Errorf("missing required export: %s", exportName)
+		}
+
+		// Validate export kind matches
+		if err := tc.checkExportKind(decl.Export, actualExport); err != nil {
+			return fmt.Errorf("export %s: %w", exportName, err)
+		}
+	}
+
+	return nil
+}
+
+// checkExportKind validates that the actual definition matches the expected export kind.
+func (tc *TypeChecker) checkExportKind(expected *InstanceExport, actual Definition) error {
+	switch expected.Kind {
+	case ExportKindFunc:
+		if _, ok := actual.(*FuncDef); !ok {
+			return fmt.Errorf("expected function, got %T", actual)
+		}
+	case ExportKindInstance:
+		if _, ok := actual.(*InstanceDef); !ok {
+			return fmt.Errorf("expected instance, got %T", actual)
+		}
+	case ExportKindType:
+		// Type exports don't need runtime validation
+	case ExportKindComponent:
+		// Component exports require ComponentDef
+	}
+	return nil
+}
