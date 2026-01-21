@@ -13,6 +13,8 @@ var (
 	ErrResourceInUse        = errors.New("resource has active borrows")
 	ErrNoBorrowsToDecrement = errors.New("no active borrows to decrement")
 	ErrResourceTypeMismatch = errors.New("resource type mismatch")
+	// ErrMayNotLeave is returned when an operation requires may_leave but it's false.
+	ErrMayNotLeave = errors.New("operation not allowed: instance may not leave")
 )
 
 // Handle is a 64-bit resource handle: upper 32 bits = generation, lower 32 = index.
@@ -102,6 +104,21 @@ func (t *ResourceTable) NewWithType(rep any, own bool, rtID ResourceTypeID) Hand
 	}
 
 	return MakeHandle(idx, gen)
+}
+
+// NewWithMayLeaveCheck creates a new resource handle with may_leave validation.
+// Returns ErrMayNotLeave if the instance state doesn't allow leaving.
+//
+// From spec (CanonicalABI.md:3604-3609):
+//
+//	def canon_resource_new(rt, thread, rep):
+//	  trap_if(not thread.task.inst.may_leave)
+//	  ...
+func (t *ResourceTable) NewWithMayLeaveCheck(rep any, own bool, rtID ResourceTypeID, state *InstanceState) (Handle, error) {
+	if state != nil && !state.MayLeave() {
+		return 0, ErrMayNotLeave
+	}
+	return t.NewWithType(rep, own, rtID), nil
 }
 
 // Get retrieves the entry for a handle without removing it.
