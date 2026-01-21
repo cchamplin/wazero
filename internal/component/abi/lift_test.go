@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/tetratelabs/wazero/internal/component"
@@ -2204,5 +2205,51 @@ func TestLiftHeapF64NonNaNUnchanged(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, math.Float64bits(tc), math.Float64bits(val.F64()))
 		})
+	}
+}
+
+// --- List Alignment Validation Tests ---
+
+func TestLiftListAlignmentValidation(t *testing.T) {
+	// Create memory with list data at misaligned offset
+	mem := &mockMemory{data: make([]byte, 100)}
+
+	// Write u32 elements starting at offset 17 (misaligned - should be multiple of 4)
+	// Use offset 17 which doesn't overlap with the list header at offset 0-7
+	binary.LittleEndian.PutUint32(mem.data[17:], 42)
+	binary.LittleEndian.PutUint32(mem.data[21:], 43)
+
+	// Write list header at offset 0: ptr=17 (misaligned for u32), length=2
+	binary.LittleEndian.PutUint32(mem.data[0:], 17) // ptr - misaligned for 4-byte alignment!
+	binary.LittleEndian.PutUint32(mem.data[4:], 2)  // length
+
+	ctx := &LiftContext{Memory: mem, Opts: &Options{}}
+	listType := types.List{Element: types.U32{}}
+
+	_, err := LiftHeap(ctx, listType, 0)
+	if err == nil {
+		t.Error("expected error for misaligned list element pointer, got nil")
+	}
+	if err != nil && !strings.Contains(err.Error(), "align") {
+		t.Errorf("expected alignment error, got: %v", err)
+	}
+}
+
+func TestLiftFlatListAlignmentValidation(t *testing.T) {
+	// Test flat lifting with misaligned pointer
+	mem := &mockMemory{data: make([]byte, 100)}
+
+	// Write u32 element at offset 5 (misaligned)
+	binary.LittleEndian.PutUint32(mem.data[5:], 42)
+
+	ctx := &LiftContext{Memory: mem, Opts: &Options{}}
+	listType := types.List{Element: types.U32{}}
+
+	// Flat values: ptr=5 (misaligned), length=1
+	iter := NewFlatIter([]uint64{5, 1})
+
+	_, err := LiftFlat(ctx, listType, iter)
+	if err == nil {
+		t.Error("expected error for misaligned list element pointer in flat lift, got nil")
 	}
 }
