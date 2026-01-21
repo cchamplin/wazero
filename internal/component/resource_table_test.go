@@ -402,3 +402,14 @@ func TestHandleEntry_HasResourceTypeID(t *testing.T) {
 	require.Equal(t, rtID, entry.RT)
 	require.Equal(t, uint32(100), entry.Rep.(uint32))
 }
+
+func TestResourceTable_New_HasInvalidTypeByDefault(t *testing.T) {
+	table := NewResourceTable()
+
+	// Old API should still work, RT will be invalid
+	h := table.New("test-rep", true)
+
+	entry, err := table.Get(h)
+	require.NoError(t, err)
+	require.False(t, entry.RT.IsValid(), "legacy New() should have invalid RT")
+}
