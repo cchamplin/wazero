@@ -35,6 +35,10 @@ type Instance struct {
 	// Per Canonical ABI spec, may_leave defaults to true (so this defaults to false).
 	mayLeaveDisabled bool
 
+	// activeCallDepth tracks the number of active calls into this instance.
+	// Used by call_might_be_recursive to detect reentrance.
+	activeCallDepth int32
+
 	// Value index space for start function support
 	values         []Val
 	valuesConsumed []bool
@@ -1010,6 +1014,30 @@ func (i *Instance) MayLeave() bool {
 // Called with false at the start of lowering/post-return, true at the end.
 func (i *Instance) SetMayLeave(allowed bool) {
 	i.mayLeaveDisabled = !allowed
+}
+
+// ActiveCallDepth returns the number of active calls into this instance.
+func (i *Instance) ActiveCallDepth() int {
+	if i == nil {
+		return 0
+	}
+	return int(i.activeCallDepth)
+}
+
+// EnterCall increments the active call depth.
+// Called at the start of canon_lift.
+func (i *Instance) EnterCall() {
+	if i != nil {
+		i.activeCallDepth++
+	}
+}
+
+// ExitCall decrements the active call depth.
+// Called at the end of canon_lift (including post-return).
+func (i *Instance) ExitCall() {
+	if i != nil && i.activeCallDepth > 0 {
+		i.activeCallDepth--
+	}
 }
 
 // ValidateMayLeave checks if this instance is allowed to make outgoing calls.
