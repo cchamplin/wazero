@@ -83,6 +83,16 @@ func (l *ComponentLinker) DefineResource(namespace, name string, destructor func
 	return nil
 }
 
+// DefineValue adds a value definition for value imports.
+func (l *ComponentLinker) DefineValue(namespace, name string, value Val) error {
+	key := namespace + "/" + name
+	if _, exists := l.definitions[key]; exists {
+		return fmt.Errorf("definition already exists: %s", key)
+	}
+	l.definitions[key] = &ImportedValueDef{Value: value}
+	return nil
+}
+
 // ComponentInstanceBuilder builds an instance definition for ComponentLinker.
 type ComponentInstanceBuilder struct {
 	linker    *ComponentLinker
@@ -179,6 +189,18 @@ func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledCom
 		if imp.ExternDesc.Kind == ImportExternDescInstance {
 			instanceToImport[compInstanceIdx] = imp.Name
 			compInstanceIdx++
+		}
+	}
+
+	// Process value imports to populate value index space
+	for _, imp := range c.Imports {
+		if imp.ExternDesc.Kind == ImportExternDescValue {
+			def := resolvedImports[imp.Name]
+			valueDef, ok := def.(*ImportedValueDef)
+			if !ok {
+				return nil, fmt.Errorf("import %q: expected value, got %T", imp.Name, def)
+			}
+			inst.AddValue(valueDef.Value)
 		}
 	}
 
