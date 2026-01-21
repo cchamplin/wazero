@@ -416,3 +416,80 @@ func (t *ResourceTable) CreateResourceDropFuncWithTrap(resourceTypeIdx uint32, d
 		}
 	}
 }
+
+// CrossInstanceDestructor is called when dropping a resource from an instance
+// different from where the resource type was defined.
+// The caller is responsible for routing this to the proper canonical ABI path.
+type CrossInstanceDestructor func(rep uint32, definingInstanceID uint32)
+
+// DropOwned drops an owned handle, invoking the destructor if appropriate.
+// This implements the spec's resource.drop for owned handles.
+//
+// Parameters:
+//   - h: the handle to drop
+//   - expectedRT: the expected resource type (for validation)
+//   - dtorRegistry: registry to look up same-instance destructors
+//   - currentInstanceID: the instance performing the drop
+//   - definingInstanceID: the instance that defined the resource type
+//   - crossInstanceDtor: callback for cross-instance destructor invocation
+//
+// From spec (CanonicalABI.md:3634-3646):
+//
+//	if h.own:
+//	  if inst is rt.impl:
+//	    if rt.dtor: rt.dtor(h.rep)
+//	  else:
+//	    if rt.dtor: [route through canon_lift/canon_lower]
+func (t *ResourceTable) DropOwned(
+	h Handle,
+	expectedRT ResourceTypeID,
+	dtorRegistry *DestructorRegistry,
+	currentInstanceID uint32,
+	definingInstanceID uint32,
+	crossInstanceDtor CrossInstanceDestructor,
+) error {
+	// Validate type first
+	if expectedRT.IsValid() {
+		if err := t.ValidateType(h, expectedRT); err != nil {
+			return err
+		}
+	}
+
+	// Remove the handle
+	entry, err := t.Remove(h)
+	if err != nil {
+		return err
+	}
+
+	// Only call destructor for owned handles
+	if !entry.Own {
+		return nil
+	}
+
+	// Get the rep value
+	var rep uint32
+	switch v := entry.Rep.(type) {
+	case uint32:
+		rep = v
+	case int:
+		rep = uint32(v)
+	default:
+		// No valid rep, skip destructor
+		return nil
+	}
+
+	// Same-instance vs cross-instance destructor call
+	if currentInstanceID == definingInstanceID {
+		// Same instance: call destructor directly
+		if dtor := dtorRegistry.Get(expectedRT); dtor != nil {
+			dtor(rep)
+		}
+	} else {
+		// Cross-instance: use the cross-instance callback
+		if crossInstanceDtor != nil {
+			crossInstanceDtor(rep, definingInstanceID)
+		}
+	}
+
+	return nil
+}
