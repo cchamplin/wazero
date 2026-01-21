@@ -1008,3 +1008,107 @@ func TestResourceTable_NewWithLimit(t *testing.T) {
 	require.Equal(t, uint32(42), entry.Rep.(uint32))
 	require.True(t, entry.Own)
 }
+
+// Phase 5: Resource System Integration Tests
+
+func TestResourceTable_CompleteLifecycle(t *testing.T) {
+	table := NewResourceTable()
+
+	var dtorCalls []uint32
+	dtor := func(rep uint32) {
+		dtorCalls = append(dtorCalls, rep)
+	}
+	registry := NewDestructorRegistry()
+	registry.Register(NewResourceTypeID(1), dtor)
+
+	// Create resource
+	h := table.NewWithType(uint32(100), true, NewResourceTypeID(1))
+	require.Equal(t, uint32(0), h.Index())
+
+	// Get rep
+	rep, err := table.Rep(h)
+	require.NoError(t, err)
+	require.Equal(t, uint32(100), rep)
+
+	// Borrow
+	require.NoError(t, table.IncrementLends(h))
+
+	// Cannot drop while borrowed
+	err = table.DropOwned(h, NewResourceTypeID(1), registry, 1, 1, nil)
+	require.ErrorIs(t, err, ErrResourceInUse)
+
+	// Return borrow
+	require.NoError(t, table.DecrementLends(h))
+
+	// Now can drop
+	err = table.DropOwned(h, NewResourceTypeID(1), registry, 1, 1, nil)
+	require.NoError(t, err)
+
+	// Destructor was called
+	require.Equal(t, []uint32{100}, dtorCalls)
+
+	// Handle is now invalid
+	_, err = table.Get(h)
+	require.ErrorIs(t, err, ErrInvalidHandle)
+}
+
+func TestResourceTable_MultipleResourceTypes(t *testing.T) {
+	table := NewResourceTable()
+
+	type1 := NewResourceTypeID(1)
+	type2 := NewResourceTypeID(2)
+
+	// Create resources of different types
+	h1 := table.NewWithType(uint32(100), true, type1)
+	h2 := table.NewWithType(uint32(200), true, type2)
+	h3 := table.NewWithType(uint32(300), true, type1)
+
+	// Verify types
+	entry1, _ := table.Get(h1)
+	entry2, _ := table.Get(h2)
+	entry3, _ := table.Get(h3)
+
+	require.Equal(t, type1, entry1.RT)
+	require.Equal(t, type2, entry2.RT)
+	require.Equal(t, type1, entry3.RT)
+
+	// Type validation
+	require.NoError(t, table.ValidateType(h1, type1))
+	require.ErrorIs(t, table.ValidateType(h1, type2), ErrResourceTypeMismatch)
+	require.NoError(t, table.ValidateType(h2, type2))
+}
+
+func TestResourceTable_ConcurrentBorrowsMultipleResources(t *testing.T) {
+	table := NewResourceTable()
+
+	// Create multiple resources
+	h1 := table.New("res1", true)
+	h2 := table.New("res2", true)
+
+	// Borrow both
+	require.NoError(t, table.IncrementLends(h1))
+	require.NoError(t, table.IncrementLends(h2))
+
+	// Check both have active borrows
+	e1, _ := table.Get(h1)
+	e2, _ := table.Get(h2)
+	require.Equal(t, uint32(1), e1.NumLends)
+	require.Equal(t, uint32(1), e2.NumLends)
+
+	// Return one borrow
+	require.NoError(t, table.DecrementLends(h1))
+
+	// h1 can be removed, h2 cannot
+	_, err := table.Remove(h1)
+	require.NoError(t, err)
+
+	_, err = table.Remove(h2)
+	require.ErrorIs(t, err, ErrResourceInUse)
+
+	// Return h2's borrow
+	require.NoError(t, table.DecrementLends(h2))
+
+	// Now h2 can be removed
+	_, err = table.Remove(h2)
+	require.NoError(t, err)
+}
