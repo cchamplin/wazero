@@ -42,6 +42,9 @@ type Instance struct {
 	instanceSpace  []*Instance
 	typeSpace      []*TypeDef
 	componentSpace []*Component
+
+	// Exported instances for API access
+	exportedInstances map[string]*Instance
 }
 
 // ComponentFunc represents a callable component-level function.
@@ -1079,6 +1082,22 @@ func (i *Instance) GetComponentFromSpace(idx uint32) *Component {
 		return nil
 	}
 	return i.componentSpace[idx]
+}
+
+// AddExportedInstance adds an instance to the exported instances map.
+func (i *Instance) AddExportedInstance(name string, inst *Instance) {
+	if i.exportedInstances == nil {
+		i.exportedInstances = make(map[string]*Instance)
+	}
+	i.exportedInstances[name] = inst
+}
+
+// GetExportedInstance retrieves an exported instance by name.
+func (i *Instance) GetExportedInstance(name string) *Instance {
+	if i.exportedInstances == nil {
+		return nil
+	}
+	return i.exportedInstances[name]
 }
 
 // liftEnum converts a discriminant to an enum Val.
