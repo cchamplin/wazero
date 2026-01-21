@@ -322,7 +322,8 @@ func (t *ResourceTable) CreateResourceDropFuncWithTrap(resourceTypeIdx uint32, d
 			return
 		}
 
-		// Call destructor for owned resources
+		// Call destructor for owned resources only
+		// Per spec: borrows do not own the resource, so no destructor call
 		if destructor != nil && entry.Own && entry.Rep != nil {
 			switch rep := entry.Rep.(type) {
 			case uint32:
