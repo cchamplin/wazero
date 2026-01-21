@@ -52,7 +52,7 @@ Both `add` and `subtract` tests MUST pass. These validate the core instantiation
 
 | Phase | Document | Status | Regression |
 |-------|----------|--------|------------|
-| 1 | [Type Checking System](./01-phase1-type-checking.md) | [ ] Not Started | [ ] Verified |
+| 1 | [Type Checking System](./01-phase1-type-checking.md) | [x] Complete | [x] Verified |
 | 2 | [Start Function Support](./02-phase2-start-function.md) | [ ] Not Started | [ ] Verified |
 | 3 | [Nested Component Support](./03-phase3-nested-components.md) | [ ] Not Started | [ ] Verified |
 | 4 | [Export Instance API](./04-phase4-export-instance-api.md) | [ ] Not Started | [ ] Verified |
