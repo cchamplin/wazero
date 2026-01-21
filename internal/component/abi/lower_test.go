@@ -1599,3 +1599,164 @@ func TestLowerFlatVariantCoercionMatchesJoinedType(t *testing.T) {
 		t.Errorf("payload = %d, want -1", payload.S32())
 	}
 }
+
+// --- Fixed-Length List Tests (Task 2.3) ---
+
+func TestLowerHeapFixedLengthList(t *testing.T) {
+	mem := &mockMemory{data: make([]byte, 20)}
+	ctx := &LowerContext{Memory: mem, Opts: &Options{}}
+
+	length := uint32(3)
+	listType := types.List{Element: types.U32{}, Length: &length}
+
+	elements := []component.Val{
+		component.ValU32(10),
+		component.ValU32(20),
+		component.ValU32(30),
+	}
+	val := component.ValList(elements)
+
+	err := LowerHeap(ctx, listType, val, 0)
+	if err != nil {
+		t.Fatalf("LowerHeap failed: %v", err)
+	}
+
+	// Verify elements written inline
+	expected := []uint32{10, 20, 30}
+	for i, exp := range expected {
+		got := binary.LittleEndian.Uint32(mem.data[i*4:])
+		if got != exp {
+			t.Errorf("element[%d] = %d, want %d", i, got, exp)
+		}
+	}
+}
+
+func TestLowerFlatFixedLengthList(t *testing.T) {
+	ctx := &LowerContext{Opts: &Options{}}
+
+	length := uint32(3)
+	listType := types.List{Element: types.U32{}, Length: &length}
+
+	elements := []component.Val{
+		component.ValU32(10),
+		component.ValU32(20),
+		component.ValU32(30),
+	}
+	val := component.ValList(elements)
+
+	flat, err := LowerFlat(ctx, listType, val)
+	if err != nil {
+		t.Fatalf("LowerFlat failed: %v", err)
+	}
+
+	// Fixed list should flatten to 3 values, not ptr+len
+	if len(flat) != 3 {
+		t.Fatalf("expected 3 flat values, got %d", len(flat))
+	}
+
+	expected := []uint64{10, 20, 30}
+	for i, exp := range expected {
+		if flat[i] != exp {
+			t.Errorf("flat[%d] = %d, want %d", i, flat[i], exp)
+		}
+	}
+}
+
+func TestLowerHeapFixedLengthListLengthMismatch(t *testing.T) {
+	mem := &mockMemory{data: make([]byte, 20)}
+	ctx := &LowerContext{Memory: mem, Opts: &Options{}}
+
+	length := uint32(3)
+	listType := types.List{Element: types.U32{}, Length: &length}
+
+	// Provide only 2 elements when 3 are expected
+	elements := []component.Val{
+		component.ValU32(10),
+		component.ValU32(20),
+	}
+	val := component.ValList(elements)
+
+	err := LowerHeap(ctx, listType, val, 0)
+	if err == nil {
+		t.Fatal("LowerHeap should have failed for length mismatch")
+	}
+	if !contains(err.Error(), "length mismatch") {
+		t.Errorf("error should mention length mismatch, got: %v", err)
+	}
+}
+
+func TestLowerFlatFixedLengthListLengthMismatch(t *testing.T) {
+	ctx := &LowerContext{Opts: &Options{}}
+
+	length := uint32(3)
+	listType := types.List{Element: types.U32{}, Length: &length}
+
+	// Provide 4 elements when 3 are expected
+	elements := []component.Val{
+		component.ValU32(10),
+		component.ValU32(20),
+		component.ValU32(30),
+		component.ValU32(40),
+	}
+	val := component.ValList(elements)
+
+	_, err := LowerFlat(ctx, listType, val)
+	if err == nil {
+		t.Fatal("LowerFlat should have failed for length mismatch")
+	}
+	if !contains(err.Error(), "length mismatch") {
+		t.Errorf("error should mention length mismatch, got: %v", err)
+	}
+}
+
+func TestLowerHeapFixedLengthListEmpty(t *testing.T) {
+	mem := &mockMemory{data: make([]byte, 20)}
+	ctx := &LowerContext{Memory: mem, Opts: &Options{}}
+
+	length := uint32(0)
+	listType := types.List{Element: types.U32{}, Length: &length}
+
+	elements := []component.Val{}
+	val := component.ValList(elements)
+
+	err := LowerHeap(ctx, listType, val, 0)
+	if err != nil {
+		t.Fatalf("LowerHeap failed: %v", err)
+	}
+	// Nothing should be written for empty fixed-length list
+}
+
+func TestLowerFlatFixedLengthListEmpty(t *testing.T) {
+	ctx := &LowerContext{Opts: &Options{}}
+
+	length := uint32(0)
+	listType := types.List{Element: types.U32{}, Length: &length}
+
+	elements := []component.Val{}
+	val := component.ValList(elements)
+
+	flat, err := LowerFlat(ctx, listType, val)
+	if err != nil {
+		t.Fatalf("LowerFlat failed: %v", err)
+	}
+
+	// Empty fixed list should flatten to 0 values
+	if len(flat) != 0 {
+		t.Fatalf("expected 0 flat values, got %d", len(flat))
+	}
+}
+
+// contains checks if substr is in s
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
+		(len(s) > 0 && len(substr) > 0 && findSubstring(s, substr)))
+}
+
+func findSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
