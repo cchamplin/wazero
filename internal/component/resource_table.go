@@ -273,6 +273,32 @@ func (t *ResourceTable) CreateResourceRepFunc(resourceTypeIdx uint32) func(handl
 	}
 }
 
+// CreateResourceRepFuncWithTrap creates a core function for resource.rep
+// that calls the trap handler on errors instead of returning 0.
+// This is the spec-compliant version that properly validates types.
+func (t *ResourceTable) CreateResourceRepFuncWithTrap(resourceTypeIdx uint32, trap TrapHandler) func(handle uint32) uint32 {
+	expectedRT := NewResourceTypeID(resourceTypeIdx)
+	return func(handle uint32) uint32 {
+		h := Handle(handle)
+
+		// Validate type (spec: trap_if(h.rt is not rt))
+		if expectedRT.IsValid() {
+			if err := t.ValidateType(h, expectedRT); err != nil {
+				trap(err)
+				return 0
+			}
+		}
+
+		rep, err := t.Rep(h)
+		if err != nil {
+			// Spec: trap_if(not isinstance(h, ResourceHandle))
+			trap(err)
+			return 0
+		}
+		return rep
+	}
+}
+
 // GetType returns the ResourceTypeID for a handle.
 func (t *ResourceTable) GetType(h Handle) (ResourceTypeID, error) {
 	entry, err := t.Get(h)

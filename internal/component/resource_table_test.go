@@ -541,3 +541,57 @@ func TestCreateResourceDropFuncWithTrap_SuccessfulDrop(t *testing.T) {
 	_, err := table.Get(h)
 	require.ErrorIs(t, err, ErrInvalidHandle)
 }
+
+func TestCreateResourceRepFunc_TrapsOnInvalidHandle(t *testing.T) {
+	table := NewResourceTable()
+
+	var trapCalled bool
+	var trapErr error
+	repFunc := table.CreateResourceRepFuncWithTrap(1, func(err error) {
+		trapCalled = true
+		trapErr = err
+	})
+
+	// Try to get rep of invalid handle
+	_ = repFunc(999)
+
+	require.True(t, trapCalled, "should trap on invalid handle")
+	require.ErrorIs(t, trapErr, ErrInvalidHandle)
+}
+
+func TestCreateResourceRepFunc_TrapsOnTypeMismatch(t *testing.T) {
+	table := NewResourceTable()
+
+	// Create a handle of type 1
+	h := table.NewWithType(uint32(42), true, NewResourceTypeID(1))
+
+	var trapCalled bool
+	var trapErr error
+	// Create rep function for type 2 (different type)
+	repFunc := table.CreateResourceRepFuncWithTrap(2, func(err error) {
+		trapCalled = true
+		trapErr = err
+	})
+
+	// Try to get rep with wrong type
+	_ = repFunc(uint32(h))
+
+	require.True(t, trapCalled, "should trap on type mismatch")
+	require.ErrorIs(t, trapErr, ErrResourceTypeMismatch)
+}
+
+func TestCreateResourceRepFuncWithTrap_ReturnsRepOnSuccess(t *testing.T) {
+	table := NewResourceTable()
+
+	h := table.NewWithType(uint32(42), true, NewResourceTypeID(1))
+
+	var trapCalled bool
+	repFunc := table.CreateResourceRepFuncWithTrap(1, func(err error) {
+		trapCalled = true
+	})
+
+	rep := repFunc(uint32(h))
+
+	require.False(t, trapCalled, "should not trap on valid handle")
+	require.Equal(t, uint32(42), rep)
+}
