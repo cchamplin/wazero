@@ -484,6 +484,11 @@ func (e *mockModuleEngine) FunctionInstanceReference(i Index) Reference {
 	return e.functionRefs[i]
 }
 
+// SetForwardedFunction implements the same method as documented on wasm.ModuleEngine.
+func (e *mockModuleEngine) SetForwardedFunction(localFuncIndex Index, forwardedRef Reference) {
+	// No-op for mock
+}
+
 // ResolveImportedFunction implements the same method as documented on wasm.ModuleEngine.
 func (e *mockModuleEngine) ResolveImportedFunction(index, _, importedIndex Index, _ ModuleEngine) {
 	e.resolveImportsCalled[index] = importedIndex

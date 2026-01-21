@@ -71,6 +71,13 @@ type ModuleEngine interface {
 	// the initialization via ElementSegment.
 	FunctionInstanceReference(funcIndex Index) Reference
 
+	// SetForwardedFunction sets up function forwarding for a local function.
+	// When FunctionInstanceReference is called for localFuncIndex, it will return
+	// the forwardedRef instead of creating a new reference. This is used for
+	// component model inline instances where aliased functions need to preserve
+	// the source module's context (opaquePtr).
+	SetForwardedFunction(localFuncIndex Index, forwardedRef Reference)
+
 	// MemoryGrown notifies the engine that the memory has grown.
 	MemoryGrown()
 }

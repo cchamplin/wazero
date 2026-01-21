@@ -142,6 +142,14 @@ func (e *moduleEngine) SetGlobalValue(idx wasm.Index, lo, hi uint64) {
 // OwnsGlobals implements the same method as documented on wasm.ModuleEngine.
 func (e *moduleEngine) OwnsGlobals() bool { return false }
 
+// SetForwardedFunction implements wasm.ModuleEngine.
+// Note: This is a no-op for the interpreter engine as the component model
+// currently requires the wazevo engine for proper function forwarding support.
+func (e *moduleEngine) SetForwardedFunction(localFuncIndex wasm.Index, forwardedRef wasm.Reference) {
+	// No-op for interpreter - component model table initialization with aliased
+	// functions requires the wazevo engine for correct moduleCtxPtr handling.
+}
+
 // MemoryGrown implements wasm.ModuleEngine.
 func (e *moduleEngine) MemoryGrown() {}
 
