@@ -1760,3 +1760,45 @@ func findSubstring(s, substr string) bool {
 	}
 	return false
 }
+
+// --- Borrow Optimization Tests (Task 2.5) ---
+
+func TestLowerBorrowOptimization(t *testing.T) {
+	// This test documents the expected optimization behavior.
+	// Per spec lines 2679-2680, when lowering a borrow to the same
+	// instance that implements the resource, return rep directly.
+
+	table := component.NewResourceTable()
+	ctx := &LowerContext{
+		ResourceTable: table,
+		// TODO: Set Instance to match resource's implementing instance
+	}
+
+	// Create a resource representation
+	rep := uint32(42)
+
+	// Lower as borrow
+	idx, err := LowerBorrow(ctx, rep)
+	if err != nil {
+		t.Fatalf("LowerBorrow failed: %v", err)
+	}
+
+	t.Logf("LowerBorrow returned index %d", idx)
+
+	// TODO: When optimization is implemented:
+	// If ctx.Instance == resource's implementing instance, idx should equal rep
+	// Otherwise, idx should be a new handle index
+
+	// For now, verify the current behavior: a new handle is created
+	h := component.MakeHandle(idx, 0)
+	entry, err := table.Get(h)
+	if err != nil {
+		t.Fatalf("Failed to get handle from table: %v", err)
+	}
+	if entry.Rep != rep {
+		t.Errorf("entry.Rep = %v, want %v", entry.Rep, rep)
+	}
+	if entry.Own {
+		t.Error("entry.Own = true, want false (borrowed)")
+	}
+}

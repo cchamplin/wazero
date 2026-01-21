@@ -663,6 +663,10 @@ func LowerOwn(ctx *LowerContext, rep any) (uint32, error) {
 // LowerBorrow receives a borrowed resource into the component.
 // Creates a borrowed handle in the table and tracks it in CallContext.
 // This implements canon_lower for borrow<T> types.
+//
+// TODO: Per spec lines 2679-2680, when cx.inst is t.rt.impl (same instance),
+// should return rep directly instead of creating handle. This optimization
+// requires tracking the resource type's implementing instance.
 func LowerBorrow(ctx *LowerContext, rep any) (uint32, error) {
 	if ctx.ResourceTable == nil {
 		return 0, fmt.Errorf("lower_borrow: no resource table available")
