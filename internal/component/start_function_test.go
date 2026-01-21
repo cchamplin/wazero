@@ -3,6 +3,8 @@ package component
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 )
 
@@ -203,5 +205,109 @@ func TestExecuteStartFunction_ResultCountMismatch(t *testing.T) {
 	err := l.executeStartFunction(context.Background(), inst, c)
 	if err == nil {
 		t.Error("should fail when result count mismatches")
+	}
+}
+
+func TestExecuteStartFunction_MultipleResults(t *testing.T) {
+	c := &Component{
+		Start: &StartDef{
+			FuncIdx:     0,
+			ArgValueIdx: []uint32{},
+			ResultCount: 3, // Three results
+		},
+	}
+
+	inst := &Instance{
+		component:      c,
+		componentFuncs: make(map[uint32]ComponentFunc),
+	}
+
+	// Function returns three values
+	inst.componentFuncs[0] = ComponentFunc{
+		Impl: func(ctx context.Context, args []Val) ([]Val, error) {
+			return []Val{ValS32(1), ValS32(2), ValS32(3)}, nil
+		},
+	}
+
+	l := &ComponentLinker{}
+
+	err := l.executeStartFunction(context.Background(), inst, c)
+	if err != nil {
+		t.Fatalf("executeStartFunction failed: %v", err)
+	}
+
+	// All three results should be in value index space
+	for i := uint32(0); i < 3; i++ {
+		result, err := inst.GetValue(i)
+		if err != nil {
+			t.Fatalf("GetValue(%d) failed: %v", i, err)
+		}
+		expected := int32(i + 1)
+		if result.S32() != expected {
+			t.Errorf("value %d: expected %d, got %d", i, expected, result.S32())
+		}
+	}
+}
+
+func TestExecuteStartFunction_ReturnsError(t *testing.T) {
+	c := &Component{
+		Start: &StartDef{
+			FuncIdx:     0,
+			ArgValueIdx: []uint32{},
+			ResultCount: 0,
+		},
+	}
+
+	inst := &Instance{
+		component:      c,
+		componentFuncs: make(map[uint32]ComponentFunc),
+	}
+
+	expectedErr := errors.New("initialization failed")
+	inst.componentFuncs[0] = ComponentFunc{
+		Impl: func(ctx context.Context, args []Val) ([]Val, error) {
+			return nil, expectedErr
+		},
+	}
+
+	l := &ComponentLinker{}
+
+	err := l.executeStartFunction(context.Background(), inst, c)
+	if err == nil {
+		t.Fatal("should fail when start function returns error")
+	}
+	if !strings.Contains(err.Error(), "initialization failed") {
+		t.Errorf("error should contain original message, got: %v", err)
+	}
+}
+
+func TestExecuteStartFunction_ValueIndexOutOfRange(t *testing.T) {
+	c := &Component{
+		Start: &StartDef{
+			FuncIdx:     0,
+			ArgValueIdx: []uint32{99}, // Index 99 doesn't exist
+			ResultCount: 0,
+		},
+	}
+
+	inst := &Instance{
+		component:      c,
+		componentFuncs: make(map[uint32]ComponentFunc),
+	}
+
+	// Add only one value at index 0
+	inst.AddValue(ValS32(42))
+
+	inst.componentFuncs[0] = ComponentFunc{
+		Impl: func(ctx context.Context, args []Val) ([]Val, error) {
+			return nil, nil
+		},
+	}
+
+	l := &ComponentLinker{}
+
+	err := l.executeStartFunction(context.Background(), inst, c)
+	if err == nil {
+		t.Error("should fail when value index is out of range")
 	}
 }
