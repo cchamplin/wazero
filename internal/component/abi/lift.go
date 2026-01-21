@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/component/types"
 )
@@ -105,30 +106,55 @@ func LiftFlat(ctx *LiftContext, typ types.ValType, iter *FlatIter) (component.Va
 		}
 		c := t.Cases[disc]
 
-		// Calculate max payload flatten count for padding
-		maxPayloadFlat := 0
-		for _, vc := range t.Cases {
-			if vc.Type != nil {
-				if n := vc.Type.FlattenCount(); n > maxPayloadFlat {
-					maxPayloadFlat = n
-				}
-			}
-		}
+		// Calculate the joined flat types for the variant payload
+		// Per Canonical ABI spec lines 2962-2989, variant payloads use joined types
+		flatTypes := flattenVariantPayload(t)
 
 		var payload *component.Val
-		payloadConsumed := 0
 		if c.Type != nil {
-			p, err := LiftFlat(ctx, c.Type, iter)
+			// Get the actual case's flat types
+			caseFlat := flattenType(c.Type)
+			coercedValues := make([]uint64, len(caseFlat))
+
+			// Read and coerce each payload value
+			for i := 0; i < len(caseFlat); i++ {
+				have := flatTypes[i]
+				want := caseFlat[i]
+				// Read as the joined type (widest possible type)
+				var rawValue uint64
+				if have == api.ValueTypeI64 || have == api.ValueTypeF64 {
+					rawValue = iter.NextI64()
+				} else {
+					rawValue = uint64(iter.NextI32())
+				}
+				coercedValues[i] = coerceFlatValue(rawValue, have, want)
+			}
+
+			// Skip remaining padding in the joined flat layout
+			for i := len(caseFlat); i < len(flatTypes); i++ {
+				if flatTypes[i] == api.ValueTypeI64 || flatTypes[i] == api.ValueTypeF64 {
+					iter.NextI64()
+				} else {
+					iter.NextI32()
+				}
+			}
+
+			// Lift the payload using coerced values
+			coerceIter := NewFlatIter(coercedValues)
+			p, err := LiftFlat(ctx, c.Type, coerceIter)
 			if err != nil {
 				return component.Val{}, fmt.Errorf("lift variant payload: %w", err)
 			}
 			payload = &p
-			payloadConsumed = c.Type.FlattenCount()
-		}
-
-		// Skip remaining padding values
-		for i := payloadConsumed; i < maxPayloadFlat; i++ {
-			iter.NextI64() // Consume as i64 (largest type)
+		} else {
+			// No payload - skip all padding
+			for i := 0; i < len(flatTypes); i++ {
+				if flatTypes[i] == api.ValueTypeI64 || flatTypes[i] == api.ValueTypeF64 {
+					iter.NextI64()
+				} else {
+					iter.NextI32()
+				}
+			}
 		}
 
 		return component.ValVariant(c.Name, payload), nil
@@ -761,4 +787,55 @@ func isValidUnicodeScalar(v uint32) bool {
 		return false
 	}
 	return true
+}
+
+// flattenVariantPayload returns the joined flat types for a variant's payload.
+// This uses the join function to compute the widest compatible type for each position.
+// Per Canonical ABI spec lines 2962-2989, variant payloads use joined types.
+func flattenVariantPayload(v types.Variant) []api.ValueType {
+	var flat []api.ValueType
+	for _, c := range v.Cases {
+		if c.Type != nil {
+			caseFlat := flattenType(c.Type)
+			for i, ft := range caseFlat {
+				if i < len(flat) {
+					flat[i] = join(flat[i], ft)
+				} else {
+					flat = append(flat, ft)
+				}
+			}
+		}
+	}
+	return flat
+}
+
+// coerceFlatValue coerces a flat value from 'have' type to 'want' type.
+// This implements the coercion rules from Canonical ABI spec lines 2971-2976.
+// When reading variant payloads, values are read using the joined types and
+// must be coerced to the actual case type:
+// - i32 as f32: reinterpret the bits (value already contains f32 bits)
+// - i64 to i32: truncate (wrap)
+// - i64 to f32: truncate to i32, then reinterpret as f32
+// - i64 as f64: reinterpret the bits (value already contains f64 bits)
+func coerceFlatValue(value uint64, have, want api.ValueType) uint64 {
+	if have == want {
+		return value
+	}
+	switch {
+	case have == api.ValueTypeI32 && want == api.ValueTypeF32:
+		// The value is already the i32 bits representing f32, just return it
+		return value
+	case have == api.ValueTypeI64 && want == api.ValueTypeI32:
+		// Wrap i64 to i32 (truncate to low 32 bits)
+		return value & 0xFFFFFFFF
+	case have == api.ValueTypeI64 && want == api.ValueTypeF32:
+		// Wrap i64 to i32, use as f32 bits
+		return value & 0xFFFFFFFF
+	case have == api.ValueTypeI64 && want == api.ValueTypeF64:
+		// i64 bits as f64 - value is already the bits
+		return value
+	default:
+		// No coercion needed or unknown combination
+		return value
+	}
 }
