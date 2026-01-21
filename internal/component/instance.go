@@ -1482,6 +1482,52 @@ func alignmentForKind(kind ValKind) uint32 {
 	}
 }
 
+// sizeOfVal returns the size in bytes needed to store a Val in memory.
+// For composite types, this returns an estimate suitable for result/variant lowering.
+func sizeOfVal(v Val) uint32 {
+	switch v.Kind() {
+	case ValKindS8, ValKindU8, ValKindBool:
+		return 1
+	case ValKindS16, ValKindU16:
+		return 2
+	case ValKindS32, ValKindU32, ValKindF32, ValKindChar, ValKindOwn, ValKindBorrow:
+		return 4
+	case ValKindS64, ValKindU64, ValKindF64:
+		return 8
+	case ValKindString, ValKindList:
+		return 8 // ptr + len
+	case ValKindResult:
+		// discriminant (4 bytes aligned) + max payload size
+		_, okVal, errVal := v.Result()
+		var payloadSize uint32 = 0
+		if okVal != nil {
+			payloadSize = sizeOfVal(*okVal)
+		}
+		if errVal != nil {
+			if s := sizeOfVal(*errVal); s > payloadSize {
+				payloadSize = s
+			}
+		}
+		return 4 + payloadSize
+	case ValKindVariant:
+		// discriminant (4 bytes) + payload
+		_, payload := v.Variant()
+		if payload != nil {
+			return 4 + sizeOfVal(*payload)
+		}
+		return 4
+	case ValKindOption:
+		// discriminant (4 bytes) + payload
+		payload := v.Option()
+		if payload != nil {
+			return 4 + sizeOfVal(*payload)
+		}
+		return 4
+	default:
+		return 4 // Default to 4 for unknown types
+	}
+}
+
 // writeListElement writes a Val to memory at the given offset.
 // Returns an error if the write fails or the element type is not supported.
 func writeListElement(mem api.Memory, offset uint32, elem Val) error {
