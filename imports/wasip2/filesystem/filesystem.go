@@ -8,7 +8,6 @@ import (
 	goio "io"
 	"os"
 	"path/filepath"
-	"syscall"
 
 	wasipIO "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
@@ -46,51 +45,6 @@ func getDirEntryStream(ctx context.Context, handle uint32) (*DirectoryEntryStrea
 		return nil, errors.New("handle is not a DirectoryEntryStream")
 	}
 	return stream, nil
-}
-
-// mapOSError maps OS errors to WASI error codes.
-func mapOSError(err error) ErrorCode {
-	if err == nil {
-		return ErrorCodeIO
-	}
-	if os.IsNotExist(err) {
-		return ErrorCodeNoEntry
-	}
-	if os.IsPermission(err) {
-		return ErrorCodeAccess
-	}
-	if os.IsExist(err) {
-		return ErrorCodeExist
-	}
-	// Check for specific syscall errors
-	var pathErr *os.PathError
-	if errors.As(err, &pathErr) {
-		if errors.Is(pathErr.Err, syscall.ENOTDIR) {
-			return ErrorCodeNotDirectory
-		}
-		if errors.Is(pathErr.Err, syscall.EISDIR) {
-			return ErrorCodeIsDirectory
-		}
-		if errors.Is(pathErr.Err, syscall.ENOTEMPTY) {
-			return ErrorCodeNotEmpty
-		}
-		if errors.Is(pathErr.Err, syscall.ELOOP) {
-			return ErrorCodeLoop
-		}
-		if errors.Is(pathErr.Err, syscall.ENAMETOOLONG) {
-			return ErrorCodeNameTooLong
-		}
-		if errors.Is(pathErr.Err, syscall.ENOSPC) {
-			return ErrorCodeInsufficientSpace
-		}
-		if errors.Is(pathErr.Err, syscall.EROFS) {
-			return ErrorCodeReadOnly
-		}
-		if errors.Is(pathErr.Err, syscall.EBUSY) {
-			return ErrorCodeBusy
-		}
-	}
-	return ErrorCodeIO
 }
 
 // errorResult creates a result<_, error-code> error value.
@@ -254,7 +208,7 @@ func descriptorReadViaStream(ctx context.Context, args []component.Val) ([]compo
 	// Open a new file handle for reading at the specified offset
 	file, err := os.Open(desc.Path())
 	if err != nil {
-		return errorResult(mapOSError(err)), nil
+		return errorResult(MapOSError(err)), nil
 	}
 
 	// Seek to the specified offset
@@ -262,7 +216,7 @@ func descriptorReadViaStream(ctx context.Context, args []component.Val) ([]compo
 		_, err = file.Seek(int64(offset), goio.SeekStart)
 		if err != nil {
 			file.Close()
-			return errorResult(mapOSError(err)), nil
+			return errorResult(MapOSError(err)), nil
 		}
 	}
 
@@ -304,7 +258,7 @@ func descriptorWriteViaStream(ctx context.Context, args []component.Val) ([]comp
 	// Open a new file handle for writing at the specified offset
 	file, err := os.OpenFile(desc.Path(), os.O_WRONLY, 0)
 	if err != nil {
-		return errorResult(mapOSError(err)), nil
+		return errorResult(MapOSError(err)), nil
 	}
 
 	// Seek to the specified offset
@@ -312,7 +266,7 @@ func descriptorWriteViaStream(ctx context.Context, args []component.Val) ([]comp
 		_, err = file.Seek(int64(offset), goio.SeekStart)
 		if err != nil {
 			file.Close()
-			return errorResult(mapOSError(err)), nil
+			return errorResult(MapOSError(err)), nil
 		}
 	}
 
@@ -353,7 +307,7 @@ func descriptorAppendViaStream(ctx context.Context, args []component.Val) ([]com
 	// Open a new file handle in append mode
 	file, err := os.OpenFile(desc.Path(), os.O_WRONLY|os.O_APPEND, 0)
 	if err != nil {
-		return errorResult(mapOSError(err)), nil
+		return errorResult(MapOSError(err)), nil
 	}
 
 	// Create an output stream from the file
@@ -384,7 +338,7 @@ func descriptorSyncData(ctx context.Context, args []component.Val) ([]component.
 
 	if desc.File() != nil {
 		if syncErr := desc.File().Sync(); syncErr != nil {
-			return errorResult(mapOSError(syncErr)), nil
+			return errorResult(MapOSError(syncErr)), nil
 		}
 	}
 	return []component.Val{component.ValResultOk(nil)}, nil
@@ -426,7 +380,7 @@ func descriptorGetType(ctx context.Context, args []component.Val) ([]component.V
 	// Get file info
 	info, statErr := desc.File().Stat()
 	if statErr != nil {
-		return errorResult(mapOSError(statErr)), nil
+		return errorResult(MapOSError(statErr)), nil
 	}
 
 	descType := fileInfoToDescriptorType(info)
@@ -480,7 +434,7 @@ func descriptorRead(ctx context.Context, args []component.Val) ([]component.Val,
 		if readErr == goio.EOF {
 			eof = true
 		} else {
-			return errorResult(mapOSError(readErr)), nil
+			return errorResult(MapOSError(readErr)), nil
 		}
 	}
 	// Also EOF if we read less than requested
@@ -523,7 +477,7 @@ func descriptorWrite(ctx context.Context, args []component.Val) ([]component.Val
 	// Write to file at offset
 	n, writeErr := desc.File().WriteAt(data, int64(offset))
 	if writeErr != nil {
-		return errorResult(mapOSError(writeErr)), nil
+		return errorResult(MapOSError(writeErr)), nil
 	}
 
 	// Return result<u64, error-code>
@@ -549,7 +503,7 @@ func descriptorReadDirectory(ctx context.Context, args []component.Val) ([]compo
 	// Read directory entries
 	entries, readErr := os.ReadDir(desc.Path())
 	if readErr != nil {
-		return errorResult(mapOSError(readErr)), nil
+		return errorResult(MapOSError(readErr)), nil
 	}
 
 	// Convert to DirectoryEntry slice
@@ -594,7 +548,7 @@ func descriptorSync(ctx context.Context, args []component.Val) ([]component.Val,
 
 	if desc.File() != nil {
 		if syncErr := desc.File().Sync(); syncErr != nil {
-			return errorResult(mapOSError(syncErr)), nil
+			return errorResult(MapOSError(syncErr)), nil
 		}
 	}
 	return []component.Val{component.ValResultOk(nil)}, nil
@@ -628,7 +582,7 @@ func descriptorCreateDirectoryAt(ctx context.Context, args []component.Val) ([]c
 
 	// Create the directory
 	if mkdirErr := os.Mkdir(cleanPath, 0755); mkdirErr != nil {
-		return errorResult(mapOSError(mkdirErr)), nil
+		return errorResult(MapOSError(mkdirErr)), nil
 	}
 
 	return []component.Val{component.ValResultOk(nil)}, nil
@@ -647,7 +601,7 @@ func descriptorStat(ctx context.Context, args []component.Val) ([]component.Val,
 	// Get file info
 	info, statErr := desc.File().Stat()
 	if statErr != nil {
-		return errorResult(mapOSError(statErr)), nil
+		return errorResult(MapOSError(statErr)), nil
 	}
 
 	stat := fileInfoToStat(info)
@@ -693,7 +647,7 @@ func descriptorStatAt(ctx context.Context, args []component.Val) ([]component.Va
 		info, statErr = os.Lstat(cleanPath)
 	}
 	if statErr != nil {
-		return errorResult(mapOSError(statErr)), nil
+		return errorResult(MapOSError(statErr)), nil
 	}
 
 	stat := fileInfoToStat(info)
@@ -809,14 +763,14 @@ func descriptorOpenAt(ctx context.Context, args []component.Val) ([]component.Va
 		file, openErr = os.OpenFile(cleanPath, osFlags, 0644)
 	}
 	if openErr != nil {
-		return errorResult(mapOSError(openErr)), nil
+		return errorResult(MapOSError(openErr)), nil
 	}
 
 	// Get file info after open
 	fileInfo, statErr := file.Stat()
 	if statErr != nil {
 		file.Close()
-		return errorResult(mapOSError(statErr)), nil
+		return errorResult(MapOSError(statErr)), nil
 	}
 
 	// Build descriptor flags
@@ -872,7 +826,7 @@ func descriptorReadlinkAt(ctx context.Context, args []component.Val) ([]componen
 	// Read the symlink target
 	targetPath, readErr := os.Readlink(cleanPath)
 	if readErr != nil {
-		return errorResult(mapOSError(readErr)), nil
+		return errorResult(MapOSError(readErr)), nil
 	}
 
 	target := component.ValString(targetPath)
@@ -908,7 +862,7 @@ func descriptorRemoveDirectoryAt(ctx context.Context, args []component.Val) ([]c
 	// Check that it's a directory
 	info, statErr := os.Stat(cleanPath)
 	if statErr != nil {
-		return errorResult(mapOSError(statErr)), nil
+		return errorResult(MapOSError(statErr)), nil
 	}
 	if !info.IsDir() {
 		return errorResult(ErrorCodeNotDirectory), nil
@@ -916,7 +870,7 @@ func descriptorRemoveDirectoryAt(ctx context.Context, args []component.Val) ([]c
 
 	// Remove the directory (must be empty)
 	if rmErr := os.Remove(cleanPath); rmErr != nil {
-		return errorResult(mapOSError(rmErr)), nil
+		return errorResult(MapOSError(rmErr)), nil
 	}
 
 	return []component.Val{component.ValResultOk(nil)}, nil
@@ -964,7 +918,7 @@ func descriptorRenameAt(ctx context.Context, args []component.Val) ([]component.
 
 	// Rename
 	if renameErr := os.Rename(oldCleanPath, newCleanPath); renameErr != nil {
-		return errorResult(mapOSError(renameErr)), nil
+		return errorResult(MapOSError(renameErr)), nil
 	}
 
 	return []component.Val{component.ValResultOk(nil)}, nil
@@ -999,7 +953,7 @@ func descriptorSymlinkAt(ctx context.Context, args []component.Val) ([]component
 
 	// Create symlink (oldPath is the target, which can be relative or absolute)
 	if symlinkErr := os.Symlink(oldPath, cleanPath); symlinkErr != nil {
-		return errorResult(mapOSError(symlinkErr)), nil
+		return errorResult(MapOSError(symlinkErr)), nil
 	}
 
 	return []component.Val{component.ValResultOk(nil)}, nil
@@ -1034,7 +988,7 @@ func descriptorUnlinkFileAt(ctx context.Context, args []component.Val) ([]compon
 	// Check that it's not a directory
 	info, statErr := os.Lstat(cleanPath)
 	if statErr != nil {
-		return errorResult(mapOSError(statErr)), nil
+		return errorResult(MapOSError(statErr)), nil
 	}
 	if info.IsDir() {
 		return errorResult(ErrorCodeIsDirectory), nil
@@ -1042,7 +996,7 @@ func descriptorUnlinkFileAt(ctx context.Context, args []component.Val) ([]compon
 
 	// Remove the file
 	if rmErr := os.Remove(cleanPath); rmErr != nil {
-		return errorResult(mapOSError(rmErr)), nil
+		return errorResult(MapOSError(rmErr)), nil
 	}
 
 	return []component.Val{component.ValResultOk(nil)}, nil
