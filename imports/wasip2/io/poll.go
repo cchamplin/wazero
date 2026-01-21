@@ -5,6 +5,7 @@ package io
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/tetratelabs/wazero/internal/component"
 )
@@ -12,10 +13,16 @@ import (
 // Pollable represents something that can be polled for readiness.
 // Per wasi:io/poll@0.2.0 spec.
 type Pollable struct {
-	// readyFn returns true if the pollable is ready
+	// readyFn returns true if the pollable is ready (callback-based approach)
 	readyFn func() bool
 	// blockFn blocks until ready (may be nil for immediately ready)
 	blockFn func()
+
+	// Channel-based ready state infrastructure
+	ready   chan struct{} // Closed when ready (for channel-based pollables)
+	isReady bool          // Cached ready state
+	mu      sync.Mutex    // Protects isReady
+	onReady func()        // Optional callback when becoming ready
 }
 
 // NewPollable creates a pollable with ready and block functions.
@@ -36,8 +43,23 @@ func NewPollableWithChannel(readyFn func() bool, blockFn func()) *Pollable {
 	return &Pollable{readyFn: readyFn, blockFn: blockFn}
 }
 
+// NewChannelPollable creates a pollable with channel-based ready state tracking.
+// Use SetReady() to mark the pollable as ready, which closes the internal channel
+// and unblocks any goroutines waiting on ReadyChan() or Block().
+func NewChannelPollable() *Pollable {
+	return &Pollable{
+		ready: make(chan struct{}),
+	}
+}
+
 // Ready returns true if the pollable is ready.
+// Checks both the isReady flag (for channel-based pollables) and readyFn (for callback-based).
 func (p *Pollable) Ready() bool {
+	// Check channel-based ready state first
+	if p.IsReady() {
+		return true
+	}
+	// Fall back to callback-based check
 	if p.readyFn == nil {
 		return true
 	}
@@ -45,10 +67,56 @@ func (p *Pollable) Ready() bool {
 }
 
 // Block waits until the pollable becomes ready.
+// Supports both callback-based (blockFn) and channel-based (ready channel) approaches.
 func (p *Pollable) Block() {
+	// If callback-based blocking is available, use it
 	if p.blockFn != nil {
 		p.blockFn()
+		return
 	}
+	// Otherwise, use channel-based blocking if available
+	if p.ready != nil {
+		<-p.ready
+	}
+}
+
+// IsReady returns true if the pollable has been marked ready via SetReady.
+// Thread-safe check of the isReady flag.
+func (p *Pollable) IsReady() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.isReady
+}
+
+// SetReady marks the pollable as ready, closes the ready channel (if present),
+// and calls the onReady callback (if set). This method is idempotent - calling
+// it multiple times is safe and only the first call has effect.
+func (p *Pollable) SetReady() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.isReady {
+		return // Already ready, nothing to do
+	}
+
+	p.isReady = true
+
+	// Close the channel to unblock any waiters
+	if p.ready != nil {
+		close(p.ready)
+	}
+
+	// Call the onReady callback if set
+	if p.onReady != nil {
+		p.onReady()
+	}
+}
+
+// ReadyChan returns a channel that will be closed when the pollable becomes ready.
+// This allows using select statements to wait on multiple pollables.
+// Returns nil if the pollable was not created with NewChannelPollable.
+func (p *Pollable) ReadyChan() <-chan struct{} {
+	return p.ready
 }
 
 // getPollable retrieves a Pollable from the ResourceTable using a borrow handle.
