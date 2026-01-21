@@ -1012,6 +1012,20 @@ func (i *Instance) SetMayLeave(allowed bool) {
 	i.mayLeaveDisabled = !allowed
 }
 
+// ValidateMayLeave checks if this instance is allowed to make outgoing calls.
+// Returns an error if may_leave is false (during lowering or post-return).
+// This implements the trap_if(not inst.may_leave) check from canon_lower.
+// Per CanonicalABI.md line 3454
+func (i *Instance) ValidateMayLeave() error {
+	if i == nil {
+		return nil // No instance means no restriction
+	}
+	if !i.MayLeave() {
+		return fmt.Errorf("trap: cannot call out of component while lowering values")
+	}
+	return nil
+}
+
 // AddValue adds a value to the instance's value index space.
 // Returns the index of the added value.
 func (i *Instance) AddValue(v Val) uint32 {

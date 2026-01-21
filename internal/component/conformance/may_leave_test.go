@@ -62,3 +62,23 @@ func TestInstance_MayLeaveFalseDuringPostReturn(t *testing.T) {
 	inst.SetMayLeave(true)
 	require.True(t, inst.MayLeave(), "should be true after post-return")
 }
+
+func TestInstance_ValidateMayLeave(t *testing.T) {
+	inst := &component.Instance{}
+
+	// When may_leave is true, validation passes
+	err := inst.ValidateMayLeave()
+	require.NoError(t, err)
+
+	// When may_leave is false, validation fails
+	inst.SetMayLeave(false)
+	err = inst.ValidateMayLeave()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "cannot call")
+}
+
+func TestInstance_ValidateMayLeaveNilInstance(t *testing.T) {
+	var inst *component.Instance
+	err := inst.ValidateMayLeave()
+	require.NoError(t, err, "nil instance should not error")
+}
