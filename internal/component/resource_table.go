@@ -294,3 +294,42 @@ func (t *ResourceTable) ValidateType(h Handle, expected ResourceTypeID) error {
 	}
 	return nil
 }
+
+// TrapHandler is a function called when a resource operation should trap.
+// In production, this typically panics or records the error for the runtime.
+type TrapHandler func(err error)
+
+// CreateResourceDropFuncWithTrap creates a core function for resource.drop
+// that calls the trap handler on errors instead of silently ignoring them.
+// This is the spec-compliant version that properly validates types.
+func (t *ResourceTable) CreateResourceDropFuncWithTrap(resourceTypeIdx uint32, destructor func(rep uint32), trap TrapHandler) func(handle uint32) {
+	expectedRT := NewResourceTypeID(resourceTypeIdx)
+	return func(handle uint32) {
+		h := Handle(handle)
+
+		// Validate type before removal (spec: trap_if(h.rt is not rt))
+		if expectedRT.IsValid() {
+			if err := t.ValidateType(h, expectedRT); err != nil {
+				trap(err)
+				return
+			}
+		}
+
+		entry, err := t.Remove(h)
+		if err != nil {
+			// Spec: trap_if(not isinstance(h, ResourceHandle))
+			trap(err)
+			return
+		}
+
+		// Call destructor for owned resources
+		if destructor != nil && entry.Own && entry.Rep != nil {
+			switch rep := entry.Rep.(type) {
+			case uint32:
+				destructor(rep)
+			case int:
+				destructor(uint32(rep))
+			}
+		}
+	}
+}
