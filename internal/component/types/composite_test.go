@@ -42,9 +42,8 @@ func TestRecordOffset(t *testing.T) {
 
 func TestRecordEmpty(t *testing.T) {
 	r := Record{Fields: []Field{}}
-	// Per spec lines 1930-1932, empty types are not permitted.
-	// For defensive programming, we return minimum size of 1.
-	require.Equal(t, uint32(1), r.Size())
+	// Per Canonical ABI spec, empty records have size 0 and align 1.
+	require.Equal(t, uint32(0), r.Size())
 	require.Equal(t, uint32(1), r.Align())
 	require.Equal(t, 0, r.FlattenCount())
 }
@@ -377,9 +376,8 @@ func TestTupleType(t *testing.T) {
 
 func TestTupleEmpty(t *testing.T) {
 	tup := Tuple{Types: []ValType{}}
-	// Per spec lines 1930-1932, empty types are not permitted.
-	// For defensive programming, we return minimum size of 1.
-	require.Equal(t, uint32(1), tup.Size())
+	// Per Canonical ABI spec, empty tuples have size 0 and align 1.
+	require.Equal(t, uint32(0), tup.Size())
 	require.Equal(t, uint32(1), tup.Align())
 	require.Equal(t, 0, tup.FlattenCount())
 }
@@ -468,26 +466,23 @@ func TestFixedLengthListIsFixedLength(t *testing.T) {
 }
 
 func TestEmptyRecordSize(t *testing.T) {
-	// Per spec line 1963, empty records should have size > 0
-	// The spec says "Empty types, such as records with no fields, are not permitted"
-	// However, for defensive programming we return minimum size of 1
-
+	// Per Canonical ABI spec, empty records have size 0 and align 1.
 	emptyRecord := Record{Fields: []Field{}}
 	size := emptyRecord.Size()
 	t.Logf("Empty record size = %d", size)
 
-	// The spec says size must be > 0, assert 1963
-	if size == 0 {
-		t.Error("Empty record should have non-zero size")
+	if size != 0 {
+		t.Errorf("Empty record should have size 0, got %d", size)
 	}
 }
 
 func TestEmptyTupleSize(t *testing.T) {
+	// Per Canonical ABI spec, empty tuples have size 0 and align 1.
 	emptyTuple := Tuple{Types: []ValType{}}
 	size := emptyTuple.Size()
 	t.Logf("Empty tuple size = %d", size)
 
-	if size == 0 {
-		t.Error("Empty tuple should have non-zero size")
+	if size != 0 {
+		t.Errorf("Empty tuple should have size 0, got %d", size)
 	}
 }
