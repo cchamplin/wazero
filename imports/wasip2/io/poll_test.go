@@ -750,12 +750,10 @@ func TestPollable_SetReady_Idempotent(t *testing.T) {
 }
 
 func TestPollable_OnReadyCallback(t *testing.T) {
-	p := NewChannelPollable()
-
 	callbackCalled := false
-	p.onReady = func() {
+	p := NewChannelPollableWithCallback(func() {
 		callbackCalled = true
-	}
+	})
 
 	p.SetReady()
 

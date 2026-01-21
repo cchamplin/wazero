@@ -52,6 +52,16 @@ func NewChannelPollable() *Pollable {
 	}
 }
 
+// NewChannelPollableWithCallback creates a channel-based pollable with an onReady callback.
+// The callback will be called (once) when SetReady() is called.
+// The callback is invoked outside the internal mutex to prevent deadlocks.
+func NewChannelPollableWithCallback(onReady func()) *Pollable {
+	return &Pollable{
+		ready:   make(chan struct{}),
+		onReady: onReady,
+	}
+}
+
 // Ready returns true if the pollable is ready.
 // Checks both the isReady flag (for channel-based pollables) and readyFn (for callback-based).
 func (p *Pollable) Ready() bool {
@@ -93,9 +103,8 @@ func (p *Pollable) IsReady() bool {
 // it multiple times is safe and only the first call has effect.
 func (p *Pollable) SetReady() {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	if p.isReady {
+		p.mu.Unlock()
 		return // Already ready, nothing to do
 	}
 
@@ -106,9 +115,13 @@ func (p *Pollable) SetReady() {
 		close(p.ready)
 	}
 
-	// Call the onReady callback if set
-	if p.onReady != nil {
-		p.onReady()
+	// Capture the callback before releasing the lock
+	onReady := p.onReady
+	p.mu.Unlock()
+
+	// Call the onReady callback outside the lock to prevent deadlocks
+	if onReady != nil {
+		onReady()
 	}
 }
 
