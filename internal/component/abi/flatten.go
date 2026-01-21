@@ -69,6 +69,15 @@ func flattenType(t types.ValType) []api.ValueType {
 	case types.String:
 		return []api.ValueType{api.ValueTypeI32, api.ValueTypeI32} // ptr, len
 	case types.List:
+		if v.Length != nil {
+			// Fixed-length list: flatten each element inline
+			var result []api.ValueType
+			elemFlat := flattenType(v.Element)
+			for i := uint32(0); i < *v.Length; i++ {
+				result = append(result, elemFlat...)
+			}
+			return result
+		}
 		return []api.ValueType{api.ValueTypeI32, api.ValueTypeI32} // ptr, len
 	case types.Own, types.Borrow:
 		return []api.ValueType{api.ValueTypeI32} // Handle index

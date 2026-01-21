@@ -277,6 +277,22 @@ func LiftFlat(ctx *LiftContext, typ types.ValType, iter *FlatIter) (component.Va
 
 	case types.List:
 		t := typ.(types.List)
+
+		if t.Length != nil {
+			// Fixed-length list: lift each element from flat values
+			length := *t.Length
+			elems := make([]component.Val, length)
+			for i := uint32(0); i < length; i++ {
+				elem, err := LiftFlat(ctx, t.Element, iter)
+				if err != nil {
+					return component.Val{}, fmt.Errorf("lift fixed list element %d: %w", i, err)
+				}
+				elems[i] = elem
+			}
+			return component.ValList(elems), nil
+		}
+
+		// Dynamic list: read ptr and length
 		ptr := iter.NextI32()
 		length := iter.NextI32()
 
@@ -619,6 +635,23 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (component.Val
 
 	// List
 	case types.List:
+		if t.Length != nil {
+			// Fixed-length list: elements are inline at offset
+			length := *t.Length
+			elems := make([]component.Val, length)
+			elemSize := t.Element.Size()
+			for i := uint32(0); i < length; i++ {
+				elemOffset := offset + i*elemSize
+				elem, err := LiftHeap(ctx, t.Element, elemOffset)
+				if err != nil {
+					return component.Val{}, fmt.Errorf("lift fixed list element %d: %w", i, err)
+				}
+				elems[i] = elem
+			}
+			return component.ValList(elems), nil
+		}
+
+		// Dynamic list: read ptr and length from memory
 		ptr, err := ctx.ReadU32(offset)
 		if err != nil {
 			return component.Val{}, fmt.Errorf("lift list ptr: %w", err)

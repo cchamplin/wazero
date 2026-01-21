@@ -2688,3 +2688,58 @@ func TestLiftFlatVariantSingleCaseSkipsPadding(t *testing.T) {
 		t.Errorf("z = %d, want 12345", got)
 	}
 }
+
+// --- Fixed-Length List Tests ---
+
+func TestLiftHeapFixedLengthList(t *testing.T) {
+	// Create memory with 3 u32 values inline
+	mem := &mockMemory{data: make([]byte, 20)}
+	binary.LittleEndian.PutUint32(mem.data[0:], 10)
+	binary.LittleEndian.PutUint32(mem.data[4:], 20)
+	binary.LittleEndian.PutUint32(mem.data[8:], 30)
+
+	ctx := &LiftContext{Memory: mem, Opts: &Options{}}
+	length := uint32(3)
+	listType := types.List{Element: types.U32{}, Length: &length}
+
+	val, err := LiftHeap(ctx, listType, 0)
+	if err != nil {
+		t.Fatalf("LiftHeap failed: %v", err)
+	}
+
+	elems := val.List()
+	if len(elems) != 3 {
+		t.Fatalf("expected 3 elements, got %d", len(elems))
+	}
+	expected := []uint32{10, 20, 30}
+	for i, elem := range elems {
+		if got := elem.U32(); got != expected[i] {
+			t.Errorf("element[%d] = %d, want %d", i, got, expected[i])
+		}
+	}
+}
+
+func TestLiftFlatFixedLengthList(t *testing.T) {
+	// Fixed-length list of 3 u32s should read 3 flat values
+	length := uint32(3)
+	listType := types.List{Element: types.U32{}, Length: &length}
+
+	iter := NewFlatIter([]uint64{10, 20, 30})
+	ctx := &LiftContext{Opts: &Options{}}
+
+	val, err := LiftFlat(ctx, listType, iter)
+	if err != nil {
+		t.Fatalf("LiftFlat failed: %v", err)
+	}
+
+	elems := val.List()
+	if len(elems) != 3 {
+		t.Fatalf("expected 3 elements, got %d", len(elems))
+	}
+	expected := []uint32{10, 20, 30}
+	for i, elem := range elems {
+		if got := elem.U32(); got != expected[i] {
+			t.Errorf("element[%d] = %d, want %d", i, got, expected[i])
+		}
+	}
+}
