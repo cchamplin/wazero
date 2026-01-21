@@ -63,6 +63,10 @@ func liftStringUTF8(ctx *LiftContext, ptr, byteLen uint32) (string, error) {
 // The codeUnits parameter is the number of UTF-16 code units (not bytes).
 // Each code unit is 2 bytes, stored in little-endian order.
 func liftStringUTF16(ctx *LiftContext, ptr, codeUnits uint32) (string, error) {
+	// UTF-16 requires 2-byte alignment per spec line 2112
+	if ptr%2 != 0 {
+		return "", fmt.Errorf("UTF-16 string pointer not 2-byte aligned: ptr=%d", ptr)
+	}
 	if codeUnits == 0 {
 		return "", nil
 	}
@@ -88,13 +92,21 @@ func liftStringUTF16(ctx *LiftContext, ptr, codeUnits uint32) (string, error) {
 // liftStringLatin1UTF16 lifts a Latin1+UTF16 encoded string from memory.
 // If the tag bit (bit 31) is set, it's UTF-16 encoded; otherwise it's Latin-1.
 // Latin-1 is a subset of Unicode where each byte is a code point 0-255.
+// Per spec line 2116, Latin1+UTF16 always requires 2-byte alignment
+// regardless of whether the actual data is Latin-1 or UTF-16.
 func liftStringLatin1UTF16(ctx *LiftContext, ptr, taggedLen uint32) (string, error) {
+	// Per spec line 2116, Latin1+UTF16 always requires 2-byte alignment
+	// regardless of whether the actual data is Latin-1 or UTF-16
+	if ptr%2 != 0 {
+		return "", fmt.Errorf("latin1+utf16 string pointer not 2-byte aligned: ptr=%d", ptr)
+	}
+
 	if taggedLen&utf16Tag != 0 {
 		// UTF-16 encoded (tag bit set)
 		codeUnits := taggedLen &^ utf16Tag
 		return liftStringUTF16(ctx, ptr, codeUnits)
 	}
-	// Latin-1 encoded (each byte is a code point)
+	// Latin-1 encoded (each byte is a code point) - alignment already checked above
 	if taggedLen == 0 {
 		return "", nil
 	}
@@ -215,7 +227,9 @@ func lowerStringLatin1UTF16(ctx *LowerContext, s string) (uint32, uint32, error)
 			data[idx] = byte(r)
 			idx++
 		}
-		ptr, err := ctx.Realloc(0, 0, 1, uint32(len(data)))
+		// Per spec line 2116, Latin1+UTF16 encoding ALWAYS requires 2-byte alignment
+		// even for Latin-1 content
+		ptr, err := ctx.Realloc(0, 0, 2, uint32(len(data)))
 		if err != nil {
 			return 0, 0, fmt.Errorf("realloc for Latin-1 string: %w", err)
 		}

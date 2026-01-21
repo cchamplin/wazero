@@ -573,3 +573,80 @@ func TestLowerStringUnknownEncoding(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unknown string encoding")
 }
+
+// Task 1.2: String Alignment Validation Tests
+
+func TestLiftStringUTF16AlignmentValidation(t *testing.T) {
+	// Create memory with UTF-16 string at misaligned offset
+	mem := &mockMemory{data: make([]byte, 100)}
+
+	// Write valid UTF-16 "Hi" at offset 1 (misaligned for 2-byte alignment)
+	mem.data[1] = 'H'
+	mem.data[2] = 0
+	mem.data[3] = 'i'
+	mem.data[4] = 0
+
+	ctx := &LiftContext{
+		Memory: mem,
+		Opts:   &Options{StringEncoding: StringEncodingUTF16},
+	}
+
+	// ptr=1 is misaligned for UTF-16 (requires 2-byte alignment)
+	_, err := liftStringUTF16(ctx, 1, 2)
+	if err == nil {
+		t.Error("expected error for misaligned UTF-16 string pointer, got nil")
+	}
+	if err != nil {
+		require.Contains(t, err.Error(), "align")
+	}
+}
+
+func TestLiftStringLatin1UTF16AlignmentValidation(t *testing.T) {
+	mem := &mockMemory{data: make([]byte, 100)}
+
+	// Write UTF-16 data at offset 1 with UTF16_TAG set
+	mem.data[1] = 'H'
+	mem.data[2] = 0
+	mem.data[3] = 'i'
+	mem.data[4] = 0
+
+	ctx := &LiftContext{
+		Memory: mem,
+		Opts:   &Options{StringEncoding: StringEncodingLatin1UTF16},
+	}
+
+	// taggedLen with UTF16_TAG set, ptr=1 misaligned
+	taggedLen := uint32(2) | utf16Tag
+	_, err := liftStringLatin1UTF16(ctx, 1, taggedLen)
+	if err == nil {
+		t.Error("expected error for misaligned Latin1+UTF16 string pointer, got nil")
+	}
+	if err != nil {
+		require.Contains(t, err.Error(), "align")
+	}
+}
+
+func TestLiftStringLatin1AlignmentValidation(t *testing.T) {
+	// Per spec line 2116, Latin1+UTF16 always requires 2-byte alignment
+	// even for Latin-1 strings (without UTF16_TAG set)
+	mem := &mockMemory{data: make([]byte, 100)}
+
+	// Write Latin-1 data at offset 1 (misaligned)
+	mem.data[1] = 'H'
+	mem.data[2] = 'i'
+
+	ctx := &LiftContext{
+		Memory: mem,
+		Opts:   &Options{StringEncoding: StringEncodingLatin1UTF16},
+	}
+
+	// taggedLen without UTF16_TAG - pure Latin-1, but still requires 2-byte alignment per spec
+	taggedLen := uint32(2) // No utf16Tag
+	_, err := liftStringLatin1UTF16(ctx, 1, taggedLen)
+	if err == nil {
+		t.Error("expected error for misaligned Latin-1 string pointer, got nil")
+	}
+	if err != nil {
+		require.Contains(t, err.Error(), "align")
+	}
+}
