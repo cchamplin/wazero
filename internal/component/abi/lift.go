@@ -69,9 +69,9 @@ func LiftFlat(ctx *LiftContext, typ types.ValType, iter *FlatIter) (component.Va
 	case types.U64:
 		return component.ValU64(iter.NextI64()), nil
 	case types.F32:
-		return component.ValF32(iter.NextF32()), nil
+		return component.ValF32(canonicalizeNaN32(iter.NextF32())), nil
 	case types.F64:
-		return component.ValF64(iter.NextF64()), nil
+		return component.ValF64(canonicalizeNaN64(iter.NextF64())), nil
 	case types.Char:
 		c := iter.NextI32()
 		if !isValidUnicodeScalar(c) {
@@ -350,13 +350,13 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (component.Val
 		if err != nil {
 			return component.Val{}, fmt.Errorf("lift f32: %w", err)
 		}
-		return component.ValF32(v), nil
+		return component.ValF32(canonicalizeNaN32(v)), nil
 	case types.F64:
 		v, err := ctx.ReadF64(offset)
 		if err != nil {
 			return component.Val{}, fmt.Errorf("lift f64: %w", err)
 		}
-		return component.ValF64(v), nil
+		return component.ValF64(canonicalizeNaN64(v)), nil
 	case types.Char:
 		c, err := ctx.ReadU32(offset)
 		if err != nil {
