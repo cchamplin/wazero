@@ -50,7 +50,31 @@ func (Borrow) FlattenCount() int { return 1 }
 
 // ResourceType represents a resource type definition.
 // Resources have an optional destructor that is called when the resource is dropped.
+//
+// From spec (CanonicalABI.md:537-549):
+//
+//	class ResourceType(Type):
+//	  impl: ComponentInstance
+//	  dtor: Optional[Callable]
+//	  dtor_async: bool
+//	  dtor_callback: Optional[Callable]
 type ResourceType struct {
+	// InstanceID identifies the component instance that defines this resource type.
+	// This corresponds to the 'impl' field in the spec.
+	InstanceID uint32
+
 	// Destructor is the index of the destructor function (nil if no destructor).
+	// This is the core function index in the defining instance.
 	Destructor *uint32
+
+	// DtorAsync indicates if the destructor is an async function.
+	DtorAsync bool
+
+	// DtorCallback is the callback function index for async destructors.
+	DtorCallback *uint32
+}
+
+// HasDestructor returns true if this resource type has a destructor.
+func (rt *ResourceType) HasDestructor() bool {
+	return rt.Destructor != nil
 }
