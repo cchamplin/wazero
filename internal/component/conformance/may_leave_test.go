@@ -82,3 +82,61 @@ func TestInstance_ValidateMayLeaveNilInstance(t *testing.T) {
 	err := inst.ValidateMayLeave()
 	require.NoError(t, err, "nil instance should not error")
 }
+
+func TestMayLeave_MultipleSetCycles(t *testing.T) {
+	inst := &component.Instance{}
+
+	// Simulate multiple lowering cycles
+	for i := 0; i < 10; i++ {
+		require.True(t, inst.MayLeave())
+		inst.SetMayLeave(false)
+		require.False(t, inst.MayLeave())
+		inst.SetMayLeave(true)
+	}
+	require.True(t, inst.MayLeave())
+}
+
+func TestMayLeave_ValidationDuringLowering(t *testing.T) {
+	inst := &component.Instance{}
+
+	// Before lowering, validation passes
+	require.NoError(t, inst.ValidateMayLeave())
+
+	// During lowering (may_leave=false), validation fails
+	inst.SetMayLeave(false)
+	err := inst.ValidateMayLeave()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "cannot call")
+
+	// After lowering (may_leave=true), validation passes again
+	inst.SetMayLeave(true)
+	require.NoError(t, inst.ValidateMayLeave())
+}
+
+func TestMayLeave_ConcurrentAccess(t *testing.T) {
+	// Note: may_leave is typically single-threaded per component instance,
+	// but this tests basic safety.
+	inst := &component.Instance{}
+
+	done := make(chan bool)
+
+	go func() {
+		for i := 0; i < 1000; i++ {
+			inst.SetMayLeave(false)
+			_ = inst.MayLeave()
+			inst.SetMayLeave(true)
+		}
+		done <- true
+	}()
+
+	go func() {
+		for i := 0; i < 1000; i++ {
+			_ = inst.MayLeave()
+			_ = inst.ValidateMayLeave()
+		}
+		done <- true
+	}()
+
+	<-done
+	<-done
+}
