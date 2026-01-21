@@ -32,18 +32,16 @@ func TestDecodeRecordType(t *testing.T) {
 }
 
 func TestDecodeRecordType_Empty(t *testing.T) {
-	// Empty record: record {}
+	// Empty record: record {} - spec requires at least 1 field
 	data := []byte{
 		0x72, // record opcode
 		0x00, // 0 fields
 	}
 
 	r := bytes.NewReader(data)
-	typeDef, err := decodeDefinedType(r)
-	require.NoError(t, err)
-	require.Equal(t, TypeDefKindRecord, typeDef.Kind)
-	require.NotNil(t, typeDef.Record)
-	require.Equal(t, 0, len(typeDef.Record.Fields))
+	_, err := decodeDefinedType(r)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "record type must have at least 1 field")
 }
 
 func TestDecodeRecordType_SingleField(t *testing.T) {
@@ -119,18 +117,16 @@ func TestDecodeVariantType(t *testing.T) {
 }
 
 func TestDecodeVariantType_Empty(t *testing.T) {
-	// Empty variant (edge case)
+	// Empty variant - spec requires at least 1 case
 	data := []byte{
 		0x71, // variant opcode
 		0x00, // 0 cases
 	}
 
 	r := bytes.NewReader(data)
-	typeDef, err := decodeDefinedType(r)
-	require.NoError(t, err)
-	require.Equal(t, TypeDefKindVariant, typeDef.Kind)
-	require.NotNil(t, typeDef.Variant)
-	require.Equal(t, 0, len(typeDef.Variant.Cases))
+	_, err := decodeDefinedType(r)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "variant type must have at least 1 case")
 }
 
 func TestDecodeVariantType_WithRefines(t *testing.T) {
@@ -242,18 +238,16 @@ func TestDecodeTupleType(t *testing.T) {
 }
 
 func TestDecodeTupleType_Empty(t *testing.T) {
-	// tuple<> - empty tuple (unit type)
+	// tuple<> - spec requires at least 1 element
 	// Format: 0x6f <count>
 	data := []byte{
 		0x6f, // tuple opcode
 		0x00, // 0 elements
 	}
 	r := bytes.NewReader(data)
-	typeDef, err := decodeDefinedType(r)
-	require.NoError(t, err)
-	require.Equal(t, TypeDefKindTuple, typeDef.Kind)
-	require.NotNil(t, typeDef.Tuple)
-	require.Equal(t, 0, len(typeDef.Tuple.Types))
+	_, err := decodeDefinedType(r)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "tuple type must have at least 1 element")
 }
 
 func TestDecodeTupleType_Single(t *testing.T) {
@@ -313,18 +307,16 @@ func TestDecodeFlagsType(t *testing.T) {
 }
 
 func TestDecodeFlagsType_Empty(t *testing.T) {
-	// flags {} - empty flags (edge case)
+	// flags {} - spec requires at least 1 flag
 	// Format: 0x6e <count>
 	data := []byte{
 		0x6e, // flags opcode
 		0x00, // 0 flags
 	}
 	r := bytes.NewReader(data)
-	typeDef, err := decodeDefinedType(r)
-	require.NoError(t, err)
-	require.Equal(t, TypeDefKindFlags, typeDef.Kind)
-	require.NotNil(t, typeDef.Flags)
-	require.Equal(t, 0, len(typeDef.Flags.Names))
+	_, err := decodeDefinedType(r)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "flags type must have at least 1 flag")
 }
 
 func TestDecodeFlagsType_Single(t *testing.T) {
@@ -381,18 +373,16 @@ func TestDecodeEnumType(t *testing.T) {
 }
 
 func TestDecodeEnumType_Empty(t *testing.T) {
-	// enum {} - empty enum (edge case)
+	// enum {} - spec requires at least 1 case
 	// Format: 0x6d <count>
 	data := []byte{
 		0x6d, // enum opcode
 		0x00, // 0 cases
 	}
 	r := bytes.NewReader(data)
-	typeDef, err := decodeDefinedType(r)
-	require.NoError(t, err)
-	require.Equal(t, TypeDefKindEnum, typeDef.Kind)
-	require.NotNil(t, typeDef.Enum)
-	require.Equal(t, 0, len(typeDef.Enum.Cases))
+	_, err := decodeDefinedType(r)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "enum type must have at least 1 case")
 }
 
 func TestDecodeEnumType_Single(t *testing.T) {
@@ -594,4 +584,85 @@ func TestDecodeResultType_WithTypeIndex(t *testing.T) {
 	require.NotNil(t, typeDef.Result.Error)
 	require.False(t, typeDef.Result.Error.IsPrimitive)
 	require.Equal(t, uint32(1), typeDef.Result.Error.TypeIdx)
+}
+
+func TestDecodeRecordType_DuplicateFieldNames(t *testing.T) {
+	// Record with duplicate field names should fail validation
+	data := []byte{
+		0x72,      // record opcode
+		0x02,      // 2 fields
+		0x01, 'a', // field name "a"
+		0x7a,      // s32
+		0x01, 'a', // field name "a" (duplicate)
+		0x77, // u64
+	}
+
+	r := bytes.NewReader(data)
+	_, err := decodeDefinedType(r)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "duplicate record field name")
+}
+
+func TestDecodeVariantType_DuplicateCaseNames(t *testing.T) {
+	// Variant with duplicate case names should fail validation
+	data := []byte{
+		0x71,                     // variant opcode
+		0x02,                     // 2 cases
+		0x04, 'n', 'o', 'n', 'e', // case name "none"
+		0x00, // no refines
+		0x00, // no type
+		0x04, 'n', 'o', 'n', 'e', // case name "none" (duplicate)
+		0x00, // no refines
+		0x01, // has type
+		0x7a, // s32
+	}
+
+	r := bytes.NewReader(data)
+	_, err := decodeDefinedType(r)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "duplicate variant case name")
+}
+
+func TestDecodeFlagsType_DuplicateFlagNames(t *testing.T) {
+	// Flags with duplicate names should fail validation
+	data := []byte{
+		0x6e,                     // flags opcode
+		0x02,                     // 2 flags
+		0x04, 'r', 'e', 'a', 'd', // "read"
+		0x04, 'r', 'e', 'a', 'd', // "read" (duplicate)
+	}
+	r := bytes.NewReader(data)
+	_, err := decodeDefinedType(r)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "duplicate flag name")
+}
+
+func TestDecodeFlagsType_TooManyFlags(t *testing.T) {
+	// Flags with more than 32 flags should fail validation
+	// Build data with 33 flags
+	data := []byte{0x6e, 33} // flags opcode, 33 flags
+	for i := 0; i < 33; i++ {
+		// Each flag name is "f" followed by a digit
+		name := []byte{'f', byte('0' + i%10)}
+		data = append(data, byte(len(name)))
+		data = append(data, name...)
+	}
+	r := bytes.NewReader(data)
+	_, err := decodeDefinedType(r)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "flags type must have at most 32 flags")
+}
+
+func TestDecodeEnumType_DuplicateCaseNames(t *testing.T) {
+	// Enum with duplicate case names should fail validation
+	data := []byte{
+		0x6d,                // enum opcode
+		0x02,                // 2 cases
+		0x03, 'r', 'e', 'd', // "red"
+		0x03, 'r', 'e', 'd', // "red" (duplicate)
+	}
+	r := bytes.NewReader(data)
+	_, err := decodeDefinedType(r)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "duplicate enum case name")
 }
