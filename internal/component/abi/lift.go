@@ -602,6 +602,9 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (component.Val
 			return component.Val{}, fmt.Errorf("lift list length: %w", err)
 		}
 
+		// Compute element size once for validation and iteration
+		elemSize := t.Element.Size()
+
 		if length > 0 {
 			// Validate alignment per spec line 2153
 			elemAlign := t.Element.Align()
@@ -610,7 +613,6 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (component.Val
 			}
 
 			// Validate bounds to prevent overflow and excessive allocation
-			elemSize := t.Element.Size()
 			// Check for potential overflow in ptr + length * elemSize
 			maxOffset := uint64(ptr) + uint64(length)*uint64(elemSize)
 			if maxOffset > uint64(ctx.Memory.Size()) {
@@ -618,7 +620,6 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (component.Val
 			}
 		}
 
-		elemSize := t.Element.Size()
 		elems := make([]component.Val, length)
 		for i := uint32(0); i < length; i++ {
 			elem, err := LiftHeap(ctx, t.Element, ptr+i*elemSize)
