@@ -130,9 +130,27 @@ func instantiateError(linker *component.Linker) error {
 	return inst.Build()
 }
 
+// errorToDebugString implements [method]error.to-debug-string
 func errorToDebugString(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// args[0] is borrow<error> - the handle
-	// For now, return empty string as we don't have ResourceTable integration yet
-	// Full implementation will look up the handle in the table
-	return []component.Val{component.ValString("")}, nil
+	table := component.ResourceTableFromContext(ctx)
+	if table == nil {
+		return []component.Val{component.ValString("no resource table")}, nil
+	}
+
+	handle := args[0].Borrow()
+	entry, err := table.Get(component.Handle(handle))
+	if err != nil {
+		return []component.Val{component.ValString("invalid error handle")}, nil
+	}
+
+	wasiErr, ok := entry.Rep.(*Error)
+	if !ok {
+		// Try to handle as generic error
+		if genericErr, ok := entry.Rep.(error); ok {
+			return []component.Val{component.ValString(genericErr.Error())}, nil
+		}
+		return []component.Val{component.ValString("not an error resource")}, nil
+	}
+
+	return []component.Val{component.ValString(wasiErr.ToDebugString())}, nil
 }
