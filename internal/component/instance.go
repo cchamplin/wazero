@@ -37,6 +37,11 @@ type Instance struct {
 	// Nested component support
 	parent   *Instance
 	children []*Instance
+
+	// Index spaces for nested component support
+	instanceSpace  []*Instance
+	typeSpace      []*TypeDef
+	componentSpace []*Component
 }
 
 // ComponentFunc represents a callable component-level function.
@@ -1029,6 +1034,51 @@ func (i *Instance) GetAncestor(depth uint32) *Instance {
 		current = current.parent
 	}
 	return current
+}
+
+// AddInstanceToSpace adds an instance to the instance index space.
+func (i *Instance) AddInstanceToSpace(inst *Instance) uint32 {
+	idx := uint32(len(i.instanceSpace))
+	i.instanceSpace = append(i.instanceSpace, inst)
+	return idx
+}
+
+// GetInstanceFromSpace retrieves an instance from the instance index space.
+func (i *Instance) GetInstanceFromSpace(idx uint32) *Instance {
+	if idx >= uint32(len(i.instanceSpace)) {
+		return nil
+	}
+	return i.instanceSpace[idx]
+}
+
+// AddTypeToSpace adds a type definition to the type index space.
+func (i *Instance) AddTypeToSpace(t *TypeDef) uint32 {
+	idx := uint32(len(i.typeSpace))
+	i.typeSpace = append(i.typeSpace, t)
+	return idx
+}
+
+// GetTypeFromSpace retrieves a type from the type index space.
+func (i *Instance) GetTypeFromSpace(idx uint32) *TypeDef {
+	if idx >= uint32(len(i.typeSpace)) {
+		return nil
+	}
+	return i.typeSpace[idx]
+}
+
+// AddComponentToSpace adds a component to the component index space.
+func (i *Instance) AddComponentToSpace(c *Component) uint32 {
+	idx := uint32(len(i.componentSpace))
+	i.componentSpace = append(i.componentSpace, c)
+	return idx
+}
+
+// GetComponentFromSpace retrieves a component from the component index space.
+func (i *Instance) GetComponentFromSpace(idx uint32) *Component {
+	if idx >= uint32(len(i.componentSpace)) {
+		return nil
+	}
+	return i.componentSpace[idx]
 }
 
 // liftEnum converts a discriminant to an enum Val.
