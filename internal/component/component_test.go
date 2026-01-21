@@ -274,7 +274,34 @@ func TestInstanceTypeDef(t *testing.T) {
 	instType := InstanceTypeDef{
 		Declarations: []InstanceDecl{decl},
 	}
-	if len(instType.Declarations) != 1 {
-		t.Errorf("expected 1 declaration, got %d", len(instType.Declarations))
+	require.Equal(t, 1, len(instType.Declarations))
+}
+
+func TestComponent_StartDef(t *testing.T) {
+	start := &StartDef{
+		FuncIdx:     5,
+		ArgValueIdx: []uint32{0, 1},
+		ResultCount: 2,
 	}
+
+	require.Equal(t, uint32(5), start.FuncIdx)
+	require.Equal(t, 2, len(start.ArgValueIdx))
+	require.Equal(t, uint32(2), start.ResultCount)
+}
+
+func TestComponent_StartField(t *testing.T) {
+	// Test that Component struct has Start field
+	start := &StartDef{
+		FuncIdx:     3,
+		ArgValueIdx: []uint32{0},
+		ResultCount: 1,
+	}
+	c := &Component{
+		Start: start,
+	}
+
+	require.NotNil(t, c.Start)
+	require.Equal(t, uint32(3), c.Start.FuncIdx)
+	require.Equal(t, 1, len(c.Start.ArgValueIdx))
+	require.Equal(t, uint32(1), c.Start.ResultCount)
 }
