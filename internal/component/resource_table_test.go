@@ -472,3 +472,42 @@ func TestResourceTable_ValidateType_InvalidHandle(t *testing.T) {
 	err := table.ValidateType(invalidHandle, rtID)
 	require.ErrorIs(t, err, ErrInvalidHandle)
 }
+
+func TestCreateResourceDropFunc_TrapsOnInvalidHandle(t *testing.T) {
+	table := NewResourceTable()
+
+	// Create drop function for type 1
+	var trapCalled bool
+	var trapErr error
+	dropFunc := table.CreateResourceDropFuncWithTrap(1, nil, func(err error) {
+		trapCalled = true
+		trapErr = err
+	})
+
+	// Try to drop an invalid handle
+	dropFunc(999)
+
+	require.True(t, trapCalled, "should trap on invalid handle")
+	require.ErrorIs(t, trapErr, ErrInvalidHandle)
+}
+
+func TestCreateResourceDropFunc_TrapsOnTypeMismatch(t *testing.T) {
+	table := NewResourceTable()
+
+	// Create a handle of type 1
+	h := table.NewWithType(uint32(42), true, NewResourceTypeID(1))
+
+	// Create drop function for type 2 (different type)
+	var trapCalled bool
+	var trapErr error
+	dropFunc := table.CreateResourceDropFuncWithTrap(2, nil, func(err error) {
+		trapCalled = true
+		trapErr = err
+	})
+
+	// Try to drop with wrong type
+	dropFunc(uint32(h))
+
+	require.True(t, trapCalled, "should trap on type mismatch")
+	require.ErrorIs(t, trapErr, ErrResourceTypeMismatch)
+}
