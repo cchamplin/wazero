@@ -184,3 +184,82 @@ func (tc *TypeChecker) checkResource(typeIdx uint32, importName string, actual *
 
 	return nil
 }
+
+// CheckDefinition validates that actual definition matches expected import type.
+// This is the main entry point for type checking during instantiation.
+func (tc *TypeChecker) CheckDefinition(expected *ImportExternDesc, importName string, actual Definition) error {
+	switch expected.Kind {
+	case ImportExternDescFunc:
+		return tc.checkFuncDefinition(expected, actual)
+
+	case ImportExternDescInstance:
+		return tc.checkInstanceDefinition(expected, actual)
+
+	case ImportExternDescType:
+		// Type imports are handled by type substitution, not runtime validation
+		return nil
+
+	case ImportExternDescComponent:
+		// Component imports need ComponentDef
+		// ComponentDef may not exist yet - check if definition is at least non-nil
+		if actual == nil {
+			return fmt.Errorf("expected component, got nil")
+		}
+		return nil
+
+	case ImportExternDescValue:
+		// Value imports need ValueDef
+		if actual == nil {
+			return fmt.Errorf("expected value, got nil")
+		}
+		return nil
+
+	default:
+		return fmt.Errorf("unknown import kind: %d", expected.Kind)
+	}
+}
+
+// checkFuncDefinition validates a function import.
+func (tc *TypeChecker) checkFuncDefinition(expected *ImportExternDesc, actual Definition) error {
+	funcDef, ok := actual.(*FuncDef)
+	if !ok {
+		return fmt.Errorf("expected function, got %T", actual)
+	}
+
+	// Get expected function type
+	if int(expected.TypeIdx) >= len(tc.component.Types) {
+		return fmt.Errorf("type index %d out of range", expected.TypeIdx)
+	}
+
+	expectedType := tc.component.Types[expected.TypeIdx]
+	if expectedType.Func == nil {
+		return fmt.Errorf("expected function type at index %d", expected.TypeIdx)
+	}
+
+	// If host didn't provide type info, trust it
+	if funcDef.Type == nil {
+		return nil
+	}
+
+	return tc.checkFuncType(expectedType.Func, funcDef.Type)
+}
+
+// checkInstanceDefinition validates an instance import.
+func (tc *TypeChecker) checkInstanceDefinition(expected *ImportExternDesc, actual Definition) error {
+	instDef, ok := actual.(*InstanceDef)
+	if !ok {
+		return fmt.Errorf("expected instance, got %T", actual)
+	}
+
+	// Get expected instance type
+	if int(expected.TypeIdx) >= len(tc.component.Types) {
+		return fmt.Errorf("type index %d out of range", expected.TypeIdx)
+	}
+
+	expectedType := tc.component.Types[expected.TypeIdx]
+	if expectedType.Instance == nil {
+		return fmt.Errorf("expected instance type at index %d", expected.TypeIdx)
+	}
+
+	return tc.checkInstance(expectedType.Instance, instDef)
+}
