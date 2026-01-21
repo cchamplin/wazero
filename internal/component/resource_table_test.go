@@ -694,3 +694,105 @@ func TestResourceTable_RemoveBorrow_DecrementsBorrowCount(t *testing.T) {
 
 	require.Equal(t, 0, callCtx.NumBorrows())
 }
+
+// Tests for DropOwned - Task 4.3: Destructor Invocation
+
+func TestResourceTable_DropOwned_CallsDestructor(t *testing.T) {
+	table := NewResourceTable()
+	registry := NewDestructorRegistry()
+
+	var destructorCalledWith uint32
+	registry.Register(NewResourceTypeID(1), func(rep uint32) {
+		destructorCalledWith = rep
+	})
+
+	// Create owned handle
+	h := table.NewWithType(uint32(42), true, NewResourceTypeID(1))
+
+	// Drop with destructor invocation
+	err := table.DropOwned(h, NewResourceTypeID(1), registry, 100, 100, nil)
+	require.NoError(t, err)
+
+	// Destructor should have been called with the rep
+	require.Equal(t, uint32(42), destructorCalledWith)
+}
+
+func TestResourceTable_DropOwned_NoDestructor(t *testing.T) {
+	table := NewResourceTable()
+	registry := NewDestructorRegistry()
+	// No destructor registered
+
+	h := table.NewWithType(uint32(42), true, NewResourceTypeID(1))
+
+	// Should still succeed without destructor
+	err := table.DropOwned(h, NewResourceTypeID(1), registry, 100, 100, nil)
+	require.NoError(t, err)
+
+	// Handle should be removed
+	_, err = table.Get(h)
+	require.Error(t, err)
+}
+
+func TestResourceTable_DropOwned_TypeMismatch(t *testing.T) {
+	table := NewResourceTable()
+	registry := NewDestructorRegistry()
+
+	// Create handle of type 1
+	h := table.NewWithType(uint32(42), true, NewResourceTypeID(1))
+
+	// Try to drop as type 2
+	err := table.DropOwned(h, NewResourceTypeID(2), registry, 100, 100, nil)
+	require.ErrorIs(t, err, ErrResourceTypeMismatch)
+
+	// Handle should NOT be removed (error occurred before removal)
+	entry, err := table.Get(h)
+	require.NoError(t, err)
+	require.Equal(t, uint32(42), entry.Rep.(uint32))
+}
+
+func TestResourceTable_DropOwned_CrossInstance(t *testing.T) {
+	table := NewResourceTable()
+	registry := NewDestructorRegistry()
+
+	var crossInstanceCallCount int
+	crossInstanceDtor := func(rep uint32, definingInstance uint32) {
+		crossInstanceCallCount++
+	}
+
+	registry.Register(NewResourceTypeID(1), func(rep uint32) {
+		// This is the same-instance destructor, should not be called
+		t.Fatal("same-instance destructor should not be called for cross-instance drop")
+	})
+
+	h := table.NewWithType(uint32(42), true, NewResourceTypeID(1))
+
+	// Drop from instance 200, but type defined in instance 100
+	err := table.DropOwned(h, NewResourceTypeID(1), registry, 200, 100, crossInstanceDtor)
+	require.NoError(t, err)
+
+	require.Equal(t, 1, crossInstanceCallCount)
+}
+
+func TestResourceTable_DropOwned_BorrowHandle_NoDestructor(t *testing.T) {
+	table := NewResourceTable()
+	registry := NewDestructorRegistry()
+
+	var destructorCalled bool
+	registry.Register(NewResourceTypeID(1), func(rep uint32) {
+		destructorCalled = true
+	})
+
+	// Create borrow handle (Own=false)
+	h := table.NewWithType(uint32(42), false, NewResourceTypeID(1))
+
+	// Drop borrow handle - should NOT call destructor
+	err := table.DropOwned(h, NewResourceTypeID(1), registry, 100, 100, nil)
+	require.NoError(t, err)
+
+	// Destructor should NOT have been called for borrow handles
+	require.False(t, destructorCalled, "destructor should not be called for borrow handles")
+
+	// Handle should still be removed from table
+	_, err = table.Get(h)
+	require.ErrorIs(t, err, ErrInvalidHandle)
+}
