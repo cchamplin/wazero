@@ -497,3 +497,153 @@ func TestLinker_RelaxedSemverMatching_Post1_0(t *testing.T) {
 	_, err = l.MatchImport("test:api@1.0.1/fn")
 	require.Error(t, err, "relaxed mode should not affect post-1.0 versions")
 }
+
+func TestLinker_MatchLockedDep(t *testing.T) {
+	l := NewLinker()
+
+	// Define the dependency with version in namespace
+	err := l.DefineInstance("my-pkg@1.2.3").
+		FuncNoType("fn", func(ctx context.Context, args []Val) ([]Val, error) {
+			return nil, nil
+		}).
+		Build()
+	require.NoError(t, err)
+
+	// Match locked-dep import
+	def, err := l.MatchImport("locked-dep=my-pkg:1.2.3")
+	require.NoError(t, err)
+	require.NotNil(t, def)
+
+	// Verify it's the instance we defined
+	instDef, ok := def.(*InstanceDef)
+	require.True(t, ok)
+	require.NotNil(t, instDef.Exports["fn"])
+}
+
+func TestLinker_MatchLockedDep_NotFound(t *testing.T) {
+	l := NewLinker()
+
+	// Define a different version
+	err := l.DefineInstance("my-pkg@1.0.0").
+		FuncNoType("fn", func(ctx context.Context, args []Val) ([]Val, error) {
+			return nil, nil
+		}).
+		Build()
+	require.NoError(t, err)
+
+	// Request exact version that doesn't exist
+	_, err = l.MatchImport("locked-dep=my-pkg:1.2.3")
+	require.Error(t, err)
+}
+
+func TestLinker_MatchUnlockedDep(t *testing.T) {
+	l := NewLinker()
+
+	// Define multiple versions
+	for _, ver := range []string{"1.0.0", "1.5.0", "2.0.0"} {
+		err := l.DefineInstance("my-pkg@" + ver).
+			FuncNoType("fn", func(ctx context.Context, args []Val) ([]Val, error) {
+				return nil, nil
+			}).
+			Build()
+		require.NoError(t, err)
+	}
+
+	// Match unlocked-dep with range - should get highest in range (1.5.0)
+	def, err := l.MatchImport("unlocked-dep=my-pkg:{>=1.0.0 <2.0.0}")
+	require.NoError(t, err)
+	require.NotNil(t, def)
+}
+
+func TestLinker_MatchUnlockedDep_MatchAll(t *testing.T) {
+	l := NewLinker()
+
+	for _, ver := range []string{"0.1.0", "1.0.0", "3.0.0"} {
+		err := l.DefineInstance("pkg@" + ver).
+			FuncNoType("fn", func(ctx context.Context, args []Val) ([]Val, error) {
+				return nil, nil
+			}).
+			Build()
+		require.NoError(t, err)
+	}
+
+	// Match all versions - should get highest (3.0.0)
+	def, err := l.MatchImport("unlocked-dep=pkg:*")
+	require.NoError(t, err)
+	require.NotNil(t, def)
+}
+
+func TestLinker_MatchUnlockedDep_NoMatch(t *testing.T) {
+	l := NewLinker()
+
+	// Define versions outside the requested range
+	for _, ver := range []string{"0.5.0", "3.0.0"} {
+		err := l.DefineInstance("my-pkg@" + ver).
+			FuncNoType("fn", func(ctx context.Context, args []Val) ([]Val, error) {
+				return nil, nil
+			}).
+			Build()
+		require.NoError(t, err)
+	}
+
+	// Request range that has no matches
+	_, err := l.MatchImport("unlocked-dep=my-pkg:{>=1.0.0 <2.0.0}")
+	require.Error(t, err)
+}
+
+func TestLinker_MatchURLImport(t *testing.T) {
+	l := NewLinker()
+
+	_, err := l.MatchImport("url=https://example.com/component.wasm")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "URL imports not supported")
+}
+
+func TestLinker_MatchHashImport(t *testing.T) {
+	l := NewLinker()
+
+	_, err := l.MatchImport("integrity=sha256:abc123")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "hash imports not supported")
+}
+
+func TestLinker_MatchPlainImport(t *testing.T) {
+	l := NewLinker()
+
+	// Define a plain instance (no version, no slash)
+	err := l.DefineInstance("my-component").
+		FuncNoType("fn", func(ctx context.Context, args []Val) ([]Val, error) {
+			return nil, nil
+		}).
+		Build()
+	require.NoError(t, err)
+
+	// Match plain import
+	def, err := l.MatchImport("my-component")
+	require.NoError(t, err)
+	require.NotNil(t, def)
+}
+
+func TestLinker_MatchInterfaceImport_Unchanged(t *testing.T) {
+	// Verify that interface imports still work as expected after refactoring
+	l := NewLinker()
+	funcType := &FuncType{}
+
+	// Define instance at v0.2.0
+	err := l.DefineInstance("wasi:cli/environment@0.2.0").
+		Func("get-environment", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
+			return nil, nil
+		}).
+		Build()
+	require.NoError(t, err)
+
+	// Request the same version - should match
+	def, err := l.MatchImport("wasi:cli/environment@0.2.0")
+	require.NoError(t, err)
+	require.NotNil(t, def)
+
+	// Verify we got the instance
+	instDef, ok := def.(*InstanceDef)
+	require.True(t, ok)
+	require.NotNil(t, instDef.Exports["get-environment"])
+}

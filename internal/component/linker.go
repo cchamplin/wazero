@@ -164,8 +164,124 @@ func (l *Linker) Get(key string) (Definition, bool) {
 
 // MatchImport finds a definition that satisfies the import name.
 // Supports semver-compatible matching per component model spec.
-// Handles both function imports (namespace@version/name) and instance imports (package/interface@version).
+// Handles all import name variants:
+//   - locked-dep=name:version - Find exact match for the dep name and version
+//   - unlocked-dep=name:range - Find highest version matching the range
+//   - url=... - Returns "not supported" error
+//   - integrity=... - Returns "not supported" error
+//   - Plain names and interface names - Existing behavior
 func (l *Linker) MatchImport(importName string) (Definition, error) {
+	// Parse the import name
+	parsed, err := ParseImportName(importName)
+	if err != nil {
+		// Fall back to existing behavior for unparseable names
+		return l.matchLegacyImport(importName)
+	}
+
+	switch parsed.Kind {
+	case ImportNameKindLockedDep:
+		return l.matchLockedDep(parsed)
+	case ImportNameKindUnlockedDep:
+		return l.matchUnlockedDep(parsed)
+	case ImportNameKindURL:
+		return nil, fmt.Errorf("URL imports not supported: %s", parsed.URL)
+	case ImportNameKindHash:
+		return nil, fmt.Errorf("hash imports not supported: %s", parsed.Hash)
+	case ImportNameKindPlain:
+		return l.matchPlainImport(parsed)
+	case ImportNameKindInterface:
+		return l.matchInterfaceImport(parsed)
+	default:
+		return l.matchLegacyImport(importName)
+	}
+}
+
+// matchLockedDep finds a definition matching "depName@version" exactly.
+func (l *Linker) matchLockedDep(parsed *ImportName) (Definition, error) {
+	// Construct the key: depName@version
+	key := fmt.Sprintf("%s@%d.%d.%d", parsed.DepName, parsed.Version.Major, parsed.Version.Minor, parsed.Version.Patch)
+
+	if def, ok := l.definitions[key]; ok {
+		return def, nil
+	}
+
+	return nil, fmt.Errorf("no definition found for locked-dep: %s@%d.%d.%d",
+		parsed.DepName, parsed.Version.Major, parsed.Version.Minor, parsed.Version.Patch)
+}
+
+// matchUnlockedDep finds the highest version matching the range for depName.
+func (l *Linker) matchUnlockedDep(parsed *ImportName) (Definition, error) {
+	// Parse the version range
+	versionRange, err := ParseSemverRange(parsed.VersionRangeStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid version range in unlocked-dep: %w", err)
+	}
+
+	var bestDef Definition
+	var bestVersion *Semver
+
+	// Search through all definitions for matching dep name with compatible version
+	for defName, def := range l.definitions {
+		// Try to extract depName and version from definition key
+		baseName, versionStr, hasVersion := SplitVersion(defName)
+		if !hasVersion {
+			continue
+		}
+
+		// Check if base name matches
+		if baseName != parsed.DepName {
+			continue
+		}
+
+		defVersion, err := ParseSemver(versionStr)
+		if err != nil {
+			continue
+		}
+
+		// Check if version matches the range
+		if !versionRange.Matches(defVersion) {
+			continue
+		}
+
+		// Select highest matching version
+		if bestVersion == nil || semverGreater(defVersion, bestVersion) {
+			bestDef = def
+			bestVersion = defVersion
+		}
+	}
+
+	if bestDef == nil {
+		return nil, fmt.Errorf("no definition found for unlocked-dep: %s matching range %s",
+			parsed.DepName, parsed.VersionRangeStr)
+	}
+
+	return bestDef, nil
+}
+
+// matchPlainImport handles direct lookup for plain import names.
+func (l *Linker) matchPlainImport(parsed *ImportName) (Definition, error) {
+	if def, ok := l.definitions[parsed.Name]; ok {
+		return def, nil
+	}
+	return nil, fmt.Errorf("import not found: %s", parsed.Name)
+}
+
+// matchInterfaceImport handles interface imports like "wasi:cli/environment@0.2.0".
+func (l *Linker) matchInterfaceImport(parsed *ImportName) (Definition, error) {
+	// Reconstruct the full import name for legacy matching
+	var importName string
+	if parsed.Version != nil {
+		importName = fmt.Sprintf("%s/%s@%d.%d.%d", parsed.Namespace, parsed.Name,
+			parsed.Version.Major, parsed.Version.Minor, parsed.Version.Patch)
+	} else {
+		importName = fmt.Sprintf("%s/%s", parsed.Namespace, parsed.Name)
+	}
+
+	return l.matchLegacyImport(importName)
+}
+
+// matchLegacyImport is the original MatchImport logic for backward compatibility.
+func (l *Linker) matchLegacyImport(importName string) (Definition, error) {
 	// Parse import name into namespace/name format
 	// e.g., "test:api@1.0.0/fn" -> namespace="test:api@1.0.0", name="fn"
 	// or "wasi:cli/environment@0.2.0" -> this is an instance import
