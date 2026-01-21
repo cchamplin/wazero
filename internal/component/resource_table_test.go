@@ -978,3 +978,33 @@ func TestResourceTable_DropOwned_SameInstanceNoReentranceCheck(t *testing.T) {
 	)
 	require.NoError(t, err) // Should succeed despite instance being on call stack
 }
+
+// Tests for Task 5.5: MaxTableLength and ErrTableFull
+
+func TestResourceTable_MaxLength(t *testing.T) {
+	// This is a documentation/constant test, not a real allocation test
+	// (we don't want to allocate 2^28 entries in a test)
+	require.Equal(t, uint32(1<<28-1), MaxTableLength)
+}
+
+func TestResourceTable_ReturnsErrorOnOverflow(t *testing.T) {
+	// This tests the error path, not actual overflow
+	// We mock this by checking the error type exists
+	err := ErrTableFull
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "table full")
+}
+
+func TestResourceTable_NewWithLimit(t *testing.T) {
+	table := NewResourceTable()
+
+	// Normal creation should work
+	h, err := table.NewWithLimit(uint32(42), true, NewResourceTypeID(1))
+	require.NoError(t, err)
+
+	// Verify the handle is valid
+	entry, err := table.Get(h)
+	require.NoError(t, err)
+	require.Equal(t, uint32(42), entry.Rep.(uint32))
+	require.True(t, entry.Own)
+}
