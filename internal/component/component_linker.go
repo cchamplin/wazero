@@ -298,12 +298,20 @@ func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledCom
 
 	// Step 3: Wire exports
 	for _, exp := range c.Exports {
-		if exp.Kind == ExportKindFunc {
+		switch exp.Kind {
+		case ExportKindFunc:
 			exportedFunc, err := l.wireExportedFunc(inst, c, &exp, funcSpace, memSpace)
 			if err != nil {
 				return nil, fmt.Errorf("wire export %q: %w", exp.Name, err)
 			}
 			inst.exports[exp.Name] = exportedFunc
+
+		case ExportKindInstance:
+			// Look up instance from instance index space
+			exportedInst := inst.GetInstanceFromSpace(exp.Idx)
+			if exportedInst != nil {
+				inst.AddExportedInstance(exp.Name, exportedInst)
+			}
 		}
 	}
 
