@@ -71,3 +71,63 @@ func ParseWastFile(path string) ([]Command, error) {
 
 	return result.Commands, nil
 }
+
+// WastTestSuite represents a parsed .wast file with its commands and wasm binaries
+type WastTestSuite struct {
+	Commands []Command
+	WasmDir  string // Directory containing generated wasm binaries
+	cleanup  func() // Cleanup function to remove temp directory
+}
+
+// Close removes the temporary directory containing wasm binaries
+func (s *WastTestSuite) Close() error {
+	if s.cleanup != nil {
+		s.cleanup()
+	}
+	return nil
+}
+
+// GetWasmBytes reads the wasm binary for a command by filename
+func (s *WastTestSuite) GetWasmBytes(filename string) ([]byte, error) {
+	if filename == "" {
+		return nil, fmt.Errorf("no filename specified for command")
+	}
+	return os.ReadFile(filepath.Join(s.WasmDir, filename))
+}
+
+// ParseWastFileWithBinaries parses a .wast file and keeps the wasm binaries available
+// Caller must call Close() on the returned WastTestSuite to clean up temp files
+func ParseWastFileWithBinaries(path string) (*WastTestSuite, error) {
+	// Create temp dir for wasm-tools output
+	tempDir, err := os.MkdirTemp("", "wast-*")
+	if err != nil {
+		return nil, err
+	}
+
+	// Run wasm-tools json-from-wast
+	jsonPath := filepath.Join(tempDir, "output.json")
+	cmd := exec.Command("wasm-tools", "json-from-wast", path, "-o", jsonPath, "--wasm-dir", tempDir)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		os.RemoveAll(tempDir)
+		return nil, fmt.Errorf("wasm-tools json-from-wast %s: %v: %s", path, err, output)
+	}
+
+	// Parse JSON output
+	data, err := os.ReadFile(jsonPath)
+	if err != nil {
+		os.RemoveAll(tempDir)
+		return nil, err
+	}
+
+	var result wastJSON
+	if err := json.Unmarshal(data, &result); err != nil {
+		os.RemoveAll(tempDir)
+		return nil, err
+	}
+
+	return &WastTestSuite{
+		Commands: result.Commands,
+		WasmDir:  tempDir,
+		cleanup:  func() { os.RemoveAll(tempDir) },
+	}, nil
+}
