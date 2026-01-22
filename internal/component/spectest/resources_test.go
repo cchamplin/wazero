@@ -13,6 +13,7 @@ package spectest
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -122,30 +123,7 @@ type testStats struct {
 }
 
 func formatTestName(cmdType string, line, index int) string {
-	return strings.ReplaceAll(cmdType, "_", "-") + "_line" + itoa(line) + "_idx" + itoa(index)
-}
-
-// itoa converts an int to string without importing strconv
-func itoa(i int) string {
-	if i == 0 {
-		return "0"
-	}
-	var buf [20]byte
-	pos := len(buf)
-	neg := i < 0
-	if neg {
-		i = -i
-	}
-	for i > 0 {
-		pos--
-		buf[pos] = byte('0' + i%10)
-		i /= 10
-	}
-	if neg {
-		pos--
-		buf[pos] = '-'
-	}
-	return string(buf[pos:])
+	return strings.ReplaceAll(cmdType, "_", "-") + "_line" + strconv.Itoa(line) + "_idx" + strconv.Itoa(index)
 }
 
 // runModuleTest tests that a valid component compiles successfully
@@ -216,15 +194,18 @@ func runAssertInvalidTest(t *testing.T, ctx context.Context, rt wazero.Runtime, 
 		// Just log the difference for informational purposes
 		t.Logf("Component failed to compile at line %d (expected error containing %q, got: %v)", cmd.Line, cmd.Text, err)
 
-		// If it's a known difference in error messages, skip
+		// If it's a known difference in error messages, log specifically
 		if isKnownErrorDifference(cmd.Text, errStr) {
-			t.Skipf("Error message differs but validation works: expected %q", cmd.Text)
+			t.Logf("Known error message difference: wazero phrases %q differently", cmd.Text)
+			t.Logf("PASS: Component correctly failed to compile with equivalent validation")
 			return
 		}
 
-		// For now, we'll pass if the component failed to compile
-		// The important thing is that invalid components don't compile
-		t.Logf("PASS: Component correctly failed to compile (error message differs)")
+		// Unknown error message mismatch - still pass since component was rejected,
+		// but log at WARNING level to flag for investigation
+		t.Logf("WARNING: Component correctly rejected but error message mismatch at line %d", cmd.Line)
+		t.Logf("WARNING: Expected error containing: %q", cmd.Text)
+		t.Logf("WARNING: Actual error: %v", err)
 		return
 	}
 
