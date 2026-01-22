@@ -39,6 +39,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -388,7 +389,7 @@ func TestServiceMiddlewareComposition_FullComposition(t *testing.T) {
 		t.Error("Response body is empty")
 	} else {
 		bodyStr := string(response.body)
-		if !containsSubstring(bodyStr, expectedBodyContains) {
+		if !strings.Contains(bodyStr, expectedBodyContains) {
 			t.Errorf("Response body %q does not contain expected %q", bodyStr, expectedBodyContains)
 		}
 	}
@@ -404,10 +405,10 @@ func TestServiceMiddlewareComposition_FullComposition(t *testing.T) {
 	hasMiddlewareLog := false
 	hasServiceLog := false
 	for _, log := range logs {
-		if containsSubstring(log, "middleware") {
+		if strings.Contains(log, "middleware") {
 			hasMiddlewareLog = true
 		}
-		if containsSubstring(log, "service") {
+		if strings.Contains(log, "service") {
 			hasServiceLog = true
 		}
 	}
@@ -753,16 +754,3 @@ func defineHandlerInterface(linker *component.ComponentLinker, serviceExecute *c
 	return nil
 }
 
-// containsSubstring checks if s contains substr (simple implementation)
-func containsSubstring(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && findSubstring(s, substr))
-}
-
-func findSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}
