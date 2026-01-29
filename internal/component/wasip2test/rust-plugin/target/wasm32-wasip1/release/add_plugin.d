@@ -1,1 +1,0 @@
-/Users/cchamplin/go/src/github.com/cchamplin/wazero/internal/component/wasip2test/rust-plugin/target/wasm32-wasip1/release/add_plugin.wasm: /Users/cchamplin/go/src/github.com/cchamplin/wazero/internal/component/wasip2test/rust-plugin/src/lib.rs /Users/cchamplin/go/src/github.com/cchamplin/wazero/internal/component/wasip2test/wit/calculator.wit
