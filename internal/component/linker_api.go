@@ -61,6 +61,13 @@ func (l *ComponentLinkerWrapper) DefineResource(namespace, name string, dtor fun
 	return l.linker.DefineResource(namespace, name, dtor)
 }
 
+// MergeFrom copies all definitions from a basic Linker into this ComponentLinkerWrapper.
+// This allows WASI interfaces registered on a basic Linker to be used with
+// a ComponentLinkerWrapper that has runtime integration for core module instantiation.
+func (l *ComponentLinkerWrapper) MergeFrom(linker *Linker) {
+	l.linker.MergeFrom(linker)
+}
+
 // Instantiate creates a component instance with resolved imports.
 func (l *ComponentLinkerWrapper) Instantiate(ctx context.Context, compiled api.CompiledComponent) (api.Component, error) {
 	// Get the internal compiled component
