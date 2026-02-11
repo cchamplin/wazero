@@ -278,25 +278,45 @@ func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledCom
 	// We also wire up memory sharing incrementally after each module that has memory is created.
 	// This is necessary because later modules may call functions (like _initialize) that need
 	// memory access before all modules are instantiated.
-	for i, coreInst := range c.CoreInstances {
-		switch coreInst.Kind {
-		case CoreInstanceExprInstantiate:
-			module, err := l.instantiateCoreModule(ctx, inst, c, &coreInst, compiledModules, i, resolvedImports, canonLowers, canonResources, funcAliases)
+	if len(c.CoreInstances) > 0 {
+		// Explicit core instance descriptors present -- use them.
+		for i, coreInst := range c.CoreInstances {
+			switch coreInst.Kind {
+			case CoreInstanceExprInstantiate:
+				module, err := l.instantiateCoreModule(ctx, inst, c, &coreInst, compiledModules, i, resolvedImports, canonLowers, canonResources, funcAliases)
+				if err != nil {
+					return nil, fmt.Errorf("instantiate core instance %d: %w", i, err)
+				}
+				inst.coreInstances = append(inst.coreInstances, module)
+
+				// If this module has memory, immediately wire up memory sharing with other modules.
+				// This ensures that any subsequent module instantiation that triggers function calls
+				// (like _initialize) will have access to memory.
+				if modInst, ok := module.(*wasm.ModuleInstance); ok && modInst.MemoryInstance != nil {
+					if err := l.wireMemorySharing(inst, c); err != nil {
+						return nil, fmt.Errorf("wire memory sharing after instance %d: %w", i, err)
+					}
+				}
+			case CoreInstanceExprInline:
+				inst.coreInstances = append(inst.coreInstances, nil)
+			}
+		}
+	} else if len(compiledModules) > 0 {
+		// No explicit core instance descriptors but compiled modules exist.
+		// Directly instantiate each compiled module (simpler component format).
+		mi, ok := l.runtime.(CoreModuleInstantiator)
+		if !ok {
+			return nil, fmt.Errorf("runtime does not support module instantiation (type: %T)", l.runtime)
+		}
+		for i, cm := range compiledModules {
+			if cm == nil {
+				return nil, fmt.Errorf("module %d not compiled", i)
+			}
+			module, err := mi.InstantiateCoreModule(ctx, cm)
 			if err != nil {
-				return nil, fmt.Errorf("instantiate core instance %d: %w", i, err)
+				return nil, fmt.Errorf("instantiate core module %d: %w", i, err)
 			}
 			inst.coreInstances = append(inst.coreInstances, module)
-
-			// If this module has memory, immediately wire up memory sharing with other modules.
-			// This ensures that any subsequent module instantiation that triggers function calls
-			// (like _initialize) will have access to memory.
-			if modInst, ok := module.(*wasm.ModuleInstance); ok && modInst.MemoryInstance != nil {
-				if err := l.wireMemorySharing(inst, c); err != nil {
-					return nil, fmt.Errorf("wire memory sharing after instance %d: %w", i, err)
-				}
-			}
-		case CoreInstanceExprInline:
-			inst.coreInstances = append(inst.coreInstances, nil)
 		}
 	}
 
