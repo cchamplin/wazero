@@ -172,9 +172,21 @@ func (c *ComponentWrapper) ExportedInstance(name string) api.Component {
 }
 
 // Close releases resources associated with this component instance.
+// It closes all core module instances created during instantiation.
+// Safe to call multiple times; subsequent calls are no-ops.
 func (c *ComponentWrapper) Close(ctx context.Context) error {
-	// No cleanup needed for now
-	return nil
+	if c.instance == nil {
+		return nil
+	}
+
+	var firstErr error
+	for _, mod := range c.instance.coreInstances {
+		if err := mod.Close(ctx); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	c.instance = nil
+	return firstErr
 }
 
 // ComponentFuncWrapper wraps ExportedFunc to implement api.ComponentFunc.
