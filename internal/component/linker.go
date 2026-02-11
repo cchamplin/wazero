@@ -467,7 +467,14 @@ func (l *Linker) Instantiate(ctx context.Context, c *Component) (*Instance, erro
 }
 
 // getExactExportedFunc finds an exported function by exact name match.
+// If the function was wired by ComponentLinker.Instantiate (stored in i.exports),
+// it returns the fully-wired ExportedFunc with coreFunc, memory, etc.
 func (i *Instance) getExactExportedFunc(name string) *ExportedFunc {
+	// First check the exports map for a fully-wired function from ComponentLinker
+	if f, ok := i.exports[name]; ok && f != nil {
+		return f
+	}
+	// Fall back to creating a stub (for the basic Linker path)
 	for _, exp := range i.component.Exports {
 		if exp.Name == name && exp.Kind == ExportKindFunc {
 			var funcType *FuncType
@@ -575,6 +582,12 @@ func (i *Instance) GetExportedFunc(name string) *ExportedFunc {
 		return nil
 	}
 
+	// Check the exports map for a fully-wired function from ComponentLinker
+	if f, ok := i.exports[bestExport.Name]; ok && f != nil {
+		return f
+	}
+
+	// Fall back to creating a stub (for the basic Linker path)
 	var funcType *FuncType
 	if int(bestExport.Idx) < len(i.component.Types) {
 		funcType = i.component.Types[bestExport.Idx].Func
