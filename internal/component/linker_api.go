@@ -68,6 +68,11 @@ func (l *ComponentLinkerWrapper) MergeFrom(linker *Linker) {
 	l.linker.MergeFrom(linker)
 }
 
+// SetRelaxedSemverMatching enables or disables relaxed semver matching.
+func (l *ComponentLinkerWrapper) SetRelaxedSemverMatching(relaxed bool) {
+	l.linker.SetRelaxedSemverMatching(relaxed)
+}
+
 // Instantiate creates a component instance with resolved imports.
 func (l *ComponentLinkerWrapper) Instantiate(ctx context.Context, compiled api.CompiledComponent) (api.Component, error) {
 	// Get the internal compiled component

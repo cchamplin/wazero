@@ -99,6 +99,11 @@ type ComponentLinker interface {
 	// Instantiate creates a component instance with resolved imports.
 	Instantiate(ctx context.Context, compiled CompiledComponent) (Component, error)
 
+	// SetRelaxedSemverMatching enables or disables relaxed semver matching.
+	// When enabled, pre-1.0 versions (0.x.y) match any patch version within
+	// the same minor version (e.g., 0.2.0 matches 0.2.3).
+	SetRelaxedSemverMatching(relaxed bool)
+
 	internalapi.WazeroOnly
 }
 
