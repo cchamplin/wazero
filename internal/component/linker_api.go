@@ -193,6 +193,9 @@ func (c *ComponentWrapper) Close(ctx context.Context) error {
 
 	var firstErr error
 	for _, mod := range c.instance.coreInstances {
+		if mod == nil {
+			continue
+		}
 		if err := mod.Close(ctx); err != nil && firstErr == nil {
 			firstErr = err
 		}
