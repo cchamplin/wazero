@@ -1,9 +1,43 @@
-// Package wasip2 contains Go-defined functions to access WASI Preview 2
-// interfaces from WebAssembly components. These are accessible from
-// WebAssembly-defined functions via the component model.
+// Package wasip2 provides WASI Preview 2 host implementations for
+// WebAssembly components.
 //
-// e.g. Call Instantiate before instantiating any component that imports
-// WASI Preview 2 interfaces. Otherwise, it will error due to missing imports.
+// WASI Preview 2 (WASI P2) defines standardized interfaces that allow
+// components to interact with the host environment: file I/O, networking,
+// clocks, random number generation, and more. This package implements all
+// major WASI P2 interfaces:
+//
+//   - wasi:cli — environment variables, arguments, stdio streams
+//   - wasi:clocks — wall clock and monotonic clock
+//   - wasi:random — cryptographic and insecure random
+//   - wasi:filesystem — file and directory operations with preopens
+//   - wasi:sockets — TCP/UDP networking and DNS resolution
+//   - wasi:http — outgoing HTTP requests and incoming handler support
+//   - wasi:io — streams and pollable I/O
+//
+// # Usage with ComponentLinker
+//
+// Use [MergeInto] or [MergeIntoWithConfig] to register all WASI P2
+// interfaces onto a component linker created with
+// [wazero.Runtime.NewComponentLinker]:
+//
+//	linker := rt.NewComponentLinker()
+//	linker.SetRelaxedSemverMatching(true)
+//	wasip2.MergeInto(linker)
+//	instance, err := linker.Instantiate(ctx, compiled)
+//
+// Most WASI P2 interfaces use pre-1.0 versions (0.2.x), so
+// [api.ComponentLinker.SetRelaxedSemverMatching] should be enabled.
+//
+// # Configuration
+//
+// Use [NewConfig] to customize WASI behavior (stdio, environment, args):
+//
+//	config := wasip2.NewConfig().
+//		WithStdout(os.Stdout).
+//		WithArgs([]string{"my-app", "--verbose"}).
+//		WithEnviron([]string{"HOME=/home/user"})
+//	wasip2.MergeIntoWithConfig(linker, config)
+//	ctx = wasip2.WithConfig(ctx, config) // pass config in context
 //
 // See https://github.com/WebAssembly/WASI
 package wasip2

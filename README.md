@@ -13,6 +13,54 @@ compilation.
 
 Import wazero and extend your Go application with code written in any language!
 
+## Component Model
+
+This fork adds support for the [WebAssembly Component Model][13] and
+[WASI Preview 2][14] (WASI P2). The Component Model extends core WebAssembly
+with higher-level types (records, variants, lists, options, results, resources),
+typed interfaces defined in [WIT][15], and a composition mechanism that allows
+components to import and export rich APIs.
+
+### Features
+
+- **Compile and run components** built by any toolchain (Rust via
+  `cargo component`, Go via `wit-bindgen-go` + TinyGo, C via `wasm-tools`)
+- **Define host functions** using the dynamic [Val](api/component/) type system
+  to satisfy component imports from Go
+- **Full WASI Preview 2** support including CLI, clocks, random, filesystem,
+  sockets, and HTTP interfaces via the [`imports/wasip2`](imports/wasip2/)
+  package
+- **Relaxed semver matching** for pre-1.0 WASI interfaces
+
+### Quick Start
+
+```go
+ctx := context.Background()
+rt := wazero.NewRuntime(ctx)
+defer rt.Close(ctx)
+
+// Compile and instantiate a component with no imports
+compiled, _ := rt.CompileComponent(ctx, wasmBytes)
+instance, _ := rt.InstantiateComponent(ctx, compiled)
+
+// Call an exported function
+results, _ := instance.ExportedFunction("add").Call(ctx, int32(2), int32(3))
+fmt.Println(results[0]) // 5
+```
+
+For components with imports (host functions or WASI P2), use the
+`ComponentLinker`:
+
+```go
+linker := rt.NewComponentLinker()
+linker.SetRelaxedSemverMatching(true) // needed for WASI 0.2.x
+wasip2.MergeInto(linker)             // register all WASI P2 interfaces
+instance, _ := linker.Instantiate(ctx, compiled)
+```
+
+See the [component model examples](examples/README.md#component-model) for
+complete working code.
+
 ## Example
 
 The best way to learn wazero is by trying one of our [examples](examples/README.md). The
@@ -133,3 +181,6 @@ wazero is a registered trademark of Tetrate.io, Inc. in the United States and/or
 [10]: https://github.com/wazero/wazero/stargazers
 [11]: https://github.com/wazero/wazero/issues/2393
 [12]: https://pkg.go.dev/golang.org/x/sys
+[13]: https://component-model.bytecodealliance.org/
+[14]: https://github.com/WebAssembly/WASI/tree/main/wasip2
+[15]: https://component-model.bytecodealliance.org/design/wit.html

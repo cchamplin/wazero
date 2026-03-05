@@ -1,7 +1,38 @@
-// Package component provides public types for working with WebAssembly
-// Component Model values and host functions. It re-exports types from
-// internal packages so that external consumers can use them without
-// importing internal paths.
+// Package component provides types for the WebAssembly Component Model.
+//
+// The Component Model extends WebAssembly with higher-level types (records,
+// variants, lists, options, results, resources, etc.) and a composition
+// mechanism that allows components to import and export typed interfaces.
+//
+// This package exports the dynamic value type [Val] and host function
+// signature [HostFunc] needed when defining host functions for component
+// imports. For calling component-exported functions, Go primitives (int32,
+// string, map[string]any, []any, etc.) can be passed directly to
+// [api.ComponentFunc.Call] and are converted automatically.
+//
+// # Defining host functions
+//
+// Use [HostFunc] and [Val] when providing host implementations via
+// [api.ComponentLinker.DefineFunc] or [api.ComponentInstanceBuilder.Func]:
+//
+//	linker := rt.NewComponentLinker()
+//	err := linker.DefineInstance("my:app/math").
+//		Func("add", component.HostFunc(func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+//			a, b := args[0].S32(), args[1].S32()
+//			return []component.Val{component.ValS32(a + b)}, nil
+//		})).
+//		Build()
+//
+// # Val types
+//
+// Val is a dynamically-typed value that can represent any component model
+// type. Use the constructor functions (ValBool, ValS32, ValString,
+// ValRecord, ValList, ValOption, ValResultOk, etc.) to create values,
+// and the accessor methods (Bool, S32, StringVal, Record, List, Option,
+// Result, etc.) to read them.
+//
+// See the [examples/component-host-functions] example for a complete
+// demonstration.
 package component
 
 import (
