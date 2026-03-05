@@ -82,7 +82,7 @@ func TestNewFunctionExporter(t *testing.T) {
 // maskMemory sets the first memory in the store to '?' * size, so tests can see what's written.
 func maskMemory(t *testing.T, mod api.Module, size int) {
 	for i := uint32(0); i < uint32(size); i++ {
-		require.True(t, mod.Memory().WriteByte(i, '?'))
+		require.True(t, mod.Memory().WriteByteAt(i, '?'))
 	}
 }
 

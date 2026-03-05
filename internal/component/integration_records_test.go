@@ -49,23 +49,20 @@ func TestPublicAPIRecordEcho(t *testing.T) {
 
 	// Create a record value using map[string]any (public API format)
 	// The record has fields x and y of type s32
+	// The echo_record component doubles both coordinates
 	input := map[string]any{
 		"x": int32(10),
 		"y": int32(20),
 	}
 
-	// Note: This may panic with "nil pointer dereference" if core module instantiation
-	// is not wired up yet. We use a deferred recover to handle this gracefully.
 	var results []any
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
 				errStr := fmt.Sprintf("%v", r)
-				// Only skip for nil pointer panics which indicate incomplete wiring
 				if strings.Contains(errStr, "nil pointer") || strings.Contains(errStr, "runtime error: invalid memory address") {
 					t.Skipf("function call not wired yet (recovered from panic): %v", r)
 				}
-				// Re-panic for unexpected errors
 				panic(r)
 			}
 		}()
@@ -73,7 +70,6 @@ func TestPublicAPIRecordEcho(t *testing.T) {
 	}()
 
 	if err != nil {
-		// Check if it's a "not wired" error
 		t.Skipf("function call not wired yet: %v", err)
 	}
 
@@ -81,13 +77,12 @@ func TestPublicAPIRecordEcho(t *testing.T) {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
 
-	// The result should be a map[string]any representing the echoed record
 	rec, ok := results[0].(map[string]any)
 	if !ok {
 		t.Fatalf("expected map[string]any result, got %T", results[0])
 	}
 
-	// Verify the record fields
+	// The echo_record component doubles coordinates: echo({10,20}) -> {20,40}
 	xVal, xOk := rec["x"]
 	if !xOk {
 		t.Fatal("expected field 'x' in result record")
@@ -96,8 +91,8 @@ func TestPublicAPIRecordEcho(t *testing.T) {
 	if !xIsInt32 {
 		t.Fatalf("expected x to be int32, got %T", xVal)
 	}
-	if x != 10 {
-		t.Errorf("expected x=10, got %d", x)
+	if x != 20 {
+		t.Errorf("expected x=20, got %d", x)
 	}
 
 	yVal, yOk := rec["y"]
@@ -108,8 +103,8 @@ func TestPublicAPIRecordEcho(t *testing.T) {
 	if !yIsInt32 {
 		t.Fatalf("expected y to be int32, got %T", yVal)
 	}
-	if y != 20 {
-		t.Errorf("expected y=20, got %d", y)
+	if y != 40 {
+		t.Errorf("expected y=40, got %d", y)
 	}
 }
 
@@ -142,16 +137,19 @@ func TestPublicAPIRecordWithDifferentValues(t *testing.T) {
 	}
 
 	// Test cases with different values
+	// The echo_record component doubles both coordinates
 	testCases := []struct {
-		name string
-		x    int32
-		y    int32
+		name     string
+		x        int32
+		y        int32
+		expectedX int32
+		expectedY int32
 	}{
-		{"zeros", 0, 0},
-		{"positives", 100, 200},
-		{"negatives", -50, -100},
-		{"mixed", -10, 30},
-		{"max_values", 2147483647, -2147483648},
+		{"zeros", 0, 0, 0, 0},
+		{"positives", 100, 200, 200, 400},
+		{"negatives", -50, -100, -100, -200},
+		{"mixed", -10, 30, -20, 60},
+		{"max_values", 1073741823, -1073741824, 2147483646, -2147483648},
 	}
 
 	for _, tc := range testCases {
@@ -192,16 +190,16 @@ func TestPublicAPIRecordWithDifferentValues(t *testing.T) {
 			if !ok {
 				t.Fatalf("expected x to be int32, got %T", rec["x"])
 			}
-			if x != tc.x {
-				t.Errorf("expected x=%d, got %d", tc.x, x)
+			if x != tc.expectedX {
+				t.Errorf("expected x=%d, got %d", tc.expectedX, x)
 			}
 
 			y, ok := rec["y"].(int32)
 			if !ok {
 				t.Fatalf("expected y to be int32, got %T", rec["y"])
 			}
-			if y != tc.y {
-				t.Errorf("expected y=%d, got %d", tc.y, y)
+			if y != tc.expectedY {
+				t.Errorf("expected y=%d, got %d", tc.expectedY, y)
 			}
 		})
 	}
