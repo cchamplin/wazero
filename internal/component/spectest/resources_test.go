@@ -20,8 +20,9 @@ import (
 	"github.com/tetratelabs/wazero"
 )
 
-// wastFilePath is the path to the resources.wast test file
-const resourcesWastPath = "../../../debug-vendored/wasm-tools/tests/cli/component-model/resources.wast"
+// resourcesWastPath is the path to the resources.wast test file
+// Sourced from wasm-tools: tests/cli/component-model/resources.wast
+const resourcesWastPath = "testdata/resources.wast"
 
 // TestResourcesWast runs the resources.wast spec test suite
 func TestResourcesWast(t *testing.T) {
