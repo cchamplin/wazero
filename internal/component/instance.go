@@ -1382,10 +1382,66 @@ func alignTo(offset, align uint32) uint32 {
 // lowerParam dispatches parameter lowering to lowerTyped (when type info is available)
 // or lowerByKind (kind-based fallback for primitives).
 func (f *ExportedFunc) lowerParam(ctx context.Context, val Val, resolvedType types.ValType, callCtx *CallContext) ([]uint64, error) {
-	if resolvedType != nil {
+	if resolvedType != nil && typeMatchesKind(resolvedType, val.Kind()) {
 		return f.lowerTyped(ctx, val, resolvedType, callCtx)
 	}
 	return f.lowerByKind(ctx, val, callCtx)
+}
+
+// typeMatchesKind checks if a resolved type is compatible with a Val's runtime kind.
+// When they don't match (e.g., funcType says u64 but caller passes a list),
+// we fall back to kind-based lowering to avoid panics.
+func typeMatchesKind(typ types.ValType, kind ValKind) bool {
+	switch typ.(type) {
+	case types.Bool:
+		return kind == ValKindBool
+	case types.S8:
+		return kind == ValKindS8
+	case types.U8:
+		return kind == ValKindU8
+	case types.S16:
+		return kind == ValKindS16
+	case types.U16:
+		return kind == ValKindU16
+	case types.S32:
+		return kind == ValKindS32
+	case types.U32:
+		return kind == ValKindU32
+	case types.S64:
+		return kind == ValKindS64
+	case types.U64:
+		return kind == ValKindU64
+	case types.F32:
+		return kind == ValKindF32
+	case types.F64:
+		return kind == ValKindF64
+	case types.Char:
+		return kind == ValKindChar
+	case types.String:
+		return kind == ValKindString
+	case types.Record:
+		return kind == ValKindRecord
+	case types.List:
+		return kind == ValKindList
+	case types.Tuple:
+		return kind == ValKindTuple
+	case types.Variant:
+		return kind == ValKindVariant
+	case types.Enum:
+		return kind == ValKindEnum
+	case types.Option:
+		return kind == ValKindOption
+	case types.Result:
+		return kind == ValKindResult
+	case types.Flags:
+		return kind == ValKindFlags
+	case types.Own:
+		return kind == ValKindOwn
+	case types.Borrow:
+		return kind == ValKindBorrow
+	default:
+		return false
+	}
 }
 
 // lowerTyped performs type-driven lowering for all component model value types.
@@ -1652,6 +1708,60 @@ func (f *ExportedFunc) lowerByKind(ctx context.Context, val Val, callCtx *CallCo
 			callCtx.IncrementBorrows()
 		}
 		return []uint64{uint64(h.Index())}, nil
+	case ValKindList:
+		// List lowering without type info: infer element size from first element's kind
+		list := val.List()
+		mem := f.memory
+		if mem == nil && f.instance != nil && len(f.instance.coreInstances) > 0 {
+			mem = f.instance.coreInstances[0].Memory()
+		}
+		if mem == nil {
+			return nil, fmt.Errorf("list lowering requires memory")
+		}
+		var elemSize uint32 = 4
+		var alignment uint32 = 4
+		if len(list) > 0 {
+			elemSize = elementSizeForKind(list[0].Kind())
+			alignment = alignmentForKind(list[0].Kind())
+		}
+		listLen := uint32(len(list))
+		listSize := listLen * elemSize
+		var ptr uint32
+		if listSize > 0 {
+			if f.reallocFunc == nil {
+				return nil, fmt.Errorf("list lowering requires realloc function")
+			}
+			results, err := f.reallocFunc.Call(ctx, 0, 0, uint64(alignment), uint64(listSize))
+			if err != nil {
+				return nil, fmt.Errorf("realloc for list failed: %w", err)
+			}
+			ptr = uint32(results[0])
+		}
+		for j, elem := range list {
+			offset := ptr + uint32(j)*elemSize
+			if err := writeListElement(mem, offset, elem); err != nil {
+				return nil, fmt.Errorf("failed to write list element %d: %w", j, err)
+			}
+		}
+		return []uint64{uint64(ptr), uint64(listLen)}, nil
+	case ValKindRecord:
+		// Record lowering without type info: flatten fields in alphabetical order
+		rec := val.Record()
+		fieldNames := make([]string, 0, len(rec))
+		for name := range rec {
+			fieldNames = append(fieldNames, name)
+		}
+		sort.Strings(fieldNames)
+		var result []uint64
+		for _, name := range fieldNames {
+			field := rec[name]
+			flat, err := f.lowerByKind(ctx, field, callCtx)
+			if err != nil {
+				return nil, fmt.Errorf("lower record field %s: %w", name, err)
+			}
+			result = append(result, flat...)
+		}
+		return result, nil
 	default:
 		return nil, fmt.Errorf("unsupported parameter type: %s", val.Kind())
 	}
