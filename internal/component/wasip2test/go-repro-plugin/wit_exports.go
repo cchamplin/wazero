@@ -13,7 +13,7 @@ import (
 )
 
 var staticPinner = runtime.Pinner{}
-var exportReturnArea = uintptr(wit_runtime.Allocate(&staticPinner, 8, 4))
+var exportReturnArea = uintptr(wit_runtime.Allocate(&staticPinner, (2 * 4), 4))
 var syncExportPinner = runtime.Pinner{}
 
 //go:wasmexport test:repro/handler#process
@@ -30,6 +30,32 @@ func wasm_export_test_repro_handler_process() uintptr {
 	*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 4)) = int8(result0)
 	return exportReturnArea
 
+}
+
+//go:wasmexport test:repro/handler#process-random
+func wasm_export_test_repro_handler_process_random(arg0 int64) int64 {
+
+	result := export_test_repro_handler.ProcessRandom(uint64(arg0))
+	return int64(result)
+
+}
+
+//go:wasmexport test:repro/handler#process-random-bytes
+func wasm_export_test_repro_handler_process_random_bytes(arg0 int32) uintptr {
+
+	pinner := &syncExportPinner
+	result := export_test_repro_handler.ProcessRandomBytes(uint32(arg0))
+	data := unsafe.Pointer(unsafe.SliceData(result))
+	pinner.Pin(data)
+	*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), 4)) = uint32(uint32(len(result)))
+	*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), 0)) = uint32(uintptr(uintptr(data)))
+	return exportReturnArea
+
+}
+
+//go:wasmexport cabi_post_test:repro/handler#process-random-bytes
+func wasm_export_post_return_test_repro_handler_process_random_bytes(result uintptr) {
+	syncExportPinner.Unpin()
 }
 
 // Unused, but present to make the compiler happy

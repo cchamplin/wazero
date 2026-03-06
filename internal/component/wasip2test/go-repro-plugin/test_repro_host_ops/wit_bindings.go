@@ -20,3 +20,13 @@ func GetValue() uint32 {
 	return uint32(result)
 
 }
+
+//go:wasmimport test:repro/host-ops get-random-len
+func wasm_import_get_random_len(arg0 int64) int64
+
+func GetRandomLen(len uint64) uint64 {
+
+	result := wasm_import_get_random_len(int64(len))
+	return uint64(result)
+
+}

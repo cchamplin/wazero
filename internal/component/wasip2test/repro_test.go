@@ -13,6 +13,9 @@
 // Bug 2 (type not found): component-defined types (records, enums, etc.) used
 // across interfaces are not tracked in the parent Instance's type space, so
 // resolveFromParentScope fails when a nested core module references them.
+//
+// Bug 3 (signature mismatch): canon lower generates i32 for u64 params instead
+// of i64, causing core module instantiation to fail with signature mismatch.
 package wasip2test
 
 import (
@@ -22,6 +25,7 @@ import (
 	"testing"
 
 	"github.com/tetratelabs/wazero"
+	apicomponent "github.com/tetratelabs/wazero/api/component"
 	"github.com/tetratelabs/wazero/imports/wasip2"
 	"github.com/tetratelabs/wazero/internal/component"
 )
@@ -74,12 +78,28 @@ func newReproInstance(t *testing.T) (*component.Instance, context.Context, func(
 		FuncNoType("get-value", func(ctx context.Context, args []component.Val) ([]component.Val, error) {
 			return []component.Val{component.ValU32(42)}, nil
 		}).
+		FuncNoType("get-random-len", func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+			// Echo back the u64 input
+			return []component.Val{component.ValU64(args[0].U64())}, nil
+		}).
 		SkipValidation().
 		Build()
 	if err != nil {
 		compiled.Close(ctx)
 		rt.Close(ctx)
 		t.Fatalf("DefineInstance host-ops: %v", err)
+	}
+	// Register the host-rng import (separate interface, same function name as wasi:random)
+	err = hostLinker.DefineInstance("test:repro/host-rng").
+		FuncNoType("get-random-bytes", func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+			return []component.Val{component.ValList(nil)}, nil
+		}).
+		SkipValidation().
+		Build()
+	if err != nil {
+		compiled.Close(ctx)
+		rt.Close(ctx)
+		t.Fatalf("DefineInstance host-rng: %v", err)
 	}
 	linker.MergeFrom(hostLinker)
 
@@ -194,4 +214,139 @@ func TestRepro_RecordTypeResolution(t *testing.T) {
 
 	t.Logf("Record type resolved correctly: {value: %d (kind=%v), ok: %v (kind=%v)}",
 		valField.U32(), valField.Kind(), okField.Bool(), okField.Kind())
+}
+
+// TestRepro_U64CanonLowerSignature reproduces the canon lower signature mismatch
+// for u64 parameters. When a host function takes u64 args, canon lower must
+// produce a core function with i64 params. The bug generates i32 instead,
+// causing: "signature mismatch: i64i32_v != i32i32_v" during core module
+// instantiation.
+func TestRepro_U64CanonLowerSignature(t *testing.T) {
+	instance, testCtx, cleanup := newReproInstance(t)
+	defer cleanup()
+
+	handlerInst := instance.GetExportedInstance("test:repro/handler")
+	if handlerInst == nil {
+		t.Fatal("handler instance not found")
+	}
+	processRandomFunc := handlerInst.ExportedFunction("process-random")
+	if processRandomFunc == nil {
+		t.Fatal("process-random function not found")
+	}
+
+	// Call process-random with a u64 value
+	// The guest forwards to host-ops.get-random-len which echoes it back
+	input := uint64(123456789)
+	results, err := processRandomFunc.Call(testCtx, component.ValU64(input))
+	if err != nil {
+		t.Fatalf("process-random(%d) call failed: %v", input, err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+
+	got := results[0].U64()
+	if got != input {
+		t.Errorf("process-random(%d) = %d, want %d", input, got, input)
+	}
+	t.Logf("process-random(%d) = %d", input, got)
+}
+
+// TestRepro_PublicAPISignatureMismatch reproduces the WASI random signature
+// mismatch that occurs when using the public API (rt.NewComponentLinker() +
+// wasip2.MergeInto + linker.DefineInstance via api.ComponentInstanceBuilder).
+//
+// The wasip1 adapter's core module expects get-random-bytes with signature
+// (i64, i32) -> void but canon lower produces (i32, i32) -> void.
+// This matches the director integration test setup.
+func TestRepro_PublicAPISignatureMismatch(t *testing.T) {
+	ctx := context.Background()
+	rt := wazero.NewRuntime(ctx)
+	defer rt.Close(ctx)
+
+	wasmBytes, err := os.ReadFile("go-repro-plugin/component.wasm")
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+
+	compiled, err := rt.CompileComponent(ctx, wasmBytes)
+	if err != nil {
+		t.Fatalf("CompileComponent: %v", err)
+	}
+	defer compiled.Close(ctx)
+
+	// Use the PUBLIC API path — same as director integration test
+	linker := rt.NewComponentLinker()
+	linker.SetRelaxedSemverMatching(true)
+
+	// Register WASI P2 via public API (MergeInto, not Instantiate+merge)
+	if err := wasip2.MergeInto(linker); err != nil {
+		t.Fatalf("wasip2.MergeInto: %v", err)
+	}
+
+	// Register host imports via public API DefineInstance
+	err = linker.DefineInstance("test:repro/types").SkipValidation().Build()
+	if err != nil {
+		t.Fatalf("DefineInstance types: %v", err)
+	}
+
+	err = linker.DefineInstance("test:repro/host-ops").SkipValidation().
+		Func("get-value", apicomponent.HostFunc(func(ctx context.Context, args []apicomponent.Val) ([]apicomponent.Val, error) {
+			return []apicomponent.Val{apicomponent.ValU32(42)}, nil
+		})).
+		Func("get-random-len", apicomponent.HostFunc(func(ctx context.Context, args []apicomponent.Val) ([]apicomponent.Val, error) {
+			return []apicomponent.Val{apicomponent.ValU64(args[0].U64())}, nil
+		})).
+		Build()
+	if err != nil {
+		t.Fatalf("DefineInstance host-ops: %v", err)
+	}
+
+	err = linker.DefineInstance("test:repro/host-rng").SkipValidation().
+		Func("get-random-bytes", apicomponent.HostFunc(func(ctx context.Context, args []apicomponent.Val) ([]apicomponent.Val, error) {
+			return []apicomponent.Val{apicomponent.ValList(nil)}, nil
+		})).
+		Build()
+	if err != nil {
+		t.Fatalf("DefineInstance host-rng: %v", err)
+	}
+
+	// Set up WASI context
+	var stdout, stderr bytes.Buffer
+	wasiConfig := wasip2.NewConfig().
+		WithStdout(&stdout).
+		WithStderr(&stderr).
+		WithArgs([]string{"test"}).
+		WithEnviron([]string{})
+	resourceTable := apicomponent.NewResourceTable()
+	testCtx := wasip2.WithConfig(ctx, wasiConfig)
+	testCtx = apicomponent.WithResourceTable(testCtx, resourceTable)
+
+	// THIS IS WHERE THE BUG MANIFESTS when using public API:
+	// instantiate core instance N: import func[wasi:random/random@0.2.6.get-random-bytes]:
+	// signature mismatch: i64i32_v != i32i32_v
+	instance, err := linker.Instantiate(testCtx, compiled)
+	if err != nil {
+		t.Fatalf("Instantiate: %v", err)
+	}
+	defer instance.Close(ctx)
+
+	// If instantiation succeeds, verify exports work
+	handlerInst := instance.ExportedInstance("test:repro/handler")
+	if handlerInst == nil {
+		t.Fatal("handler instance not found")
+	}
+	processFunc := handlerInst.ExportedFunction("process")
+	if processFunc == nil {
+		t.Fatal("process function not found")
+	}
+
+	results, err := processFunc.Call(testCtx)
+	if err != nil {
+		t.Fatalf("process() call failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	t.Logf("process() returned: %v", results[0])
 }

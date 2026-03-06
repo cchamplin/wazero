@@ -13,15 +13,29 @@ interface types {
 interface host-ops {
   use types.{process-result};
   get-value: func() -> u32;
+  /// Takes a u64 param — tests that canon lower produces i64 (not i32) in core ABI.
+  get-random-len: func(len: u64) -> u64;
+}
+
+/// Separate RNG interface mirroring director's host-rng.
+/// Has get-random-bytes(count: u32) which collides with
+/// wasi:random/random.get-random-bytes(len: u64).
+interface host-rng {
+  get-random-bytes: func(count: u32) -> list<u8>;
 }
 
 /// Guest-exported handler interface.
 interface handler {
   use types.{process-result};
   process: func() -> process-result;
+  /// Calls host-ops.get-random-len with a u64 argument.
+  process-random: func(len: u64) -> u64;
+  /// Calls host-rng.get-random-bytes with a u32 argument.
+  process-random-bytes: func(count: u32) -> list<u8>;
 }
 
 world test-plugin {
   import host-ops;
+  import host-rng;
   export handler;
 }
