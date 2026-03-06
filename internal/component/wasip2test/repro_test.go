@@ -350,3 +350,37 @@ func TestRepro_PublicAPISignatureMismatch(t *testing.T) {
 	}
 	t.Logf("process() returned: %v", results[0])
 }
+
+// TestRepro_StringParameterSupport reproduces the "unsupported parameter type:
+// string" bug. When a component export takes a string parameter, canon lift
+// must lower the string (ptr+len) into the component's linear memory before
+// calling the core function. The bug is that the call path doesn't handle
+// string types when preparing arguments for canon-lifted exports.
+func TestRepro_StringParameterSupport(t *testing.T) {
+	instance, testCtx, cleanup := newReproInstance(t)
+	defer cleanup()
+
+	handlerInst := instance.GetExportedInstance("test:repro/handler")
+	if handlerInst == nil {
+		t.Fatal("handler instance not found")
+	}
+	echoFunc := handlerInst.ExportedFunction("echo-string")
+	if echoFunc == nil {
+		t.Fatal("echo-string function not found")
+	}
+
+	input := "hello, component model!"
+	results, err := echoFunc.Call(testCtx, component.ValString(input))
+	if err != nil {
+		t.Fatalf("echo-string(%q) call failed: %v", input, err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+
+	got := results[0].StringVal()
+	if got != input {
+		t.Errorf("echo-string(%q) = %q, want %q", input, got, input)
+	}
+	t.Logf("echo-string(%q) = %q", input, got)
+}

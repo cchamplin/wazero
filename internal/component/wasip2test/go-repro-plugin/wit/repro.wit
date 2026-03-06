@@ -32,6 +32,8 @@ interface handler {
   process-random: func(len: u64) -> u64;
   /// Calls host-rng.get-random-bytes with a u32 argument.
   process-random-bytes: func(count: u32) -> list<u8>;
+  /// Takes a string param — tests that canon lift handles string parameters.
+  echo-string: func(input: string) -> string;
 }
 
 world test-plugin {

@@ -26,3 +26,8 @@ func ProcessRandom(len uint64) uint64 {
 func ProcessRandomBytes(count uint32) []uint8 {
 	return test_repro_host_rng.GetRandomBytes(count)
 }
+
+// EchoString returns the input string as-is.
+func EchoString(input string) string {
+	return input
+}

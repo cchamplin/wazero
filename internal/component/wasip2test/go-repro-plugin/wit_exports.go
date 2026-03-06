@@ -58,5 +58,25 @@ func wasm_export_post_return_test_repro_handler_process_random_bytes(result uint
 	syncExportPinner.Unpin()
 }
 
+//go:wasmexport test:repro/handler#echo-string
+func wasm_export_test_repro_handler_echo_string(arg0 uintptr, arg1 uint32) uintptr {
+
+	pinner := &syncExportPinner
+	value := unsafe.String((*uint8)(unsafe.Pointer(arg0)), arg1)
+	wit_runtime.Unpin()
+	result := export_test_repro_handler.EchoString(value)
+	utf8 := unsafe.Pointer(unsafe.StringData(result))
+	pinner.Pin(utf8)
+	*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), 4)) = uint32(uint32(len(result)))
+	*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), 0)) = uint32(uintptr(uintptr(utf8)))
+	return exportReturnArea
+
+}
+
+//go:wasmexport cabi_post_test:repro/handler#echo-string
+func wasm_export_post_return_test_repro_handler_echo_string(result uintptr) {
+	syncExportPinner.Unpin()
+}
+
 // Unused, but present to make the compiler happy
 func main() {}
