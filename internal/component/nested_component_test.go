@@ -4,7 +4,22 @@ package component
 import (
 	"context"
 	"testing"
+
+	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/internal/internalapi"
 )
+
+// nestedMockFunction implements api.Function for nested component tests.
+type nestedMockFunction struct {
+	internalapi.WazeroOnlyType
+	callFn func(ctx context.Context, params ...uint64) ([]uint64, error)
+}
+
+func (m *nestedMockFunction) Definition() api.FunctionDefinition { return nil }
+func (m *nestedMockFunction) Call(ctx context.Context, params ...uint64) ([]uint64, error) {
+	return m.callFn(ctx, params...)
+}
+func (m *nestedMockFunction) CallWithStack(ctx context.Context, stack []uint64) error { return nil }
 
 func TestInstantiateNestedComponent_Basic(t *testing.T) {
 	// Child component with one import
@@ -570,3 +585,320 @@ func TestInstantiateNestedComponent_ExportsInstance(t *testing.T) {
 		t.Error("instance from space should match nested instance")
 	}
 }
+
+// TestInstanceSpaceAlignment_ImportedInstancesOccupySlots verifies that imported
+// instances occupy slots in the instance index space, so that subsequent component
+// instances are at the correct indices. This was a bug where the instance space
+// only contained component instances, causing misaligned indices when exports
+// referenced component instances by their absolute index.
+func TestInstanceSpaceAlignment_ImportedInstancesOccupySlots(t *testing.T) {
+	parent := &Instance{}
+
+	// Simulate 5 imported instances occupying slots 0-4 (as nil placeholders)
+	for i := 0; i < 5; i++ {
+		parent.AddInstanceToSpace(nil)
+	}
+
+	// Now add a real component instance — should be at index 5
+	nestedInst := &Instance{
+		exports: make(map[string]*ExportedFunc),
+	}
+	idx := parent.AddInstanceToSpace(nestedInst)
+
+	if idx != 5 {
+		t.Errorf("component instance should be at index 5, got %d", idx)
+	}
+
+	// Verify lookup by absolute index works
+	got := parent.GetInstanceFromSpace(5)
+	if got != nestedInst {
+		t.Error("GetInstanceFromSpace(5) should return the component instance")
+	}
+
+	// Verify imported instance slots return nil
+	for i := uint32(0); i < 5; i++ {
+		if parent.GetInstanceFromSpace(i) != nil {
+			t.Errorf("GetInstanceFromSpace(%d) should return nil for imported instance placeholder", i)
+		}
+	}
+
+	// Verify out-of-range returns nil
+	if parent.GetInstanceFromSpace(100) != nil {
+		t.Error("GetInstanceFromSpace(100) should return nil for out-of-range index")
+	}
+}
+
+// TestWireNestedComponentExports_ShimPattern verifies that wireNestedComponentExports
+// correctly wires a shim component's exports. The shim pattern is used by wasm-tools
+// to create interface exports: a shim component imports a canon-lifted function and
+// re-exports it under a different name.
+func TestWireNestedComponentExports_ShimPattern(t *testing.T) {
+	// The shim component:
+	//   (import "import-func-process" (func (type 0)))
+	//   (export "process" (func 0))
+	shimComp := &Component{
+		Imports: []Import{
+			{
+				Name: "import-func-process",
+				ExternDesc: ImportExternDesc{
+					Kind:    ImportExternDescFunc,
+					TypeIdx: 0,
+				},
+			},
+		},
+		Types: []TypeDef{
+			{Kind: TypeDefKindFunc, Func: &FuncType{
+				Results: []NamedValType{{ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}}, // u32
+			}},
+		},
+		Exports: []Export{
+			{Name: "process", Kind: ExportKindFunc, Idx: 0},
+		},
+	}
+
+	// The nested instance (shim) with empty exports to be wired
+	nestedInst := &Instance{
+		component: shimComp,
+		exports:   make(map[string]*ExportedFunc),
+	}
+
+	// The component instance definition that instantiates the shim:
+	//   (instantiate $shim (with "import-func-process" (func 30)))
+	compInstDef := &ComponentInstance{
+		Kind:         ComponentInstanceExprInstantiate,
+		ComponentIdx: 0,
+		Args: []ComponentInstantiateArg{
+			{Name: "import-func-process", Sort: SortFunc, Idx: 30},
+		},
+	}
+
+	// Parent component with func 30 as a canon lift
+	parentComp := &Component{
+		Types: []TypeDef{
+			{Kind: TypeDefKindFunc, Func: &FuncType{
+				Results: []NamedValType{{ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}},
+			}},
+		},
+		Canonicals: []CanonicalDef{
+			{
+				Kind:             CanonKindLift,
+				ComponentFuncIdx: 30,
+				CoreFuncIdx:      91, // core func index
+				TypeIdx:          0,
+			},
+		},
+		FuncIdxToCanonical: map[uint32]uint32{
+			30: 0, // func 30 -> Canonicals[0]
+		},
+		Aliases: []Alias{
+			{Kind: AliasKindCoreExport, CoreSort: CoreSortFunc, Idx: 91, InstanceIdx: 0, ExportName: "test:repro/handler#process"},
+		},
+	}
+
+	// Mock core instance with the exported core function
+	mockCoreFunc := &nestedMockFunction{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			return []uint64{42}, nil
+		},
+	}
+	mockModule := &mockModuleForExport{
+		exportedFuncs: map[string]api.Function{
+			"test:repro/handler#process": mockCoreFunc,
+		},
+	}
+
+	// Parent instance with core instances and componentFuncs
+	parent := &Instance{
+		component:     parentComp,
+		coreInstances: []api.Module{mockModule},
+		exports:       make(map[string]*ExportedFunc),
+		componentFuncs: map[uint32]ComponentFunc{
+			30: {
+				Type: parentComp.Types[0].Func,
+				Impl: nil, // Canon lift - Impl is nil
+			},
+		},
+	}
+
+	// Build index spaces
+	funcSpace := NewCoreFuncIndexSpace()
+	funcSpace.AddAlias(91, 0, "test:repro/handler#process")
+	memSpace := NewCoreMemoryIndexSpace()
+
+	l := &ComponentLinker{}
+
+	err := l.wireNestedComponentExports(parent, parentComp, nestedInst, compInstDef, funcSpace, memSpace)
+	if err != nil {
+		t.Fatalf("wireNestedComponentExports failed: %v", err)
+	}
+
+	// Verify the "process" export was wired on the shim instance
+	processFunc := nestedInst.exports["process"]
+	if processFunc == nil {
+		t.Fatal("expected 'process' export to be wired on shim instance")
+	}
+
+	if processFunc.Name() != "process" {
+		t.Errorf("expected export name 'process', got %q", processFunc.Name())
+	}
+
+	// Call the wired function and verify it delegates to the core function
+	ctx := context.Background()
+	results, err := processFunc.Call(ctx)
+	if err != nil {
+		t.Fatalf("process() call failed: %v", err)
+	}
+	if len(results) != 1 || results[0].S32() != 42 {
+		t.Errorf("process() = %v, want [42]", results)
+	}
+}
+
+// TestWireNestedComponentExports_MultipleExports verifies that multiple function
+// exports from a shim component are all wired correctly.
+func TestWireNestedComponentExports_MultipleExports(t *testing.T) {
+	shimComp := &Component{
+		Imports: []Import{
+			{Name: "import-fn-a", ExternDesc: ImportExternDesc{Kind: ImportExternDescFunc, TypeIdx: 0}},
+			{Name: "import-fn-b", ExternDesc: ImportExternDesc{Kind: ImportExternDescFunc, TypeIdx: 0}},
+		},
+		Types: []TypeDef{
+			{Kind: TypeDefKindFunc, Func: &FuncType{
+				Results: []NamedValType{{ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}},
+			}},
+		},
+		Exports: []Export{
+			{Name: "alpha", Kind: ExportKindFunc, Idx: 0},
+			{Name: "beta", Kind: ExportKindFunc, Idx: 1},
+		},
+	}
+
+	nestedInst := &Instance{
+		component: shimComp,
+		exports:   make(map[string]*ExportedFunc),
+	}
+
+	compInstDef := &ComponentInstance{
+		Kind: ComponentInstanceExprInstantiate,
+		Args: []ComponentInstantiateArg{
+			{Name: "import-fn-a", Sort: SortFunc, Idx: 10},
+			{Name: "import-fn-b", Sort: SortFunc, Idx: 11},
+		},
+	}
+
+	parentComp := &Component{
+		Types: []TypeDef{
+			{Kind: TypeDefKindFunc, Func: &FuncType{
+				Results: []NamedValType{{ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}},
+			}},
+		},
+		Canonicals: []CanonicalDef{
+			{Kind: CanonKindLift, ComponentFuncIdx: 10, CoreFuncIdx: 50, TypeIdx: 0},
+			{Kind: CanonKindLift, ComponentFuncIdx: 11, CoreFuncIdx: 51, TypeIdx: 0},
+		},
+		FuncIdxToCanonical: map[uint32]uint32{10: 0, 11: 1},
+		Aliases: []Alias{
+			{Kind: AliasKindCoreExport, CoreSort: CoreSortFunc, Idx: 50, InstanceIdx: 0, ExportName: "fn-a"},
+			{Kind: AliasKindCoreExport, CoreSort: CoreSortFunc, Idx: 51, InstanceIdx: 0, ExportName: "fn-b"},
+		},
+	}
+
+	mockModule := &mockModuleForExport{
+		exportedFuncs: map[string]api.Function{
+			"fn-a": &nestedMockFunction{callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) { return []uint64{10}, nil }},
+			"fn-b": &nestedMockFunction{callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) { return []uint64{20}, nil }},
+		},
+	}
+
+	parent := &Instance{
+		component:     parentComp,
+		coreInstances: []api.Module{mockModule},
+		exports:       make(map[string]*ExportedFunc),
+		componentFuncs: map[uint32]ComponentFunc{
+			10: {Type: parentComp.Types[0].Func},
+			11: {Type: parentComp.Types[0].Func},
+		},
+	}
+
+	funcSpace := NewCoreFuncIndexSpace()
+	funcSpace.AddAlias(50, 0, "fn-a")
+	funcSpace.AddAlias(51, 0, "fn-b")
+	memSpace := NewCoreMemoryIndexSpace()
+
+	l := &ComponentLinker{}
+
+	err := l.wireNestedComponentExports(parent, parentComp, nestedInst, compInstDef, funcSpace, memSpace)
+	if err != nil {
+		t.Fatalf("wireNestedComponentExports failed: %v", err)
+	}
+
+	// Verify both exports were wired
+	if nestedInst.exports["alpha"] == nil {
+		t.Fatal("expected 'alpha' export")
+	}
+	if nestedInst.exports["beta"] == nil {
+		t.Fatal("expected 'beta' export")
+	}
+
+	ctx := context.Background()
+
+	results, err := nestedInst.exports["alpha"].Call(ctx)
+	if err != nil {
+		t.Fatalf("alpha() failed: %v", err)
+	}
+	if results[0].S32() != 10 {
+		t.Errorf("alpha() = %d, want 10", results[0].S32())
+	}
+
+	results, err = nestedInst.exports["beta"].Call(ctx)
+	if err != nil {
+		t.Fatalf("beta() failed: %v", err)
+	}
+	if results[0].S32() != 20 {
+		t.Errorf("beta() = %d, want 20", results[0].S32())
+	}
+}
+
+// TestWireNestedComponentExports_NilComponent verifies that wireNestedComponentExports
+// handles a nil nested component gracefully.
+func TestWireNestedComponentExports_NilComponent(t *testing.T) {
+	nestedInst := &Instance{
+		component: nil, // No component
+		exports:   make(map[string]*ExportedFunc),
+	}
+
+	l := &ComponentLinker{}
+	err := l.wireNestedComponentExports(nil, nil, nestedInst, &ComponentInstance{}, nil, nil)
+	if err != nil {
+		t.Fatalf("should not error on nil component: %v", err)
+	}
+}
+
+// mockModuleForExport implements api.Module minimally for nested component tests.
+type mockModuleForExport struct {
+	internalapi.WazeroOnlyType
+	exportedFuncs map[string]api.Function
+}
+
+func (m *mockModuleForExport) ExportedFunction(name string) api.Function {
+	return m.exportedFuncs[name]
+}
+
+// Stub implementations for api.Module interface
+func (m *mockModuleForExport) Name() string                         { return "mock" }
+func (m *mockModuleForExport) Memory() api.Memory                   { return nil }
+func (m *mockModuleForExport) ExportedMemory(name string) api.Memory { return nil }
+func (m *mockModuleForExport) ExportedFunctionDefinitions() map[string]api.FunctionDefinition {
+	return nil
+}
+func (m *mockModuleForExport) ExportedGlobal(name string) api.Global               { return nil }
+func (m *mockModuleForExport) ExportedMemoryDefinitions() map[string]api.MemoryDefinition {
+	return nil
+}
+func (m *mockModuleForExport) CloseWithExitCode(ctx context.Context, exitCode uint32) error {
+	return nil
+}
+func (m *mockModuleForExport) Close(ctx context.Context) error    { return nil }
+func (m *mockModuleForExport) IsClosed() bool                     { return false }
+func (m *mockModuleForExport) NumericCustomSections() []api.CustomSection { return nil }
+func (m *mockModuleForExport) CustomSections() []api.CustomSection { return nil }
+func (m *mockModuleForExport) String() string                       { return "mock" }

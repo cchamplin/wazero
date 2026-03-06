@@ -21,7 +21,7 @@ wasm-tools component embed -w test-plugin ./wit core.wasm -o embedded.wasm
 
 # Step 3: Convert to component
 echo "Converting to component..."
-wasm-tools component new embedded.wasm -o component.wasm --adapt wasi_snapshot_preview1.reactor.wasm
+wasm-tools component new embedded.wasm -o component.wasm --adapt ../testdata/wasi_snapshot_preview1.reactor.wasm
 
 rm -f embedded.wasm
 echo "Built: component.wasm ($(stat -c%s component.wasm 2>/dev/null || stat -f%z component.wasm) bytes)"

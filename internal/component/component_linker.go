@@ -213,7 +213,27 @@ func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledCom
 		}
 	}
 
-	// Process nested component instances
+	// Instance imports occupy slots in the component instance index space.
+	// Add placeholder entries so that subsequent component instance indices
+	// are correctly aligned (e.g., if there are 19 imported instances,
+	// the first component instance should be at index 19, not 0).
+	for _, imp := range c.Imports {
+		if imp.ExternDesc.Kind == ImportExternDescInstance {
+			inst.AddInstanceToSpace(nil)
+		}
+	}
+
+	// Build component function index space from aliases and canon lift operations.
+	// This must happen before processing nested component instances, because
+	// resolveFromParentScope needs componentFuncs to be populated when resolving
+	// function arguments for nested component instantiation.
+	inst.componentFuncs = make(map[uint32]ComponentFunc)
+	l.buildComponentFuncs(inst, c, resolvedImports, instanceToImport)
+
+	// Process nested component instances.
+	// Track the mapping from instance-space index to component instance definition
+	// so we can wire shim exports later during export processing.
+	componentInstDefs := make(map[uint32]*ComponentInstance)
 	for i := range c.ComponentInstances {
 		compInst := &c.ComponentInstances[i]
 		if compInst.Kind == ComponentInstanceExprInstantiate {
@@ -221,15 +241,12 @@ func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledCom
 			if err != nil {
 				return nil, fmt.Errorf("component instance %d: %w", i, err)
 			}
-			inst.AddInstanceToSpace(nestedInst)
+			idx := inst.AddInstanceToSpace(nestedInst)
+			componentInstDefs[idx] = compInst
 		}
 		// Handle inline component instances if needed (future enhancement)
 		compInstanceIdx++
 	}
-
-	// Build component function index space from aliases and canon lift operations
-	inst.componentFuncs = make(map[uint32]ComponentFunc)
-	l.buildComponentFuncs(inst, c, resolvedImports, instanceToImport)
 
 	// Track canon lower operations by their resulting core function index.
 	// Each canon lower produces a core function that wraps a component function.
@@ -339,6 +356,14 @@ func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledCom
 			// Look up instance from instance index space
 			exportedInst := inst.GetInstanceFromSpace(exp.Idx)
 			if exportedInst != nil {
+				// If this instance came from a component instance (shim pattern),
+				// wire its exports by tracing through the shim's import/export
+				// mapping back to the parent's canon lifts.
+				if compInstDef, ok := componentInstDefs[exp.Idx]; ok {
+					if err := l.wireNestedComponentExports(inst, c, exportedInst, compInstDef, funcSpace, memSpace); err != nil {
+						return nil, fmt.Errorf("wire nested exports for %q: %w", exp.Name, err)
+					}
+				}
 				inst.AddExportedInstance(exp.Name, exportedInst)
 			}
 		}
@@ -1304,6 +1329,72 @@ func (l *ComponentLinker) wireExportedFunc(
 		reallocFunc:    reallocFunc,
 		postReturnFunc: postReturnFunc,
 	}, nil
+}
+
+// wireNestedComponentExports wires the exports of a nested component instance (shim pattern).
+// In the component model, interface exports are often wrapped in a shim component that
+// imports a canon-lifted function and re-exports it. This method traces through the shim's
+// import/export mapping to create proper ExportedFunc objects on the nested instance.
+func (l *ComponentLinker) wireNestedComponentExports(
+	parent *Instance, parentComp *Component,
+	nestedInst *Instance, compInstDef *ComponentInstance,
+	funcSpace *CoreFuncIndexSpace, memSpace *CoreMemoryIndexSpace,
+) error {
+	nestedComp := nestedInst.component
+	if nestedComp == nil {
+		return nil
+	}
+
+	// Build mapping: arg name → parent component function index
+	argToParentFunc := make(map[string]uint32)
+	for _, arg := range compInstDef.Args {
+		if arg.Sort == SortFunc {
+			argToParentFunc[arg.Name] = arg.Idx
+		}
+	}
+
+	// Build mapping: nested func index → import name
+	nestedFuncToImport := make(map[uint32]string)
+	funcIdx := uint32(0)
+	for _, imp := range nestedComp.Imports {
+		if imp.ExternDesc.Kind == ImportExternDescFunc {
+			nestedFuncToImport[funcIdx] = imp.Name
+			funcIdx++
+		}
+	}
+
+	// Wire each function export
+	for _, exp := range nestedComp.Exports {
+		if exp.Kind != ExportKindFunc {
+			continue
+		}
+
+		// Find which import provides this function
+		impName, ok := nestedFuncToImport[exp.Idx]
+		if !ok {
+			continue
+		}
+
+		// Find the parent component function index
+		parentFuncIdx, ok := argToParentFunc[impName]
+		if !ok {
+			continue
+		}
+
+		// Create ExportedFunc using the parent's canon lift for this function
+		syntheticExp := Export{
+			Name: exp.Name,
+			Kind: ExportKindFunc,
+			Idx:  parentFuncIdx,
+		}
+		exportedFunc, err := l.wireExportedFunc(parent, parentComp, &syntheticExp, funcSpace, memSpace)
+		if err != nil {
+			return fmt.Errorf("export %q: %w", exp.Name, err)
+		}
+		nestedInst.exports[exp.Name] = exportedFunc
+	}
+
+	return nil
 }
 
 func (l *ComponentLinker) resolveCoreFunc(inst *Instance, c *Component, funcIdx uint32, funcSpace *CoreFuncIndexSpace) (api.Function, error) {
