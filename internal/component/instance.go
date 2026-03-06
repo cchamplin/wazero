@@ -889,6 +889,234 @@ func (f *ExportedFunc) liftResolvedType(resolvedType types.ValType, coreResults 
 		}
 		return result, nil
 
+	case types.Enum:
+		if len(coreResults) < 1 {
+			return nil, fmt.Errorf("not enough core results for enum")
+		}
+		discriminant := int(coreResults[0])
+		if discriminant < 0 || discriminant >= len(t.Cases) {
+			return nil, fmt.Errorf("enum discriminant %d out of range (0..%d)", discriminant, len(t.Cases)-1)
+		}
+		if err := callCtx.ValidateReturn(); err != nil {
+			return nil, err
+		}
+		result := []Val{ValEnum(t.Cases[discriminant])}
+		if subtask != nil {
+			subtask.DeliverResolve(result)
+			subtask.StartFinish()
+			if err := subtask.Finish(); err != nil {
+				return nil, fmt.Errorf("subtask finish: %w", err)
+			}
+		}
+		return result, nil
+
+	case types.Flags:
+		numI32s := (len(t.Names) + 31) / 32
+		if len(t.Names) == 0 {
+			numI32s = 0
+		}
+		flagMap := make(map[string]bool)
+		if numI32s <= 1 && len(coreResults) >= 1 {
+			// Flat return (single i32)
+			bits := coreResults[0]
+			for i, name := range t.Names {
+				if bits&(1<<i) != 0 {
+					flagMap[name] = true
+				}
+			}
+		} else if len(coreResults) >= 1 && f.memory != nil {
+			// Retptr case
+			retptr := uint32(coreResults[0])
+			for i, name := range t.Names {
+				wordIdx := i / 32
+				bit := i % 32
+				word, ok := f.memory.ReadUint32Le(retptr + uint32(wordIdx*4))
+				if ok && word&(1<<bit) != 0 {
+					flagMap[name] = true
+				}
+			}
+		}
+		if err := callCtx.ValidateReturn(); err != nil {
+			return nil, err
+		}
+		result := []Val{ValFlags(flagMap)}
+		if subtask != nil {
+			subtask.DeliverResolve(result)
+			subtask.StartFinish()
+			if err := subtask.Finish(); err != nil {
+				return nil, fmt.Errorf("subtask finish: %w", err)
+			}
+		}
+		return result, nil
+
+	case types.Tuple:
+		flatCount := t.FlattenCount()
+		if flatCount <= 1 && len(coreResults) >= flatCount {
+			// Flat case: lift elements from core results
+			elems := make([]Val, len(t.Types))
+			idx := 0
+			for i, elemType := range t.Types {
+				if idx < len(coreResults) {
+					elems[i] = f.liftResolvedPrimitiveVal(coreResults[idx], elemType)
+					idx++
+				}
+			}
+			if err := callCtx.ValidateReturn(); err != nil {
+				return nil, err
+			}
+			result := []Val{ValTuple(elems)}
+			if subtask != nil {
+				subtask.DeliverResolve(result)
+				subtask.StartFinish()
+				if err := subtask.Finish(); err != nil {
+					return nil, fmt.Errorf("subtask finish: %w", err)
+				}
+			}
+			return result, nil
+		}
+		// Retptr case
+		if len(coreResults) >= 1 && f.memory != nil {
+			retptr := uint32(coreResults[0])
+			elems := make([]Val, len(t.Types))
+			offset := retptr
+			for i, elemType := range t.Types {
+				align := elemType.Align()
+				if offset%align != 0 {
+					offset += align - (offset % align)
+				}
+				val, size := f.liftFieldFromMemory(offset, elemType)
+				elems[i] = val
+				offset += size
+			}
+			if err := callCtx.ValidateReturn(); err != nil {
+				return nil, err
+			}
+			result := []Val{ValTuple(elems)}
+			if subtask != nil {
+				subtask.DeliverResolve(result)
+				subtask.StartFinish()
+				if err := subtask.Finish(); err != nil {
+					return nil, fmt.Errorf("subtask finish: %w", err)
+				}
+			}
+			return result, nil
+		}
+		return nil, fmt.Errorf("not enough core results for tuple")
+
+	case types.Variant:
+		if len(coreResults) < 1 {
+			return nil, fmt.Errorf("not enough core results for variant")
+		}
+		flatCount := t.FlattenCount()
+		if flatCount <= 1 || len(coreResults) >= flatCount {
+			// Flat case
+			discriminant := int(coreResults[0])
+			if discriminant < 0 || discriminant >= len(t.Cases) {
+				return nil, fmt.Errorf("variant discriminant %d out of range", discriminant)
+			}
+			c := t.Cases[discriminant]
+			var payload *Val
+			if c.Type != nil && len(coreResults) > 1 {
+				v := f.liftResolvedPrimitiveVal(coreResults[1], c.Type)
+				payload = &v
+			}
+			if err := callCtx.ValidateReturn(); err != nil {
+				return nil, err
+			}
+			result := []Val{ValVariant(c.Name, payload)}
+			if subtask != nil {
+				subtask.DeliverResolve(result)
+				subtask.StartFinish()
+				if err := subtask.Finish(); err != nil {
+					return nil, fmt.Errorf("subtask finish: %w", err)
+				}
+			}
+			return result, nil
+		}
+		// Retptr case
+		if f.memory != nil {
+			retptr := uint32(coreResults[0])
+			discSize := t.DiscriminantSize()
+			var discriminant int
+			switch discSize {
+			case 1:
+				b, ok := f.memory.ReadByteAt(retptr)
+				if !ok {
+					return nil, fmt.Errorf("failed to read variant discriminant")
+				}
+				discriminant = int(b)
+			case 2:
+				v, ok := f.memory.ReadUint16Le(retptr)
+				if !ok {
+					return nil, fmt.Errorf("failed to read variant discriminant")
+				}
+				discriminant = int(v)
+			default:
+				v, ok := f.memory.ReadUint32Le(retptr)
+				if !ok {
+					return nil, fmt.Errorf("failed to read variant discriminant")
+				}
+				discriminant = int(v)
+			}
+			if discriminant < 0 || discriminant >= len(t.Cases) {
+				return nil, fmt.Errorf("variant discriminant %d out of range", discriminant)
+			}
+			c := t.Cases[discriminant]
+			var payload *Val
+			if c.Type != nil {
+				payloadOffset := t.PayloadOffset()
+				v, _ := f.liftFieldFromMemory(retptr+payloadOffset, c.Type)
+				payload = &v
+			}
+			if err := callCtx.ValidateReturn(); err != nil {
+				return nil, err
+			}
+			result := []Val{ValVariant(c.Name, payload)}
+			if subtask != nil {
+				subtask.DeliverResolve(result)
+				subtask.StartFinish()
+				if err := subtask.Finish(); err != nil {
+					return nil, fmt.Errorf("subtask finish: %w", err)
+				}
+			}
+			return result, nil
+		}
+		return nil, fmt.Errorf("variant result requires memory for retptr lifting")
+
+	case types.List:
+		// Lists always use retptr (FlattenCount=2 > MAX_FLAT_RESULTS=1)
+		if len(coreResults) < 1 || f.memory == nil {
+			return nil, fmt.Errorf("list result requires memory")
+		}
+		retptr := uint32(coreResults[0])
+		ptr, ok := f.memory.ReadUint32Le(retptr)
+		if !ok {
+			return nil, fmt.Errorf("failed to read list ptr from memory")
+		}
+		length, ok := f.memory.ReadUint32Le(retptr + 4)
+		if !ok {
+			return nil, fmt.Errorf("failed to read list len from memory")
+		}
+		elems := make([]Val, length)
+		elemSize := t.Element.Size()
+		for i := uint32(0); i < length; i++ {
+			elemOffset := ptr + i*elemSize
+			val, _ := f.liftFieldFromMemory(elemOffset, t.Element)
+			elems[i] = val
+		}
+		if err := callCtx.ValidateReturn(); err != nil {
+			return nil, err
+		}
+		result := []Val{ValList(elems)}
+		if subtask != nil {
+			subtask.DeliverResolve(result)
+			subtask.StartFinish()
+			if err := subtask.Finish(); err != nil {
+				return nil, fmt.Errorf("subtask finish: %w", err)
+			}
+		}
+		return result, nil
+
 	default:
 		// For other types, fall back to legacy handling
 		return nil, fmt.Errorf("unsupported resolved type for lifting: %T", resolvedType)
