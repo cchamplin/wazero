@@ -4,6 +4,7 @@ package component
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"math"
 	"testing"
@@ -2140,5 +2141,187 @@ func TestInstance_ExportedInstances(t *testing.T) {
 	missing := inst.GetExportedInstance("not-found")
 	if missing != nil {
 		t.Error("non-existent export should return nil")
+	}
+}
+
+// TestLiftResolvedType_RecordRetptr tests lifting a record via retptr when
+// the flat count exceeds MAX_FLAT_RESULTS=1.
+func TestLiftResolvedType_RecordRetptr(t *testing.T) {
+	mem := &mockMemory{data: make([]byte, 1024)}
+
+	// Record {value: u32, ok: bool} has flat count 2 > MAX_FLAT_RESULTS=1.
+	// Core function returns a single retptr pointing to offset 100.
+	// Layout: value=42 (u32, 4 bytes at offset 100), ok=1 (bool, 1 byte at offset 104).
+	binary.LittleEndian.PutUint32(mem.data[100:], 42)
+	mem.data[104] = 1
+
+	f := &ExportedFunc{memory: mem}
+	recordType := types.Record{
+		Fields: []types.Field{
+			{Name: "value", Type: types.U32{}},
+			{Name: "ok", Type: types.Bool{}},
+		},
+	}
+
+	callCtx := NewCallContext()
+	results, err := f.liftResolvedType(recordType, []uint64{100}, nil, callCtx)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+
+	rec := results[0].Record()
+	require.Equal(t, uint32(42), rec["value"].U32())
+	require.True(t, rec["ok"].Bool())
+}
+
+// TestLiftResolvedType_RecordFlat tests lifting a single-field record via flat results.
+func TestLiftResolvedType_RecordFlat(t *testing.T) {
+	f := &ExportedFunc{}
+
+	// Single-field record {x: s32} has flat count 1 = MAX_FLAT_RESULTS.
+	recordType := types.Record{
+		Fields: []types.Field{
+			{Name: "x", Type: types.S32{}},
+		},
+	}
+
+	callCtx := NewCallContext()
+	results, err := f.liftResolvedType(recordType, []uint64{99}, nil, callCtx)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+
+	rec := results[0].Record()
+	require.Equal(t, int32(99), rec["x"].S32())
+}
+
+// TestLiftResolvedType_LargeRecordRetptr tests lifting a record with 4 u32 fields
+// via retptr (flat count 4 > MAX_FLAT_RESULTS=1).
+func TestLiftResolvedType_LargeRecordRetptr(t *testing.T) {
+	mem := &mockMemory{data: make([]byte, 1024)}
+
+	// Write 4 u32 values at offset 200: 10, 20, 30, 40
+	binary.LittleEndian.PutUint32(mem.data[200:], 10)
+	binary.LittleEndian.PutUint32(mem.data[204:], 20)
+	binary.LittleEndian.PutUint32(mem.data[208:], 30)
+	binary.LittleEndian.PutUint32(mem.data[212:], 40)
+
+	f := &ExportedFunc{memory: mem}
+	recordType := types.Record{
+		Fields: []types.Field{
+			{Name: "a", Type: types.U32{}},
+			{Name: "b", Type: types.U32{}},
+			{Name: "c", Type: types.U32{}},
+			{Name: "d", Type: types.U32{}},
+		},
+	}
+
+	callCtx := NewCallContext()
+	results, err := f.liftResolvedType(recordType, []uint64{200}, nil, callCtx)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+
+	rec := results[0].Record()
+	require.Equal(t, uint32(10), rec["a"].U32())
+	require.Equal(t, uint32(20), rec["b"].U32())
+	require.Equal(t, uint32(30), rec["c"].U32())
+	require.Equal(t, uint32(40), rec["d"].U32())
+}
+
+// TestLiftFieldFromMemory_AllPrimitiveTypes is a table-driven test for lifting
+// individual primitive types from memory.
+func TestLiftFieldFromMemory_AllPrimitiveTypes(t *testing.T) {
+	tests := []struct {
+		name     string
+		setup    func(mem *mockMemory, offset uint32)
+		offset   uint32
+		valType  types.ValType
+		check    func(t *testing.T, val Val)
+		wantSize uint32
+	}{
+		{
+			name: "bool_true",
+			setup: func(mem *mockMemory, offset uint32) {
+				mem.data[offset] = 1
+			},
+			offset:  0,
+			valType: types.Bool{},
+			check: func(t *testing.T, val Val) {
+				require.True(t, val.Bool())
+			},
+			wantSize: 1,
+		},
+		{
+			name: "bool_false",
+			setup: func(mem *mockMemory, offset uint32) {
+				mem.data[offset] = 0
+			},
+			offset:  1,
+			valType: types.Bool{},
+			check: func(t *testing.T, val Val) {
+				require.False(t, val.Bool())
+			},
+			wantSize: 1,
+		},
+		{
+			name: "u8",
+			setup: func(mem *mockMemory, offset uint32) {
+				mem.data[offset] = 200
+			},
+			offset:  10,
+			valType: types.U8{},
+			check: func(t *testing.T, val Val) {
+				require.Equal(t, uint8(200), val.U8())
+			},
+			wantSize: 1,
+		},
+		{
+			name: "s8",
+			setup: func(mem *mockMemory, offset uint32) {
+				mem.data[offset] = byte(256 - 42) // two's complement of -42
+			},
+			offset:  20,
+			valType: types.S8{},
+			check: func(t *testing.T, val Val) {
+				require.Equal(t, int8(-42), val.S8())
+			},
+			wantSize: 1,
+		},
+		{
+			name: "u32",
+			setup: func(mem *mockMemory, offset uint32) {
+				binary.LittleEndian.PutUint32(mem.data[offset:], 123456)
+			},
+			offset:  100,
+			valType: types.U32{},
+			check: func(t *testing.T, val Val) {
+				require.Equal(t, uint32(123456), val.U32())
+			},
+			wantSize: 4,
+		},
+		{
+			name: "s32",
+			setup: func(mem *mockMemory, offset uint32) {
+				v := int32(-999)
+				binary.LittleEndian.PutUint32(mem.data[offset:], uint32(v))
+			},
+			offset:  200,
+			valType: types.S32{},
+			check: func(t *testing.T, val Val) {
+				require.Equal(t, int32(-999), val.S32())
+			},
+			wantSize: 4,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mem := &mockMemory{data: make([]byte, 1024)}
+			tc.setup(mem, tc.offset)
+
+			f := &ExportedFunc{memory: mem}
+			val, size := f.liftFieldFromMemory(tc.offset, tc.valType)
+
+			require.Equal(t, tc.wantSize, size)
+			tc.check(t, val)
+		})
 	}
 }
