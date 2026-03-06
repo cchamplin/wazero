@@ -1,0 +1,24 @@
+package test:nested-types;
+
+interface types {
+    record item {
+        id: u32,
+        name: string,
+    }
+}
+
+interface store {
+    use types.{item};
+    get-item: func(id: u32) -> option<item>;
+}
+
+interface handler {
+    use types.{item};
+    lookup: func(id: u32) -> option<item>;
+    create: func(name: string) -> result<item, string>;
+}
+
+world nested-types-plugin {
+    import store;
+    export handler;
+}
