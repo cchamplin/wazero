@@ -9,9 +9,10 @@ import (
 
 // TypeResolver resolves ValTypeRef to concrete types.ValType.
 type TypeResolver struct {
-	component *Component
-	instance  *Instance // optional: used for type alias resolution via typeSpace
-	cache     map[uint32]types.ValType
+	component  *Component
+	instance   *Instance // optional: used for type alias resolution via typeSpace
+	cache      map[uint32]types.ValType
+	localTypes map[uint32]*TypeDef // optional: instance-local type context for cross-scope resolution
 }
 
 // NewTypeResolver creates a new TypeResolver for the given component.
@@ -82,9 +83,29 @@ func (r *TypeResolver) resolvePrimitive(opcode byte) (types.ValType, error) {
 	}
 }
 
+// withLocalTypes creates a new TypeResolver that resolves type indices using the
+// given local types map first, falling back to the component-level types.
+// This is used when resolving fields of a TypeDef whose internal ValTypeRef indices
+// reference a different type scope (e.g., an instance type's local types).
+func (r *TypeResolver) withLocalTypes(lt map[uint32]*TypeDef) *TypeResolver {
+	return &TypeResolver{
+		component:  r.component,
+		instance:   r.instance,
+		cache:      make(map[uint32]types.ValType),
+		localTypes: lt,
+	}
+}
+
 func (r *TypeResolver) resolveTypeIdx(idx uint32) (types.ValType, error) {
 	if cached, ok := r.cache[idx]; ok {
 		return cached, nil
+	}
+
+	// If we have local types (from a cross-instance TypeDef), resolve using those first
+	if r.localTypes != nil {
+		if td, ok := r.localTypes[idx]; ok {
+			return r.resolveDefinedType(td)
+		}
 	}
 
 	// Map from type index space to the compact Types array using TypeIdxToStoredIdx.
@@ -132,11 +153,19 @@ func (r *TypeResolver) resolveTypeIdx(idx uint32) (types.ValType, error) {
 }
 
 func (r *TypeResolver) resolveDefinedType(typeDef *TypeDef) (types.ValType, error) {
+	// If this TypeDef has SourceLocalTypes, its internal ValTypeRef indices are relative
+	// to a different type scope (the instance type where it was originally defined).
+	// Use a local-types-aware resolver for nested type references.
+	resolver := r
+	if typeDef.SourceLocalTypes != nil {
+		resolver = r.withLocalTypes(typeDef.SourceLocalTypes)
+	}
+
 	// Handle types stored in the Handle field (primitives, own, borrow)
 	if typeDef.Handle != nil {
 		if typeDef.Handle.IsPrimitive {
 			// Primitive type alias (e.g., filesize = u64)
-			return r.resolvePrimitive(typeDef.Handle.Primitive)
+			return resolver.resolvePrimitive(typeDef.Handle.Primitive)
 		}
 		if typeDef.Handle.IsOwn {
 			return types.Own{ResourceIdx: typeDef.Handle.TypeIdx}, nil
@@ -146,28 +175,28 @@ func (r *TypeResolver) resolveDefinedType(typeDef *TypeDef) (types.ValType, erro
 		}
 	}
 	if typeDef.Record != nil {
-		return r.resolveRecord(typeDef.Record)
+		return resolver.resolveRecord(typeDef.Record)
 	}
 	if typeDef.Variant != nil {
-		return r.resolveVariant(typeDef.Variant)
+		return resolver.resolveVariant(typeDef.Variant)
 	}
 	if typeDef.List != nil {
-		return r.resolveList(typeDef.List)
+		return resolver.resolveList(typeDef.List)
 	}
 	if typeDef.Option != nil {
-		return r.resolveOption(typeDef.Option)
+		return resolver.resolveOption(typeDef.Option)
 	}
 	if typeDef.Result != nil {
-		return r.resolveResult(typeDef.Result)
+		return resolver.resolveResult(typeDef.Result)
 	}
 	if typeDef.Tuple != nil {
-		return r.resolveTuple(typeDef.Tuple)
+		return resolver.resolveTuple(typeDef.Tuple)
 	}
 	if typeDef.Flags != nil {
-		return r.resolveFlags(typeDef.Flags)
+		return resolver.resolveFlags(typeDef.Flags)
 	}
 	if typeDef.Enum != nil {
-		return r.resolveEnum(typeDef.Enum)
+		return resolver.resolveEnum(typeDef.Enum)
 	}
 	return nil, fmt.Errorf("unhandled defined type")
 }

@@ -77,3 +77,9 @@ type EventData struct {
 	EventType Color
 	Metadata  wit_types.Option[[]uint8]
 }
+
+// A record containing a variant field.
+type TaggedShape struct {
+	Tag   string
+	Shape Shape
+}

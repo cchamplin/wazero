@@ -6,6 +6,7 @@
 package test_repro_host_ops
 
 import (
+	"github.com/bytecodealliance/wit-bindgen/wit_runtime"
 	"github.com/bytecodealliance/wit-bindgen/wit_types"
 	"runtime"
 	"unsafe"
@@ -15,6 +16,7 @@ import (
 type ProcessResult = test_repro_types.ProcessResult
 type Color = test_repro_types.Color
 type EventData = test_repro_types.EventData
+type TaggedShape = test_repro_types.TaggedShape
 
 //go:wasmimport test:repro/host-ops get-value
 func wasm_import_get_value() int32
@@ -79,5 +81,172 @@ func SendEvent(event test_repro_types.EventData) uint32 {
 	}
 	result := wasm_import_send_event(int32((event).EventType), option, option0, option1)
 	return uint32(result)
+
+}
+
+//go:wasmimport test:repro/host-ops get-color
+func wasm_import_get_color() int32
+
+func GetColor() test_repro_types.Color {
+
+	result := wasm_import_get_color()
+	return uint8(result)
+
+}
+
+//go:wasmimport test:repro/host-ops check-option
+func wasm_import_check_option(arg0 int32, arg1 int32) int32
+
+func CheckOption(val wit_types.Option[uint32]) uint32 {
+
+	var option int32
+	var option0 int32
+	switch val.Tag() {
+	case wit_types.OptionNone:
+
+		option = int32(0)
+		option0 = 0
+	case wit_types.OptionSome:
+		payload := val.Some()
+
+		option = int32(1)
+		option0 = int32(payload)
+	default:
+		panic("unreachable")
+	}
+	result := wasm_import_check_option(option, option0)
+	return uint32(result)
+
+}
+
+//go:wasmimport test:repro/host-ops get-event
+func wasm_import_get_event(arg0 uintptr)
+
+func GetEvent() test_repro_types.EventData {
+	pinner := &runtime.Pinner{}
+	defer pinner.Unpin()
+
+	returnArea := uintptr(wit_runtime.Allocate(pinner, (4 * 4), 4))
+	wasm_import_get_event(returnArea)
+	var option wit_types.Option[[]uint8]
+	switch uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 4))) {
+	case 0:
+
+		option = wit_types.None[[]uint8]()
+	case 1:
+		value := unsafe.Slice((*uint8)(unsafe.Pointer(uintptr(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), (2 * 4)))))), *(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), (3 * 4))))
+
+		option = wit_types.Some[[]uint8](value)
+	default:
+		panic("unreachable")
+	}
+	result := test_repro_types.EventData{uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 0)))), option}
+	return result
+
+}
+
+//go:wasmimport test:repro/host-ops check-opt-bytes
+func wasm_import_check_opt_bytes(arg0 int32, arg1 uintptr, arg2 uint32) int32
+
+func CheckOptBytes(data wit_types.Option[[]uint8]) uint32 {
+	pinner := &runtime.Pinner{}
+	defer pinner.Unpin()
+
+	var option int32
+	var option1 uintptr
+	var option2 uint32
+	switch data.Tag() {
+	case wit_types.OptionNone:
+
+		option = int32(0)
+		option1 = 0
+		option2 = 0
+	case wit_types.OptionSome:
+		payload := data.Some()
+		data0 := unsafe.Pointer(unsafe.SliceData(payload))
+		pinner.Pin(data0)
+
+		option = int32(1)
+		option1 = uintptr(data0)
+		option2 = uint32(len(payload))
+	default:
+		panic("unreachable")
+	}
+	result := wasm_import_check_opt_bytes(option, option1, option2)
+	return uint32(result)
+
+}
+
+//go:wasmimport test:repro/host-ops send-tagged-shape
+func wasm_import_send_tagged_shape(arg0 uintptr, arg1 uint32, arg2 int32, arg3 float64) int32
+
+func SendTaggedShape(ts test_repro_types.TaggedShape) uint32 {
+	pinner := &runtime.Pinner{}
+	defer pinner.Unpin()
+
+	utf8 := unsafe.Pointer(unsafe.StringData((ts).Tag))
+	pinner.Pin(utf8)
+	var variant int32
+	var variant0 float64
+	switch (ts).Shape.Tag() {
+	case test_repro_types.ShapeCircle:
+		payload := (ts).Shape.Circle()
+
+		variant = int32(0)
+		variant0 = payload
+
+	case test_repro_types.ShapeSquare:
+		payload := (ts).Shape.Square()
+
+		variant = int32(1)
+		variant0 = payload
+
+	case test_repro_types.ShapeNone:
+
+		variant = int32(2)
+		variant0 = 0
+
+	default:
+		panic("unreachable")
+	}
+	result := wasm_import_send_tagged_shape(uintptr(utf8), uint32(len((ts).Tag)), variant, variant0)
+	return uint32(result)
+
+}
+
+//go:wasmimport test:repro/host-ops send-events
+func wasm_import_send_events(arg0 uintptr, arg1 uint32) int32
+
+func SendEvents(events []test_repro_types.EventData) uint32 {
+	pinner := &runtime.Pinner{}
+	defer pinner.Unpin()
+
+	slice := events
+	length := uint32(len(slice))
+	result := wit_runtime.Allocate(pinner, uintptr(length*(4*4)), 4)
+	for index, element := range slice {
+		base := unsafe.Add(result, index*(4*4))
+		*(*int8)(unsafe.Add(unsafe.Pointer(base), 0)) = int8(int32((element).EventType))
+
+		switch (element).Metadata.Tag() {
+		case wit_types.OptionNone:
+			*(*int8)(unsafe.Add(unsafe.Pointer(base), 4)) = int8(int32(0))
+
+		case wit_types.OptionSome:
+			payload := (element).Metadata.Some()
+			*(*int8)(unsafe.Add(unsafe.Pointer(base), 4)) = int8(int32(1))
+			data := unsafe.Pointer(unsafe.SliceData(payload))
+			pinner.Pin(data)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(base), (3 * 4))) = uint32(uint32(len(payload)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(base), (2 * 4))) = uint32(uintptr(uintptr(data)))
+
+		default:
+			panic("unreachable")
+		}
+
+	}
+
+	result0 := wasm_import_send_events(uintptr(result), length)
+	return uint32(result0)
 
 }

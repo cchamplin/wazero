@@ -14,3 +14,4 @@ type Color = test_repro_types.Color
 type Permissions = test_repro_types.Permissions
 type Shape = test_repro_types.Shape
 type EventData = test_repro_types.EventData
+type TaggedShape = test_repro_types.TaggedShape

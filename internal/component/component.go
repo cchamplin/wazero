@@ -185,6 +185,7 @@ func (c *Component) ResolveTypeIdx(typeIdx uint32) *TypeDef {
 										}
 										if decl.Export.Name == alias.ExportName {
 											if td, ok := localTypes[decl.Export.Idx]; ok {
+												td.SourceLocalTypes = localTypes
 												return td
 											}
 										}
@@ -261,6 +262,12 @@ type TypeDef struct {
 	// Handle holds a handle type (own<T> or borrow<T>) definition.
 	// The ValTypeRef will have IsOwn or IsBorrow set with TypeIdx pointing to the resource.
 	Handle *ValTypeRef
+
+	// SourceLocalTypes holds the local type context from the instance type where this TypeDef
+	// was originally defined. This is needed when the TypeDef's internal ValTypeRef indices
+	// reference types in a different scope than where the TypeDef is being used (e.g., when
+	// a record type is imported via outer alias from another instance type).
+	SourceLocalTypes map[uint32]*TypeDef
 }
 
 // TypeDefKind identifies the kind of type definition.
@@ -343,7 +350,8 @@ type FuncType struct {
 type NamedValType struct {
 	Name         string
 	ValType      ValTypeRef
-	ResolvedType *TypeDef // Optional: resolved type definition when ValType is a type reference
+	ResolvedType *TypeDef            // Optional: resolved type definition when ValType is a type reference
+	LocalTypes   map[uint32]*TypeDef // Optional: local type context for resolving nested type references
 }
 
 // ValTypeRef is a reference to a value type.

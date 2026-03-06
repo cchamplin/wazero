@@ -9,6 +9,7 @@ import (
 	"wit_component/test_repro_types"
 )
 
+
 // Process calls the host import and returns its value in a record.
 func Process() test_repro_types.ProcessResult {
 	v := test_repro_host_ops.GetValue()
@@ -126,4 +127,34 @@ func MixedParams(name string, count uint32, flag bool) string {
 		return name + ":" + strconv.FormatUint(uint64(count), 10)
 	}
 	return name
+}
+
+// CallGetColor calls the host import get-color and returns the result.
+func CallGetColor() test_repro_types.Color {
+	return test_repro_host_ops.GetColor()
+}
+
+// CallCheckOption calls the host import check-option with the given option.
+func CallCheckOption(val wit_types.Option[uint32]) uint32 {
+	return test_repro_host_ops.CheckOption(val)
+}
+
+// CallGetEvent calls the host import get-event and returns the result.
+func CallGetEvent() test_repro_types.EventData {
+	return test_repro_host_ops.GetEvent()
+}
+
+// CallCheckOptBytes calls the host import check-opt-bytes with the given option.
+func CallCheckOptBytes(data wit_types.Option[[]uint8]) uint32 {
+	return test_repro_host_ops.CheckOptBytes(data)
+}
+
+// CallSendTaggedShape calls the host import send-tagged-shape with a record containing a variant.
+func CallSendTaggedShape(ts test_repro_types.TaggedShape) uint32 {
+	return test_repro_host_ops.SendTaggedShape(ts)
+}
+
+// CallSendEvents calls the host import send-events with a list of records.
+func CallSendEvents(events []test_repro_types.EventData) uint32 {
+	return test_repro_host_ops.SendEvents(events)
 }

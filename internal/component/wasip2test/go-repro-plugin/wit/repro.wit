@@ -34,11 +34,17 @@ interface types {
     event-type: color,
     metadata: option<list<u8>>,
   }
+
+  /// A record containing a variant field.
+  record tagged-shape {
+    tag: string,
+    shape: shape,
+  }
 }
 
 /// Host-provided function that the guest can call.
 interface host-ops {
-  use types.{process-result, color, event-data};
+  use types.{process-result, color, event-data, tagged-shape};
   get-value: func() -> u32;
   /// Takes a u64 param -- tests that canon lower produces i64 (not i32) in core ABI.
   get-random-len: func(len: u64) -> u64;
@@ -48,6 +54,18 @@ interface host-ops {
   /// Takes a record with option field -- tests that canon lift correctly
   /// handles option<list<u8>> inside a record parameter.
   send-event: func(event: event-data) -> u32;
+  /// Returns an enum -- tests lowering path for enums from host to guest.
+  get-color: func() -> color;
+  /// Takes an option<u32> -- tests option lifting with correct slot consumption.
+  check-option: func(val: option<u32>) -> u32;
+  /// Returns a record -- tests retptr path for composite host import returns.
+  get-event: func() -> event-data;
+  /// Takes option<list<u8>> as standalone param -- tests nested type lifting.
+  check-opt-bytes: func(data: option<list<u8>>) -> u32;
+  /// Takes a record containing a variant -- tests nested variant in record lifting.
+  send-tagged-shape: func(ts: tagged-shape) -> u32;
+  /// Takes a list of records -- tests list<record> lifting.
+  send-events: func(events: list<event-data>) -> u32;
 }
 
 /// Separate RNG interface mirroring director's host-rng.
@@ -57,7 +75,7 @@ interface host-rng {
 
 /// Guest-exported handler interface.
 interface handler {
-  use types.{process-result, color, permissions, shape, event-data};
+  use types.{process-result, color, permissions, shape, event-data, tagged-shape};
   process: func() -> process-result;
   process-random: func(len: u64) -> u64;
   process-random-bytes: func(count: u32) -> list<u8>;
@@ -91,6 +109,16 @@ interface handler {
   add-three: func(a: u32, b: u32, c: u32) -> u32;
   concat-strings: func(a: string, b: string) -> string;
   mixed-params: func(name: string, count: u32, flag: bool) -> string;
+
+  /// Host import test wrappers
+  call-get-color: func() -> color;
+  call-check-option: func(val: option<u32>) -> u32;
+  call-get-event: func() -> event-data;
+  call-check-opt-bytes: func(data: option<list<u8>>) -> u32;
+  /// Calls host-ops.send-tagged-shape -- tests record-with-variant param lifting.
+  call-send-tagged-shape: func(ts: tagged-shape) -> u32;
+  /// Calls host-ops.send-events -- tests list<record> param lifting.
+  call-send-events: func(events: list<event-data>) -> u32;
 }
 
 world test-plugin {

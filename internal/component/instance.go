@@ -1184,8 +1184,9 @@ func (f *ExportedFunc) liftResolvedPrimitiveVal(coreVal uint64, valType types.Va
 // liftFieldFromMemory reads a typed value from linear memory at the given offset.
 // Returns the lifted Val and the number of bytes consumed (for advancing the offset).
 func (f *ExportedFunc) liftFieldFromMemory(offset uint32, valType types.ValType) (Val, uint32) {
-	switch valType.(type) {
+	switch t := valType.(type) {
 	case types.Bool:
+		_ = t
 		b, ok := f.memory.ReadByteAt(offset)
 		if !ok {
 			return ValBool(false), 1
@@ -1275,6 +1276,65 @@ func (f *ExportedFunc) liftFieldFromMemory(offset uint32, valType types.ValType)
 			return ValString(""), 8
 		}
 		return ValString(string(data)), 8
+	case types.Enum:
+		v, ok := f.memory.ReadUint32Le(offset)
+		if !ok {
+			return ValEnum(""), 4
+		}
+		idx := int(v)
+		if idx >= 0 && idx < len(t.Cases) {
+			return ValEnum(t.Cases[idx]), 4
+		}
+		return ValEnum(""), 4
+	case types.Flags:
+		v, ok := f.memory.ReadUint32Le(offset)
+		if !ok {
+			return ValFlags(nil), 4
+		}
+		flagMap := make(map[string]bool)
+		for i, name := range t.Names {
+			flagMap[name] = (v & (1 << uint(i))) != 0
+		}
+		return ValFlags(flagMap), 4
+	case types.Option:
+		disc, ok := f.memory.ReadUint32Le(offset)
+		if !ok {
+			return ValOption(nil), 4
+		}
+		innerSize := t.Some.Size()
+		if disc == 0 {
+			return ValOption(nil), 4 + innerSize
+		}
+		val, _ := f.liftFieldFromMemory(offset+4, t.Some)
+		return ValOption(&val), 4 + innerSize
+	case types.List:
+		ptr, ok := f.memory.ReadUint32Le(offset)
+		if !ok {
+			return ValList(nil), 8
+		}
+		length, ok := f.memory.ReadUint32Le(offset + 4)
+		if !ok {
+			return ValList(nil), 8
+		}
+		if length == 0 {
+			return ValList(nil), 8
+		}
+		elemSize := t.Element.Size()
+		vals := make([]Val, length)
+		for i := uint32(0); i < length; i++ {
+			val, _ := f.liftFieldFromMemory(ptr+i*elemSize, t.Element)
+			vals[i] = val
+		}
+		return ValList(vals), 8
+	case types.Record:
+		rec := make(map[string]Val)
+		totalSize := uint32(0)
+		for _, field := range t.Fields {
+			val, size := f.liftFieldFromMemory(offset+totalSize, field.Type)
+			rec[field.Name] = val
+			totalSize += size
+		}
+		return ValRecord(rec), totalSize
 	default:
 		// Fallback: read as u32
 		v, ok := f.memory.ReadUint32Le(offset)
@@ -1791,6 +1851,26 @@ func (f *ExportedFunc) lowerStringParam(ctx context.Context, s string) ([]uint64
 	return []uint64{uint64(ptr), uint64(length)}, nil
 }
 
+// allocate allocates memory using the realloc function.
+func (f *ExportedFunc) allocate(ctx context.Context, size, align uint32) (uint32, error) {
+	if f.reallocFunc == nil {
+		return 0, fmt.Errorf("memory allocation requires realloc function")
+	}
+	results, err := f.reallocFunc.Call(ctx, 0, 0, uint64(align), uint64(size))
+	if err != nil {
+		return 0, fmt.Errorf("realloc failed: %w", err)
+	}
+	return uint32(results[0]), nil
+}
+
+// alignTo32 rounds up offset to the given alignment.
+func alignTo32(offset, align uint32) uint32 {
+	if align == 0 {
+		return offset
+	}
+	return (offset + align - 1) &^ (align - 1)
+}
+
 // lowerToMemory writes a val to linear memory at the given offset using the type information.
 // Used for list elements and other cases where values must be stored in memory.
 func (f *ExportedFunc) lowerToMemory(ctx context.Context, val Val, typ types.ValType, offset uint32) error {
@@ -1896,6 +1976,60 @@ func (f *ExportedFunc) lowerToMemory(ctx context.Context, val Val, typ types.Val
 			}
 		}
 		return fmt.Errorf("unknown enum case %q", caseName)
+	case types.Option:
+		opt := val.Option()
+		if opt == nil {
+			// None: write discriminant 0
+			if !f.memory.WriteByteAt(offset, 0) {
+				return fmt.Errorf("failed to write option discriminant at offset %d", offset)
+			}
+		} else {
+			// Some: write discriminant 1 + payload
+			if !f.memory.WriteByteAt(offset, 1) {
+				return fmt.Errorf("failed to write option discriminant at offset %d", offset)
+			}
+			if t.Some != nil {
+				// Compute payload offset: discriminant (1 byte) aligned to payload alignment
+				payloadAlign := t.Some.Align()
+				payloadOffset := offset + alignTo32(1, payloadAlign)
+				if err := f.lowerToMemory(ctx, *opt, t.Some, payloadOffset); err != nil {
+					return fmt.Errorf("lower option payload to memory: %w", err)
+				}
+			}
+		}
+	case types.List:
+		list := val.List()
+		if len(list) == 0 {
+			// Empty list: write ptr=0, len=0
+			if !f.memory.WriteUint32Le(offset, 0) {
+				return fmt.Errorf("failed to write list ptr at offset %d", offset)
+			}
+			if !f.memory.WriteUint32Le(offset+4, 0) {
+				return fmt.Errorf("failed to write list len at offset %d", offset)
+			}
+		} else {
+			elemSize := t.ElementSize()
+			totalSize := uint32(len(list)) * elemSize
+			// Allocate memory for list elements
+			listPtr, err := f.allocate(ctx, totalSize, t.ElementAlign())
+			if err != nil {
+				return fmt.Errorf("allocate list memory: %w", err)
+			}
+			// Write each element
+			for i, elem := range list {
+				elemOffset := listPtr + uint32(i)*elemSize
+				if err := f.lowerToMemory(ctx, elem, t.Element, elemOffset); err != nil {
+					return fmt.Errorf("lower list element %d to memory: %w", i, err)
+				}
+			}
+			// Write ptr and len
+			if !f.memory.WriteUint32Le(offset, listPtr) {
+				return fmt.Errorf("failed to write list ptr at offset %d", offset)
+			}
+			if !f.memory.WriteUint32Le(offset+4, uint32(len(list))) {
+				return fmt.Errorf("failed to write list len at offset %d", offset)
+			}
+		}
 	default:
 		// Fallback: use writeListElement for kind-based writing
 		return writeListElement(f.memory, offset, val)
