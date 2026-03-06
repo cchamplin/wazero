@@ -13,3 +13,4 @@ type ProcessResult = test_repro_types.ProcessResult
 type Color = test_repro_types.Color
 type Permissions = test_repro_types.Permissions
 type Shape = test_repro_types.Shape
+type EventData = test_repro_types.EventData

@@ -30,6 +30,16 @@ func ProcessRandomBytes(count uint32) []uint8 {
 	return test_repro_host_rng.GetRandomBytes(count)
 }
 
+// CallSendEnum calls the host import send-enum with an enum + string.
+func CallSendEnum(c test_repro_types.Color, msg string) uint32 {
+	return test_repro_host_ops.SendEnum(c, msg)
+}
+
+// CallSendEvent calls the host import send-event with a record containing option.
+func CallSendEvent(event test_repro_types.EventData) uint32 {
+	return test_repro_host_ops.SendEvent(event)
+}
+
 // EchoString returns the input string as-is.
 func EchoString(input string) string {
 	return input

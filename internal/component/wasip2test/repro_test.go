@@ -82,6 +82,14 @@ func newReproInstance(t *testing.T) (*component.Instance, context.Context, func(
 			// Echo back the u64 input
 			return []component.Val{component.ValU64(args[0].U64())}, nil
 		}).
+		FuncNoType("send-enum", func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+			// Receive enum + string, return 1 to confirm receipt
+			return []component.Val{component.ValU32(1)}, nil
+		}).
+		FuncNoType("send-event", func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+			// Receive event-data record, return 1 to confirm receipt
+			return []component.Val{component.ValU32(1)}, nil
+		}).
 		SkipValidation().
 		Build()
 	if err != nil {
@@ -911,4 +919,96 @@ func TestMixedParams(t *testing.T) {
 		t.Errorf("mixed-params(\"alice\", 42, false) = %q, want %q", got, "alice")
 	}
 	t.Logf("mixed-params(\"alice\", 42, false) = %q", got)
+}
+
+// --- Host import parameter lifting tests ---
+
+// TestRepro_HostImportEnumParam reproduces the "Val is not an enum" bug.
+// When a guest calls a host import that takes an enum parameter, canon lift
+// must correctly lift the i32 value from the guest's core ABI into a Val
+// with enum kind before passing it to the host callback.
+func TestRepro_HostImportEnumParam(t *testing.T) {
+	instance, testCtx, cleanup := newReproInstance(t)
+	defer cleanup()
+
+	handlerInst := instance.GetExportedInstance("test:repro/handler")
+	if handlerInst == nil {
+		t.Fatal("handler instance not found")
+	}
+	fn := handlerInst.ExportedFunction("call-send-enum")
+	if fn == nil {
+		t.Fatal("call-send-enum function not found")
+	}
+
+	// The guest will call host-ops.send-enum(color.green, "hello")
+	// which takes an enum + string. The host mock returns 1.
+	results, err := fn.Call(testCtx, component.ValEnum("green"), component.ValString("hello"))
+	if err != nil {
+		t.Fatalf("call-send-enum(green, \"hello\") failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	got := results[0].U32()
+	if got != 1 {
+		t.Errorf("call-send-enum() = %d, want 1", got)
+	}
+	t.Logf("call-send-enum(green, \"hello\") = %d", got)
+}
+
+// TestRepro_HostImportRecordWithOption reproduces the nil bool panic when
+// a guest calls a host import with a record parameter containing an
+// option<list<u8>> field. Canon lift must correctly handle the option
+// discriminant and payload when lifting the record from the guest's
+// linear memory into a Val before passing it to the host callback.
+func TestRepro_HostImportRecordWithOption(t *testing.T) {
+	instance, testCtx, cleanup := newReproInstance(t)
+	defer cleanup()
+
+	handlerInst := instance.GetExportedInstance("test:repro/handler")
+	if handlerInst == nil {
+		t.Fatal("handler instance not found")
+	}
+	fn := handlerInst.ExportedFunction("call-send-event")
+	if fn == nil {
+		t.Fatal("call-send-event function not found")
+	}
+
+	// Build an event-data record: {event-type: red, metadata: some([1,2,3])}
+	metadata := component.ValList([]component.Val{
+		component.ValU8(1), component.ValU8(2), component.ValU8(3),
+	})
+	eventRecord := component.ValRecord(map[string]component.Val{
+		"event-type": component.ValEnum("red"),
+		"metadata":   component.ValOption(&metadata),
+	})
+
+	results, err := fn.Call(testCtx, eventRecord)
+	if err != nil {
+		t.Fatalf("call-send-event({red, some([1,2,3])}) failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	got := results[0].U32()
+	if got != 1 {
+		t.Errorf("call-send-event() = %d, want 1", got)
+	}
+	t.Logf("call-send-event({red, some([1,2,3])}) = %d", got)
+
+	// Also test with metadata: none
+	eventRecordNone := component.ValRecord(map[string]component.Val{
+		"event-type": component.ValEnum("blue"),
+		"metadata":   component.ValOption(nil),
+	})
+
+	results, err = fn.Call(testCtx, eventRecordNone)
+	if err != nil {
+		t.Fatalf("call-send-event({blue, none}) failed: %v", err)
+	}
+	got = results[0].U32()
+	if got != 1 {
+		t.Errorf("call-send-event() = %d, want 1", got)
+	}
+	t.Logf("call-send-event({blue, none}) = %d", got)
 }

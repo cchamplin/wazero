@@ -28,14 +28,26 @@ interface types {
     square(f64),
     none,
   }
+
+  /// A record with an option field, mirroring director's session-event.
+  record event-data {
+    event-type: color,
+    metadata: option<list<u8>>,
+  }
 }
 
 /// Host-provided function that the guest can call.
 interface host-ops {
-  use types.{process-result};
+  use types.{process-result, color, event-data};
   get-value: func() -> u32;
   /// Takes a u64 param -- tests that canon lower produces i64 (not i32) in core ABI.
   get-random-len: func(len: u64) -> u64;
+  /// Takes an enum param -- tests that canon lift correctly lifts enum args
+  /// from guest memory when calling host imports.
+  send-enum: func(c: color, msg: string) -> u32;
+  /// Takes a record with option field -- tests that canon lift correctly
+  /// handles option<list<u8>> inside a record parameter.
+  send-event: func(event: event-data) -> u32;
 }
 
 /// Separate RNG interface mirroring director's host-rng.
@@ -45,11 +57,16 @@ interface host-rng {
 
 /// Guest-exported handler interface.
 interface handler {
-  use types.{process-result, color, permissions, shape};
+  use types.{process-result, color, permissions, shape, event-data};
   process: func() -> process-result;
   process-random: func(len: u64) -> u64;
   process-random-bytes: func(count: u32) -> list<u8>;
   echo-string: func(input: string) -> string;
+
+  /// Calls host-ops.send-enum -- tests enum param lifting in host imports.
+  call-send-enum: func(c: color, msg: string) -> u32;
+  /// Calls host-ops.send-event -- tests record-with-option param lifting.
+  call-send-event: func(event: event-data) -> u32;
 
   /// Primitive echo functions
   echo-bool: func(input: bool) -> bool;

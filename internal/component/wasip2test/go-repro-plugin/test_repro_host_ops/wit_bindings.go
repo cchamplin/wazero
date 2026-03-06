@@ -6,10 +6,15 @@
 package test_repro_host_ops
 
 import (
+	"github.com/bytecodealliance/wit-bindgen/wit_types"
+	"runtime"
+	"unsafe"
 	"wit_component/test_repro_types"
 )
 
 type ProcessResult = test_repro_types.ProcessResult
+type Color = test_repro_types.Color
+type EventData = test_repro_types.EventData
 
 //go:wasmimport test:repro/host-ops get-value
 func wasm_import_get_value() int32
@@ -28,5 +33,51 @@ func GetRandomLen(len uint64) uint64 {
 
 	result := wasm_import_get_random_len(int64(len))
 	return uint64(result)
+
+}
+
+//go:wasmimport test:repro/host-ops send-enum
+func wasm_import_send_enum(arg0 int32, arg1 uintptr, arg2 uint32) int32
+
+func SendEnum(c test_repro_types.Color, msg string) uint32 {
+	pinner := &runtime.Pinner{}
+	defer pinner.Unpin()
+
+	utf8 := unsafe.Pointer(unsafe.StringData(msg))
+	pinner.Pin(utf8)
+	result := wasm_import_send_enum(int32(c), uintptr(utf8), uint32(len(msg)))
+	return uint32(result)
+
+}
+
+//go:wasmimport test:repro/host-ops send-event
+func wasm_import_send_event(arg0 int32, arg1 int32, arg2 uintptr, arg3 uint32) int32
+
+func SendEvent(event test_repro_types.EventData) uint32 {
+	pinner := &runtime.Pinner{}
+	defer pinner.Unpin()
+
+	var option int32
+	var option0 uintptr
+	var option1 uint32
+	switch (event).Metadata.Tag() {
+	case wit_types.OptionNone:
+
+		option = int32(0)
+		option0 = 0
+		option1 = 0
+	case wit_types.OptionSome:
+		payload := (event).Metadata.Some()
+		data := unsafe.Pointer(unsafe.SliceData(payload))
+		pinner.Pin(data)
+
+		option = int32(1)
+		option0 = uintptr(data)
+		option1 = uint32(len(payload))
+	default:
+		panic("unreachable")
+	}
+	result := wasm_import_send_event(int32((event).EventType), option, option0, option1)
+	return uint32(result)
 
 }

@@ -5,7 +5,9 @@
 
 package test_repro_types
 
-import ()
+import (
+	"github.com/bytecodealliance/wit-bindgen/wit_types"
+)
 
 // A result record returned from handler exports.
 type ProcessResult struct {
@@ -68,4 +70,10 @@ func MakeShapeSquare(value float64) Shape {
 }
 func MakeShapeNone() Shape {
 	return Shape{ShapeNone, nil}
+}
+
+// A record with an option field, mirroring director's session-event.
+type EventData struct {
+	EventType Color
+	Metadata  wit_types.Option[[]uint8]
 }

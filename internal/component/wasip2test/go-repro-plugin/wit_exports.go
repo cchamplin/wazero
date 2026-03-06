@@ -80,6 +80,37 @@ func wasm_export_post_return_test_repro_handler_echo_string(result uintptr) {
 	syncExportPinner.Unpin()
 }
 
+//go:wasmexport test:repro/handler#call-send-enum
+func wasm_export_test_repro_handler_call_send_enum(arg0 int32, arg1 uintptr, arg2 uint32) int32 {
+
+	value := unsafe.String((*uint8)(unsafe.Pointer(arg1)), arg2)
+	wit_runtime.Unpin()
+	result := export_test_repro_handler.CallSendEnum(uint8(arg0), value)
+	return int32(result)
+
+}
+
+//go:wasmexport test:repro/handler#call-send-event
+func wasm_export_test_repro_handler_call_send_event(arg0 int32, arg1 int32, arg2 uintptr, arg3 uint32) int32 {
+
+	var option wit_types.Option[[]uint8]
+	switch arg1 {
+	case 0:
+
+		option = wit_types.None[[]uint8]()
+	case 1:
+		value := unsafe.Slice((*uint8)(unsafe.Pointer(arg2)), arg3)
+
+		option = wit_types.Some[[]uint8](value)
+	default:
+		panic("unreachable")
+	}
+	wit_runtime.Unpin()
+	result := export_test_repro_handler.CallSendEvent(test_repro_types.EventData{uint8(arg0), option})
+	return int32(result)
+
+}
+
 //go:wasmexport test:repro/handler#echo-bool
 func wasm_export_test_repro_handler_echo_bool(arg0 int32) int32 {
 
