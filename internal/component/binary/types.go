@@ -446,9 +446,9 @@ func decodeListTypeDef(r *bytes.Reader) (*ListTypeDef, error) {
 }
 
 // decodeVariantTypeDef reads a variant type definition from the reader.
-// Format: 0x71 <case_count> (<name> <refines_flag> [<refines_idx>] <type_flag> [<type>])*
-// Note: refines_flag 0x00 = no refines, 0x01 = has refines index
+// Format: 0x71 <case_count> (<name> <type_flag> [<type>] <refines_flag> [<refines_idx>])*
 // Note: type_flag 0x00 = no type (discriminant only), 0x01 = has type
+// Note: refines_flag 0x00 = no refines, 0x01 = has refines index
 func decodeVariantTypeDef(r *bytes.Reader) (*VariantTypeDef, error) {
 	caseCount, _, err := leb128.DecodeUint32(r)
 	if err != nil {
@@ -467,24 +467,7 @@ func decodeVariantTypeDef(r *bytes.Reader) (*VariantTypeDef, error) {
 			return nil, fmt.Errorf("read case %d name: %w", i, err)
 		}
 
-		// Read refines flag
-		refinesFlag, err := r.ReadByte()
-		if err != nil {
-			return nil, fmt.Errorf("read case %d refines flag: %w", i, err)
-		}
-
-		var refines *uint32
-		if refinesFlag == 0x01 {
-			refinesIdx, _, err := leb128.DecodeUint32(r)
-			if err != nil {
-				return nil, fmt.Errorf("read case %d refines index: %w", i, err)
-			}
-			refines = &refinesIdx
-		} else if refinesFlag != 0x00 {
-			return nil, fmt.Errorf("invalid refines flag for case %d: 0x%02x", i, refinesFlag)
-		}
-
-		// Read type flag
+		// Read type flag (comes BEFORE refines per spec)
 		typeFlag, err := r.ReadByte()
 		if err != nil {
 			return nil, fmt.Errorf("read case %d type flag: %w", i, err)
@@ -499,6 +482,23 @@ func decodeVariantTypeDef(r *bytes.Reader) (*VariantTypeDef, error) {
 			valTypeRef = &vt
 		} else if typeFlag != 0x00 {
 			return nil, fmt.Errorf("invalid type flag for case %d: 0x%02x", i, typeFlag)
+		}
+
+		// Read refines flag (comes AFTER type per spec)
+		refinesFlag, err := r.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("read case %d refines flag: %w", i, err)
+		}
+
+		var refines *uint32
+		if refinesFlag == 0x01 {
+			refinesIdx, _, err := leb128.DecodeUint32(r)
+			if err != nil {
+				return nil, fmt.Errorf("read case %d refines index: %w", i, err)
+			}
+			refines = &refinesIdx
+		} else if refinesFlag != 0x00 {
+			return nil, fmt.Errorf("invalid refines flag for case %d: 0x%02x", i, refinesFlag)
 		}
 
 		cases[i] = VariantCase{

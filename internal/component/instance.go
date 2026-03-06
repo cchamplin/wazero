@@ -227,9 +227,14 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 
 	// === RETPTR ALLOCATION ===
 	// Per Canonical ABI: when a function's result type has FlattenCount > MAX_FLAT_RESULTS (1),
-	// the caller must allocate space via realloc and pass a retptr as an additional core param.
+	// the caller allocates space via realloc and passes a retptr as the last core param.
 	// The callee writes the result into memory at that pointer, and returns void.
 	// After the call, we synthesize coreResults = [retptr] so the lifting code can read from memory.
+	//
+	// However, some toolchains (e.g., Go/TinyGo) produce core functions that instead return the
+	// retptr as an i32 result (without accepting it as a param). We detect this by comparing the
+	// core function's expected param count: if it equals len(coreParams)+1, we pass a retptr;
+	// otherwise we assume the core function returns the retptr as its result.
 	var retptrVal uint64
 	usedRetptr := false
 	if f.funcType != nil && len(f.funcType.Results) == 1 && f.reallocFunc != nil && f.memory != nil {
@@ -240,15 +245,24 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 			if resolveErr == nil {
 				flatCount := resolvedType.FlattenCount()
 				if flatCount > 1 {
-					retptrSize := resolvedType.Size()
-					retptrAlign := resolvedType.Align()
-					retptrResults, retptrErr := f.reallocFunc.Call(ctx, 0, 0, uint64(retptrAlign), uint64(retptrSize))
-					if retptrErr != nil {
-						return nil, fmt.Errorf("realloc for retptr failed: %w", retptrErr)
+					// Check if the core function expects a retptr param
+					// by comparing expected params vs what we've lowered so far.
+					// Standard ABI: retptr is the last param, core function returns void.
+					// Some toolchains (Go): core function returns retptr as i32, no extra param.
+					expectedParams := len(f.coreFunc.Definition().ParamTypes())
+					needsRetptrParam := expectedParams > len(coreParams)
+
+					if needsRetptrParam {
+						retptrSize := resolvedType.Size()
+						retptrAlign := resolvedType.Align()
+						retptrResults, retptrErr := f.reallocFunc.Call(ctx, 0, 0, uint64(retptrAlign), uint64(retptrSize))
+						if retptrErr != nil {
+							return nil, fmt.Errorf("realloc for retptr failed: %w", retptrErr)
+						}
+						retptrVal = retptrResults[0]
+						coreParams = append(coreParams, retptrVal)
+						usedRetptr = true
 					}
-					retptrVal = retptrResults[0]
-					coreParams = append(coreParams, retptrVal)
-					usedRetptr = true
 				}
 			}
 		}
@@ -260,7 +274,7 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 		return nil, err
 	}
 
-	// If retptr was used, the core function returns void (no results).
+	// If retptr was used (standard ABI), the core function returns void.
 	// Synthesize coreResults = [retptr] so the lifting code reads from memory.
 	if usedRetptr && len(coreResults) == 0 {
 		coreResults = []uint64{retptrVal}
@@ -794,6 +808,14 @@ func (f *ExportedFunc) liftResolvedType(resolvedType types.ValType, coreResults 
 		return result, nil
 
 	case types.Result:
+		// Result type: discriminant (i32) + payload
+		// When FlattenCount > MAX_FLAT_RESULTS (1), the result is stored in linear memory
+		// at a retptr. When flattened, discriminant is coreResults[0] and payload follows.
+		if len(coreResults) == 1 && t.FlattenCount() > 1 && f.memory != nil {
+			// Retptr case: read from memory
+			retptr := uint32(coreResults[0])
+			return f.liftResultFromMemory(t, retptr, subtask, callCtx)
+		}
 		if len(coreResults) < 2 {
 			return nil, fmt.Errorf("not enough core results for result: have %d, need 2", len(coreResults))
 		}
@@ -1235,6 +1257,24 @@ func (f *ExportedFunc) liftFieldFromMemory(offset uint32, valType types.ValType)
 			return ValChar(0), 4
 		}
 		return ValChar(rune(v)), 4
+	case types.String:
+		// String in memory: (ptr: i32, len: i32) = 8 bytes
+		ptr, ok := f.memory.ReadUint32Le(offset)
+		if !ok {
+			return ValString(""), 8
+		}
+		length, ok := f.memory.ReadUint32Le(offset + 4)
+		if !ok {
+			return ValString(""), 8
+		}
+		if length == 0 {
+			return ValString(""), 8
+		}
+		data, ok := f.memory.Read(ptr, length)
+		if !ok {
+			return ValString(""), 8
+		}
+		return ValString(string(data)), 8
 	default:
 		// Fallback: read as u32
 		v, ok := f.memory.ReadUint32Le(offset)
@@ -1243,6 +1283,100 @@ func (f *ExportedFunc) liftFieldFromMemory(offset uint32, valType types.ValType)
 		}
 		return ValU32(v), 4
 	}
+}
+
+// liftResultFromMemory reads a result type from linear memory at the given retptr.
+// The memory layout is: discriminant (i32) at offset 0, payload at aligned offset.
+func (f *ExportedFunc) liftResultFromMemory(t types.Result, retptr uint32, subtask *Subtask, callCtx *CallContext) ([]Val, error) {
+	if f.memory == nil {
+		return nil, fmt.Errorf("result lifting from memory requires memory")
+	}
+
+	// Read discriminant (always a u32/i32 at offset 0)
+	discriminant, ok := f.memory.ReadUint32Le(retptr)
+	if !ok {
+		return nil, fmt.Errorf("failed to read result discriminant from memory at offset %d", retptr)
+	}
+
+	// Calculate payload offset: aligned to max case alignment
+	// Per Canonical ABI: payload starts after discriminant, aligned to max payload alignment
+	maxAlign := uint32(1)
+	if t.Ok != nil {
+		if a := t.Ok.Align(); a > maxAlign {
+			maxAlign = a
+		}
+	}
+	if t.Error != nil {
+		if a := t.Error.Align(); a > maxAlign {
+			maxAlign = a
+		}
+	}
+	payloadOffset := alignTo(retptr+4, maxAlign)
+
+	if discriminant == 0 {
+		// Ok case
+		if t.Ok != nil {
+			payload, _ := f.liftFieldFromMemory(payloadOffset, t.Ok)
+			if err := callCtx.ValidateReturn(); err != nil {
+				return nil, err
+			}
+			result := []Val{ValResultOk(&payload)}
+			if subtask != nil {
+				subtask.DeliverResolve(result)
+				subtask.StartFinish()
+				if err := subtask.Finish(); err != nil {
+					return nil, fmt.Errorf("subtask finish: %w", err)
+				}
+			}
+			return result, nil
+		}
+		if err := callCtx.ValidateReturn(); err != nil {
+			return nil, err
+		}
+		result := []Val{ValResultOk(nil)}
+		if subtask != nil {
+			subtask.DeliverResolve(result)
+			subtask.StartFinish()
+			if err := subtask.Finish(); err != nil {
+				return nil, fmt.Errorf("subtask finish: %w", err)
+			}
+		}
+		return result, nil
+	}
+
+	// Error case
+	if t.Error != nil {
+		errPayload, _ := f.liftFieldFromMemory(payloadOffset, t.Error)
+		if err := callCtx.ValidateReturn(); err != nil {
+			return nil, err
+		}
+		result := []Val{ValResultError(&errPayload)}
+		if subtask != nil {
+			subtask.DeliverResolve(result)
+			subtask.StartFinish()
+			if err := subtask.Finish(); err != nil {
+				return nil, fmt.Errorf("subtask finish: %w", err)
+			}
+		}
+		return result, nil
+	}
+	if err := callCtx.ValidateReturn(); err != nil {
+		return nil, err
+	}
+	result := []Val{ValResultError(nil)}
+	if subtask != nil {
+		subtask.DeliverResolve(result)
+		subtask.StartFinish()
+		if err := subtask.Finish(); err != nil {
+			return nil, fmt.Errorf("subtask finish: %w", err)
+		}
+	}
+	return result, nil
+}
+
+// alignTo rounds up offset to the next multiple of align.
+func alignTo(offset, align uint32) uint32 {
+	return (offset + align - 1) &^ (align - 1)
 }
 
 // lowerParam dispatches parameter lowering to lowerTyped (when type info is available)

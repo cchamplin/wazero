@@ -384,3 +384,531 @@ func TestRepro_StringParameterSupport(t *testing.T) {
 	}
 	t.Logf("echo-string(%q) = %q", input, got)
 }
+
+// --- Primitive echo tests ---
+
+func TestEcho_Bool(t *testing.T) {
+	instance, testCtx, cleanup := newReproInstance(t)
+	defer cleanup()
+
+	handlerInst := instance.GetExportedInstance("test:repro/handler")
+	if handlerInst == nil {
+		t.Fatal("handler instance not found")
+	}
+	fn := handlerInst.ExportedFunction("echo-bool")
+	if fn == nil {
+		t.Fatal("echo-bool function not found")
+	}
+
+	for _, tc := range []bool{true, false} {
+		results, err := fn.Call(testCtx, component.ValBool(tc))
+		if err != nil {
+			t.Fatalf("echo-bool(%v) call failed: %v", tc, err)
+		}
+		if len(results) != 1 {
+			t.Fatalf("expected 1 result, got %d", len(results))
+		}
+		got := results[0].Bool()
+		if got != tc {
+			t.Errorf("echo-bool(%v) = %v, want %v", tc, got, tc)
+		}
+		t.Logf("echo-bool(%v) = %v", tc, got)
+	}
+}
+
+func TestEcho_S8(t *testing.T) {
+	instance, testCtx, cleanup := newReproInstance(t)
+	defer cleanup()
+
+	handlerInst := instance.GetExportedInstance("test:repro/handler")
+	if handlerInst == nil {
+		t.Fatal("handler instance not found")
+	}
+	fn := handlerInst.ExportedFunction("echo-s8")
+	if fn == nil {
+		t.Fatal("echo-s8 function not found")
+	}
+
+	for _, tc := range []int8{0, 1, -1, 127, -128} {
+		results, err := fn.Call(testCtx, component.ValS8(tc))
+		if err != nil {
+			t.Fatalf("echo-s8(%d) call failed: %v", tc, err)
+		}
+		if len(results) != 1 {
+			t.Fatalf("expected 1 result, got %d", len(results))
+		}
+		got := results[0].S8()
+		if got != tc {
+			t.Errorf("echo-s8(%d) = %d, want %d", tc, got, tc)
+		}
+		t.Logf("echo-s8(%d) = %d", tc, got)
+	}
+}
+
+func TestEcho_U8(t *testing.T) {
+	instance, testCtx, cleanup := newReproInstance(t)
+	defer cleanup()
+
+	handlerInst := instance.GetExportedInstance("test:repro/handler")
+	if handlerInst == nil {
+		t.Fatal("handler instance not found")
+	}
+	fn := handlerInst.ExportedFunction("echo-u8")
+	if fn == nil {
+		t.Fatal("echo-u8 function not found")
+	}
+
+	for _, tc := range []uint8{0, 1, 255} {
+		results, err := fn.Call(testCtx, component.ValU8(tc))
+		if err != nil {
+			t.Fatalf("echo-u8(%d) call failed: %v", tc, err)
+		}
+		if len(results) != 1 {
+			t.Fatalf("expected 1 result, got %d", len(results))
+		}
+		got := results[0].U8()
+		if got != tc {
+			t.Errorf("echo-u8(%d) = %d, want %d", tc, got, tc)
+		}
+		t.Logf("echo-u8(%d) = %d", tc, got)
+	}
+}
+
+func TestEcho_S16(t *testing.T) {
+	instance, testCtx, cleanup := newReproInstance(t)
+	defer cleanup()
+
+	handlerInst := instance.GetExportedInstance("test:repro/handler")
+	if handlerInst == nil {
+		t.Fatal("handler instance not found")
+	}
+	fn := handlerInst.ExportedFunction("echo-s16")
+	if fn == nil {
+		t.Fatal("echo-s16 function not found")
+	}
+
+	for _, tc := range []int16{0, 1, -1, 32767, -32768} {
+		results, err := fn.Call(testCtx, component.ValS16(tc))
+		if err != nil {
+			t.Fatalf("echo-s16(%d) call failed: %v", tc, err)
+		}
+		if len(results) != 1 {
+			t.Fatalf("expected 1 result, got %d", len(results))
+		}
+		got := results[0].S16()
+		if got != tc {
+			t.Errorf("echo-s16(%d) = %d, want %d", tc, got, tc)
+		}
+		t.Logf("echo-s16(%d) = %d", tc, got)
+	}
+}
+
+func TestEcho_U16(t *testing.T) {
+	instance, testCtx, cleanup := newReproInstance(t)
+	defer cleanup()
+
+	handlerInst := instance.GetExportedInstance("test:repro/handler")
+	if handlerInst == nil {
+		t.Fatal("handler instance not found")
+	}
+	fn := handlerInst.ExportedFunction("echo-u16")
+	if fn == nil {
+		t.Fatal("echo-u16 function not found")
+	}
+
+	for _, tc := range []uint16{0, 1, 65535} {
+		results, err := fn.Call(testCtx, component.ValU16(tc))
+		if err != nil {
+			t.Fatalf("echo-u16(%d) call failed: %v", tc, err)
+		}
+		if len(results) != 1 {
+			t.Fatalf("expected 1 result, got %d", len(results))
+		}
+		got := results[0].U16()
+		if got != tc {
+			t.Errorf("echo-u16(%d) = %d, want %d", tc, got, tc)
+		}
+		t.Logf("echo-u16(%d) = %d", tc, got)
+	}
+}
+
+func TestEcho_F32(t *testing.T) {
+	instance, testCtx, cleanup := newReproInstance(t)
+	defer cleanup()
+
+	handlerInst := instance.GetExportedInstance("test:repro/handler")
+	if handlerInst == nil {
+		t.Fatal("handler instance not found")
+	}
+	fn := handlerInst.ExportedFunction("echo-f32")
+	if fn == nil {
+		t.Fatal("echo-f32 function not found")
+	}
+
+	for _, tc := range []float32{0.0, 1.5, -1.5, 3.14159} {
+		results, err := fn.Call(testCtx, component.ValF32(tc))
+		if err != nil {
+			t.Fatalf("echo-f32(%v) call failed: %v", tc, err)
+		}
+		if len(results) != 1 {
+			t.Fatalf("expected 1 result, got %d", len(results))
+		}
+		got := results[0].F32()
+		if got != tc {
+			t.Errorf("echo-f32(%v) = %v, want %v", tc, got, tc)
+		}
+		t.Logf("echo-f32(%v) = %v", tc, got)
+	}
+}
+
+func TestEcho_F64(t *testing.T) {
+	instance, testCtx, cleanup := newReproInstance(t)
+	defer cleanup()
+
+	handlerInst := instance.GetExportedInstance("test:repro/handler")
+	if handlerInst == nil {
+		t.Fatal("handler instance not found")
+	}
+	fn := handlerInst.ExportedFunction("echo-f64")
+	if fn == nil {
+		t.Fatal("echo-f64 function not found")
+	}
+
+	for _, tc := range []float64{0.0, 1.5, -1.5, 3.141592653589793} {
+		results, err := fn.Call(testCtx, component.ValF64(tc))
+		if err != nil {
+			t.Fatalf("echo-f64(%v) call failed: %v", tc, err)
+		}
+		if len(results) != 1 {
+			t.Fatalf("expected 1 result, got %d", len(results))
+		}
+		got := results[0].F64()
+		if got != tc {
+			t.Errorf("echo-f64(%v) = %v, want %v", tc, got, tc)
+		}
+		t.Logf("echo-f64(%v) = %v", tc, got)
+	}
+}
+
+func TestEcho_Char(t *testing.T) {
+	instance, testCtx, cleanup := newReproInstance(t)
+	defer cleanup()
+
+	handlerInst := instance.GetExportedInstance("test:repro/handler")
+	if handlerInst == nil {
+		t.Fatal("handler instance not found")
+	}
+	fn := handlerInst.ExportedFunction("echo-char")
+	if fn == nil {
+		t.Fatal("echo-char function not found")
+	}
+
+	for _, tc := range []rune{'A', 'z', 0x1F600} {
+		results, err := fn.Call(testCtx, component.ValChar(tc))
+		if err != nil {
+			t.Fatalf("echo-char(%U) call failed: %v", tc, err)
+		}
+		if len(results) != 1 {
+			t.Fatalf("expected 1 result, got %d", len(results))
+		}
+		got := results[0].Char()
+		if got != tc {
+			t.Errorf("echo-char(%U) = %U, want %U", tc, got, tc)
+		}
+		t.Logf("echo-char(%U) = %U", tc, got)
+	}
+}
+
+// --- Composite type tests ---
+
+func TestEcho_Enum(t *testing.T) {
+	instance, testCtx, cleanup := newReproInstance(t)
+	defer cleanup()
+
+	handlerInst := instance.GetExportedInstance("test:repro/handler")
+	if handlerInst == nil {
+		t.Fatal("handler instance not found")
+	}
+	fn := handlerInst.ExportedFunction("echo-enum")
+	if fn == nil {
+		t.Fatal("echo-enum function not found")
+	}
+
+	for _, tc := range []string{"red", "green", "blue"} {
+		results, err := fn.Call(testCtx, component.ValEnum(tc))
+		if err != nil {
+			t.Fatalf("echo-enum(%q) call failed: %v", tc, err)
+		}
+		if len(results) != 1 {
+			t.Fatalf("expected 1 result, got %d", len(results))
+		}
+		got := results[0].Enum()
+		if got != tc {
+			t.Errorf("echo-enum(%q) = %q, want %q", tc, got, tc)
+		}
+		t.Logf("echo-enum(%q) = %q", tc, got)
+	}
+}
+
+func TestEcho_Flags(t *testing.T) {
+	instance, testCtx, cleanup := newReproInstance(t)
+	defer cleanup()
+
+	handlerInst := instance.GetExportedInstance("test:repro/handler")
+	if handlerInst == nil {
+		t.Fatal("handler instance not found")
+	}
+	fn := handlerInst.ExportedFunction("echo-flags")
+	if fn == nil {
+		t.Fatal("echo-flags function not found")
+	}
+
+	testCases := []map[string]bool{
+		{"read": true, "write": false, "execute": false},
+		{"read": true, "write": true, "execute": false},
+		{"read": true, "write": true, "execute": true},
+		{"read": false, "write": false, "execute": false},
+	}
+
+	for _, tc := range testCases {
+		results, err := fn.Call(testCtx, component.ValFlags(tc))
+		if err != nil {
+			t.Fatalf("echo-flags(%v) call failed: %v", tc, err)
+		}
+		if len(results) != 1 {
+			t.Fatalf("expected 1 result, got %d", len(results))
+		}
+		got := results[0].Flags()
+		for k, v := range tc {
+			if got[k] != v {
+				t.Errorf("echo-flags(%v): flag %q = %v, want %v", tc, k, got[k], v)
+			}
+		}
+		t.Logf("echo-flags(%v) = %v", tc, got)
+	}
+}
+
+func TestEcho_Variant(t *testing.T) {
+	instance, testCtx, cleanup := newReproInstance(t)
+	defer cleanup()
+
+	handlerInst := instance.GetExportedInstance("test:repro/handler")
+	if handlerInst == nil {
+		t.Fatal("handler instance not found")
+	}
+	fn := handlerInst.ExportedFunction("echo-variant")
+	if fn == nil {
+		t.Fatal("echo-variant function not found")
+	}
+
+	// Test circle(3.14)
+	circlePayload := component.ValF64(3.14)
+	results, err := fn.Call(testCtx, component.ValVariant("circle", &circlePayload))
+	if err != nil {
+		t.Fatalf("echo-variant(circle(3.14)) call failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	caseName, payload := results[0].Variant()
+	if caseName != "circle" {
+		t.Errorf("echo-variant(circle): case = %q, want %q", caseName, "circle")
+	}
+	if payload == nil || payload.F64() != 3.14 {
+		t.Errorf("echo-variant(circle): payload = %v, want 3.14", payload)
+	}
+	t.Logf("echo-variant(circle(3.14)) = %s(%v)", caseName, payload.F64())
+
+	// Test square(2.0)
+	squarePayload := component.ValF64(2.0)
+	results, err = fn.Call(testCtx, component.ValVariant("square", &squarePayload))
+	if err != nil {
+		t.Fatalf("echo-variant(square(2.0)) call failed: %v", err)
+	}
+	caseName, payload = results[0].Variant()
+	if caseName != "square" {
+		t.Errorf("echo-variant(square): case = %q, want %q", caseName, "square")
+	}
+	if payload == nil || payload.F64() != 2.0 {
+		t.Errorf("echo-variant(square): payload = %v, want 2.0", payload)
+	}
+	t.Logf("echo-variant(square(2.0)) = %s(%v)", caseName, payload.F64())
+
+	// Test none
+	results, err = fn.Call(testCtx, component.ValVariant("none", nil))
+	if err != nil {
+		t.Fatalf("echo-variant(none) call failed: %v", err)
+	}
+	caseName, payload = results[0].Variant()
+	if caseName != "none" {
+		t.Errorf("echo-variant(none): case = %q, want %q", caseName, "none")
+	}
+	if payload != nil {
+		t.Errorf("echo-variant(none): payload = %v, want nil", payload)
+	}
+	t.Logf("echo-variant(none) = %s", caseName)
+}
+
+// --- Result type tests ---
+
+func TestMakeOk(t *testing.T) {
+	instance, testCtx, cleanup := newReproInstance(t)
+	defer cleanup()
+
+	handlerInst := instance.GetExportedInstance("test:repro/handler")
+	if handlerInst == nil {
+		t.Fatal("handler instance not found")
+	}
+	fn := handlerInst.ExportedFunction("make-ok")
+	if fn == nil {
+		t.Fatal("make-ok function not found")
+	}
+
+	results, err := fn.Call(testCtx, component.ValU32(42))
+	if err != nil {
+		t.Fatalf("make-ok(42) call failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+
+	isOk, okVal, errVal := results[0].Result()
+	if !isOk {
+		t.Fatalf("make-ok(42): expected Ok result, got Err(%v)", errVal)
+	}
+	if okVal == nil || okVal.U32() != 42 {
+		t.Errorf("make-ok(42): ok value = %v, want 42", okVal)
+	}
+	t.Logf("make-ok(42) = Ok(%d)", okVal.U32())
+}
+
+func TestMakeErr(t *testing.T) {
+	instance, testCtx, cleanup := newReproInstance(t)
+	defer cleanup()
+
+	handlerInst := instance.GetExportedInstance("test:repro/handler")
+	if handlerInst == nil {
+		t.Fatal("handler instance not found")
+	}
+	fn := handlerInst.ExportedFunction("make-err")
+	if fn == nil {
+		t.Fatal("make-err function not found")
+	}
+
+	results, err := fn.Call(testCtx, component.ValString("something went wrong"))
+	if err != nil {
+		t.Fatalf("make-err(%q) call failed: %v", "something went wrong", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+
+	isOk, okVal, errVal := results[0].Result()
+	if isOk {
+		t.Fatalf("make-err: expected Err result, got Ok(%v)", okVal)
+	}
+	if errVal == nil || errVal.StringVal() != "something went wrong" {
+		t.Errorf("make-err: err value = %v, want %q", errVal, "something went wrong")
+	}
+	t.Logf("make-err(%q) = Err(%q)", "something went wrong", errVal.StringVal())
+}
+
+// --- Multi-parameter tests ---
+
+func TestAddThree(t *testing.T) {
+	instance, testCtx, cleanup := newReproInstance(t)
+	defer cleanup()
+
+	handlerInst := instance.GetExportedInstance("test:repro/handler")
+	if handlerInst == nil {
+		t.Fatal("handler instance not found")
+	}
+	fn := handlerInst.ExportedFunction("add-three")
+	if fn == nil {
+		t.Fatal("add-three function not found")
+	}
+
+	results, err := fn.Call(testCtx, component.ValU32(10), component.ValU32(20), component.ValU32(30))
+	if err != nil {
+		t.Fatalf("add-three(10, 20, 30) call failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+
+	got := results[0].U32()
+	if got != 60 {
+		t.Errorf("add-three(10, 20, 30) = %d, want 60", got)
+	}
+	t.Logf("add-three(10, 20, 30) = %d", got)
+}
+
+func TestConcatStrings(t *testing.T) {
+	instance, testCtx, cleanup := newReproInstance(t)
+	defer cleanup()
+
+	handlerInst := instance.GetExportedInstance("test:repro/handler")
+	if handlerInst == nil {
+		t.Fatal("handler instance not found")
+	}
+	fn := handlerInst.ExportedFunction("concat-strings")
+	if fn == nil {
+		t.Fatal("concat-strings function not found")
+	}
+
+	results, err := fn.Call(testCtx, component.ValString("hello, "), component.ValString("world!"))
+	if err != nil {
+		t.Fatalf("concat-strings call failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+
+	got := results[0].StringVal()
+	if got != "hello, world!" {
+		t.Errorf("concat-strings(\"hello, \", \"world!\") = %q, want %q", got, "hello, world!")
+	}
+	t.Logf("concat-strings(\"hello, \", \"world!\") = %q", got)
+}
+
+func TestMixedParams(t *testing.T) {
+	instance, testCtx, cleanup := newReproInstance(t)
+	defer cleanup()
+
+	handlerInst := instance.GetExportedInstance("test:repro/handler")
+	if handlerInst == nil {
+		t.Fatal("handler instance not found")
+	}
+	fn := handlerInst.ExportedFunction("mixed-params")
+	if fn == nil {
+		t.Fatal("mixed-params function not found")
+	}
+
+	// With flag=true, expect "alice:42"
+	results, err := fn.Call(testCtx, component.ValString("alice"), component.ValU32(42), component.ValBool(true))
+	if err != nil {
+		t.Fatalf("mixed-params(\"alice\", 42, true) call failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	got := results[0].StringVal()
+	if got != "alice:42" {
+		t.Errorf("mixed-params(\"alice\", 42, true) = %q, want %q", got, "alice:42")
+	}
+	t.Logf("mixed-params(\"alice\", 42, true) = %q", got)
+
+	// With flag=false, expect "alice"
+	results, err = fn.Call(testCtx, component.ValString("alice"), component.ValU32(42), component.ValBool(false))
+	if err != nil {
+		t.Fatalf("mixed-params(\"alice\", 42, false) call failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	got = results[0].StringVal()
+	if got != "alice" {
+		t.Errorf("mixed-params(\"alice\", 42, false) = %q, want %q", got, "alice")
+	}
+	t.Logf("mixed-params(\"alice\", 42, false) = %q", got)
+}

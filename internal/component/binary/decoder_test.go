@@ -348,11 +348,11 @@ func TestDecodeComponent_VariantType(t *testing.T) {
 		0x71,       // variant opcode
 		0x02,       // 2 cases
 		0x01, 'a',  // case "a"
-		0x00,       // no refines
 		0x00,       // no payload
-		0x01, 'b',  // case "b"
 		0x00,       // no refines
+		0x01, 'b',  // case "b"
 		0x01, 0x7a, // has payload: s32
+		0x00,       // no refines
 	})
 
 	c, err := DecodeComponent(data)
