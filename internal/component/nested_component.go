@@ -206,6 +206,11 @@ func (l *ComponentLinker) resolveExportTypeAlias(parent *Instance, c *Component,
 		if decl.Kind == InstanceDeclKindExport && decl.Export != nil {
 			if decl.Export.Name == alias.ExportName && decl.Export.Kind == ExportKindType {
 				if td, ok := localTypes[decl.Export.Idx]; ok {
+					// Set SourceLocalTypes so the resolver can correctly resolve
+					// nested type references using the instance type's local scope.
+					if td.SourceLocalTypes == nil {
+						td.SourceLocalTypes = localTypes
+					}
 					return td
 				}
 			}

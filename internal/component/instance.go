@@ -191,6 +191,16 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 	// Records are flattened into their constituent fields
 	var coreParams []uint64
 
+	// Resolve all param types upfront (needed for MAX_FLAT_PARAMS check and lowering)
+	resolvedTypes := make([]types.ValType, len(params))
+	for i := range params {
+		if resolver != nil && f.funcType != nil && i < len(f.funcType.Params) {
+			if rt, err := resolver.ResolveValType(f.funcType.Params[i].ValType); err == nil {
+				resolvedTypes[i] = rt
+			}
+		}
+	}
+
 	// === BEGIN LOWERING PARAMS - may_leave = false ===
 	// Per CanonicalABI.md lines 3133, 3151: may_leave must be false during lower_flat_values
 	if f.instance != nil {
@@ -205,18 +215,65 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 		}
 	}()
 
-	for i, p := range params {
-		var resolvedType types.ValType
-		if resolver != nil && f.funcType != nil && i < len(f.funcType.Params) {
-			if rt, err := resolver.ResolveValType(f.funcType.Params[i].ValType); err == nil {
-				resolvedType = rt
+	// Per Canonical ABI: when the total flat count of all params exceeds MAX_FLAT_PARAMS (16),
+	// all params are stored contiguously in linear memory and a single i32 pointer is passed.
+	const maxFlatParams = 16
+	totalFlatCount := 0
+	allTypesResolved := true
+	for i, rt := range resolvedTypes {
+		if rt != nil {
+			totalFlatCount += rt.FlattenCount()
+		} else {
+			allTypesResolved = false
+			// Estimate flat count from Val kind for unresolved types
+			totalFlatCount += estimateFlatCount(params[i])
+		}
+	}
+
+	if totalFlatCount > maxFlatParams && allTypesResolved && f.reallocFunc != nil && f.memory != nil {
+		// Store all params to memory
+		// First compute total size and alignment
+		var totalSize uint32
+		var maxAlign uint32 = 1
+		paramSizes := make([]uint32, len(params))
+		paramAligns := make([]uint32, len(params))
+		for i, rt := range resolvedTypes {
+			paramSizes[i] = rt.Size()
+			paramAligns[i] = rt.Align()
+			if paramAligns[i] > maxAlign {
+				maxAlign = paramAligns[i]
 			}
+			totalSize = alignTo(totalSize, paramAligns[i])
+			totalSize += paramSizes[i]
 		}
-		flat, err := f.lowerParam(ctx, p, resolvedType, callCtx)
+
+		// Allocate memory
+		results, err := f.reallocFunc.Call(ctx, 0, 0, uint64(maxAlign), uint64(totalSize))
 		if err != nil {
-			return nil, fmt.Errorf("lower param %d: %w", i, err)
+			return nil, fmt.Errorf("realloc for flat params failed: %w", err)
 		}
-		coreParams = append(coreParams, flat...)
+		basePtr := uint32(results[0])
+
+		// Write each param to memory at proper offset
+		offset := uint32(0)
+		for i, p := range params {
+			offset = alignTo(offset, paramAligns[i])
+			if err := f.lowerToMemory(ctx, p, resolvedTypes[i], basePtr+offset); err != nil {
+				return nil, fmt.Errorf("lower param %d to memory: %w", i, err)
+			}
+			offset += paramSizes[i]
+		}
+
+		coreParams = []uint64{uint64(basePtr)}
+	} else {
+		// Normal flat lowering
+		for i, p := range params {
+			flat, err := f.lowerParam(ctx, p, resolvedTypes[i], callCtx)
+			if err != nil {
+				return nil, fmt.Errorf("lower param %d: %w", i, err)
+			}
+			coreParams = append(coreParams, flat...)
+		}
 	}
 
 	// === END LOWERING PARAMS - may_leave = true ===
@@ -742,11 +799,10 @@ func (f *ExportedFunc) liftResolvedType(resolvedType types.ValType, coreResults 
 			// Retptr case: the record's flat count exceeds MAX_FLAT_RESULTS=1,
 			// so the core function returns a pointer to the record in linear memory.
 			retptr := uint32(coreResults[0])
-			offset := retptr
-			for _, field := range t.Fields {
-				val, size := f.liftFieldFromMemory(offset, field.Type)
+			fieldOffsets := t.FieldOffsets()
+			for i, field := range t.Fields {
+				val, _ := f.liftFieldFromMemory(retptr+fieldOffsets[i], field.Type)
 				rec[field.Name] = val
-				offset += size
 			}
 		} else if len(coreResults) >= len(t.Fields) {
 			// Flat case: record fields are returned as individual core results.
@@ -1439,13 +1495,49 @@ func alignTo(offset, align uint32) uint32 {
 	return (offset + align - 1) &^ (align - 1)
 }
 
+// estimateFlatCount estimates the flat parameter count for a Val without type info.
+func estimateFlatCount(val Val) int {
+	switch val.Kind() {
+	case ValKindString:
+		return 2 // ptr + len
+	case ValKindList:
+		return 2 // ptr + len
+	case ValKindRecord:
+		count := 0
+		for _, v := range val.Record() {
+			count += estimateFlatCount(v)
+		}
+		return count
+	default:
+		return 1
+	}
+}
+
 // lowerParam dispatches parameter lowering to lowerTyped (when type info is available)
 // or lowerByKind (kind-based fallback for primitives).
 func (f *ExportedFunc) lowerParam(ctx context.Context, val Val, resolvedType types.ValType, callCtx *CallContext) ([]uint64, error) {
-	if resolvedType != nil && typeMatchesKind(resolvedType, val.Kind()) {
+	if resolvedType != nil && (typeMatchesKind(resolvedType, val.Kind()) || typeCanCoerce(resolvedType, val)) {
 		return f.lowerTyped(ctx, val, resolvedType, callCtx)
 	}
 	return f.lowerByKind(ctx, val, callCtx)
+}
+
+// typeCanCoerce returns true if lowerTyped can coerce the Val to the expected type
+// even when the kinds don't match directly.
+func typeCanCoerce(typ types.ValType, val Val) bool {
+	switch typ.(type) {
+	case types.Enum:
+		// String can be used as enum case name
+		return val.Kind() == ValKindString
+	case types.Option:
+		// Any value can be coerced to option (nil→None, other→Some)
+		return true
+	case types.Variant:
+		// Record with "case" field can be coerced to variant
+		return val.Kind() == ValKindRecord
+	default:
+		return false
+	}
 }
 
 // typeMatchesKind checks if a resolved type is compatible with a Val's runtime kind.
@@ -1567,7 +1659,13 @@ func (f *ExportedFunc) lowerTyped(ctx context.Context, val Val, typ types.ValTyp
 		}
 		return flat, nil
 	case types.Enum:
-		caseName := val.Enum()
+		// Coerce: if caller passed a string (e.g. from map[string]any), use it as enum case name
+		var caseName string
+		if val.Kind() == ValKindString {
+			caseName = val.StringVal()
+		} else {
+			caseName = val.Enum()
+		}
 		for i, c := range t.Cases {
 			if c == caseName {
 				return []uint64{uint64(i)}, nil
@@ -1588,6 +1686,25 @@ func (f *ExportedFunc) lowerTyped(ctx context.Context, val Val, typ types.ValTyp
 		}
 		return words, nil
 	case types.Option:
+		// Coerce: if the value is not an option kind (e.g. zero Val from nil conversion),
+		// treat it as None when v is nil, or wrap as Some otherwise
+		if val.Kind() != ValKindOption {
+			if val.v == nil {
+				// Zero Val (nil) → Option None
+				payloadCount := t.Some.FlattenCount()
+				flat := make([]uint64, 1+payloadCount)
+				return flat, nil
+			}
+			// Non-nil, non-option Val → wrap as Some
+			payloadFlat, err := f.lowerTyped(ctx, val, t.Some, callCtx)
+			if err != nil {
+				return nil, fmt.Errorf("lower option payload: %w", err)
+			}
+			flat := make([]uint64, 0, 1+len(payloadFlat))
+			flat = append(flat, 1)
+			flat = append(flat, payloadFlat...)
+			return flat, nil
+		}
 		opt := val.Option()
 		if opt == nil {
 			// None: discriminant 0 + zero-filled payload slots
@@ -1638,7 +1755,23 @@ func (f *ExportedFunc) lowerTyped(ctx context.Context, val Val, typ types.ValTyp
 		}
 		return flat, nil
 	case types.Variant:
-		caseName, payload := val.Variant()
+		// Coerce: if caller passed a record with "case" (and optional "payload") fields,
+		// treat it as a variant
+		var caseName string
+		var payload *Val
+		if val.Kind() == ValKindRecord {
+			rec := val.Record()
+			if caseVal, ok := rec["case"]; ok && caseVal.Kind() == ValKindString {
+				caseName = caseVal.StringVal()
+				if payloadVal, ok := rec["payload"]; ok {
+					payload = &payloadVal
+				}
+			} else {
+				return nil, fmt.Errorf("record used as variant must have a string \"case\" field")
+			}
+		} else {
+			caseName, payload = val.Variant()
+		}
 		caseIdx := -1
 		var caseType types.ValType
 		for i, c := range t.Cases {
@@ -1954,7 +2087,12 @@ func (f *ExportedFunc) lowerToMemory(ctx context.Context, val Val, typ types.Val
 			}
 		}
 	case types.Enum:
-		caseName := val.Enum()
+		var caseName string
+		if val.Kind() == ValKindString {
+			caseName = val.StringVal()
+		} else {
+			caseName = val.Enum()
+		}
 		for i, c := range t.Cases {
 			if c == caseName {
 				discSize := t.Size()
@@ -1977,6 +2115,28 @@ func (f *ExportedFunc) lowerToMemory(ctx context.Context, val Val, typ types.Val
 		}
 		return fmt.Errorf("unknown enum case %q", caseName)
 	case types.Option:
+		// Coerce: handle non-option Val kinds
+		if val.Kind() != ValKindOption {
+			if val.v == nil {
+				// Zero Val (nil) → Option None
+				if !f.memory.WriteByteAt(offset, 0) {
+					return fmt.Errorf("failed to write option discriminant at offset %d", offset)
+				}
+				return nil
+			}
+			// Non-nil, non-option Val → wrap as Some
+			if !f.memory.WriteByteAt(offset, 1) {
+				return fmt.Errorf("failed to write option discriminant at offset %d", offset)
+			}
+			if t.Some != nil {
+				payloadAlign := t.Some.Align()
+				payloadOffset := offset + alignTo32(1, payloadAlign)
+				if err := f.lowerToMemory(ctx, val, t.Some, payloadOffset); err != nil {
+					return fmt.Errorf("lower option payload to memory: %w", err)
+				}
+			}
+			return nil
+		}
 		opt := val.Option()
 		if opt == nil {
 			// None: write discriminant 0
@@ -1994,6 +2154,85 @@ func (f *ExportedFunc) lowerToMemory(ctx context.Context, val Val, typ types.Val
 				payloadOffset := offset + alignTo32(1, payloadAlign)
 				if err := f.lowerToMemory(ctx, *opt, t.Some, payloadOffset); err != nil {
 					return fmt.Errorf("lower option payload to memory: %w", err)
+				}
+			}
+		}
+	case types.Variant:
+		// Coerce: record with "case"/"payload" → variant
+		var caseName string
+		var payload *Val
+		if val.Kind() == ValKindRecord {
+			rec := val.Record()
+			if caseVal, ok := rec["case"]; ok && caseVal.Kind() == ValKindString {
+				caseName = caseVal.StringVal()
+				if payloadVal, ok := rec["payload"]; ok {
+					payload = &payloadVal
+				}
+			} else {
+				return fmt.Errorf("record used as variant must have a string \"case\" field")
+			}
+		} else {
+			caseName, payload = val.Variant()
+		}
+		caseIdx := -1
+		var caseType types.ValType
+		for i, c := range t.Cases {
+			if c.Name == caseName {
+				caseIdx = i
+				caseType = c.Type
+				break
+			}
+		}
+		if caseIdx < 0 {
+			return fmt.Errorf("unknown variant case %q", caseName)
+		}
+		// Write discriminant
+		discSize := t.DiscriminantSize()
+		switch discSize {
+		case 1:
+			if !f.memory.WriteByteAt(offset, byte(caseIdx)) {
+				return fmt.Errorf("failed to write variant discriminant at offset %d", offset)
+			}
+		case 2:
+			if !f.memory.WriteUint16Le(offset, uint16(caseIdx)) {
+				return fmt.Errorf("failed to write variant discriminant at offset %d", offset)
+			}
+		default:
+			if !f.memory.WriteUint32Le(offset, uint32(caseIdx)) {
+				return fmt.Errorf("failed to write variant discriminant at offset %d", offset)
+			}
+		}
+		// Write payload if present
+		if caseType != nil && payload != nil {
+			payloadAlign := caseType.Align()
+			payloadOffset := offset + alignTo(discSize, payloadAlign)
+			if err := f.lowerToMemory(ctx, *payload, caseType, payloadOffset); err != nil {
+				return fmt.Errorf("lower variant case %q to memory: %w", caseName, err)
+			}
+		}
+	case types.Result:
+		isOk, okVal, errVal := val.Result()
+		// Write discriminant: 0=ok, 1=error
+		if isOk {
+			if !f.memory.WriteUint32Le(offset, 0) {
+				return fmt.Errorf("failed to write result discriminant at offset %d", offset)
+			}
+			if t.Ok != nil && okVal != nil {
+				payloadAlign := t.Ok.Align()
+				payloadOffset := offset + alignTo(4, payloadAlign)
+				if err := f.lowerToMemory(ctx, *okVal, t.Ok, payloadOffset); err != nil {
+					return fmt.Errorf("lower result ok to memory: %w", err)
+				}
+			}
+		} else {
+			if !f.memory.WriteUint32Le(offset, 1) {
+				return fmt.Errorf("failed to write result discriminant at offset %d", offset)
+			}
+			if t.Error != nil && errVal != nil {
+				payloadAlign := t.Error.Align()
+				payloadOffset := offset + alignTo(4, payloadAlign)
+				if err := f.lowerToMemory(ctx, *errVal, t.Error, payloadOffset); err != nil {
+					return fmt.Errorf("lower result error to memory: %w", err)
 				}
 			}
 		}

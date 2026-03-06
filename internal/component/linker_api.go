@@ -333,6 +333,76 @@ func anyToVal(p any) Val {
 	case []Val:
 		// List with Val values directly
 		return ValList(v)
+	case []uint8:
+		// List<u8>: convert typed byte slice to ValList of U8
+		elements := make([]Val, len(v))
+		for i, e := range v {
+			elements[i] = ValU8(e)
+		}
+		return ValList(elements)
+	case []int8:
+		elements := make([]Val, len(v))
+		for i, e := range v {
+			elements[i] = ValS8(e)
+		}
+		return ValList(elements)
+	case []uint16:
+		elements := make([]Val, len(v))
+		for i, e := range v {
+			elements[i] = ValU16(e)
+		}
+		return ValList(elements)
+	case []int16:
+		elements := make([]Val, len(v))
+		for i, e := range v {
+			elements[i] = ValS16(e)
+		}
+		return ValList(elements)
+	case []uint32:
+		elements := make([]Val, len(v))
+		for i, e := range v {
+			elements[i] = ValU32(e)
+		}
+		return ValList(elements)
+	case []int32:
+		elements := make([]Val, len(v))
+		for i, e := range v {
+			elements[i] = ValS32(e)
+		}
+		return ValList(elements)
+	case []uint64:
+		elements := make([]Val, len(v))
+		for i, e := range v {
+			elements[i] = ValU64(e)
+		}
+		return ValList(elements)
+	case []int64:
+		elements := make([]Val, len(v))
+		for i, e := range v {
+			elements[i] = ValS64(e)
+		}
+		return ValList(elements)
+	case []float32:
+		elements := make([]Val, len(v))
+		for i, e := range v {
+			elements[i] = ValF32(e)
+		}
+		return ValList(elements)
+	case []float64:
+		elements := make([]Val, len(v))
+		for i, e := range v {
+			elements[i] = ValF64(e)
+		}
+		return ValList(elements)
+	case []string:
+		elements := make([]Val, len(v))
+		for i, e := range v {
+			elements[i] = ValString(e)
+		}
+		return ValList(elements)
+	case nil:
+		// nil represents option::none
+		return ValOption(nil)
 	default:
 		// Unsupported type - return zero Val
 		return Val{}

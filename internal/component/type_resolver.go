@@ -114,7 +114,13 @@ func (r *TypeResolver) resolveTypeIdx(idx uint32) (types.ValType, error) {
 	var typeDef *TypeDef
 	if mapped, ok := r.component.TypeIdxToStoredIdx[idx]; ok {
 		if int(mapped) < len(r.component.Types) {
-			typeDef = &r.component.Types[mapped]
+			td := &r.component.Types[mapped]
+			// Only use this mapping if it resolves to a value type (Defined, Resource).
+			// Instance/Component types can't be used as value types; fall through
+			// to typeSpace which may have the correct resolved value type.
+			if td.Kind == TypeDefKindDefined || td.Kind == TypeDefKindResource || td.Kind == TypeDefKindFunc {
+				typeDef = td
+			}
 		}
 	}
 	// Fall back to instance's typeSpace for type aliases (export/outer aliases
@@ -140,6 +146,17 @@ func (r *TypeResolver) resolveTypeIdx(idx uint32) (types.ValType, error) {
 		return nil, fmt.Errorf("cannot use function type as value type")
 	case TypeDefKindResource:
 		return nil, fmt.Errorf("cannot use resource type directly (use own<T> or borrow<T>)")
+	case TypeDefKindInstance:
+		// Instance types may contain value type declarations. Check if the TypeDef
+		// also has a defined value type field populated (e.g., from type resolution
+		// during linking).
+		if typeDef.Record != nil || typeDef.List != nil || typeDef.Variant != nil ||
+			typeDef.Enum != nil || typeDef.Option != nil || typeDef.Result != nil ||
+			typeDef.Tuple != nil || typeDef.Flags != nil || typeDef.Handle != nil {
+			result, err = r.resolveDefinedType(typeDef)
+		} else {
+			return nil, fmt.Errorf("unsupported type def kind: %d", typeDef.Kind)
+		}
 	default:
 		return nil, fmt.Errorf("unsupported type def kind: %d", typeDef.Kind)
 	}
