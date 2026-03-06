@@ -508,6 +508,176 @@ func TestTypeResolverErrors(t *testing.T) {
 	})
 }
 
+func TestTypeResolver_TypeIdxToStoredIdx(t *testing.T) {
+	// Type index 5 maps to stored index 2 via TypeIdxToStoredIdx.
+	// This simulates aliases consuming indices between type section entries.
+	c := &Component{
+		Types: []TypeDef{
+			// stored index 0
+			{
+				Kind: TypeDefKindDefined,
+				Record: &RecordTypeDef{
+					Fields: []RecordField{
+						{Name: "x", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}},
+					},
+				},
+			},
+			// stored index 1
+			{
+				Kind: TypeDefKindDefined,
+				Record: &RecordTypeDef{
+					Fields: []RecordField{
+						{Name: "only", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x79}},
+					},
+				},
+			},
+			// stored index 2: the record we want to reach via type index 5
+			{
+				Kind: TypeDefKindDefined,
+				Record: &RecordTypeDef{
+					Fields: []RecordField{
+						{Name: "a", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}},
+						{Name: "b", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x73}},
+					},
+				},
+			},
+		},
+		TypeIdxToStoredIdx: map[uint32]uint32{
+			0: 0,
+			1: 1,
+			5: 2, // type index 5 -> stored index 2
+		},
+	}
+	resolver := NewTypeResolver(c)
+
+	ref := ValTypeRef{IsPrimitive: false, TypeIdx: 5}
+	result, err := resolver.ResolveValType(ref)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	record, ok := result.(types.Record)
+	if !ok {
+		t.Fatalf("expected Record, got %T", result)
+	}
+
+	if len(record.Fields) != 2 {
+		t.Fatalf("expected 2 fields, got %d", len(record.Fields))
+	}
+
+	if record.Fields[0].Name != "a" {
+		t.Errorf("expected first field name 'a', got %q", record.Fields[0].Name)
+	}
+	if record.Fields[1].Name != "b" {
+		t.Errorf("expected second field name 'b', got %q", record.Fields[1].Name)
+	}
+}
+
+func TestTypeResolver_TypeIdxToStoredIdx_OutOfRange(t *testing.T) {
+	// Type index 10 has no mapping and is out of range, should fail with an error.
+	c := &Component{
+		Types: []TypeDef{
+			{
+				Kind: TypeDefKindDefined,
+				Record: &RecordTypeDef{
+					Fields: []RecordField{
+						{Name: "x", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}},
+					},
+				},
+			},
+		},
+		TypeIdxToStoredIdx: map[uint32]uint32{
+			0: 0,
+		},
+	}
+	resolver := NewTypeResolver(c)
+
+	ref := ValTypeRef{IsPrimitive: false, TypeIdx: 10}
+	_, err := resolver.ResolveValType(ref)
+	if err == nil {
+		t.Fatal("expected error for unmapped type index 10, got nil")
+	}
+}
+
+func TestTypeResolver_WithInstance_TypeSpace(t *testing.T) {
+	// Type index 44 is NOT in TypeIdxToStoredIdx but the instance's typeSpace
+	// has it populated (via buildTypeSpace). Uses NewTypeResolverWithInstance.
+	c := &Component{
+		Types:              []TypeDef{},
+		TypeIdxToStoredIdx: map[uint32]uint32{},
+	}
+
+	inst := &Instance{}
+	// Fill typeSpace slots 0-43 with nil, put actual type at slot 44.
+	for i := 0; i < 44; i++ {
+		inst.typeSpace = append(inst.typeSpace, nil)
+	}
+	inst.typeSpace = append(inst.typeSpace, &TypeDef{
+		Kind: TypeDefKindDefined,
+		Record: &RecordTypeDef{
+			Fields: []RecordField{
+				{Name: "from_instance", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x79}},
+			},
+		},
+	})
+
+	resolver := NewTypeResolverWithInstance(c, inst)
+
+	ref := ValTypeRef{IsPrimitive: false, TypeIdx: 44}
+	result, err := resolver.ResolveValType(ref)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	record, ok := result.(types.Record)
+	if !ok {
+		t.Fatalf("expected Record, got %T", result)
+	}
+
+	if len(record.Fields) != 1 {
+		t.Fatalf("expected 1 field, got %d", len(record.Fields))
+	}
+	if record.Fields[0].Name != "from_instance" {
+		t.Errorf("expected field name 'from_instance', got %q", record.Fields[0].Name)
+	}
+}
+
+func TestTypeResolver_DirectFallback_NoMapping(t *testing.T) {
+	// When TypeIdxToStoredIdx is nil (backward compat), direct indexing works.
+	c := &Component{
+		Types: []TypeDef{
+			{
+				Kind: TypeDefKindDefined,
+				Record: &RecordTypeDef{
+					Fields: []RecordField{
+						{Name: "direct", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}},
+					},
+				},
+			},
+		},
+		// TypeIdxToStoredIdx intentionally left nil
+	}
+	resolver := NewTypeResolver(c)
+
+	ref := ValTypeRef{IsPrimitive: false, TypeIdx: 0}
+	result, err := resolver.ResolveValType(ref)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	record, ok := result.(types.Record)
+	if !ok {
+		t.Fatalf("expected Record, got %T", result)
+	}
+
+	if len(record.Fields) != 1 {
+		t.Fatalf("expected 1 field, got %d", len(record.Fields))
+	}
+	if record.Fields[0].Name != "direct" {
+		t.Errorf("expected field name 'direct', got %q", record.Fields[0].Name)
+	}
+}
+
 func TestTypeResolverAllPrimitives(t *testing.T) {
 	c := &Component{}
 	resolver := NewTypeResolver(c)
