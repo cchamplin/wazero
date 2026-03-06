@@ -206,139 +206,17 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 	}()
 
 	for i, p := range params {
-		switch p.Kind() {
-		case ValKindS32:
-			coreParams = append(coreParams, uint64(uint32(p.S32())))
-		case ValKindU32:
-			coreParams = append(coreParams, uint64(p.U32()))
-		case ValKindS64:
-			coreParams = append(coreParams, uint64(p.S64()))
-		case ValKindU64:
-			coreParams = append(coreParams, p.U64())
-		case ValKindRecord:
-			// Flatten record fields in alphabetical order (component model spec)
-			rec := p.Record()
-			// Get field names and sort them for deterministic order
-			fieldNames := make([]string, 0, len(rec))
-			for name := range rec {
-				fieldNames = append(fieldNames, name)
+		var resolvedType types.ValType
+		if resolver != nil && f.funcType != nil && i < len(f.funcType.Params) {
+			if rt, err := resolver.ResolveValType(f.funcType.Params[i].ValType); err == nil {
+				resolvedType = rt
 			}
-			sort.Strings(fieldNames)
-
-			for _, name := range fieldNames {
-				field := rec[name]
-				switch field.Kind() {
-				case ValKindS32:
-					coreParams = append(coreParams, uint64(uint32(field.S32())))
-				case ValKindU32:
-					coreParams = append(coreParams, uint64(field.U32()))
-				case ValKindS64:
-					coreParams = append(coreParams, uint64(field.S64()))
-				case ValKindU64:
-					coreParams = append(coreParams, field.U64())
-				default:
-					return nil, fmt.Errorf("unsupported record field type: %s", field.Kind())
-				}
-			}
-		case ValKindOption:
-			// Flatten option to (discriminant: i32, payload: i32)
-			// discriminant: 0 = None, 1 = Some
-			opt := p.Option()
-			if opt == nil {
-				// None: discriminant = 0, payload = 0 (unused)
-				coreParams = append(coreParams, 0, 0)
-			} else {
-				// Some: discriminant = 1, payload = value
-				switch opt.Kind() {
-				case ValKindS32:
-					coreParams = append(coreParams, 1, uint64(uint32(opt.S32())))
-				case ValKindU32:
-					coreParams = append(coreParams, 1, uint64(opt.U32()))
-				case ValKindS64:
-					coreParams = append(coreParams, 1, uint64(opt.S64()))
-				case ValKindU64:
-					coreParams = append(coreParams, 1, opt.U64())
-				default:
-					return nil, fmt.Errorf("unsupported option payload type: %s", opt.Kind())
-				}
-			}
-		case ValKindList:
-			// Lists flatten to (ptr: i32, len: i32) pointing to linear memory
-			// The list data must be written to component memory first
-			list := p.List()
-			if f.instance == nil || len(f.instance.coreInstances) == 0 {
-				return nil, fmt.Errorf("no instance available for list memory allocation")
-			}
-
-			// Get the memory from the core module
-			// Use the memory specified in canonical options, or default to "memory"
-			coreModule := f.instance.coreInstances[0]
-			mem := coreModule.Memory()
-			if mem == nil {
-				return nil, fmt.Errorf("core module has no memory for list data")
-			}
-
-			// Calculate element size and alignment based on element type
-			// Detect from first element, default to s32/u32 if empty
-			var elemSize uint32 = 4
-			var alignment uint32 = 4
-			if len(list) > 0 {
-				elemSize = elementSizeForKind(list[0].Kind())
-				alignment = alignmentForKind(list[0].Kind())
-			}
-			listLen := uint32(len(list))
-			listSize := listLen * elemSize
-
-			// Allocate memory using realloc per Canonical ABI spec
-			var ptr uint32
-			if listSize > 0 {
-				if f.reallocFunc == nil {
-					return nil, fmt.Errorf("list lowering requires realloc function")
-				}
-				// realloc(old_ptr, old_size, align, new_size) -> new_ptr
-				results, err := f.reallocFunc.Call(ctx, 0, 0, uint64(alignment), uint64(listSize))
-				if err != nil {
-					return nil, fmt.Errorf("realloc for list failed: %w", err)
-				}
-				ptr = uint32(results[0])
-			}
-			// For empty lists (listSize == 0), ptr remains 0, which is valid
-
-			// Write list elements to allocated memory using the helper function
-			for j, elem := range list {
-				offset := ptr + uint32(j)*elemSize
-				if err := writeListElement(mem, offset, elem); err != nil {
-					return nil, fmt.Errorf("failed to write list element %d: %w", j, err)
-				}
-			}
-
-			// Pass (ptr, len) to core function
-			coreParams = append(coreParams, uint64(ptr), uint64(listLen))
-		case ValKindOwn:
-			// own<T> argument: Create a new owned handle from the representation
-			// The Val contains a representation value that we turn into a handle
-			// When caller passes own<T>, ownership transfers to callee
-			rep := p.Own()
-			if f.instance == nil || f.instance.resourceTable == nil {
-				return nil, fmt.Errorf("lower own param %d: no resource table available", i)
-			}
-			h := f.instance.resourceTable.New(rep, true)
-			coreParams = append(coreParams, uint64(h.Index()))
-		case ValKindBorrow:
-			// borrow<T> argument: Create a borrowed handle from the representation
-			// The Val contains a representation value that we turn into a handle
-			// Borrowed handles must be dropped before return
-			rep := p.Borrow()
-			if f.instance == nil || f.instance.resourceTable == nil {
-				return nil, fmt.Errorf("lower borrow param %d: no resource table available", i)
-			}
-			h := f.instance.resourceTable.New(rep, false) // own=false for borrowed
-			// Track borrow in call context for return validation
-			callCtx.IncrementBorrows()
-			coreParams = append(coreParams, uint64(h.Index()))
-		default:
-			return nil, fmt.Errorf("unsupported parameter type: %s", p.Kind())
 		}
+		flat, err := f.lowerParam(ctx, p, resolvedType, callCtx)
+		if err != nil {
+			return nil, fmt.Errorf("lower param %d: %w", i, err)
+		}
+		coreParams = append(coreParams, flat...)
 	}
 
 	// === END LOWERING PARAMS - may_leave = true ===
@@ -1137,6 +1015,449 @@ func (f *ExportedFunc) liftFieldFromMemory(offset uint32, valType types.ValType)
 		}
 		return ValU32(v), 4
 	}
+}
+
+// lowerParam dispatches parameter lowering to lowerTyped (when type info is available)
+// or lowerByKind (kind-based fallback for primitives).
+func (f *ExportedFunc) lowerParam(ctx context.Context, val Val, resolvedType types.ValType, callCtx *CallContext) ([]uint64, error) {
+	if resolvedType != nil {
+		return f.lowerTyped(ctx, val, resolvedType, callCtx)
+	}
+	return f.lowerByKind(ctx, val, callCtx)
+}
+
+// lowerTyped performs type-driven lowering for all component model value types.
+// It uses the resolved type information to correctly flatten composite types.
+func (f *ExportedFunc) lowerTyped(ctx context.Context, val Val, typ types.ValType, callCtx *CallContext) ([]uint64, error) {
+	switch t := typ.(type) {
+	case types.Bool:
+		if val.Bool() {
+			return []uint64{1}, nil
+		}
+		return []uint64{0}, nil
+	case types.S8:
+		return []uint64{uint64(uint32(uint8(val.S8())))}, nil
+	case types.U8:
+		return []uint64{uint64(val.U8())}, nil
+	case types.S16:
+		return []uint64{uint64(uint32(uint16(val.S16())))}, nil
+	case types.U16:
+		return []uint64{uint64(val.U16())}, nil
+	case types.S32:
+		return []uint64{uint64(uint32(val.S32()))}, nil
+	case types.U32:
+		return []uint64{uint64(val.U32())}, nil
+	case types.S64:
+		return []uint64{uint64(val.S64())}, nil
+	case types.U64:
+		return []uint64{val.U64()}, nil
+	case types.F32:
+		return []uint64{uint64(math.Float32bits(val.F32()))}, nil
+	case types.F64:
+		return []uint64{math.Float64bits(val.F64())}, nil
+	case types.Char:
+		return []uint64{uint64(val.Char())}, nil
+	case types.String:
+		return f.lowerStringParam(ctx, val.StringVal())
+	case types.Record:
+		rec := val.Record()
+		var flat []uint64
+		for _, field := range t.Fields {
+			fieldVal, ok := rec[field.Name]
+			if !ok {
+				return nil, fmt.Errorf("missing record field %q", field.Name)
+			}
+			fieldFlat, err := f.lowerTyped(ctx, fieldVal, field.Type, callCtx)
+			if err != nil {
+				return nil, fmt.Errorf("lower record field %q: %w", field.Name, err)
+			}
+			flat = append(flat, fieldFlat...)
+		}
+		return flat, nil
+	case types.Tuple:
+		elems := val.Tuple()
+		var flat []uint64
+		for i, elemType := range t.Types {
+			if i >= len(elems) {
+				return nil, fmt.Errorf("tuple element %d missing", i)
+			}
+			elemFlat, err := f.lowerTyped(ctx, elems[i], elemType, callCtx)
+			if err != nil {
+				return nil, fmt.Errorf("lower tuple element %d: %w", i, err)
+			}
+			flat = append(flat, elemFlat...)
+		}
+		return flat, nil
+	case types.Enum:
+		caseName := val.Enum()
+		for i, c := range t.Cases {
+			if c == caseName {
+				return []uint64{uint64(i)}, nil
+			}
+		}
+		return nil, fmt.Errorf("unknown enum case %q", caseName)
+	case types.Flags:
+		flags := val.Flags()
+		numWords := (len(t.Names) + 31) / 32
+		if numWords == 0 {
+			return nil, nil
+		}
+		words := make([]uint64, numWords)
+		for i, name := range t.Names {
+			if flags[name] {
+				words[i/32] |= 1 << (uint(i) % 32)
+			}
+		}
+		return words, nil
+	case types.Option:
+		opt := val.Option()
+		if opt == nil {
+			// None: discriminant 0 + zero-filled payload slots
+			payloadCount := t.Some.FlattenCount()
+			flat := make([]uint64, 1+payloadCount)
+			return flat, nil
+		}
+		// Some: discriminant 1 + payload
+		payloadFlat, err := f.lowerTyped(ctx, *opt, t.Some, callCtx)
+		if err != nil {
+			return nil, fmt.Errorf("lower option payload: %w", err)
+		}
+		flat := make([]uint64, 0, 1+len(payloadFlat))
+		flat = append(flat, 1)
+		flat = append(flat, payloadFlat...)
+		return flat, nil
+	case types.Result:
+		isOk, okVal, errVal := val.Result()
+		if isOk {
+			// ok: discriminant 0
+			flat := []uint64{0}
+			if t.Ok != nil && okVal != nil {
+				payloadFlat, err := f.lowerTyped(ctx, *okVal, t.Ok, callCtx)
+				if err != nil {
+					return nil, fmt.Errorf("lower result ok: %w", err)
+				}
+				flat = append(flat, payloadFlat...)
+			}
+			// Pad to max payload count
+			maxPayload := f.resultVariantPayloadCount(t)
+			for len(flat) < 1+maxPayload {
+				flat = append(flat, 0)
+			}
+			return flat, nil
+		}
+		// error: discriminant 1
+		flat := []uint64{1}
+		if t.Error != nil && errVal != nil {
+			payloadFlat, err := f.lowerTyped(ctx, *errVal, t.Error, callCtx)
+			if err != nil {
+				return nil, fmt.Errorf("lower result error: %w", err)
+			}
+			flat = append(flat, payloadFlat...)
+		}
+		maxPayload := f.resultVariantPayloadCount(t)
+		for len(flat) < 1+maxPayload {
+			flat = append(flat, 0)
+		}
+		return flat, nil
+	case types.Variant:
+		caseName, payload := val.Variant()
+		caseIdx := -1
+		var caseType types.ValType
+		for i, c := range t.Cases {
+			if c.Name == caseName {
+				caseIdx = i
+				caseType = c.Type
+				break
+			}
+		}
+		if caseIdx < 0 {
+			return nil, fmt.Errorf("unknown variant case %q", caseName)
+		}
+		flat := []uint64{uint64(caseIdx)}
+		if caseType != nil && payload != nil {
+			payloadFlat, err := f.lowerTyped(ctx, *payload, caseType, callCtx)
+			if err != nil {
+				return nil, fmt.Errorf("lower variant case %q: %w", caseName, err)
+			}
+			flat = append(flat, payloadFlat...)
+		}
+		maxPayload := f.flattenVariantPayloadCount(t)
+		for len(flat) < 1+maxPayload {
+			flat = append(flat, 0)
+		}
+		return flat, nil
+	case types.List:
+		list := val.List()
+		elemSize := t.Element.Size()
+		elemAlign := t.Element.Align()
+		listLen := uint32(len(list))
+		listSize := listLen * elemSize
+
+		if listSize == 0 {
+			return []uint64{0, 0}, nil
+		}
+
+		if f.reallocFunc == nil {
+			return nil, fmt.Errorf("list lowering requires realloc function")
+		}
+		if f.memory == nil {
+			return nil, fmt.Errorf("list lowering requires memory")
+		}
+
+		results, err := f.reallocFunc.Call(ctx, 0, 0, uint64(elemAlign), uint64(listSize))
+		if err != nil {
+			return nil, fmt.Errorf("realloc for list failed: %w", err)
+		}
+		ptr := uint32(results[0])
+
+		for j, elem := range list {
+			offset := ptr + uint32(j)*elemSize
+			if err := f.lowerToMemory(ctx, elem, t.Element, offset); err != nil {
+				return nil, fmt.Errorf("lower list element %d: %w", j, err)
+			}
+		}
+		return []uint64{uint64(ptr), uint64(listLen)}, nil
+	case types.Own:
+		rep := val.Own()
+		if f.instance == nil || f.instance.resourceTable == nil {
+			return nil, fmt.Errorf("lower own: no resource table available")
+		}
+		h := f.instance.resourceTable.New(rep, true)
+		return []uint64{uint64(h.Index())}, nil
+	case types.Borrow:
+		rep := val.Borrow()
+		if f.instance == nil || f.instance.resourceTable == nil {
+			return nil, fmt.Errorf("lower borrow: no resource table available")
+		}
+		h := f.instance.resourceTable.New(rep, false)
+		if callCtx != nil {
+			callCtx.IncrementBorrows()
+		}
+		return []uint64{uint64(h.Index())}, nil
+	default:
+		// Fallback to kind-based lowering
+		return f.lowerByKind(ctx, val, callCtx)
+	}
+}
+
+// lowerByKind performs kind-based fallback lowering for primitives, strings,
+// and resource handles when no resolved type information is available.
+func (f *ExportedFunc) lowerByKind(ctx context.Context, val Val, callCtx *CallContext) ([]uint64, error) {
+	switch val.Kind() {
+	case ValKindBool:
+		if val.Bool() {
+			return []uint64{1}, nil
+		}
+		return []uint64{0}, nil
+	case ValKindS8:
+		return []uint64{uint64(uint32(uint8(val.S8())))}, nil
+	case ValKindU8:
+		return []uint64{uint64(val.U8())}, nil
+	case ValKindS16:
+		return []uint64{uint64(uint32(uint16(val.S16())))}, nil
+	case ValKindU16:
+		return []uint64{uint64(val.U16())}, nil
+	case ValKindS32:
+		return []uint64{uint64(uint32(val.S32()))}, nil
+	case ValKindU32:
+		return []uint64{uint64(val.U32())}, nil
+	case ValKindS64:
+		return []uint64{uint64(val.S64())}, nil
+	case ValKindU64:
+		return []uint64{val.U64()}, nil
+	case ValKindF32:
+		return []uint64{uint64(math.Float32bits(val.F32()))}, nil
+	case ValKindF64:
+		return []uint64{math.Float64bits(val.F64())}, nil
+	case ValKindChar:
+		return []uint64{uint64(val.Char())}, nil
+	case ValKindString:
+		return f.lowerStringParam(ctx, val.StringVal())
+	case ValKindOwn:
+		rep := val.Own()
+		if f.instance == nil || f.instance.resourceTable == nil {
+			return nil, fmt.Errorf("lower own: no resource table available")
+		}
+		h := f.instance.resourceTable.New(rep, true)
+		return []uint64{uint64(h.Index())}, nil
+	case ValKindBorrow:
+		rep := val.Borrow()
+		if f.instance == nil || f.instance.resourceTable == nil {
+			return nil, fmt.Errorf("lower borrow: no resource table available")
+		}
+		h := f.instance.resourceTable.New(rep, false)
+		if callCtx != nil {
+			callCtx.IncrementBorrows()
+		}
+		return []uint64{uint64(h.Index())}, nil
+	default:
+		return nil, fmt.Errorf("unsupported parameter type: %s", val.Kind())
+	}
+}
+
+// lowerStringParam allocates memory, writes UTF-8 bytes, and returns (ptr, len).
+func (f *ExportedFunc) lowerStringParam(ctx context.Context, s string) ([]uint64, error) {
+	data := []byte(s)
+	length := uint32(len(data))
+	if length == 0 {
+		return []uint64{0, 0}, nil
+	}
+	if f.reallocFunc == nil {
+		return nil, fmt.Errorf("string lowering requires realloc function")
+	}
+	if f.memory == nil {
+		return nil, fmt.Errorf("string lowering requires memory")
+	}
+	results, err := f.reallocFunc.Call(ctx, 0, 0, 1, uint64(length))
+	if err != nil {
+		return nil, fmt.Errorf("realloc for string failed: %w", err)
+	}
+	ptr := uint32(results[0])
+	if !f.memory.Write(ptr, data) {
+		return nil, fmt.Errorf("failed to write string to memory at offset %d", ptr)
+	}
+	return []uint64{uint64(ptr), uint64(length)}, nil
+}
+
+// lowerToMemory writes a val to linear memory at the given offset using the type information.
+// Used for list elements and other cases where values must be stored in memory.
+func (f *ExportedFunc) lowerToMemory(ctx context.Context, val Val, typ types.ValType, offset uint32) error {
+	if f.memory == nil {
+		return fmt.Errorf("lowerToMemory: no memory available")
+	}
+	switch t := typ.(type) {
+	case types.Bool:
+		var b byte
+		if val.Bool() {
+			b = 1
+		}
+		if !f.memory.WriteByteAt(offset, b) {
+			return fmt.Errorf("failed to write bool at offset %d", offset)
+		}
+	case types.S8:
+		if !f.memory.WriteByteAt(offset, byte(val.S8())) {
+			return fmt.Errorf("failed to write s8 at offset %d", offset)
+		}
+	case types.U8:
+		if !f.memory.WriteByteAt(offset, val.U8()) {
+			return fmt.Errorf("failed to write u8 at offset %d", offset)
+		}
+	case types.S16:
+		if !f.memory.WriteUint16Le(offset, uint16(val.S16())) {
+			return fmt.Errorf("failed to write s16 at offset %d", offset)
+		}
+	case types.U16:
+		if !f.memory.WriteUint16Le(offset, val.U16()) {
+			return fmt.Errorf("failed to write u16 at offset %d", offset)
+		}
+	case types.S32:
+		if !f.memory.WriteUint32Le(offset, uint32(val.S32())) {
+			return fmt.Errorf("failed to write s32 at offset %d", offset)
+		}
+	case types.U32:
+		if !f.memory.WriteUint32Le(offset, val.U32()) {
+			return fmt.Errorf("failed to write u32 at offset %d", offset)
+		}
+	case types.S64:
+		if !f.memory.WriteUint64Le(offset, uint64(val.S64())) {
+			return fmt.Errorf("failed to write s64 at offset %d", offset)
+		}
+	case types.U64:
+		if !f.memory.WriteUint64Le(offset, val.U64()) {
+			return fmt.Errorf("failed to write u64 at offset %d", offset)
+		}
+	case types.F32:
+		if !f.memory.WriteFloat32Le(offset, val.F32()) {
+			return fmt.Errorf("failed to write f32 at offset %d", offset)
+		}
+	case types.F64:
+		if !f.memory.WriteFloat64Le(offset, val.F64()) {
+			return fmt.Errorf("failed to write f64 at offset %d", offset)
+		}
+	case types.Char:
+		if !f.memory.WriteUint32Le(offset, uint32(val.Char())) {
+			return fmt.Errorf("failed to write char at offset %d", offset)
+		}
+	case types.String:
+		flat, err := f.lowerStringParam(ctx, val.StringVal())
+		if err != nil {
+			return fmt.Errorf("lower string to memory: %w", err)
+		}
+		if !f.memory.WriteUint32Le(offset, uint32(flat[0])) {
+			return fmt.Errorf("failed to write string ptr at offset %d", offset)
+		}
+		if !f.memory.WriteUint32Le(offset+4, uint32(flat[1])) {
+			return fmt.Errorf("failed to write string len at offset %d", offset+4)
+		}
+	case types.Record:
+		rec := val.Record()
+		fieldOffsets := t.FieldOffsets()
+		for i, field := range t.Fields {
+			fieldVal, ok := rec[field.Name]
+			if !ok {
+				return fmt.Errorf("missing record field %q", field.Name)
+			}
+			if err := f.lowerToMemory(ctx, fieldVal, field.Type, offset+fieldOffsets[i]); err != nil {
+				return fmt.Errorf("lower record field %q to memory: %w", field.Name, err)
+			}
+		}
+	case types.Enum:
+		caseName := val.Enum()
+		for i, c := range t.Cases {
+			if c == caseName {
+				discSize := t.Size()
+				switch discSize {
+				case 1:
+					if !f.memory.WriteByteAt(offset, byte(i)) {
+						return fmt.Errorf("failed to write enum at offset %d", offset)
+					}
+				case 2:
+					if !f.memory.WriteUint16Le(offset, uint16(i)) {
+						return fmt.Errorf("failed to write enum at offset %d", offset)
+					}
+				default:
+					if !f.memory.WriteUint32Le(offset, uint32(i)) {
+						return fmt.Errorf("failed to write enum at offset %d", offset)
+					}
+				}
+				return nil
+			}
+		}
+		return fmt.Errorf("unknown enum case %q", caseName)
+	default:
+		// Fallback: use writeListElement for kind-based writing
+		return writeListElement(f.memory, offset, val)
+	}
+	return nil
+}
+
+// flattenVariantPayloadCount returns the maximum flat count across all variant cases' payloads.
+func (f *ExportedFunc) flattenVariantPayloadCount(v types.Variant) int {
+	max := 0
+	for _, c := range v.Cases {
+		if c.Type != nil {
+			if n := c.Type.FlattenCount(); n > max {
+				max = n
+			}
+		}
+	}
+	return max
+}
+
+// resultVariantPayloadCount returns the max flat count for a Result's ok/error payloads.
+func (f *ExportedFunc) resultVariantPayloadCount(r types.Result) int {
+	max := 0
+	if r.Ok != nil {
+		if n := r.Ok.FlattenCount(); n > max {
+			max = n
+		}
+	}
+	if r.Error != nil {
+		if n := r.Error.FlattenCount(); n > max {
+			max = n
+		}
+	}
+	return max
 }
 
 // liftOwn transfers ownership of a resource out of the component.
