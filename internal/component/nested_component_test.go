@@ -1116,6 +1116,89 @@ func TestResolveFromParentScope_TypeFromExportAlias(t *testing.T) {
 	}
 }
 
+// TestResolveFromParentScope_InstanceSpaceAlignment verifies that when a component
+// has N instance imports occupying slots 0..N-1, nested component instances start
+// at slot N, and resolveFromParentScope correctly resolves (or rejects) by slot index.
+func TestResolveFromParentScope_InstanceSpaceAlignment(t *testing.T) {
+	parent := &Instance{}
+	parentComponent := &Component{}
+
+	// Add 3 nil instances (simulating imports) at slots 0, 1, 2
+	for i := 0; i < 3; i++ {
+		parent.AddInstanceToSpace(nil)
+	}
+
+	// Add a real instance at slot 3
+	importedInst := &Instance{
+		exports: map[string]*ExportedFunc{
+			"helper": {name: "helper"},
+		},
+	}
+	idx := parent.AddInstanceToSpace(importedInst)
+	if idx != 3 {
+		t.Fatalf("expected importedInst at index 3, got %d", idx)
+	}
+
+	l := &ComponentLinker{}
+
+	// Resolving instance at slot 3 should succeed (real instance)
+	arg := ComponentInstantiateArg{Name: "real-inst", Sort: SortInstance, Idx: 3}
+	def, err := l.resolveFromParentScope(parent, parentComponent, arg)
+	if err != nil {
+		t.Fatalf("resolveFromParentScope(Idx=3) should succeed: %v", err)
+	}
+	if def == nil {
+		t.Fatal("resolveFromParentScope(Idx=3) returned nil definition")
+	}
+
+	// Resolving instance at slot 0 should fail (nil placeholder)
+	arg = ComponentInstantiateArg{Name: "nil-inst", Sort: SortInstance, Idx: 0}
+	_, err = l.resolveFromParentScope(parent, parentComponent, arg)
+	if err == nil {
+		t.Fatal("resolveFromParentScope(Idx=0) should fail for nil instance placeholder")
+	}
+}
+
+// TestResolveFromParentScope_ComponentFuncsOrdering verifies that buildComponentFuncs
+// must run before nested component instantiation, so that resolveFromParentScope can
+// find component functions by their index in the parent's componentFuncs map.
+func TestResolveFromParentScope_ComponentFuncsOrdering(t *testing.T) {
+	parent := &Instance{
+		componentFuncs: map[uint32]ComponentFunc{
+			0: {
+				Impl: func(ctx context.Context, args []Val) ([]Val, error) {
+					return []Val{ValS32(1)}, nil
+				},
+			},
+			5: {
+				Impl: func(ctx context.Context, args []Val) ([]Val, error) {
+					return []Val{ValS32(5)}, nil
+				},
+			},
+		},
+	}
+	parentComponent := &Component{}
+
+	l := &ComponentLinker{}
+
+	// Resolving func at index 5 should succeed
+	arg := ComponentInstantiateArg{Name: "fn-five", Sort: SortFunc, Idx: 5}
+	def, err := l.resolveFromParentScope(parent, parentComponent, arg)
+	if err != nil {
+		t.Fatalf("resolveFromParentScope(Idx=5) should succeed: %v", err)
+	}
+	if def == nil {
+		t.Fatal("resolveFromParentScope(Idx=5) returned nil definition")
+	}
+
+	// Resolving func at index 99 should fail (not in map)
+	arg = ComponentInstantiateArg{Name: "fn-missing", Sort: SortFunc, Idx: 99}
+	_, err = l.resolveFromParentScope(parent, parentComponent, arg)
+	if err == nil {
+		t.Fatal("resolveFromParentScope(Idx=99) should fail for missing func")
+	}
+}
+
 // mockModuleForExport implements api.Module minimally for nested component tests.
 type mockModuleForExport struct {
 	internalapi.WazeroOnlyType
