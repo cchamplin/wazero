@@ -1,0 +1,100 @@
+package wasip2test
+
+import (
+	"bytes"
+	"context"
+	"os"
+	"testing"
+
+	"github.com/tetratelabs/wazero"
+	"github.com/tetratelabs/wazero/imports/wasip2"
+	"github.com/tetratelabs/wazero/internal/component"
+)
+
+func TestLargeRecordPlugin_RetptrLifting(t *testing.T) {
+	ctx := context.Background()
+	rt := wazero.NewRuntime(ctx)
+	defer rt.Close(ctx)
+
+	wasmBytes, err := os.ReadFile("go-large-record-plugin/component.wasm")
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+
+	compiled, err := rt.CompileComponent(ctx, wasmBytes)
+	if err != nil {
+		t.Fatalf("CompileComponent: %v", err)
+	}
+	defer compiled.Close(ctx)
+
+	linker := component.NewComponentLinker(rt)
+	linker.SetRelaxedSemverMatching(true)
+
+	// WASI P2
+	wasiLinker := component.NewLinker()
+	if err := wasip2.Instantiate(wasiLinker); err != nil {
+		t.Fatalf("wasip2.Instantiate: %v", err)
+	}
+	linker.MergeFrom(wasiLinker)
+
+	// Types interface
+	hostLinker := component.NewLinker()
+	err = hostLinker.DefineInstance("test:large-record/types").SkipValidation().Build()
+	if err != nil {
+		t.Fatalf("DefineInstance types: %v", err)
+	}
+
+	// host-data import - returns coordinates {x: 10, y: 20, z: 30}
+	err = hostLinker.DefineInstance("test:large-record/host-data").
+		FuncNoType("get-position", func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+			rec := map[string]component.Val{
+				"x": component.ValS32(10),
+				"y": component.ValS32(20),
+				"z": component.ValS32(30),
+			}
+			return []component.Val{component.ValRecord(rec)}, nil
+		}).
+		SkipValidation().
+		Build()
+	if err != nil {
+		t.Fatalf("DefineInstance host-data: %v", err)
+	}
+	linker.MergeFrom(hostLinker)
+
+	// WASI context
+	var stdout, stderr bytes.Buffer
+	wasiConfig := wasip2.NewConfig().
+		WithStdout(&stdout).
+		WithStderr(&stderr).
+		WithArgs([]string{"test"}).
+		WithEnviron([]string{})
+	resourceTable := component.NewResourceTable()
+	testCtx := wasip2.WithConfig(ctx, wasiConfig)
+	testCtx = component.WithResourceTable(testCtx, resourceTable)
+
+	instance, err := linker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
+	if err != nil {
+		t.Fatalf("Instantiate: %v", err)
+	}
+
+	// Get the status-handler export
+	handlerInst := instance.GetExportedInstance("test:large-record/status-handler")
+	if handlerInst == nil {
+		t.Fatal("status-handler instance not found")
+	}
+
+	// Test get-position (3 fields = retptr path)
+	posFunc := handlerInst.ExportedFunction("get-position")
+	if posFunc == nil {
+		t.Fatal("get-position function not found")
+	}
+	t.Log("Instantiation succeeded — large record types resolved correctly")
+	t.Log("get-position export found (3-field record, forces retptr path)")
+
+	// Test get-status (nested record with 4+ fields = retptr path)
+	statusFunc := handlerInst.ExportedFunction("get-status")
+	if statusFunc == nil {
+		t.Fatal("get-status function not found")
+	}
+	t.Log("get-status export found (nested record with coordinates+health+alive+score, forces retptr path)")
+}

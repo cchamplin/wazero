@@ -1,0 +1,32 @@
+package test:large-record;
+
+interface types {
+    record coordinates {
+        x: s32,
+        y: s32,
+        z: s32,
+    }
+
+    record full-status {
+        coords: coordinates,
+        health: u32,
+        alive: bool,
+        score: u64,
+    }
+}
+
+interface host-data {
+    use types.{coordinates};
+    get-position: func() -> coordinates;
+}
+
+interface status-handler {
+    use types.{full-status, coordinates};
+    get-status: func() -> full-status;
+    get-position: func() -> coordinates;
+}
+
+world large-record-plugin {
+    import host-data;
+    export status-handler;
+}
