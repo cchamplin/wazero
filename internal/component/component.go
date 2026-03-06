@@ -125,6 +125,88 @@ type Component struct {
 	NextModuleIdx uint32
 }
 
+// ResolveTypeIdx resolves a component type index to its TypeDef.
+// It first checks TypeIdxToStoredIdx for types defined in the type section,
+// then walks aliases to resolve export type aliases that reference instance exports.
+// This handles the case where type aliases (from alias sections) consume component
+// type indices but don't add entries to the Types array.
+func (c *Component) ResolveTypeIdx(typeIdx uint32) *TypeDef {
+	// Check if this is a directly stored type
+	if c.TypeIdxToStoredIdx != nil {
+		if storedIdx, ok := c.TypeIdxToStoredIdx[typeIdx]; ok {
+			if int(storedIdx) < len(c.Types) {
+				return &c.Types[storedIdx]
+			}
+		}
+	}
+
+	// Not a direct type - check if it's an alias
+	for i := range c.Aliases {
+		alias := &c.Aliases[i]
+		if alias.Sort != SortType {
+			continue
+		}
+		if alias.Idx != typeIdx {
+			continue
+		}
+
+		// Found the alias for this type index
+		switch alias.Kind {
+		case AliasKindExport:
+			// Export alias: look up the exported type from the source instance's type definition.
+			// Find the instance type for the source instance.
+			instCount := uint32(0)
+			for j := range c.Imports {
+				imp := &c.Imports[j]
+				if imp.ExternDesc.Kind == ImportExternDescInstance {
+					if instCount == alias.InstanceIdx {
+						// Found the import - resolve its type
+						instTypeIdx := imp.ExternDesc.TypeIdx
+						instTypeDef := c.ResolveTypeIdx(instTypeIdx)
+						if instTypeDef != nil && instTypeDef.Instance != nil {
+							// Find the export within the instance type
+							localTypes := make(map[uint32]*TypeDef)
+							localTypeIdx := uint32(0)
+							for _, decl := range instTypeDef.Instance.Declarations {
+								switch decl.Kind {
+								case InstanceDeclKindType:
+									if decl.Type != nil {
+										localTypes[localTypeIdx] = decl.Type
+									}
+									localTypeIdx++
+								case InstanceDeclKindAlias:
+									if decl.Alias != nil && decl.Alias.Sort == SortType {
+										localTypeIdx++
+									}
+								case InstanceDeclKindExport:
+									if decl.Export != nil && decl.Export.Kind == ExportKindType {
+										if td, ok := localTypes[decl.Export.Idx]; ok {
+											localTypes[localTypeIdx] = td
+										}
+										if decl.Export.Name == alias.ExportName {
+											if td, ok := localTypes[decl.Export.Idx]; ok {
+												return td
+											}
+										}
+										localTypeIdx++
+									}
+								}
+							}
+						}
+						break
+					}
+					instCount++
+				}
+			}
+		case AliasKindOuter:
+			// Outer aliases reference parent scope - not handled at component level
+		}
+		break
+	}
+
+	return nil
+}
+
 // TypeDef represents a component type definition.
 // This is a discriminated union of different type kinds.
 type TypeDef struct {

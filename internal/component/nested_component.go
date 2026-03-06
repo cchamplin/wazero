@@ -5,7 +5,6 @@ package component
 import (
 	"context"
 	"fmt"
-
 	"github.com/tetratelabs/wazero/api"
 )
 
@@ -79,14 +78,33 @@ func (l *ComponentLinker) resolveFromParentScope(
 		return instanceToDefinition(inst), nil
 
 	case SortType:
-		// Type from parent's type space or component's types
+		// Type from parent's type space (populated for nested instances with
+		// outer aliases) or from the parent component's type definitions.
 		typeDef := parent.GetTypeFromSpace(arg.Idx)
 		if typeDef != nil {
 			return &TypeDefDef{TypeDef: typeDef}, nil
 		}
-		// Fall back to parent component's types
+		// Look up from the component's type index space. The type index space
+		// can be larger than the Types array because type aliases (export and
+		// outer) consume indices without adding to Types. Use TypeIdxToStoredIdx
+		// to map from type index space to the compact Types array.
+		if storedIdx, ok := parentComponent.TypeIdxToStoredIdx[arg.Idx]; ok {
+			if int(storedIdx) < len(parentComponent.Types) {
+				return &TypeDefDef{TypeDef: &parentComponent.Types[storedIdx]}, nil
+			}
+		}
+		// Direct index fallback for backward compatibility (when TypeIdxToStoredIdx
+		// is not populated or type indices align with Types array).
 		if int(arg.Idx) < len(parentComponent.Types) {
 			return &TypeDefDef{TypeDef: &parentComponent.Types[arg.Idx]}, nil
+		}
+		// Check if this type index comes from a type alias (export or outer).
+		// Type aliases consume type index space entries during decoding but
+		// don't add to TypeIdxToStoredIdx. Resolve them by tracing back to
+		// the actual type definition through the alias chain.
+		resolved := l.resolveTypeAlias(parent, parentComponent, arg.Idx)
+		if resolved != nil {
+			return &TypeDefDef{TypeDef: resolved}, nil
 		}
 		return nil, fmt.Errorf("type %d not found in parent", arg.Idx)
 
@@ -111,6 +129,136 @@ func (l *ComponentLinker) resolveFromParentScope(
 
 	default:
 		return nil, fmt.Errorf("unsupported sort for component instantiation: %s", arg.Sort)
+	}
+}
+
+// resolveTypeAlias resolves a type index that came from an alias (export or outer)
+// back to an actual TypeDef. Type aliases consume type index space entries during
+// binary decoding but don't add to TypeIdxToStoredIdx.
+func (l *ComponentLinker) resolveTypeAlias(parent *Instance, c *Component, typeIdx uint32) *TypeDef {
+	for i := range c.Aliases {
+		alias := &c.Aliases[i]
+		if alias.Idx != typeIdx || alias.Sort != SortType {
+			continue
+		}
+
+		switch alias.Kind {
+		case AliasKindExport:
+			// Export alias: references a type exported by a component instance.
+			// Trace through the instance's import type to find the actual TypeDef.
+			return l.resolveExportTypeAlias(parent, c, alias)
+
+		case AliasKindOuter:
+			// Outer alias: references a type from an enclosing scope.
+			resolved, err := ResolveOuterAlias(parent, alias)
+			if err == nil {
+				if td, ok := resolved.(*TypeDef); ok {
+					return td
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// resolveExportTypeAlias resolves a type export alias by tracing through the
+// source instance's type definition to find the actual TypeDef for the exported type.
+func (l *ComponentLinker) resolveExportTypeAlias(parent *Instance, c *Component, alias *Alias) *TypeDef {
+	// Find which import created this instance by walking instance imports
+	// in order (each instance import occupies one slot in the instance space).
+	var importDesc *Import
+	instCount := uint32(0)
+	for i := range c.Imports {
+		imp := &c.Imports[i]
+		if imp.ExternDesc.Kind == ImportExternDescInstance {
+			if instCount == alias.InstanceIdx {
+				importDesc = imp
+				break
+			}
+			instCount++
+		}
+	}
+	if importDesc == nil {
+		return nil
+	}
+
+	// Look up the instance type definition from the import's TypeIdx
+	instTypeIdx := importDesc.ExternDesc.TypeIdx
+	var instTypeDef *InstanceTypeDef
+
+	// First check TypeIdxToStoredIdx for the instance type
+	if storedIdx, ok := c.TypeIdxToStoredIdx[instTypeIdx]; ok {
+		if int(storedIdx) < len(c.Types) && c.Types[storedIdx].Kind == TypeDefKindInstance {
+			instTypeDef = c.Types[storedIdx].Instance
+		}
+	}
+	// Also try direct index (for components where type indices align with Types array)
+	if instTypeDef == nil && int(instTypeIdx) < len(c.Types) && c.Types[instTypeIdx].Kind == TypeDefKindInstance {
+		instTypeDef = c.Types[instTypeIdx].Instance
+	}
+	if instTypeDef == nil {
+		return nil
+	}
+
+	// Build the local type index for the instance type and find the export
+	localTypes := buildLocalTypeIndex(instTypeDef, c)
+	for _, decl := range instTypeDef.Declarations {
+		if decl.Kind == InstanceDeclKindExport && decl.Export != nil {
+			if decl.Export.Name == alias.ExportName && decl.Export.Kind == ExportKindType {
+				if td, ok := localTypes[decl.Export.Idx]; ok {
+					return td
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// buildTypeSpace populates the instance's type index space from the component's
+// type definitions and type aliases. This must be called before processing nested
+// component instances, since resolveFromParentScope needs the type space populated.
+func (l *ComponentLinker) buildTypeSpace(inst *Instance, c *Component) {
+	// Pre-populate from type section entries via TypeIdxToStoredIdx
+	for typeIdx, storedIdx := range c.TypeIdxToStoredIdx {
+		if int(storedIdx) < len(c.Types) {
+			// Ensure typeSpace is large enough
+			for uint32(len(inst.typeSpace)) <= typeIdx {
+				inst.typeSpace = append(inst.typeSpace, nil)
+			}
+			inst.typeSpace[typeIdx] = &c.Types[storedIdx]
+		}
+	}
+
+	// Process type aliases (export and outer) to fill remaining slots
+	for i := range c.Aliases {
+		alias := &c.Aliases[i]
+		if alias.Sort != SortType {
+			continue
+		}
+
+		// Ensure typeSpace is large enough
+		for uint32(len(inst.typeSpace)) <= alias.Idx {
+			inst.typeSpace = append(inst.typeSpace, nil)
+		}
+		// Skip if already populated (shouldn't happen, but be safe)
+		if inst.typeSpace[alias.Idx] != nil {
+			continue
+		}
+
+		switch alias.Kind {
+		case AliasKindExport:
+			resolved := l.resolveExportTypeAlias(inst, c, alias)
+			if resolved != nil {
+				inst.typeSpace[alias.Idx] = resolved
+			}
+		case AliasKindOuter:
+			resolved, err := ResolveOuterAlias(inst, alias)
+			if err == nil {
+				if td, ok := resolved.(*TypeDef); ok {
+					inst.typeSpace[alias.Idx] = td
+				}
+			}
+		}
 	}
 }
 

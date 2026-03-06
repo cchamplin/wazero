@@ -230,6 +230,10 @@ func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledCom
 	inst.componentFuncs = make(map[uint32]ComponentFunc)
 	l.buildComponentFuncs(inst, c, resolvedImports, instanceToImport)
 
+	// Build the type index space so that resolveFromParentScope can find types
+	// referenced by nested component instantiation arguments.
+	l.buildTypeSpace(inst, c)
+
 	// Process nested component instances.
 	// Track the mapping from instance-space index to component instance definition
 	// so we can wire shim exports later during export processing.
@@ -524,20 +528,23 @@ func (l *ComponentLinker) lookupFuncTypeFromImport(c *Component, instanceIdx uin
 	for _, imp := range c.Imports {
 		if imp.ExternDesc.Kind == ImportExternDescInstance {
 			if compInstanceIdx == instanceIdx {
-				// Found the import - now look up its type
-				// The TypeIdx references a type in the component's type index space.
-				// This index may be offset or expanded due to nested types.
-				// Instead of directly using TypeIdx (which may be out of bounds),
-				// we scan the component's types to find the instance type that
-				// matches the import based on its position in the instance imports.
+				// Found the import - now look up its type.
+				// The import's TypeIdx references a type in the component's type index space.
+				// We must use TypeIdxToStoredIdx to map from the component type index to
+				// the stored index in c.Types, because type aliases consume component type
+				// indices but don't add entries to c.Types.
+				typeIdx := imp.ExternDesc.TypeIdx
+				storedIdx := typeIdx
+				if c.TypeIdxToStoredIdx != nil {
+					if si, ok := c.TypeIdxToStoredIdx[typeIdx]; ok {
+						storedIdx = si
+					}
+				}
 
-				// Use the same instanceIdx to find the corresponding instance type
-				// in the component's type array. Instance types are typically ordered
-				// to match their import positions.
-				if int(instanceIdx) < len(c.Types) {
-					typeDef := &c.Types[instanceIdx]
+				if int(storedIdx) < len(c.Types) {
+					typeDef := &c.Types[storedIdx]
 					if typeDef.Instance != nil {
-						return l.lookupFuncInInstanceTypeWithOuter(typeDef.Instance, exportName, c.Types)
+						return l.lookupFuncInInstanceTypeWithOuter(typeDef.Instance, exportName, c)
 					}
 				}
 
@@ -545,7 +552,7 @@ func (l *ComponentLinker) lookupFuncTypeFromImport(c *Component, instanceIdx uin
 				for i := range c.Types {
 					typeDef := &c.Types[i]
 					if typeDef.Instance != nil {
-						if ft := l.lookupFuncInInstanceTypeWithOuter(typeDef.Instance, exportName, c.Types); ft != nil {
+						if ft := l.lookupFuncInInstanceTypeWithOuter(typeDef.Instance, exportName, c); ft != nil {
 							return ft
 						}
 					}
@@ -567,9 +574,11 @@ func (l *ComponentLinker) lookupFuncInInstanceType(inst *InstanceTypeDef, export
 
 // lookupFuncInInstanceTypeWithOuter looks up a function type by export name within an instance type.
 // It resolves nested type references using the instance type's local type namespace and outer types.
-func (l *ComponentLinker) lookupFuncInInstanceTypeWithOuter(inst *InstanceTypeDef, exportName string, outerTypes []TypeDef) *FuncType {
+// The component parameter provides both the Types array and the TypeIdxToStoredIdx mapping needed
+// to resolve outer type aliases correctly.
+func (l *ComponentLinker) lookupFuncInInstanceTypeWithOuter(inst *InstanceTypeDef, exportName string, c *Component) *FuncType {
 	// Build the local type index space for this instance type
-	localTypes := buildLocalTypeIndex(inst, outerTypes)
+	localTypes := buildLocalTypeIndex(inst, c)
 
 	for _, decl := range inst.Declarations {
 		if decl.Kind == InstanceDeclKindExport && decl.Export != nil {
@@ -592,8 +601,9 @@ func (l *ComponentLinker) lookupFuncInInstanceTypeWithOuter(inst *InstanceTypeDe
 // buildLocalTypeIndex builds a map from type index to TypeDef for an instance type.
 // In instance type definitions, each declaration that adds to the type index space
 // (type declarations and type aliases) increments the type index counter.
-// outerTypes is used to resolve type aliases that reference outer scope types.
-func buildLocalTypeIndex(inst *InstanceTypeDef, outerTypes []TypeDef) map[uint32]*TypeDef {
+// The component parameter provides the outer Types array and TypeIdxToStoredIdx mapping
+// needed to resolve outer type aliases correctly. It may be nil if no outer context is available.
+func buildLocalTypeIndex(inst *InstanceTypeDef, c *Component) map[uint32]*TypeDef {
 	localTypes := make(map[uint32]*TypeDef)
 	typeIdx := uint32(0)
 
@@ -609,11 +619,15 @@ func buildLocalTypeIndex(inst *InstanceTypeDef, outerTypes []TypeDef) map[uint32
 			// Aliases with Sort=Type also contribute to the type index space
 			if decl.Alias != nil && decl.Alias.Sort == SortType {
 				// Try to resolve the alias using outer types
-				if outerTypes != nil && decl.Alias.Kind == AliasKindOuter {
-					// Outer alias references a type from an enclosing scope
-					// For OuterCount=1, we look up in outerTypes[OuterIndex]
-					if decl.Alias.OuterCount == 1 && int(decl.Alias.OuterIndex) < len(outerTypes) {
-						localTypes[typeIdx] = &outerTypes[decl.Alias.OuterIndex]
+				if c != nil && decl.Alias.Kind == AliasKindOuter {
+					// Outer alias references a type from an enclosing scope.
+					// OuterIndex is a component type index, which may include
+					// alias entries that are not in c.Types. Use ResolveTypeIdx
+					// to handle both direct types and alias chains.
+					if decl.Alias.OuterCount == 1 {
+						if td := c.ResolveTypeIdx(decl.Alias.OuterIndex); td != nil {
+							localTypes[typeIdx] = td
+						}
 					}
 				}
 				typeIdx++
@@ -621,11 +635,9 @@ func buildLocalTypeIndex(inst *InstanceTypeDef, outerTypes []TypeDef) map[uint32
 		case InstanceDeclKindExport:
 			// Type exports also consume a type index!
 			if decl.Export != nil && decl.Export.Kind == ExportKindType {
-				// For eq bounds, look up the local type first, then outer
+				// For eq bounds, look up the local type first
 				if td, ok := localTypes[decl.Export.Idx]; ok {
 					localTypes[typeIdx] = td
-				} else if decl.Export.Idx < uint32(len(outerTypes)) {
-					localTypes[typeIdx] = &outerTypes[decl.Export.Idx]
 				}
 				typeIdx++
 			}
