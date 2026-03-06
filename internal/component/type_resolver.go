@@ -10,6 +10,7 @@ import (
 // TypeResolver resolves ValTypeRef to concrete types.ValType.
 type TypeResolver struct {
 	component *Component
+	instance  *Instance // optional: used for type alias resolution via typeSpace
 	cache     map[uint32]types.ValType
 }
 
@@ -17,6 +18,16 @@ type TypeResolver struct {
 func NewTypeResolver(c *Component) *TypeResolver {
 	return &TypeResolver{
 		component: c,
+		cache:     make(map[uint32]types.ValType),
+	}
+}
+
+// NewTypeResolverWithInstance creates a TypeResolver that can also resolve
+// type aliases via the instance's populated typeSpace.
+func NewTypeResolverWithInstance(c *Component, inst *Instance) *TypeResolver {
+	return &TypeResolver{
+		component: c,
+		instance:  inst,
 		cache:     make(map[uint32]types.ValType),
 	}
 }
@@ -76,11 +87,27 @@ func (r *TypeResolver) resolveTypeIdx(idx uint32) (types.ValType, error) {
 		return cached, nil
 	}
 
-	if int(idx) >= len(r.component.Types) {
-		return nil, fmt.Errorf("type index out of bounds: %d (have %d types)", idx, len(r.component.Types))
+	// Map from type index space to the compact Types array using TypeIdxToStoredIdx.
+	// The type index space can be sparse because type aliases consume indices
+	// without adding entries to Types.
+	var typeDef *TypeDef
+	if mapped, ok := r.component.TypeIdxToStoredIdx[idx]; ok {
+		if int(mapped) < len(r.component.Types) {
+			typeDef = &r.component.Types[mapped]
+		}
 	}
-
-	typeDef := &r.component.Types[idx]
+	// Fall back to instance's typeSpace for type aliases (export/outer aliases
+	// that were resolved during buildTypeSpace).
+	if typeDef == nil && r.instance != nil {
+		typeDef = r.instance.GetTypeFromSpace(idx)
+	}
+	// Last resort: direct index for backward compatibility
+	if typeDef == nil && int(idx) < len(r.component.Types) {
+		typeDef = &r.component.Types[idx]
+	}
+	if typeDef == nil {
+		return nil, fmt.Errorf("type index %d not found (have %d types)", idx, len(r.component.Types))
+	}
 
 	var result types.ValType
 	var err error
