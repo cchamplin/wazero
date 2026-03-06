@@ -12,3 +12,60 @@ type ProcessResult struct {
 	Value uint32
 	Ok    bool
 }
+
+const (
+	ColorRed   uint8 = 0
+	ColorGreen uint8 = 1
+	ColorBlue  uint8 = 2
+)
+
+// Color enum for echo-enum test.
+type Color = uint8
+
+const (
+	PermissionsRead    uint8 = 1 << 0
+	PermissionsWrite   uint8 = 1 << 1
+	PermissionsExecute uint8 = 1 << 2
+)
+
+// Permissions flags for echo-flags test.
+type Permissions = uint8
+
+const (
+	ShapeCircle uint8 = 0
+	ShapeSquare uint8 = 1
+	ShapeNone   uint8 = 2
+)
+
+// Shape variant for echo-variant test.
+type Shape struct {
+	tag   uint8
+	value any
+}
+
+func (self Shape) Tag() uint8 {
+	return self.tag
+}
+
+func (self Shape) Circle() float64 {
+	if self.tag != ShapeCircle {
+		panic("tag mismatch")
+	}
+	return self.value.(float64)
+}
+func (self Shape) Square() float64 {
+	if self.tag != ShapeSquare {
+		panic("tag mismatch")
+	}
+	return self.value.(float64)
+}
+
+func MakeShapeCircle(value float64) Shape {
+	return Shape{ShapeCircle, value}
+}
+func MakeShapeSquare(value float64) Shape {
+	return Shape{ShapeSquare, value}
+}
+func MakeShapeNone() Shape {
+	return Shape{ShapeNone, nil}
+}

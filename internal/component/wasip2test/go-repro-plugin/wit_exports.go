@@ -7,13 +7,15 @@ package main
 
 import (
 	"github.com/bytecodealliance/wit-bindgen/wit_runtime"
+	"github.com/bytecodealliance/wit-bindgen/wit_types"
 	"runtime"
 	"unsafe"
 	"wit_component/export_test_repro_handler"
+	"wit_component/test_repro_types"
 )
 
 var staticPinner = runtime.Pinner{}
-var exportReturnArea = uintptr(wit_runtime.Allocate(&staticPinner, (2 * 4), 4))
+var exportReturnArea = uintptr(wit_runtime.Allocate(&staticPinner, (8 + 2*4), 8))
 var syncExportPinner = runtime.Pinner{}
 
 //go:wasmexport test:repro/handler#process
@@ -75,6 +77,251 @@ func wasm_export_test_repro_handler_echo_string(arg0 uintptr, arg1 uint32) uintp
 
 //go:wasmexport cabi_post_test:repro/handler#echo-string
 func wasm_export_post_return_test_repro_handler_echo_string(result uintptr) {
+	syncExportPinner.Unpin()
+}
+
+//go:wasmexport test:repro/handler#echo-bool
+func wasm_export_test_repro_handler_echo_bool(arg0 int32) int32 {
+
+	result := export_test_repro_handler.EchoBool((arg0 != 0))
+	var result0 int32
+	if result {
+		result0 = 1
+	} else {
+		result0 = 0
+	}
+	return result0
+
+}
+
+//go:wasmexport test:repro/handler#echo-s8
+func wasm_export_test_repro_handler_echo_s8(arg0 int32) int32 {
+
+	result := export_test_repro_handler.EchoS8(int8(arg0))
+	return int32(result)
+
+}
+
+//go:wasmexport test:repro/handler#echo-u8
+func wasm_export_test_repro_handler_echo_u8(arg0 int32) int32 {
+
+	result := export_test_repro_handler.EchoU8(uint8(arg0))
+	return int32(result)
+
+}
+
+//go:wasmexport test:repro/handler#echo-s16
+func wasm_export_test_repro_handler_echo_s16(arg0 int32) int32 {
+
+	result := export_test_repro_handler.EchoS16(int16(arg0))
+	return int32(result)
+
+}
+
+//go:wasmexport test:repro/handler#echo-u16
+func wasm_export_test_repro_handler_echo_u16(arg0 int32) int32 {
+
+	result := export_test_repro_handler.EchoU16(uint16(arg0))
+	return int32(result)
+
+}
+
+//go:wasmexport test:repro/handler#echo-f32
+func wasm_export_test_repro_handler_echo_f32(arg0 float32) float32 {
+
+	result := export_test_repro_handler.EchoF32(arg0)
+	return result
+
+}
+
+//go:wasmexport test:repro/handler#echo-f64
+func wasm_export_test_repro_handler_echo_f64(arg0 float64) float64 {
+
+	result := export_test_repro_handler.EchoF64(arg0)
+	return result
+
+}
+
+//go:wasmexport test:repro/handler#echo-char
+func wasm_export_test_repro_handler_echo_char(arg0 int32) int32 {
+
+	result := export_test_repro_handler.EchoChar(rune(arg0))
+	return int32(result)
+
+}
+
+//go:wasmexport test:repro/handler#echo-enum
+func wasm_export_test_repro_handler_echo_enum(arg0 int32) int32 {
+
+	result := export_test_repro_handler.EchoEnum(uint8(arg0))
+	return int32(result)
+
+}
+
+//go:wasmexport test:repro/handler#echo-flags
+func wasm_export_test_repro_handler_echo_flags(arg0 int32) int32 {
+
+	result := export_test_repro_handler.EchoFlags(uint8(arg0))
+	return int32(result)
+
+}
+
+//go:wasmexport test:repro/handler#echo-variant
+func wasm_export_test_repro_handler_echo_variant(arg0 int32, arg1 float64) uintptr {
+
+	var variant test_repro_types.Shape
+	switch arg0 {
+	case 0:
+
+		variant = test_repro_types.MakeShapeCircle(arg1)
+
+	case 1:
+
+		variant = test_repro_types.MakeShapeSquare(arg1)
+
+	case 2:
+
+		variant = test_repro_types.MakeShapeNone()
+
+	default:
+		panic("unreachable")
+	}
+	result := export_test_repro_handler.EchoVariant(variant)
+
+	switch result.Tag() {
+	case test_repro_types.ShapeCircle:
+		payload := result.Circle()
+		*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 0)) = int8(int32(0))
+		*(*float64)(unsafe.Add(unsafe.Pointer(exportReturnArea), 8)) = payload
+
+	case test_repro_types.ShapeSquare:
+		payload := result.Square()
+		*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 0)) = int8(int32(1))
+		*(*float64)(unsafe.Add(unsafe.Pointer(exportReturnArea), 8)) = payload
+
+	case test_repro_types.ShapeNone:
+
+		*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 0)) = int8(int32(2))
+
+	default:
+		panic("unreachable")
+	}
+	return exportReturnArea
+
+}
+
+//go:wasmexport test:repro/handler#make-ok
+func wasm_export_test_repro_handler_make_ok(arg0 int32) uintptr {
+
+	pinner := &syncExportPinner
+	result := export_test_repro_handler.MakeOk(uint32(arg0))
+
+	switch result.Tag() {
+	case wit_types.ResultOk:
+		payload := result.Ok()
+		*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 0)) = int8(int32(0))
+		*(*int32)(unsafe.Add(unsafe.Pointer(exportReturnArea), 4)) = int32(payload)
+
+	case wit_types.ResultErr:
+		payload := result.Err()
+		*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 0)) = int8(int32(1))
+		utf8 := unsafe.Pointer(unsafe.StringData(payload))
+		pinner.Pin(utf8)
+		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (2 * 4))) = uint32(uint32(len(payload)))
+		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), 4)) = uint32(uintptr(uintptr(utf8)))
+
+	default:
+		panic("unreachable")
+	}
+	return exportReturnArea
+
+}
+
+//go:wasmexport cabi_post_test:repro/handler#make-ok
+func wasm_export_post_return_test_repro_handler_make_ok(result uintptr) {
+	syncExportPinner.Unpin()
+}
+
+//go:wasmexport test:repro/handler#make-err
+func wasm_export_test_repro_handler_make_err(arg0 uintptr, arg1 uint32) uintptr {
+
+	pinner := &syncExportPinner
+	value := unsafe.String((*uint8)(unsafe.Pointer(arg0)), arg1)
+	wit_runtime.Unpin()
+	result := export_test_repro_handler.MakeErr(value)
+
+	switch result.Tag() {
+	case wit_types.ResultOk:
+		payload := result.Ok()
+		*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 0)) = int8(int32(0))
+		*(*int32)(unsafe.Add(unsafe.Pointer(exportReturnArea), 4)) = int32(payload)
+
+	case wit_types.ResultErr:
+		payload := result.Err()
+		*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 0)) = int8(int32(1))
+		utf8 := unsafe.Pointer(unsafe.StringData(payload))
+		pinner.Pin(utf8)
+		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (2 * 4))) = uint32(uint32(len(payload)))
+		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), 4)) = uint32(uintptr(uintptr(utf8)))
+
+	default:
+		panic("unreachable")
+	}
+	return exportReturnArea
+
+}
+
+//go:wasmexport cabi_post_test:repro/handler#make-err
+func wasm_export_post_return_test_repro_handler_make_err(result uintptr) {
+	syncExportPinner.Unpin()
+}
+
+//go:wasmexport test:repro/handler#add-three
+func wasm_export_test_repro_handler_add_three(arg0 int32, arg1 int32, arg2 int32) int32 {
+
+	result := export_test_repro_handler.AddThree(uint32(arg0), uint32(arg1), uint32(arg2))
+	return int32(result)
+
+}
+
+//go:wasmexport test:repro/handler#concat-strings
+func wasm_export_test_repro_handler_concat_strings(arg0 uintptr, arg1 uint32, arg2 uintptr, arg3 uint32) uintptr {
+
+	pinner := &syncExportPinner
+	value := unsafe.String((*uint8)(unsafe.Pointer(arg0)), arg1)
+	value0 := unsafe.String((*uint8)(unsafe.Pointer(arg2)), arg3)
+	wit_runtime.Unpin()
+	result := export_test_repro_handler.ConcatStrings(value, value0)
+	utf8 := unsafe.Pointer(unsafe.StringData(result))
+	pinner.Pin(utf8)
+	*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), 4)) = uint32(uint32(len(result)))
+	*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), 0)) = uint32(uintptr(uintptr(utf8)))
+	return exportReturnArea
+
+}
+
+//go:wasmexport cabi_post_test:repro/handler#concat-strings
+func wasm_export_post_return_test_repro_handler_concat_strings(result uintptr) {
+	syncExportPinner.Unpin()
+}
+
+//go:wasmexport test:repro/handler#mixed-params
+func wasm_export_test_repro_handler_mixed_params(arg0 uintptr, arg1 uint32, arg2 int32, arg3 int32) uintptr {
+
+	pinner := &syncExportPinner
+	value := unsafe.String((*uint8)(unsafe.Pointer(arg0)), arg1)
+	wit_runtime.Unpin()
+	result := export_test_repro_handler.MixedParams(value, uint32(arg2), (arg3 != 0))
+	utf8 := unsafe.Pointer(unsafe.StringData(result))
+	pinner.Pin(utf8)
+	*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), 4)) = uint32(uint32(len(result)))
+	*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), 0)) = uint32(uintptr(uintptr(utf8)))
+	return exportReturnArea
+
+}
+
+//go:wasmexport cabi_post_test:repro/handler#mixed-params
+func wasm_export_post_return_test_repro_handler_mixed_params(result uintptr) {
 	syncExportPinner.Unpin()
 }
 

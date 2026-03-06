@@ -7,33 +7,73 @@ interface types {
     value: u32,
     ok: bool,
   }
+
+  /// Color enum for echo-enum test.
+  enum color {
+    red,
+    green,
+    blue,
+  }
+
+  /// Permissions flags for echo-flags test.
+  flags permissions {
+    read,
+    write,
+    execute,
+  }
+
+  /// Shape variant for echo-variant test.
+  variant shape {
+    circle(f64),
+    square(f64),
+    none,
+  }
 }
 
 /// Host-provided function that the guest can call.
 interface host-ops {
   use types.{process-result};
   get-value: func() -> u32;
-  /// Takes a u64 param — tests that canon lower produces i64 (not i32) in core ABI.
+  /// Takes a u64 param -- tests that canon lower produces i64 (not i32) in core ABI.
   get-random-len: func(len: u64) -> u64;
 }
 
 /// Separate RNG interface mirroring director's host-rng.
-/// Has get-random-bytes(count: u32) which collides with
-/// wasi:random/random.get-random-bytes(len: u64).
 interface host-rng {
   get-random-bytes: func(count: u32) -> list<u8>;
 }
 
 /// Guest-exported handler interface.
 interface handler {
-  use types.{process-result};
+  use types.{process-result, color, permissions, shape};
   process: func() -> process-result;
-  /// Calls host-ops.get-random-len with a u64 argument.
   process-random: func(len: u64) -> u64;
-  /// Calls host-rng.get-random-bytes with a u32 argument.
   process-random-bytes: func(count: u32) -> list<u8>;
-  /// Takes a string param — tests that canon lift handles string parameters.
   echo-string: func(input: string) -> string;
+
+  /// Primitive echo functions
+  echo-bool: func(input: bool) -> bool;
+  echo-s8: func(input: s8) -> s8;
+  echo-u8: func(input: u8) -> u8;
+  echo-s16: func(input: s16) -> s16;
+  echo-u16: func(input: u16) -> u16;
+  echo-f32: func(input: f32) -> f32;
+  echo-f64: func(input: f64) -> f64;
+  echo-char: func(input: char) -> char;
+
+  /// Composite type echo functions
+  echo-enum: func(input: color) -> color;
+  echo-flags: func(input: permissions) -> permissions;
+  echo-variant: func(input: shape) -> shape;
+
+  /// Result type functions
+  make-ok: func(value: u32) -> result<u32, string>;
+  make-err: func(message: string) -> result<u32, string>;
+
+  /// Multi-parameter functions
+  add-three: func(a: u32, b: u32, c: u32) -> u32;
+  concat-strings: func(a: string, b: string) -> string;
+  mixed-params: func(name: string, count: u32, flag: bool) -> string;
 }
 
 world test-plugin {
