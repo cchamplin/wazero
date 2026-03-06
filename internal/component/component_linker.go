@@ -1189,8 +1189,15 @@ func (l *ComponentLinker) resolveInlineInstanceSource(inst *Instance, c *Compone
 
 		// Add remapped exports for any names that don't already exist
 		for newName, src := range exportMapping {
-			if _, exists := modInst.Exports[newName]; exists {
-				// Export with this name already exists, no need to add
+			if existing, exists := modInst.Exports[newName]; exists {
+				// Export with this name already exists - check if it points to the same function.
+				// Different inline instances may remap the same export name (e.g., "get-random-bytes")
+				// to different underlying functions in the source module. If the existing export
+				// points to a different function index, we cannot use the shortcut path.
+				origExport, origExists := modInst.Exports[src.exportName]
+				if origExists && existing.Index != origExport.Index {
+					return nil
+				}
 				continue
 			}
 
