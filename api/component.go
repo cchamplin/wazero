@@ -157,6 +157,11 @@ type ComponentInstanceBuilder interface {
 	// Resource adds a resource type definition to the instance.
 	Resource(name string, dtor func(rep uint32)) ComponentInstanceBuilder
 
+	// SkipValidation disables type checking for this instance definition.
+	// Use this when the type checker's index mapping may be misaligned
+	// for components with many type aliases across multiple instances.
+	SkipValidation() ComponentInstanceBuilder
+
 	// Build finalizes the instance definition.
 	Build() error
 

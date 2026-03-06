@@ -1,0 +1,16 @@
+package test:repro;
+
+/// Host-provided function that the guest can call.
+interface host-ops {
+  get-value: func() -> u32;
+}
+
+/// Guest-exported handler interface.
+interface handler {
+  process: func() -> u32;
+}
+
+world test-plugin {
+  import host-ops;
+  export handler;
+}

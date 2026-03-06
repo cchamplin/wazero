@@ -118,6 +118,12 @@ func (b *ComponentInstanceBuilderWrapper) Resource(name string, dtor func(rep ui
 	return b
 }
 
+// SkipValidation disables type checking for this instance definition.
+func (b *ComponentInstanceBuilderWrapper) SkipValidation() api.ComponentInstanceBuilder {
+	b.builder.SkipValidation()
+	return b
+}
+
 // Build finalizes the instance definition.
 func (b *ComponentInstanceBuilderWrapper) Build() error {
 	return b.builder.Build()
@@ -148,6 +154,12 @@ func (b *ComponentInstanceBuilderWrapper2) Func(name string, fn any) api.Compone
 // Resource adds a resource type definition to the instance.
 func (b *ComponentInstanceBuilderWrapper2) Resource(name string, dtor func(rep uint32)) api.ComponentInstanceBuilder {
 	b.builder.Resource(name, dtor)
+	return b
+}
+
+// SkipValidation disables type checking for this instance definition.
+func (b *ComponentInstanceBuilderWrapper2) SkipValidation() api.ComponentInstanceBuilder {
+	b.builder.SkipValidation()
 	return b
 }
 
