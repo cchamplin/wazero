@@ -15,7 +15,7 @@ import (
 )
 
 var staticPinner = runtime.Pinner{}
-var exportReturnArea = uintptr(wit_runtime.Allocate(&staticPinner, (4 * 4), 8))
+var exportReturnArea = uintptr(wit_runtime.Allocate(&staticPinner, (16 * 4), 8))
 var syncExportPinner = runtime.Pinner{}
 
 //go:wasmexport test:repro/handler#process
@@ -488,6 +488,342 @@ func wasm_export_test_repro_handler_call_send_events(arg0 uintptr, arg1 uint32) 
 	result0 := export_test_repro_handler.CallSendEvents(result)
 	return int32(result0)
 
+}
+
+//go:wasmexport test:repro/handler#process-with-tag
+func wasm_export_test_repro_handler_process_with_tag(arg0 uintptr, arg1 uint32) uintptr {
+
+	value := unsafe.String((*uint8)(unsafe.Pointer(arg0)), arg1)
+	wit_runtime.Unpin()
+	result := export_test_repro_handler.ProcessWithTag(value)
+	*(*int32)(unsafe.Add(unsafe.Pointer(exportReturnArea), 0)) = int32((result).Value)
+	var result0 int32
+	if (result).Ok {
+		result0 = 1
+	} else {
+		result0 = 0
+	}
+	*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 4)) = int8(result0)
+	return exportReturnArea
+
+}
+
+//go:wasmexport test:repro/handler#process-two-strings
+func wasm_export_test_repro_handler_process_two_strings(arg0 uintptr, arg1 uint32, arg2 uintptr, arg3 uint32) uintptr {
+
+	value := unsafe.String((*uint8)(unsafe.Pointer(arg0)), arg1)
+	value0 := unsafe.String((*uint8)(unsafe.Pointer(arg2)), arg3)
+	wit_runtime.Unpin()
+	result := export_test_repro_handler.ProcessTwoStrings(value, value0)
+	*(*int32)(unsafe.Add(unsafe.Pointer(exportReturnArea), 0)) = int32((result).Value)
+	var result1 int32
+	if (result).Ok {
+		result1 = 1
+	} else {
+		result1 = 0
+	}
+	*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 4)) = int8(result1)
+	return exportReturnArea
+
+}
+
+//go:wasmexport test:repro/handler#count-bytes
+func wasm_export_test_repro_handler_count_bytes(arg0 uintptr, arg1 uint32, arg2 uintptr, arg3 uint32) int32 {
+
+	value := unsafe.String((*uint8)(unsafe.Pointer(arg0)), arg1)
+	value0 := unsafe.Slice((*uint8)(unsafe.Pointer(arg2)), arg3)
+	wit_runtime.Unpin()
+	result := export_test_repro_handler.CountBytes(value, value0)
+	return int32(result)
+
+}
+
+//go:wasmexport test:repro/handler#handle-bytes
+func wasm_export_test_repro_handler_handle_bytes(arg0 uintptr, arg1 uint32, arg2 uintptr, arg3 uint32) uintptr {
+
+	value := unsafe.String((*uint8)(unsafe.Pointer(arg0)), arg1)
+	value0 := unsafe.Slice((*uint8)(unsafe.Pointer(arg2)), arg3)
+	wit_runtime.Unpin()
+	result := export_test_repro_handler.HandleBytes(value, value0)
+	*(*int32)(unsafe.Add(unsafe.Pointer(exportReturnArea), 0)) = int32((result).Value)
+	var result1 int32
+	if (result).Ok {
+		result1 = 1
+	} else {
+		result1 = 0
+	}
+	*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 4)) = int8(result1)
+	return exportReturnArea
+
+}
+
+//go:wasmexport test:repro/handler#handle-event
+func wasm_export_test_repro_handler_handle_event(arg0 uintptr, arg1 uint32, arg2 int32, arg3 int32, arg4 uintptr, arg5 uint32) uintptr {
+
+	value := unsafe.String((*uint8)(unsafe.Pointer(arg0)), arg1)
+	var option wit_types.Option[[]uint8]
+	switch arg3 {
+	case 0:
+
+		option = wit_types.None[[]uint8]()
+	case 1:
+		value0 := unsafe.Slice((*uint8)(unsafe.Pointer(arg4)), arg5)
+
+		option = wit_types.Some[[]uint8](value0)
+	default:
+		panic("unreachable")
+	}
+	wit_runtime.Unpin()
+	result := export_test_repro_handler.HandleEvent(value, test_repro_types.EventData{uint8(arg2), option})
+	*(*int32)(unsafe.Add(unsafe.Pointer(exportReturnArea), 0)) = int32((result).Value)
+	var result1 int32
+	if (result).Ok {
+		result1 = 1
+	} else {
+		result1 = 0
+	}
+	*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 4)) = int8(result1)
+	return exportReturnArea
+
+}
+
+//go:wasmexport test:repro/handler#process-complex
+func wasm_export_test_repro_handler_process_complex(arg0 uintptr) int32 {
+
+	value := unsafe.String((*uint8)(unsafe.Pointer(uintptr(*(*uint32)(unsafe.Add(unsafe.Pointer(arg0), 0))))), *(*uint32)(unsafe.Add(unsafe.Pointer(arg0), 4)))
+	value0 := unsafe.String((*uint8)(unsafe.Pointer(uintptr(*(*uint32)(unsafe.Add(unsafe.Pointer(arg0), (8 + 2*4)))))), *(*uint32)(unsafe.Add(unsafe.Pointer(arg0), (8 + 3*4))))
+	value1 := unsafe.String((*uint8)(unsafe.Pointer(uintptr(*(*uint32)(unsafe.Add(unsafe.Pointer(arg0), (8 + 4*4)))))), *(*uint32)(unsafe.Add(unsafe.Pointer(arg0), (8 + 5*4))))
+	result := make([]string, 0, *(*uint32)(unsafe.Add(unsafe.Pointer(arg0), (24 + 7*4))))
+	for index := 0; index < int(*(*uint32)(unsafe.Add(unsafe.Pointer(arg0), (24 + 7*4)))); index++ {
+		base := unsafe.Add(unsafe.Pointer(uintptr(*(*uint32)(unsafe.Add(unsafe.Pointer(arg0), (24 + 6*4))))), index*(2*4))
+		value2 := unsafe.String((*uint8)(unsafe.Pointer(uintptr(*(*uint32)(unsafe.Add(unsafe.Pointer(base), 0))))), *(*uint32)(unsafe.Add(unsafe.Pointer(base), 4)))
+
+		result = append(result, value2)
+	}
+
+	var option wit_types.Option[uint32]
+	switch uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(arg0), (24 + 8*4)))) {
+	case 0:
+
+		option = wit_types.None[uint32]()
+	case 1:
+
+		option = wit_types.Some[uint32](uint32(*(*int32)(unsafe.Add(unsafe.Pointer(arg0), (28 + 8*4)))))
+	default:
+		panic("unreachable")
+	}
+	var variant test_repro_types.Shape
+	switch uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(arg0), (32 + 8*4)))) {
+	case 0:
+
+		variant = test_repro_types.MakeShapeCircle(*(*float64)(unsafe.Add(unsafe.Pointer(arg0), (40 + 8*4))))
+
+	case 1:
+
+		variant = test_repro_types.MakeShapeSquare(*(*float64)(unsafe.Add(unsafe.Pointer(arg0), (40 + 8*4))))
+
+	case 2:
+
+		variant = test_repro_types.MakeShapeNone()
+
+	default:
+		panic("unreachable")
+	}
+	var option4 wit_types.Option[[]uint8]
+	switch uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(arg0), (48 + 9*4)))) {
+	case 0:
+
+		option4 = wit_types.None[[]uint8]()
+	case 1:
+		value3 := unsafe.Slice((*uint8)(unsafe.Pointer(uintptr(*(*uint32)(unsafe.Add(unsafe.Pointer(arg0), (48 + 10*4)))))), *(*uint32)(unsafe.Add(unsafe.Pointer(arg0), (48 + 11*4))))
+
+		option4 = wit_types.Some[[]uint8](value3)
+	default:
+		panic("unreachable")
+	}
+	wit_runtime.Unpin()
+	result5 := export_test_repro_handler.ProcessComplex(value, uint32(*(*int32)(unsafe.Add(unsafe.Pointer(arg0), (2 * 4)))), test_repro_types.ComplexInput{value0, test_repro_types.NestedMiddle{test_repro_types.NestedInner{value1, *(*float64)(unsafe.Add(unsafe.Pointer(arg0), (8 + 6*4))), (uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(arg0), (16 + 6*4)))) != 0)}, result, option, variant}, uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(arg0), (48 + 8*4))))), option4})
+	return int32(result5)
+
+}
+
+//go:wasmexport test:repro/handler#transform-complex
+func wasm_export_test_repro_handler_transform_complex(arg0 uintptr, arg1 uint32, arg2 int32) uintptr {
+
+	pinner := &syncExportPinner
+	value := unsafe.String((*uint8)(unsafe.Pointer(arg0)), arg1)
+	wit_runtime.Unpin()
+	result := export_test_repro_handler.TransformComplex(value, uint32(arg2))
+	var result0 int32
+	if (result).Success {
+		result0 = 1
+	} else {
+		result0 = 0
+	}
+	*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 0)) = int8(result0)
+	*(*int32)(unsafe.Add(unsafe.Pointer(exportReturnArea), 4)) = int32(((result).Detail).Code)
+	utf8 := unsafe.Pointer(unsafe.StringData(((result).Detail).Message))
+	pinner.Pin(utf8)
+	*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (3 * 4))) = uint32(uint32(len(((result).Detail).Message)))
+	*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (2 * 4))) = uint32(uintptr(uintptr(utf8)))
+
+	switch ((result).Detail).Extra.Tag() {
+	case wit_types.OptionNone:
+		*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (4 * 4))) = int8(int32(0))
+
+	case wit_types.OptionSome:
+		payload := ((result).Detail).Extra.Some()
+		*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (4 * 4))) = int8(int32(1))
+		utf81 := unsafe.Pointer(unsafe.StringData(payload))
+		pinner.Pin(utf81)
+		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (6 * 4))) = uint32(uint32(len(payload)))
+		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (5 * 4))) = uint32(uintptr(uintptr(utf81)))
+
+	default:
+		panic("unreachable")
+	}
+	data := unsafe.Pointer(unsafe.SliceData((result).Values))
+	pinner.Pin(data)
+	*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 * 4))) = uint32(uint32(len((result).Values)))
+	*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (7 * 4))) = uint32(uintptr(uintptr(data)))
+	*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (9 * 4))) = int8(int32(((result).Event).EventType))
+
+	switch ((result).Event).Metadata.Tag() {
+	case wit_types.OptionNone:
+		*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (10 * 4))) = int8(int32(0))
+
+	case wit_types.OptionSome:
+		payload := ((result).Event).Metadata.Some()
+		*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (10 * 4))) = int8(int32(1))
+		data2 := unsafe.Pointer(unsafe.SliceData(payload))
+		pinner.Pin(data2)
+		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (12 * 4))) = uint32(uint32(len(payload)))
+		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (11 * 4))) = uint32(uintptr(uintptr(data2)))
+
+	default:
+		panic("unreachable")
+	}
+
+	switch (result).Label.Tag() {
+	case wit_types.OptionNone:
+		*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (13 * 4))) = int8(int32(0))
+
+	case wit_types.OptionSome:
+		payload := (result).Label.Some()
+		*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (13 * 4))) = int8(int32(1))
+		utf83 := unsafe.Pointer(unsafe.StringData(payload))
+		pinner.Pin(utf83)
+		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (15 * 4))) = uint32(uint32(len(payload)))
+		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (14 * 4))) = uint32(uintptr(uintptr(utf83)))
+
+	default:
+		panic("unreachable")
+	}
+	return exportReturnArea
+
+}
+
+//go:wasmexport cabi_post_test:repro/handler#transform-complex
+func wasm_export_post_return_test_repro_handler_transform_complex(result uintptr) {
+	syncExportPinner.Unpin()
+}
+
+//go:wasmexport test:repro/handler#transform-complex-variant
+func wasm_export_test_repro_handler_transform_complex_variant(arg0 uintptr, arg1 uint32, arg2 int32, arg3 float64) uintptr {
+
+	pinner := &syncExportPinner
+	value := unsafe.String((*uint8)(unsafe.Pointer(arg0)), arg1)
+	var variant test_repro_types.Shape
+	switch arg2 {
+	case 0:
+
+		variant = test_repro_types.MakeShapeCircle(arg3)
+
+	case 1:
+
+		variant = test_repro_types.MakeShapeSquare(arg3)
+
+	case 2:
+
+		variant = test_repro_types.MakeShapeNone()
+
+	default:
+		panic("unreachable")
+	}
+	wit_runtime.Unpin()
+	result := export_test_repro_handler.TransformComplexVariant(value, variant)
+	var result0 int32
+	if (result).Success {
+		result0 = 1
+	} else {
+		result0 = 0
+	}
+	*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 0)) = int8(result0)
+	*(*int32)(unsafe.Add(unsafe.Pointer(exportReturnArea), 4)) = int32(((result).Detail).Code)
+	utf8 := unsafe.Pointer(unsafe.StringData(((result).Detail).Message))
+	pinner.Pin(utf8)
+	*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (3 * 4))) = uint32(uint32(len(((result).Detail).Message)))
+	*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (2 * 4))) = uint32(uintptr(uintptr(utf8)))
+
+	switch ((result).Detail).Extra.Tag() {
+	case wit_types.OptionNone:
+		*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (4 * 4))) = int8(int32(0))
+
+	case wit_types.OptionSome:
+		payload := ((result).Detail).Extra.Some()
+		*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (4 * 4))) = int8(int32(1))
+		utf81 := unsafe.Pointer(unsafe.StringData(payload))
+		pinner.Pin(utf81)
+		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (6 * 4))) = uint32(uint32(len(payload)))
+		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (5 * 4))) = uint32(uintptr(uintptr(utf81)))
+
+	default:
+		panic("unreachable")
+	}
+	data := unsafe.Pointer(unsafe.SliceData((result).Values))
+	pinner.Pin(data)
+	*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 * 4))) = uint32(uint32(len((result).Values)))
+	*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (7 * 4))) = uint32(uintptr(uintptr(data)))
+	*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (9 * 4))) = int8(int32(((result).Event).EventType))
+
+	switch ((result).Event).Metadata.Tag() {
+	case wit_types.OptionNone:
+		*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (10 * 4))) = int8(int32(0))
+
+	case wit_types.OptionSome:
+		payload := ((result).Event).Metadata.Some()
+		*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (10 * 4))) = int8(int32(1))
+		data2 := unsafe.Pointer(unsafe.SliceData(payload))
+		pinner.Pin(data2)
+		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (12 * 4))) = uint32(uint32(len(payload)))
+		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (11 * 4))) = uint32(uintptr(uintptr(data2)))
+
+	default:
+		panic("unreachable")
+	}
+
+	switch (result).Label.Tag() {
+	case wit_types.OptionNone:
+		*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (13 * 4))) = int8(int32(0))
+
+	case wit_types.OptionSome:
+		payload := (result).Label.Some()
+		*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (13 * 4))) = int8(int32(1))
+		utf83 := unsafe.Pointer(unsafe.StringData(payload))
+		pinner.Pin(utf83)
+		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (15 * 4))) = uint32(uint32(len(payload)))
+		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (14 * 4))) = uint32(uintptr(uintptr(utf83)))
+
+	default:
+		panic("unreachable")
+	}
+	return exportReturnArea
+
+}
+
+//go:wasmexport cabi_post_test:repro/handler#transform-complex-variant
+func wasm_export_post_return_test_repro_handler_transform_complex_variant(result uintptr) {
+	syncExportPinner.Unpin()
 }
 
 // Unused, but present to make the compiler happy

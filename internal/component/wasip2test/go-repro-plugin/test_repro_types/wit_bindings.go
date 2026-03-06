@@ -83,3 +83,42 @@ type TaggedShape struct {
 	Tag   string
 	Shape Shape
 }
+
+// Deeply nested record: innermost layer.
+type NestedInner struct {
+	Label  string
+	Score  float64
+	Active bool
+}
+
+// Deeply nested record: middle layer with inner record, list, option, variant.
+type NestedMiddle struct {
+	Inner    NestedInner
+	Tags     []string
+	Priority wit_types.Option[uint32]
+	Shape    Shape
+}
+
+// Deeply nested record: outermost input with all composite types nested.
+type ComplexInput struct {
+	Id       string
+	Middle   NestedMiddle
+	Color    Color
+	Metadata wit_types.Option[[]uint8]
+}
+
+// Deeply nested record: detail inside output.
+type ResultDetail struct {
+	Code    uint32
+	Message string
+	Extra   wit_types.Option[string]
+}
+
+// Deeply nested record: complex output with nested record, list, option, variant, enum.
+type ComplexOutput struct {
+	Success bool
+	Detail  ResultDetail
+	Values  []uint32
+	Event   EventData
+	Label   wit_types.Option[string]
+}

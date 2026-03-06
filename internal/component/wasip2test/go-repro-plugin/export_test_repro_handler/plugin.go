@@ -158,3 +158,78 @@ func CallSendTaggedShape(ts test_repro_types.TaggedShape) uint32 {
 func CallSendEvents(events []test_repro_types.EventData) uint32 {
 	return test_repro_host_ops.SendEvents(events)
 }
+
+// ProcessWithTag takes a single string param and returns a process-result record.
+func ProcessWithTag(tag string) test_repro_types.ProcessResult {
+	return test_repro_types.ProcessResult{
+		Value: uint32(len(tag)),
+		Ok:    true,
+	}
+}
+
+// ProcessTwoStrings takes two string params and returns a process-result record.
+func ProcessTwoStrings(a string, b string) test_repro_types.ProcessResult {
+	return test_repro_types.ProcessResult{
+		Value: uint32(len(a) + len(b)),
+		Ok:    true,
+	}
+}
+
+// CountBytes takes (string, list<u8>) and returns u32 length.
+func CountBytes(id string, data []uint8) uint32 {
+	return uint32(len(data))
+}
+
+// HandleBytes takes (string, list<u8>) and returns a process-result record.
+func HandleBytes(id string, data []uint8) test_repro_types.ProcessResult {
+	return test_repro_types.ProcessResult{
+		Value: uint32(len(data)),
+		Ok:    true,
+	}
+}
+
+// HandleEvent takes (string, event-data) and returns a process-result record.
+func HandleEvent(id string, event test_repro_types.EventData) test_repro_types.ProcessResult {
+	return test_repro_types.ProcessResult{
+		Value: 1,
+		Ok:    true,
+	}
+}
+
+// ProcessComplex takes (string, u32, complex-input) and returns u32.
+func ProcessComplex(id string, count uint32, input test_repro_types.ComplexInput) uint32 {
+	result := count
+	result += uint32(len(input.Id))
+	result += uint32(len(input.Middle.Inner.Label))
+	result += uint32(len(input.Middle.Tags))
+	if input.Middle.Priority.IsSome() {
+		result += input.Middle.Priority.Some()
+	}
+	if input.Metadata.IsSome() {
+		result += uint32(len(input.Metadata.Some()))
+	}
+	return result
+}
+
+// TransformComplexVariant takes (string, shape) and returns a complex-output record.
+func TransformComplexVariant(name string, shape test_repro_types.Shape) test_repro_types.ComplexOutput {
+	return TransformComplex(name, 42)
+}
+
+// TransformComplex takes (string, u32) and returns a complex-output record.
+func TransformComplex(name string, code uint32) test_repro_types.ComplexOutput {
+	return test_repro_types.ComplexOutput{
+		Success: true,
+		Detail: test_repro_types.ResultDetail{
+			Code:    200,
+			Message: "ok:" + name,
+			Extra:   wit_types.Some("detail-extra"),
+		},
+		Values: []uint32{10, 20, 30},
+		Event: test_repro_types.EventData{
+			EventType: test_repro_types.ColorGreen,
+			Metadata:  wit_types.Some([]uint8{1, 2, 3}),
+		},
+		Label: wit_types.Some(name),
+	}
+}

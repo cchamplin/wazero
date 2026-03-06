@@ -40,6 +40,45 @@ interface types {
     tag: string,
     shape: shape,
   }
+
+  /// Deeply nested record: innermost layer.
+  record nested-inner {
+    label: string,
+    score: f64,
+    active: bool,
+  }
+
+  /// Deeply nested record: middle layer with inner record, list, option, variant.
+  record nested-middle {
+    inner: nested-inner,
+    tags: list<string>,
+    priority: option<u32>,
+    shape: shape,
+  }
+
+  /// Deeply nested record: outermost input with all composite types nested.
+  record complex-input {
+    id: string,
+    middle: nested-middle,
+    color: color,
+    metadata: option<list<u8>>,
+  }
+
+  /// Deeply nested record: detail inside output.
+  record result-detail {
+    code: u32,
+    message: string,
+    extra: option<string>,
+  }
+
+  /// Deeply nested record: complex output with nested record, list, option, variant, enum.
+  record complex-output {
+    success: bool,
+    detail: result-detail,
+    values: list<u32>,
+    event: event-data,
+    label: option<string>,
+  }
 }
 
 /// Host-provided function that the guest can call.
@@ -75,7 +114,7 @@ interface host-rng {
 
 /// Guest-exported handler interface.
 interface handler {
-  use types.{process-result, color, permissions, shape, event-data, tagged-shape};
+  use types.{process-result, color, permissions, shape, event-data, tagged-shape, complex-input, complex-output, nested-inner, nested-middle, result-detail};
   process: func() -> process-result;
   process-random: func(len: u64) -> u64;
   process-random-bytes: func(count: u32) -> list<u8>;
@@ -119,6 +158,24 @@ interface handler {
   call-send-tagged-shape: func(ts: tagged-shape) -> u32;
   /// Calls host-ops.send-events -- tests list<record> param lifting.
   call-send-events: func(events: list<event-data>) -> u32;
+
+  /// Single string param + record return: isolates record-return-from-export with a param.
+  process-with-tag: func(tag: string) -> process-result;
+  /// Two string params + record return: tests multi-param record return without list types.
+  process-two-strings: func(a: string, b: string) -> process-result;
+  /// String + list<u8> returning u32: isolates list param lowering without record return.
+  count-bytes: func(id: string, data: list<u8>) -> u32;
+  /// Multi-param + record-return: mirrors director's handle-input(correlation-id, input) -> handle-result.
+  handle-bytes: func(id: string, data: list<u8>) -> process-result;
+  /// Multi-param + record-with-option param: mirrors director's handle-session-event(correlation-id, event) -> handle-result.
+  handle-event: func(id: string, event: event-data) -> process-result;
+
+  /// Multi-param with deeply nested complex record input.
+  process-complex: func(id: string, count: u32, input: complex-input) -> u32;
+  /// Multi-param with string + u32, returning deeply nested complex record output.
+  transform-complex: func(name: string, code: u32) -> complex-output;
+  /// Multi-param with string + variant, returning deeply nested complex record output.
+  transform-complex-variant: func(name: string, shape: shape) -> complex-output;
 }
 
 world test-plugin {
