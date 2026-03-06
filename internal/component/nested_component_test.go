@@ -873,6 +873,249 @@ func TestWireNestedComponentExports_NilComponent(t *testing.T) {
 	}
 }
 
+// TestBuildTypeSpace_FromTypeIdxToStoredIdx verifies that buildTypeSpace correctly
+// populates the instance's type space from a component with sparse type indices
+// (where aliases consume some indices).
+func TestBuildTypeSpace_FromTypeIdxToStoredIdx(t *testing.T) {
+	// Component has 3 type section entries but aliases consumed indices 1, 3, 4.
+	// TypeIdxToStoredIdx maps: 0->0, 2->1, 5->2
+	c := &Component{
+		Types: []TypeDef{
+			{Kind: TypeDefKindFunc, Func: &FuncType{}},
+			{Kind: TypeDefKindDefined, Record: &RecordTypeDef{
+				Fields: []RecordField{{Name: "x", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}},
+			}},
+			{Kind: TypeDefKindDefined, Record: &RecordTypeDef{
+				Fields: []RecordField{{Name: "y", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}},
+			}},
+		},
+		TypeIdxToStoredIdx: map[uint32]uint32{
+			0: 0,
+			2: 1,
+			5: 2,
+		},
+		NextTypeIdx: 6,
+	}
+
+	inst := &Instance{}
+	l := &ComponentLinker{}
+	l.buildTypeSpace(inst, c)
+
+	// Type 0 should be a Func type
+	td0 := inst.GetTypeFromSpace(0)
+	if td0 == nil {
+		t.Fatal("type 0 should be populated")
+	}
+	if td0.Kind != TypeDefKindFunc {
+		t.Errorf("type 0 should be Func, got %v", td0.Kind)
+	}
+
+	// Type 2 should be a record with field "x"
+	td2 := inst.GetTypeFromSpace(2)
+	if td2 == nil {
+		t.Fatal("type 2 should be populated")
+	}
+	if td2.Record == nil || len(td2.Record.Fields) != 1 || td2.Record.Fields[0].Name != "x" {
+		t.Errorf("type 2 should be record with field 'x', got %+v", td2)
+	}
+
+	// Type 5 should be a record with field "y"
+	td5 := inst.GetTypeFromSpace(5)
+	if td5 == nil {
+		t.Fatal("type 5 should be populated")
+	}
+	if td5.Record == nil || len(td5.Record.Fields) != 1 || td5.Record.Fields[0].Name != "y" {
+		t.Errorf("type 5 should be record with field 'y', got %+v", td5)
+	}
+
+	// Indices 1, 3, 4 are alias slots and should be nil
+	for _, idx := range []uint32{1, 3, 4} {
+		if inst.GetTypeFromSpace(idx) != nil {
+			t.Errorf("type %d should be nil (alias slot), but was populated", idx)
+		}
+	}
+}
+
+// TestBuildTypeSpace_ExportAliases verifies that buildTypeSpace resolves export
+// aliases to find the actual type definition through the instance type's declarations.
+func TestBuildTypeSpace_ExportAliases(t *testing.T) {
+	// The record type that will be exported by the instance type
+	recordType := &TypeDef{
+		Kind: TypeDefKindDefined,
+		Record: &RecordTypeDef{
+			Fields: []RecordField{{Name: "val", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}},
+		},
+	}
+
+	// Instance type with a type declaration and an export referencing it
+	instTypeDef := &InstanceTypeDef{
+		Declarations: []InstanceDecl{
+			{Kind: InstanceDeclKindType, Type: recordType},
+			{Kind: InstanceDeclKindExport, Export: &InstanceExport{
+				Name: "my-record",
+				Kind: ExportKindType,
+				Idx:  0, // references the first type decl above
+			}},
+		},
+	}
+
+	c := &Component{
+		Types: []TypeDef{
+			// Type 0: instance type that has the record export
+			{Kind: TypeDefKindInstance, Instance: instTypeDef},
+		},
+		TypeIdxToStoredIdx: map[uint32]uint32{
+			0: 0, // instance type at index 0
+		},
+		Imports: []Import{
+			{
+				Name: "my-inst",
+				ExternDesc: ImportExternDesc{
+					Kind:    ImportExternDescInstance,
+					TypeIdx: 0, // references Types[0]
+				},
+			},
+		},
+		Aliases: []Alias{
+			{
+				Kind:        AliasKindExport,
+				Sort:        SortType,
+				Idx:         1, // this alias produces type index 1
+				InstanceIdx: 0, // from instance 0
+				ExportName:  "my-record",
+			},
+		},
+	}
+
+	inst := &Instance{}
+	l := &ComponentLinker{}
+	l.buildTypeSpace(inst, c)
+
+	// Type 1 should be resolved to the record with field "val"
+	td1 := inst.GetTypeFromSpace(1)
+	if td1 == nil {
+		t.Fatal("type 1 should be resolved from export alias")
+	}
+	if td1.Record == nil || len(td1.Record.Fields) != 1 || td1.Record.Fields[0].Name != "val" {
+		t.Errorf("type 1 should be record with field 'val', got %+v", td1)
+	}
+}
+
+// TestResolveFromParentScope_TypeWithStoredIdxMapping verifies that resolveFromParentScope
+// correctly resolves a type argument using the TypeIdxToStoredIdx mapping when the
+// type index doesn't directly correspond to the Types array index.
+func TestResolveFromParentScope_TypeWithStoredIdxMapping(t *testing.T) {
+	parentComponent := &Component{
+		Types: []TypeDef{
+			{Kind: TypeDefKindFunc, Func: &FuncType{}},
+			{Kind: TypeDefKindDefined, Record: &RecordTypeDef{
+				Fields: []RecordField{{Name: "data", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}},
+			}},
+		},
+		TypeIdxToStoredIdx: map[uint32]uint32{
+			0:  0,
+			10: 1, // type index 10 maps to stored index 1
+		},
+	}
+
+	parent := &Instance{}
+
+	l := &ComponentLinker{}
+	arg := ComponentInstantiateArg{
+		Name: "my-type",
+		Sort: SortType,
+		Idx:  10, // requesting type index 10
+	}
+
+	def, err := l.resolveFromParentScope(parent, parentComponent, arg)
+	if err != nil {
+		t.Fatalf("resolveFromParentScope failed: %v", err)
+	}
+
+	tdDef, ok := def.(*TypeDefDef)
+	if !ok {
+		t.Fatalf("expected *TypeDefDef, got %T", def)
+	}
+
+	if tdDef.TypeDef.Record == nil || len(tdDef.TypeDef.Record.Fields) != 1 || tdDef.TypeDef.Record.Fields[0].Name != "data" {
+		t.Errorf("expected record with field 'data', got %+v", tdDef.TypeDef)
+	}
+}
+
+// TestResolveFromParentScope_TypeFromExportAlias verifies that resolveFromParentScope
+// correctly resolves a type argument that comes from an export alias, tracing through
+// the instance type's declarations to find the actual type.
+func TestResolveFromParentScope_TypeFromExportAlias(t *testing.T) {
+	// The record type that will be exported
+	statusRecord := &TypeDef{
+		Kind: TypeDefKindDefined,
+		Record: &RecordTypeDef{
+			Fields: []RecordField{{Name: "status", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}},
+		},
+	}
+
+	instTypeDef := &InstanceTypeDef{
+		Declarations: []InstanceDecl{
+			{Kind: InstanceDeclKindType, Type: statusRecord},
+			{Kind: InstanceDeclKindExport, Export: &InstanceExport{
+				Name: "status-record",
+				Kind: ExportKindType,
+				Idx:  0,
+			}},
+		},
+	}
+
+	parentComponent := &Component{
+		Types: []TypeDef{
+			{Kind: TypeDefKindInstance, Instance: instTypeDef},
+		},
+		TypeIdxToStoredIdx: map[uint32]uint32{
+			0: 0, // instance type at index 0
+		},
+		Imports: []Import{
+			{
+				Name: "some-inst",
+				ExternDesc: ImportExternDesc{
+					Kind:    ImportExternDescInstance,
+					TypeIdx: 0,
+				},
+			},
+		},
+		Aliases: []Alias{
+			{
+				Kind:        AliasKindExport,
+				Sort:        SortType,
+				Idx:         5, // this alias produces type index 5
+				InstanceIdx: 0,
+				ExportName:  "status-record",
+			},
+		},
+	}
+
+	parent := &Instance{}
+
+	l := &ComponentLinker{}
+	arg := ComponentInstantiateArg{
+		Name: "my-type",
+		Sort: SortType,
+		Idx:  5, // requesting the alias-produced type index
+	}
+
+	def, err := l.resolveFromParentScope(parent, parentComponent, arg)
+	if err != nil {
+		t.Fatalf("resolveFromParentScope failed: %v", err)
+	}
+
+	tdDef, ok := def.(*TypeDefDef)
+	if !ok {
+		t.Fatalf("expected *TypeDefDef, got %T", def)
+	}
+
+	if tdDef.TypeDef.Record == nil || len(tdDef.TypeDef.Record.Fields) != 1 || tdDef.TypeDef.Record.Fields[0].Name != "status" {
+		t.Errorf("expected record with field 'status', got %+v", tdDef.TypeDef)
+	}
+}
+
 // mockModuleForExport implements api.Module minimally for nested component tests.
 type mockModuleForExport struct {
 	internalapi.WazeroOnlyType
