@@ -3,20 +3,10 @@
 // This code was generated from the following packages:
 //     test:repro
 
-package test_repro_host_ops
+package test_repro_handler
 
 import (
 	"wit_component/test_repro_types"
 )
 
 type ProcessResult = test_repro_types.ProcessResult
-
-//go:wasmimport test:repro/host-ops get-value
-func wasm_import_get_value() int32
-
-func GetValue() uint32 {
-
-	result := wasm_import_get_value()
-	return uint32(result)
-
-}

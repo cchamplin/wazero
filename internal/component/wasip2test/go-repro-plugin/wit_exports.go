@@ -8,18 +8,27 @@ package main
 import (
 	"github.com/bytecodealliance/wit-bindgen/wit_runtime"
 	"runtime"
+	"unsafe"
 	"wit_component/export_test_repro_handler"
 )
 
 var staticPinner = runtime.Pinner{}
-var exportReturnArea = uintptr(wit_runtime.Allocate(&staticPinner, 0, 1))
+var exportReturnArea = uintptr(wit_runtime.Allocate(&staticPinner, 8, 4))
 var syncExportPinner = runtime.Pinner{}
 
 //go:wasmexport test:repro/handler#process
-func wasm_export_test_repro_handler_process() int32 {
+func wasm_export_test_repro_handler_process() uintptr {
 
 	result := export_test_repro_handler.Process()
-	return int32(result)
+	*(*int32)(unsafe.Add(unsafe.Pointer(exportReturnArea), 0)) = int32((result).Value)
+	var result0 int32
+	if (result).Ok {
+		result0 = 1
+	} else {
+		result0 = 0
+	}
+	*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 4)) = int8(result0)
+	return exportReturnArea
 
 }
 

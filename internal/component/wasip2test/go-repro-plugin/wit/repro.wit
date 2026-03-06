@@ -1,13 +1,24 @@
 package test:repro;
 
+/// Shared types used across interfaces.
+interface types {
+  /// A result record returned from handler exports.
+  record process-result {
+    value: u32,
+    ok: bool,
+  }
+}
+
 /// Host-provided function that the guest can call.
 interface host-ops {
+  use types.{process-result};
   get-value: func() -> u32;
 }
 
 /// Guest-exported handler interface.
 interface handler {
-  process: func() -> u32;
+  use types.{process-result};
+  process: func() -> process-result;
 }
 
 world test-plugin {
