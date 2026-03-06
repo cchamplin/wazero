@@ -175,10 +175,16 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 		defer f.instance.ExitCall()
 	}
 
-	// Create TypeResolver for dynamic type resolution
+	// Create TypeResolver for dynamic type resolution.
+	// Use the instance-aware resolver when available so type aliases
+	// (resolved during buildTypeSpace) can be found via the instance's typeSpace.
 	var resolver *TypeResolver
 	if f.component != nil {
-		resolver = NewTypeResolver(f.component)
+		if f.instance != nil {
+			resolver = NewTypeResolverWithInstance(f.component, f.instance)
+		} else {
+			resolver = NewTypeResolver(f.component)
+		}
 	}
 
 	// Convert component Vals to core wasm values
@@ -341,10 +347,45 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 	}
 	loweringComplete = true
 
+	// === RETPTR ALLOCATION ===
+	// Per Canonical ABI: when a function's result type has FlattenCount > MAX_FLAT_RESULTS (1),
+	// the caller must allocate space via realloc and pass a retptr as an additional core param.
+	// The callee writes the result into memory at that pointer, and returns void.
+	// After the call, we synthesize coreResults = [retptr] so the lifting code can read from memory.
+	var retptrVal uint64
+	usedRetptr := false
+	if f.funcType != nil && len(f.funcType.Results) == 1 && f.reallocFunc != nil && f.memory != nil {
+		resultTypeRef := f.funcType.Results[0].ValType
+
+		if !resultTypeRef.IsPrimitive && resolver != nil {
+			resolvedType, resolveErr := resolver.ResolveValType(resultTypeRef)
+			if resolveErr == nil {
+				flatCount := resolvedType.FlattenCount()
+				if flatCount > 1 {
+					retptrSize := resolvedType.Size()
+					retptrAlign := resolvedType.Align()
+					retptrResults, retptrErr := f.reallocFunc.Call(ctx, 0, 0, uint64(retptrAlign), uint64(retptrSize))
+					if retptrErr != nil {
+						return nil, fmt.Errorf("realloc for retptr failed: %w", retptrErr)
+					}
+					retptrVal = retptrResults[0]
+					coreParams = append(coreParams, retptrVal)
+					usedRetptr = true
+				}
+			}
+		}
+	}
+
 	// Call the core function
 	coreResults, err := f.coreFunc.Call(ctx, coreParams...)
 	if err != nil {
 		return nil, err
+	}
+
+	// If retptr was used, the core function returns void (no results).
+	// Synthesize coreResults = [retptr] so the lifting code reads from memory.
+	if usedRetptr && len(coreResults) == 0 {
+		coreResults = []uint64{retptrVal}
 	}
 
 	// Call the post-return function if specified.
@@ -369,7 +410,6 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 	// Check if the result type is a record, option, or handle by examining the function type
 	if f.funcType != nil && len(f.funcType.Results) == 1 {
 		resultTypeRef := f.funcType.Results[0].ValType
-
 		// Check for own<T> result
 		if resultTypeRef.IsOwn && len(coreResults) == 1 {
 			// own<T> result: Extract rep and transfer ownership out of component
@@ -459,9 +499,20 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 		}
 
 		// Legacy handling for when TypeResolver is not available
-		if !resultTypeRef.IsPrimitive && f.component != nil && resultTypeRef.TypeIdx < uint32(len(f.component.Types)) {
-			// Result is a defined type - look up the actual type definition
-			typeDef := &f.component.Types[resultTypeRef.TypeIdx]
+		if !resultTypeRef.IsPrimitive && f.component != nil {
+			// Result is a defined type - look up the actual type definition.
+			// Use TypeIdxToStoredIdx to map from type index space to Types array.
+			legacyStoredIdx := resultTypeRef.TypeIdx
+			if mapped, ok := f.component.TypeIdxToStoredIdx[resultTypeRef.TypeIdx]; ok {
+				legacyStoredIdx = mapped
+			}
+			var typeDef *TypeDef
+			if legacyStoredIdx < uint32(len(f.component.Types)) {
+				typeDef = &f.component.Types[legacyStoredIdx]
+			}
+			if typeDef == nil {
+				// Type not found in Types array - skip legacy handling
+			} else
 			if typeDef.Option != nil && len(coreResults) == 2 {
 				// Option type: first result is discriminant, second is payload
 				discriminant := coreResults[0]
@@ -794,12 +845,24 @@ func (f *ExportedFunc) liftRecord(recordDef *RecordTypeDef, coreResults []uint64
 func (f *ExportedFunc) liftResolvedType(resolvedType types.ValType, coreResults []uint64, subtask *Subtask, callCtx *CallContext) ([]Val, error) {
 	switch t := resolvedType.(type) {
 	case types.Record:
-		if len(coreResults) < len(t.Fields) {
-			return nil, fmt.Errorf("not enough core results for record: have %d, need %d", len(coreResults), len(t.Fields))
-		}
 		rec := make(map[string]Val)
-		for i, field := range t.Fields {
-			rec[field.Name] = f.liftResolvedPrimitiveVal(coreResults[i], field.Type)
+		if len(coreResults) < len(t.Fields) && len(coreResults) == 1 && f.memory != nil {
+			// Retptr case: the record's flat count exceeds MAX_FLAT_RESULTS=1,
+			// so the core function returns a pointer to the record in linear memory.
+			retptr := uint32(coreResults[0])
+			offset := retptr
+			for _, field := range t.Fields {
+				val, size := f.liftFieldFromMemory(offset, field.Type)
+				rec[field.Name] = val
+				offset += size
+			}
+		} else if len(coreResults) >= len(t.Fields) {
+			// Flat case: record fields are returned as individual core results.
+			for i, field := range t.Fields {
+				rec[field.Name] = f.liftResolvedPrimitiveVal(coreResults[i], field.Type)
+			}
+		} else {
+			return nil, fmt.Errorf("not enough core results for record: have %d, need %d", len(coreResults), len(t.Fields))
 		}
 		if err := callCtx.ValidateReturn(); err != nil {
 			return nil, err
@@ -987,6 +1050,92 @@ func (f *ExportedFunc) liftResolvedPrimitiveVal(coreVal uint64, valType types.Va
 	default:
 		// Default fallback to s32
 		return ValS32(int32(coreVal))
+	}
+}
+
+// liftFieldFromMemory reads a typed value from linear memory at the given offset.
+// Returns the lifted Val and the number of bytes consumed (for advancing the offset).
+func (f *ExportedFunc) liftFieldFromMemory(offset uint32, valType types.ValType) (Val, uint32) {
+	switch valType.(type) {
+	case types.Bool:
+		b, ok := f.memory.ReadByteAt(offset)
+		if !ok {
+			return ValBool(false), 1
+		}
+		return ValBool(b != 0), 1
+	case types.S8:
+		b, ok := f.memory.ReadByteAt(offset)
+		if !ok {
+			return ValS8(0), 1
+		}
+		return ValS8(int8(b)), 1
+	case types.U8:
+		b, ok := f.memory.ReadByteAt(offset)
+		if !ok {
+			return ValU8(0), 1
+		}
+		return ValU8(b), 1
+	case types.S16:
+		v, ok := f.memory.ReadUint16Le(offset)
+		if !ok {
+			return ValS16(0), 2
+		}
+		return ValS16(int16(v)), 2
+	case types.U16:
+		v, ok := f.memory.ReadUint16Le(offset)
+		if !ok {
+			return ValU16(0), 2
+		}
+		return ValU16(v), 2
+	case types.S32:
+		v, ok := f.memory.ReadUint32Le(offset)
+		if !ok {
+			return ValS32(0), 4
+		}
+		return ValS32(int32(v)), 4
+	case types.U32:
+		v, ok := f.memory.ReadUint32Le(offset)
+		if !ok {
+			return ValU32(0), 4
+		}
+		return ValU32(v), 4
+	case types.S64:
+		v, ok := f.memory.ReadUint64Le(offset)
+		if !ok {
+			return ValS64(0), 8
+		}
+		return ValS64(int64(v)), 8
+	case types.U64:
+		v, ok := f.memory.ReadUint64Le(offset)
+		if !ok {
+			return ValU64(0), 8
+		}
+		return ValU64(v), 8
+	case types.F32:
+		v, ok := f.memory.ReadUint32Le(offset)
+		if !ok {
+			return ValF32(0), 4
+		}
+		return ValF32(math.Float32frombits(v)), 4
+	case types.F64:
+		v, ok := f.memory.ReadUint64Le(offset)
+		if !ok {
+			return ValF64(0), 8
+		}
+		return ValF64(math.Float64frombits(v)), 8
+	case types.Char:
+		v, ok := f.memory.ReadUint32Le(offset)
+		if !ok {
+			return ValChar(0), 4
+		}
+		return ValChar(rune(v)), 4
+	default:
+		// Fallback: read as u32
+		v, ok := f.memory.ReadUint32Le(offset)
+		if !ok {
+			return ValU32(0), 4
+		}
+		return ValU32(v), 4
 	}
 }
 
