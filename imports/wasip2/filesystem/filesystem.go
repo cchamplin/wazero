@@ -725,7 +725,44 @@ func descriptorStatAt(ctx context.Context, args []component.Val) ([]component.Va
 // descriptorSetTimesAt sets the times of a file relative to a descriptor.
 // Signature: func(self: borrow<descriptor>, path-flags: path-flags, path: string, access: new-timestamp, modification: new-timestamp) -> result<_, error-code>
 func descriptorSetTimesAt(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Stub - return success
+	handle := args[0].Borrow()
+	pathFlags := args[1].Flags()
+	pathStr := args[2].StringVal()
+	accessTimeArg := args[3]
+	modTimeArg := args[4]
+
+	desc, err := getDescriptor(ctx, handle)
+	if err != nil {
+		return errorResult(ErrorCodeBadDescriptor), nil
+	}
+
+	if !desc.Flags().HasWrite() && desc.Flags()&DescriptorFlagMutateDirectory == 0 {
+		return errorResult(ErrorCodeAccess), nil
+	}
+
+	fullPath := filepath.Join(desc.Path(), pathStr)
+
+	// Respect symlink-follow flag: use Lstat for no-follow, Stat for follow
+	var info os.FileInfo
+	var statErr error
+	if pathFlags["symlink-follow"] {
+		info, statErr = os.Stat(fullPath)
+	} else {
+		info, statErr = os.Lstat(fullPath)
+	}
+	if statErr != nil {
+		return errorResult(MapOSError(statErr)), nil
+	}
+	currentModTime := info.ModTime()
+	currentAtime := currentModTime
+
+	atime := parseNewTimestamp(accessTimeArg, currentAtime)
+	mtime := parseNewTimestamp(modTimeArg, currentModTime)
+
+	if chtErr := os.Chtimes(fullPath, atime, mtime); chtErr != nil {
+		return errorResult(MapOSError(chtErr)), nil
+	}
+
 	return []component.Val{component.ValResultOk(nil)}, nil
 }
 

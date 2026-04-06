@@ -353,6 +353,7 @@ func TestDescriptorStatAt(t *testing.T) {
 func TestDescriptorSetTimesAt(t *testing.T) {
 	// Args: self, path-flags, path, data-access-timestamp, data-modification-timestamp
 	// Returns: result<_, error-code>
+	// Without a valid context/resource table, this should return bad-descriptor error
 	selfHandle := component.ValBorrow(0)
 	pathFlags := component.ValFlags(map[string]bool{"symlink-follow": true})
 	path := component.ValString("file.txt")
@@ -362,8 +363,47 @@ func TestDescriptorSetTimesAt(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, component.ValKindResult, result[0].Kind())
+	isOk, _, errVal := result[0].Result()
+	require.False(t, isOk, "should return error without valid context")
+	require.Equal(t, "bad-descriptor", errVal.Enum())
+}
+
+func TestDescriptorSetTimesAt_SetToNow(t *testing.T) {
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "child.txt")
+	err := os.WriteFile(filePath, []byte("hello"), 0644)
+	require.NoError(t, err)
+
+	// Set old times
+	oldTime := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	os.Chtimes(filePath, oldTime, oldTime)
+
+	dirFile, err := os.Open(tmpDir)
+	require.NoError(t, err)
+	defer dirFile.Close()
+
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+	desc := NewDescriptor(dirFile, true, tmpDir, DescriptorFlagRead|DescriptorFlagWrite|DescriptorFlagMutateDirectory)
+	handle := table.New(desc, true)
+
+	selfHandle := component.ValBorrow(uint32(handle))
+	pathFlags := component.ValFlags(map[string]bool{"symlink-follow": true})
+	pathVal := component.ValString("child.txt")
+	accessTime := component.ValVariant("now", nil)
+	modTime := component.ValVariant("now", nil)
+
+	before := time.Now().Add(-time.Second)
+	result, err := descriptorSetTimesAt(ctx, []component.Val{selfHandle, pathFlags, pathVal, accessTime, modTime})
+	require.NoError(t, err)
 	isOk, _, _ := result[0].Result()
-	require.True(t, isOk, "should return ok result")
+	require.True(t, isOk, "set-times-at should succeed")
+	after := time.Now().Add(time.Second)
+
+	info, err := os.Stat(filePath)
+	require.NoError(t, err)
+	require.True(t, info.ModTime().After(before))
+	require.True(t, info.ModTime().Before(after))
 }
 
 func TestDescriptorLinkAt(t *testing.T) {
