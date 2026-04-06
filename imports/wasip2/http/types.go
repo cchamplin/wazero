@@ -397,6 +397,8 @@ type IncomingRequest struct {
 	authority     *string
 	pathWithQuery *string
 	headers       *Fields
+	body          *IncomingBody
+	bodyConsumed  bool
 }
 
 // NewIncomingRequest creates a new incoming request.
@@ -433,6 +435,23 @@ func (r *IncomingRequest) PathWithQuery() *string {
 // Headers returns the request headers.
 func (r *IncomingRequest) Headers() *Fields {
 	return r.headers
+}
+
+// SetBody sets the body for the incoming request.
+func (r *IncomingRequest) SetBody(body *IncomingBody) {
+	r.body = body
+}
+
+// Consume returns the request body, ensuring it can only be consumed once.
+func (r *IncomingRequest) Consume() (*IncomingBody, error) {
+	if r.bodyConsumed {
+		return nil, fmt.Errorf("body already consumed")
+	}
+	r.bodyConsumed = true
+	if r.body != nil {
+		return r.body, nil
+	}
+	return NewIncomingBody(), nil
 }
 
 // OutgoingResponse represents an outgoing HTTP response.

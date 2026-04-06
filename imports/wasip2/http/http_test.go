@@ -2020,3 +2020,31 @@ func TestResponseOutparamSet_ErrorResponse(t *testing.T) {
 	require.Nil(t, gotResp)
 	require.NotNil(t, gotErr)
 }
+
+func TestIncomingRequestConsume_WithBody(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	bodyReader := goio.NopCloser(strings.NewReader("request body content"))
+	body := NewIncomingBodyFromReader(bodyReader)
+
+	scheme := NewSchemeHTTPS()
+	pathStr := "/api"
+	req := NewIncomingRequest(MethodPost, &scheme, nil, &pathStr, NewFields())
+	req.SetBody(body)
+	handle := table.New(req, true)
+
+	selfHandle := component.ValBorrow(uint32(handle))
+	result, err := incomingRequestConsume(ctx, []component.Val{selfHandle})
+	require.NoError(t, err)
+	isOk, bodyHandleVal, _ := result[0].Result()
+	require.True(t, isOk)
+
+	// Verify body is accessible
+	bodyHandle := bodyHandleVal.Own()
+	entry, err := table.Get(component.Handle(bodyHandle))
+	require.NoError(t, err)
+	inBody, ok := entry.Rep.(*IncomingBody)
+	require.True(t, ok)
+	require.NotNil(t, inBody)
+}

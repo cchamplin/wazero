@@ -834,15 +834,18 @@ func incomingRequestHeaders(ctx context.Context, args []component.Val) ([]compon
 // Signature: func(self: borrow<incoming-request>) -> result<own<incoming-body>, _>
 func incomingRequestConsume(ctx context.Context, args []component.Val) ([]component.Val, error) {
 	table := getOrCreateTable(ctx)
-	_, err := getIncomingRequest(ctx, args[0].Borrow())
+	req, err := getIncomingRequest(ctx, args[0].Borrow())
 	if err != nil || table == nil {
 		body := component.ValOwn(0)
 		return []component.Val{component.ValResultOk(&body)}, nil
 	}
 
-	// Create a new incoming body for the request
-	// TODO: In the future, this should access body data from the actual request
-	body := NewIncomingBody()
+	body, consumeErr := req.Consume()
+	if consumeErr != nil {
+		errVal := component.ValVariant("body-already-consumed", nil)
+		return []component.Val{component.ValResultError(&errVal)}, nil
+	}
+
 	handle := table.New(body, true)
 	result := component.ValOwn(uint32(handle))
 	return []component.Val{component.ValResultOk(&result)}, nil
