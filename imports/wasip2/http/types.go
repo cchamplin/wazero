@@ -11,6 +11,7 @@ import (
 	goio "io"
 	gohttp "net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tetratelabs/wazero/imports/wasip2/io"
@@ -822,7 +823,9 @@ type ResponseResult struct {
 // ResponseOutparam represents a response outparam for server responses.
 // Matches wasi:http/types response-outparam resource.
 type ResponseOutparam struct {
-	result chan ResponseResult
+	mu       sync.Mutex
+	result   chan ResponseResult
+	closed   bool
 }
 
 // NewResponseOutparam creates a new response outparam.
@@ -833,13 +836,31 @@ func NewResponseOutparam() *ResponseOutparam {
 }
 
 // WaitForResponse blocks until a response is delivered or the context is cancelled.
+// This is a one-shot call: the channel buffers a single result. After the first
+// successful return any subsequent call will block until context cancellation
+// or the outparam is destroyed.
 func (p *ResponseOutparam) WaitForResponse(ctx context.Context) (*OutgoingResponse, *ErrorCode, error) {
 	select {
-	case r := <-p.result:
+	case r, ok := <-p.result:
+		if !ok {
+			return nil, nil, fmt.Errorf("response-outparam destroyed before response was set")
+		}
 		return r.Response, r.Err, nil
 	case <-ctx.Done():
 		return nil, nil, ctx.Err()
 	}
+}
+
+// Destroy implements the Destroyable interface for resource cleanup.
+// It closes the result channel, unblocking any pending WaitForResponse caller.
+func (p *ResponseOutparam) Destroy() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		return
+	}
+	p.closed = true
+	close(p.result)
 }
 
 // RequestOptions represents options for HTTP requests.
@@ -883,6 +904,16 @@ func (o *RequestOptions) BetweenBytesTimeout() *uint64 {
 // SetBetweenBytesTimeout sets the between bytes timeout.
 func (o *RequestOptions) SetBetweenBytesTimeout(timeout *uint64) {
 	o.betweenBytesTimeout = timeout
+}
+
+// HTTPError wraps an ErrorCode so it can be stored in io.Error and extracted
+// by http-error-code.
+type HTTPError struct {
+	Code ErrorCode
+}
+
+func (e *HTTPError) Error() string {
+	return string(e.Code)
 }
 
 // ErrorCode represents HTTP error codes.

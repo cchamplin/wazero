@@ -4,6 +4,7 @@ package http
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/tetratelabs/wazero/imports/wasip2/io"
@@ -1298,8 +1299,16 @@ func responseOutparamSet(ctx context.Context, args []component.Val) ([]component
 				return []component.Val{}, nil
 			}
 		}
+		// Handle lookup failed — deliver an internal error so WaitForResponse doesn't hang
+		errCode := ErrorCodeInternalError
+		select {
+		case outparam.result <- ResponseResult{Err: &errCode}:
+		default:
+		}
 	} else {
 		// Error: extract error-code variant
+		// Note: payload fields on variants like dns-error, tls-alert-received,
+		// internal-error(option<string>) are currently discarded.
 		caseName, _ := errVal.Variant()
 		errCode := ErrorCode(caseName)
 		select {
@@ -1437,6 +1446,29 @@ func requestOptionsSetBetweenBytesTimeout(ctx context.Context, args []component.
 // httpErrorCode extracts an error code from an error.
 // Signature: func(err: borrow<io-error>) -> option<error-code>
 func httpErrorCode(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return None as placeholder - this is for extracting error codes from io errors
+	handle := args[0].Borrow()
+
+	table := getOrCreateTable(ctx)
+	if table == nil {
+		return []component.Val{component.ValOption(nil)}, nil
+	}
+
+	entry, err := table.Get(component.Handle(handle))
+	if err != nil {
+		return []component.Val{component.ValOption(nil)}, nil
+	}
+
+	ioErr, ok := entry.Rep.(*io.Error)
+	if !ok {
+		return []component.Val{component.ValOption(nil)}, nil
+	}
+
+	// Unwrap the Go error and check if it's an HTTPError
+	var httpErr *HTTPError
+	if errors.As(ioErr.Unwrap(), &httpErr) {
+		codeVal := errorCodeToVariant(httpErr.Code)
+		return []component.Val{component.ValOption(&codeVal)}, nil
+	}
+
 	return []component.Val{component.ValOption(nil)}, nil
 }
