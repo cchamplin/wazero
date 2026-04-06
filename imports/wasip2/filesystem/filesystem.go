@@ -8,6 +8,7 @@ import (
 	goio "io"
 	"os"
 	"path/filepath"
+	"time"
 
 	wasipIO "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
@@ -414,10 +415,58 @@ func descriptorSetSize(ctx context.Context, args []component.Val) ([]component.V
 	return []component.Val{component.ValResultOk(nil)}, nil
 }
 
+// parseNewTimestamp extracts a time.Time from a new-timestamp variant.
+// The variant is: no-change | now | timestamp(datetime)
+// For no-change, returns the provided fallback time.
+func parseNewTimestamp(v component.Val, fallback time.Time) time.Time {
+	caseName, payload := v.Variant()
+	switch caseName {
+	case "no-change":
+		return fallback
+	case "now":
+		return time.Now()
+	case "timestamp":
+		rec := payload.Record()
+		seconds := rec["seconds"].U64()
+		nanoseconds := rec["nanoseconds"].U32()
+		return time.Unix(int64(seconds), int64(nanoseconds))
+	default:
+		return fallback
+	}
+}
+
 // descriptorSetTimes sets the access and modification times of a file.
 // Signature: func(self: borrow<descriptor>, access: new-timestamp, modification: new-timestamp) -> result<_, error-code>
 func descriptorSetTimes(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Stub - return success
+	handle := args[0].Borrow()
+	accessTimeArg := args[1]
+	modTimeArg := args[2]
+
+	desc, err := getDescriptor(ctx, handle)
+	if err != nil {
+		return errorResult(ErrorCodeBadDescriptor), nil
+	}
+
+	if !desc.Flags().HasWrite() {
+		return errorResult(ErrorCodeAccess), nil
+	}
+
+	// Get current times as fallback for no-change
+	info, statErr := desc.File().Stat()
+	if statErr != nil {
+		return errorResult(MapOSError(statErr)), nil
+	}
+	currentModTime := info.ModTime()
+	// Use mod time as fallback for access time since Go doesn't expose atime easily
+	currentAtime := currentModTime
+
+	atime := parseNewTimestamp(accessTimeArg, currentAtime)
+	mtime := parseNewTimestamp(modTimeArg, currentModTime)
+
+	if chtErr := os.Chtimes(desc.Path(), atime, mtime); chtErr != nil {
+		return errorResult(MapOSError(chtErr)), nil
+	}
+
 	return []component.Val{component.ValResultOk(nil)}, nil
 }
 

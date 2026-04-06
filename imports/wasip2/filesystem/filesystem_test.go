@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	wasipIO "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
@@ -1488,4 +1489,100 @@ func TestDescriptorSetSize_BadDescriptor(t *testing.T) {
 	isOk, _, errVal := result[0].Result()
 	require.False(t, isOk, "set-size should fail with bad descriptor")
 	require.Equal(t, "bad-descriptor", errVal.Enum())
+}
+
+func TestDescriptorSetTimes_SetToNow(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "test.txt")
+	err := os.WriteFile(path, []byte("hello"), 0644)
+	require.NoError(t, err)
+
+	// Set old times first
+	oldTime := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	os.Chtimes(path, oldTime, oldTime)
+
+	f, err := os.OpenFile(path, os.O_RDWR, 0)
+	require.NoError(t, err)
+	defer f.Close()
+
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+	desc := NewDescriptor(f, false, path, DescriptorFlagRead|DescriptorFlagWrite)
+	handle := table.New(desc, true)
+
+	selfHandle := component.ValBorrow(uint32(handle))
+	accessTime := component.ValVariant("now", nil)
+	modTime := component.ValVariant("now", nil)
+
+	before := time.Now().Add(-time.Second)
+	result, err := descriptorSetTimes(ctx, []component.Val{selfHandle, accessTime, modTime})
+	require.NoError(t, err)
+	isOk, _, _ := result[0].Result()
+	require.True(t, isOk, "set-times should succeed")
+	after := time.Now().Add(time.Second)
+
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	require.True(t, info.ModTime().After(before), "mod time should be updated")
+	require.True(t, info.ModTime().Before(after), "mod time should be recent")
+}
+
+func TestDescriptorSetTimes_SetTimestamp(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "test.txt")
+	err := os.WriteFile(path, []byte("hello"), 0644)
+	require.NoError(t, err)
+
+	f, err := os.OpenFile(path, os.O_RDWR, 0)
+	require.NoError(t, err)
+	defer f.Close()
+
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+	desc := NewDescriptor(f, false, path, DescriptorFlagRead|DescriptorFlagWrite)
+	handle := table.New(desc, true)
+
+	selfHandle := component.ValBorrow(uint32(handle))
+	// timestamp(datetime) where datetime is record { seconds: u64, nanoseconds: u32 }
+	targetTime := time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)
+	dt := component.ValRecord(map[string]component.Val{
+		"seconds":     component.ValU64(uint64(targetTime.Unix())),
+		"nanoseconds": component.ValU32(0),
+	})
+	accessTime := component.ValVariant("timestamp", &dt)
+	modTime := component.ValVariant("timestamp", &dt)
+
+	result, err := descriptorSetTimes(ctx, []component.Val{selfHandle, accessTime, modTime})
+	require.NoError(t, err)
+	isOk, _, _ := result[0].Result()
+	require.True(t, isOk, "set-times should succeed")
+
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	require.Equal(t, targetTime.Unix(), info.ModTime().Unix())
+}
+
+func TestDescriptorSetTimes_NoWritePermission(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "test.txt")
+	err := os.WriteFile(path, []byte("hello"), 0644)
+	require.NoError(t, err)
+
+	f, err := os.Open(path)
+	require.NoError(t, err)
+	defer f.Close()
+
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+	desc := NewDescriptor(f, false, path, DescriptorFlagRead) // read-only
+	handle := table.New(desc, true)
+
+	selfHandle := component.ValBorrow(uint32(handle))
+	accessTime := component.ValVariant("now", nil)
+	modTime := component.ValVariant("now", nil)
+	result, err := descriptorSetTimes(ctx, []component.Val{selfHandle, accessTime, modTime})
+	require.NoError(t, err)
+	isOk, _, errVal := result[0].Result()
+	require.False(t, isOk, "set-times should fail without write permission")
+	require.Equal(t, "access", errVal.Enum())
 }
