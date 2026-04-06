@@ -1751,7 +1751,7 @@ func TestNetworkErrorCode_WithSocketError(t *testing.T) {
 	table := component.ResourceTableFromContext(ctx)
 
 	// Create an io.Error that wraps a SocketError
-	sockErr := &SocketError{Code: "connection-refused"}
+	sockErr := &SocketError{Code: ErrorCodeConnectionRefused}
 	ioErr := wasipIO.NewError(sockErr)
 	handle := table.New(ioErr, true)
 

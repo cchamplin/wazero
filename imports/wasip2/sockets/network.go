@@ -223,7 +223,7 @@ func networkErrorCode(ctx context.Context, args []component.Val) ([]component.Va
 	// Unwrap the Go error and check if it's a SocketError
 	var sockErr *SocketError
 	if errors.As(ioErr.Unwrap(), &sockErr) {
-		codeVal := component.ValEnum(sockErr.Code)
+		codeVal := component.ValEnum(string(sockErr.Code))
 		return []component.Val{component.ValOption(&codeVal)}, nil
 	}
 
