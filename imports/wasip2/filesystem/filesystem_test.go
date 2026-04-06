@@ -418,8 +418,9 @@ func TestDescriptorLinkAt(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, component.ValKindResult, result[0].Kind())
+	// Without a valid context/resource table, this should return bad-descriptor error
 	isOk, _, _ := result[0].Result()
-	require.True(t, isOk, "should return ok result")
+	require.False(t, isOk, "should return error without valid context")
 }
 
 func TestDescriptorOpenAt(t *testing.T) {
@@ -1624,5 +1625,80 @@ func TestDescriptorSetTimes_NoWritePermission(t *testing.T) {
 	require.NoError(t, err)
 	isOk, _, errVal := result[0].Result()
 	require.False(t, isOk, "set-times should fail without write permission")
+	require.Equal(t, "access", errVal.Enum())
+}
+
+func TestDescriptorLinkAt_CreateHardLink(t *testing.T) {
+	ctx := createTestContext()
+	handle, tmpDir := createTestDirDescriptor(t, ctx)
+
+	// Create a source file
+	srcPath := filepath.Join(tmpDir, "source.txt")
+	err := os.WriteFile(srcPath, []byte("hello"), 0644)
+	require.NoError(t, err)
+
+	selfHandle := component.ValBorrow(handle)
+	oldPathFlags := component.ValFlags(map[string]bool{}) // no symlink-follow
+	oldPath := component.ValString("source.txt")
+	newDesc := component.ValBorrow(handle) // same directory
+	newPath := component.ValString("link.txt")
+
+	result, err := descriptorLinkAt(ctx, []component.Val{selfHandle, oldPathFlags, oldPath, newDesc, newPath})
+	require.NoError(t, err)
+	isOk, _, _ := result[0].Result()
+	require.True(t, isOk, "link-at should succeed")
+
+	// Verify hard link exists and has same content
+	linkContent, err := os.ReadFile(filepath.Join(tmpDir, "link.txt"))
+	require.NoError(t, err)
+	require.Equal(t, "hello", string(linkContent))
+}
+
+func TestDescriptorLinkAt_RejectSymlinkFollow(t *testing.T) {
+	ctx := createTestContext()
+	handle, tmpDir := createTestDirDescriptor(t, ctx)
+
+	// Create a source file
+	srcPath := filepath.Join(tmpDir, "source.txt")
+	os.WriteFile(srcPath, []byte("hello"), 0644)
+
+	selfHandle := component.ValBorrow(handle)
+	oldPathFlags := component.ValFlags(map[string]bool{"symlink-follow": true}) // should be rejected
+	oldPath := component.ValString("source.txt")
+	newDesc := component.ValBorrow(handle)
+	newPath := component.ValString("link.txt")
+
+	result, err := descriptorLinkAt(ctx, []component.Val{selfHandle, oldPathFlags, oldPath, newDesc, newPath})
+	require.NoError(t, err)
+	isOk, _, errVal := result[0].Result()
+	require.False(t, isOk, "link-at should reject symlink-follow")
+	require.Equal(t, "invalid", errVal.Enum())
+}
+
+func TestDescriptorLinkAt_NoMutateDirectory(t *testing.T) {
+	ctx := createTestContext()
+	table := component.ResourceTableFromContext(ctx)
+
+	tmpDir := t.TempDir()
+	srcPath := filepath.Join(tmpDir, "source.txt")
+	os.WriteFile(srcPath, []byte("hello"), 0644)
+
+	// Create descriptor without MutateDirectory flag
+	file, err := os.Open(tmpDir)
+	require.NoError(t, err)
+	desc := NewDescriptor(file, true, tmpDir, DescriptorFlagRead|DescriptorFlagWrite)
+	h := table.New(desc, true)
+	handle := uint32(h.Index())
+
+	selfHandle := component.ValBorrow(handle)
+	oldPathFlags := component.ValFlags(map[string]bool{})
+	oldPath := component.ValString("source.txt")
+	newDesc := component.ValBorrow(handle)
+	newPath := component.ValString("link.txt")
+
+	result, err := descriptorLinkAt(ctx, []component.Val{selfHandle, oldPathFlags, oldPath, newDesc, newPath})
+	require.NoError(t, err)
+	isOk, _, errVal := result[0].Result()
+	require.False(t, isOk, "link-at should fail without mutate-directory")
 	require.Equal(t, "access", errVal.Enum())
 }

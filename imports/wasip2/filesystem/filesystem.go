@@ -769,7 +769,42 @@ func descriptorSetTimesAt(ctx context.Context, args []component.Val) ([]componen
 // descriptorLinkAt creates a hard link relative to descriptors.
 // Signature: func(self: borrow<descriptor>, old-path-flags: path-flags, old-path: string, new-descriptor: borrow<descriptor>, new-path: string) -> result<_, error-code>
 func descriptorLinkAt(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Stub - return success
+	handle := args[0].Borrow()
+	oldPathFlags := args[1].Flags()
+	oldPath := args[2].StringVal()
+	newDescHandle := args[3].Borrow()
+	newPath := args[4].StringVal()
+
+	// Per wasmtime: reject if symlink-follow is set (hard links shouldn't follow symlinks)
+	if oldPathFlags["symlink-follow"] {
+		return errorResult(ErrorCodeInvalid), nil
+	}
+
+	desc, err := getDescriptor(ctx, handle)
+	if err != nil {
+		return errorResult(ErrorCodeBadDescriptor), nil
+	}
+
+	if desc.Flags()&DescriptorFlagMutateDirectory == 0 {
+		return errorResult(ErrorCodeAccess), nil
+	}
+
+	newDesc, err := getDescriptor(ctx, newDescHandle)
+	if err != nil {
+		return errorResult(ErrorCodeBadDescriptor), nil
+	}
+
+	if newDesc.Flags()&DescriptorFlagMutateDirectory == 0 {
+		return errorResult(ErrorCodeAccess), nil
+	}
+
+	oldFullPath := filepath.Join(desc.Path(), oldPath)
+	newFullPath := filepath.Join(newDesc.Path(), newPath)
+
+	if linkErr := os.Link(oldFullPath, newFullPath); linkErr != nil {
+		return errorResult(MapOSError(linkErr)), nil
+	}
+
 	return []component.Val{component.ValResultOk(nil)}, nil
 }
 
