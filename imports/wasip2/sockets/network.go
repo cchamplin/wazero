@@ -33,8 +33,14 @@ func instantiateInstanceNetwork(linker *component.Linker) error {
 // instanceNetwork returns the network capability for this instance.
 // Signature: func() -> own<network>
 func instanceNetwork(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return placeholder network handle
-	return []component.Val{component.ValOwn(0)}, nil
+	table := component.ResourceTableFromContext(ctx)
+	if table == nil {
+		return []component.Val{component.ValOwn(0)}, nil
+	}
+
+	network := NewNetwork()
+	handle := table.New(network, true)
+	return []component.Val{component.ValOwn(uint32(handle))}, nil
 }
 
 // instantiateIpNameLookup registers wasi:sockets/ip-name-lookup@0.2.0

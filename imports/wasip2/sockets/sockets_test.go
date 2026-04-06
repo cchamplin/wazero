@@ -1531,3 +1531,31 @@ func TestUdpSocket_Destroy_WithConnection(t *testing.T) {
 	require.Nil(t, sock.conn, "connection should be nil after Destroy")
 	require.Equal(t, udpStateClosed, sock.State())
 }
+
+func TestInstanceNetwork_ReturnsValidHandle(t *testing.T) {
+	ctx := contextWithResourceTable()
+
+	result, err := instanceNetwork(ctx, []component.Val{})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(result))
+	require.Equal(t, component.ValKindOwn, result[0].Kind())
+
+	handle := result[0].Own()
+	// Handle should be non-zero (valid resource)
+	table := component.ResourceTableFromContext(ctx)
+	entry, err := table.Get(component.Handle(handle))
+	require.NoError(t, err)
+	_, ok := entry.Rep.(*Network)
+	require.True(t, ok, "handle should resolve to a Network resource")
+}
+
+func TestInstanceNetwork_DistinctHandles(t *testing.T) {
+	ctx := contextWithResourceTable()
+
+	result1, _ := instanceNetwork(ctx, []component.Val{})
+	result2, _ := instanceNetwork(ctx, []component.Val{})
+
+	h1 := result1[0].Own()
+	h2 := result2[0].Own()
+	require.NotEqual(t, h1, h2, "each call should return a distinct handle")
+}
