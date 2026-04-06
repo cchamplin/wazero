@@ -25,7 +25,7 @@ func fadvise(f *os.File, offset, length uint64, advice string) error {
 	case "no-reuse":
 		adviceFlag = unix.FADV_NOREUSE
 	default:
-		adviceFlag = unix.FADV_NORMAL
+		return unix.EINVAL
 	}
 	return unix.Fadvise(int(f.Fd()), int64(offset), int64(length), adviceFlag)
 }
