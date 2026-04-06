@@ -932,6 +932,83 @@ func TestOutgoingResponseBody(t *testing.T) {
 	require.Equal(t, component.ValKindOwn, ok.Kind())
 }
 
+func TestOutgoingResponseConstructor_WithResourceTable(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	// Occupy slot 0 so that when headers (slot 1) is removed,
+	// the response gets allocated in a fresh slot (slot 2) with generation 0.
+	table.New("padding", false)
+
+	// Create headers
+	headers := NewFields()
+	headers.Set("X-Test", [][]byte{[]byte("value")})
+	headersHandle := table.New(headers, true)
+
+	headersVal := component.ValOwn(uint32(headersHandle))
+	result, err := outgoingResponseConstructor(ctx, []component.Val{headersVal})
+	require.NoError(t, err)
+	respHandle := result[0].Own()
+	require.NotEqual(t, uint32(0), respHandle)
+
+	// Verify the response works by calling status code on it
+	selfHandle := component.ValBorrow(respHandle)
+	statusResult, err := outgoingResponseStatusCode(ctx, []component.Val{selfHandle})
+	require.NoError(t, err)
+	require.Equal(t, uint16(200), statusResult[0].U16())
+}
+
+func TestOutgoingResponseStatusCode_WithResourceTable(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	resp := NewOutgoingResponse(NewFields())
+	resp.SetStatusCode(404)
+	handle := table.New(resp, true)
+
+	selfHandle := component.ValBorrow(uint32(handle))
+	result, err := outgoingResponseStatusCode(ctx, []component.Val{selfHandle})
+	require.NoError(t, err)
+	require.Equal(t, uint16(404), result[0].U16())
+}
+
+func TestOutgoingResponseSetStatusCode_WithResourceTable(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	resp := NewOutgoingResponse(NewFields())
+	handle := table.New(resp, true)
+
+	selfHandle := component.ValBorrow(uint32(handle))
+	status := component.ValU16(500)
+	result, err := outgoingResponseSetStatusCode(ctx, []component.Val{selfHandle, status})
+	require.NoError(t, err)
+	isOk, _, _ := result[0].Result()
+	require.True(t, isOk)
+	require.Equal(t, uint16(500), resp.StatusCode())
+}
+
+func TestOutgoingResponseBody_WithResourceTable(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	resp := NewOutgoingResponse(NewFields())
+	handle := table.New(resp, true)
+
+	selfHandle := component.ValBorrow(uint32(handle))
+	result, err := outgoingResponseBody(ctx, []component.Val{selfHandle})
+	require.NoError(t, err)
+	isOk, bodyHandle, _ := result[0].Result()
+	require.True(t, isOk)
+	require.NotNil(t, bodyHandle)
+
+	// Second call should fail
+	result, err = outgoingResponseBody(ctx, []component.Val{selfHandle})
+	require.NoError(t, err)
+	isOk, _, _ = result[0].Result()
+	require.False(t, isOk, "second body call should fail")
+}
+
 // ====================
 // Incoming Response Tests
 // ====================

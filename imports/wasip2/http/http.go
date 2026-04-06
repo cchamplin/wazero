@@ -852,35 +852,103 @@ func incomingRequestConsume(ctx context.Context, args []component.Val) ([]compon
 // Outgoing response functions
 // ====================
 
+func getOutgoingResponse(ctx context.Context, handle uint32) (*OutgoingResponse, error) {
+	table := getOrCreateTable(ctx)
+	if table == nil {
+		return nil, fmt.Errorf("no resource table in context")
+	}
+	entry, err := table.Get(component.Handle(handle))
+	if err != nil {
+		return nil, fmt.Errorf("invalid handle %d: %w", handle, err)
+	}
+	resp, ok := entry.Rep.(*OutgoingResponse)
+	if !ok {
+		return nil, fmt.Errorf("handle %d is not an OutgoingResponse", handle)
+	}
+	return resp, nil
+}
+
 // outgoingResponseConstructor creates a new outgoing response.
 // Signature: func(headers: own<fields>) -> own<outgoing-response>
 func outgoingResponseConstructor(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	return []component.Val{component.ValOwn(0)}, nil
+	table := getOrCreateTable(ctx)
+	if table == nil {
+		return []component.Val{component.ValOwn(0)}, nil
+	}
+
+	headersHandle := component.Handle(args[0].Own())
+	var headers *Fields
+	headersEntry, err := table.Remove(headersHandle)
+	if err == nil {
+		if h, ok := headersEntry.Rep.(*Fields); ok {
+			headers = h
+		}
+	}
+	if headers == nil {
+		headers = NewFields()
+	}
+
+	resp := NewOutgoingResponse(headers)
+	handle := table.New(resp, true)
+	return []component.Val{component.ValOwn(uint32(handle))}, nil
 }
 
 // outgoingResponseStatusCode returns the status code.
 // Signature: func(self: borrow<outgoing-response>) -> status-code
 func outgoingResponseStatusCode(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	return []component.Val{component.ValU16(200)}, nil
+	resp, err := getOutgoingResponse(ctx, args[0].Borrow())
+	if err != nil {
+		return []component.Val{component.ValU16(200)}, nil
+	}
+	return []component.Val{component.ValU16(resp.StatusCode())}, nil
 }
 
 // outgoingResponseSetStatusCode sets the status code.
 // Signature: func(self: borrow<outgoing-response>, status-code: status-code) -> result<_, _>
 func outgoingResponseSetStatusCode(ctx context.Context, args []component.Val) ([]component.Val, error) {
+	resp, err := getOutgoingResponse(ctx, args[0].Borrow())
+	if err != nil {
+		return []component.Val{component.ValResultOk(nil)}, nil
+	}
+	resp.SetStatusCode(args[1].U16())
 	return []component.Val{component.ValResultOk(nil)}, nil
 }
 
 // outgoingResponseHeaders returns the headers.
 // Signature: func(self: borrow<outgoing-response>) -> own<fields>
 func outgoingResponseHeaders(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	return []component.Val{component.ValOwn(0)}, nil
+	table := getOrCreateTable(ctx)
+	resp, err := getOutgoingResponse(ctx, args[0].Borrow())
+	if err != nil || table == nil {
+		return []component.Val{component.ValOwn(0)}, nil
+	}
+	headers := resp.Headers()
+	if headers == nil {
+		headers = NewFields()
+	}
+	handle := table.New(headers, true)
+	return []component.Val{component.ValOwn(uint32(handle))}, nil
 }
 
 // outgoingResponseBody returns the body.
 // Signature: func(self: borrow<outgoing-response>) -> result<own<outgoing-body>, _>
 func outgoingResponseBody(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	body := component.ValOwn(0)
-	return []component.Val{component.ValResultOk(&body)}, nil
+	table := getOrCreateTable(ctx)
+	resp, err := getOutgoingResponse(ctx, args[0].Borrow())
+	if err != nil || table == nil {
+		body := component.ValOwn(0)
+		return []component.Val{component.ValResultOk(&body)}, nil
+	}
+
+	body, bodyErr := resp.Body()
+	if bodyErr != nil {
+		errVal := component.ValVariant("body-already-consumed", nil)
+		return []component.Val{component.ValResultError(&errVal)}, nil
+	}
+
+	handle := table.New(body, true)
+	result := component.ValOwn(uint32(handle))
+	return []component.Val{component.ValResultOk(&result)}, nil
 }
 
 // ====================

@@ -438,8 +438,10 @@ func (r *IncomingRequest) Headers() *Fields {
 // OutgoingResponse represents an outgoing HTTP response.
 // Matches wasi:http/types outgoing-response resource.
 type OutgoingResponse struct {
-	statusCode uint16
-	headers    *Fields
+	statusCode   uint16
+	headers      *Fields
+	body         *OutgoingBody
+	bodyConsumed bool
 }
 
 // NewOutgoingResponse creates a new outgoing response with the given headers.
@@ -463,6 +465,16 @@ func (r *OutgoingResponse) SetStatusCode(code uint16) {
 // Headers returns the response headers.
 func (r *OutgoingResponse) Headers() *Fields {
 	return r.headers
+}
+
+// Body returns the outgoing body for writing. Can only be called once.
+func (r *OutgoingResponse) Body() (*OutgoingBody, error) {
+	if r.bodyConsumed {
+		return nil, fmt.Errorf("body already consumed")
+	}
+	r.bodyConsumed = true
+	r.body = NewOutgoingBody()
+	return r.body, nil
 }
 
 // IncomingResponse represents an incoming HTTP response.
