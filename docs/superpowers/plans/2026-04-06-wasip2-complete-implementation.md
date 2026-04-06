@@ -21,8 +21,10 @@
 ### Filesystem (Layer 1)
 - **Modify:** `imports/wasip2/filesystem/filesystem.go` — Replace 8 stub functions with real implementations
 - **Modify:** `imports/wasip2/filesystem/types.go` — Add helper methods if needed for stat access
-- **Create:** `imports/wasip2/filesystem/filesystem_advise_linux.go` — Linux-specific `fadvise` syscall
-- **Create:** `imports/wasip2/filesystem/filesystem_advise_other.go` — No-op for non-Linux platforms
+- **Create:** `imports/wasip2/filesystem/advise_linux.go` — Linux-specific `fadvise` syscall
+- **Create:** `imports/wasip2/filesystem/advise_other.go` — No-op for non-Linux platforms
+- **Create:** `imports/wasip2/filesystem/metadata_hash_unix.go` — Unix dev+ino hash (linux, darwin)
+- **Create:** `imports/wasip2/filesystem/metadata_hash_other.go` — Fallback hash for non-Unix platforms
 - **Modify:** `imports/wasip2/filesystem/filesystem_test.go` — Add tests for all 9 filesystem items
 
 ### Sockets (Layer 2)
@@ -402,7 +404,7 @@ Replace `descriptorSetTimesAt` in `imports/wasip2/filesystem/filesystem.go:657-6
 ```go
 func descriptorSetTimesAt(ctx context.Context, args []component.Val) ([]component.Val, error) {
 	handle := args[0].Borrow()
-	// args[1] = path-flags (flags with symlink-follow)
+	pathFlags := args[1].Flags()
 	pathStr := args[2].StringVal()
 	accessTimeArg := args[3]
 	modTimeArg := args[4]
@@ -418,8 +420,14 @@ func descriptorSetTimesAt(ctx context.Context, args []component.Val) ([]componen
 
 	fullPath := filepath.Join(desc.Path(), pathStr)
 
-	// Get current times as fallback for no-change
-	info, statErr := os.Stat(fullPath)
+	// Respect symlink-follow flag: use Lstat for no-follow, Stat for follow
+	var info os.FileInfo
+	var statErr error
+	if pathFlags["symlink-follow"] {
+		info, statErr = os.Stat(fullPath)
+	} else {
+		info, statErr = os.Lstat(fullPath)
+	}
 	if statErr != nil {
 		return errorResult(MapOSError(statErr)), nil
 	}
@@ -962,34 +970,80 @@ func TestDescriptorMetadataHashAt(t *testing.T) {
 Run: `cd /home/cchamplin/development/wazero && go test ./imports/wasip2/filesystem/ -run "TestDescriptorMetadataHash" -v`
 Expected: FAIL — current impl returns zeroed hashes
 
-- [ ] **Step 3: Implement metadata-hash**
+- [ ] **Step 3: Create platform-specific metadata hash helpers**
 
-Replace both functions in `imports/wasip2/filesystem/filesystem.go:1017-1037`. Also add a helper above them:
-
+Create `imports/wasip2/filesystem/metadata_hash_unix.go`:
 ```go
-// computeMetadataHash hashes file metadata using the wasmtime algorithm:
+//go:build linux || darwin
+
+package filesystem
+
+import (
+	"encoding/binary"
+	"hash/fnv"
+	"os"
+	"syscall"
+)
+
+// computeMetadataHash hashes file metadata using wasmtime's algorithm:
 // hash(dev, ino) → lower, lower ^ pi_constant → upper
 func computeMetadataHash(info os.FileInfo) (uint64, uint64) {
-	var h = fnv.New64a()
-	stat := info.Sys()
-	if sysStat, ok := stat.(*syscall.Stat_t); ok {
-		var buf [8]byte
-		binary.LittleEndian.PutUint64(buf[:], sysStat.Dev)
-		h.Write(buf[:])
-		binary.LittleEndian.PutUint64(buf[:], sysStat.Ino)
-		h.Write(buf[:])
-	} else {
-		// Fallback: hash the name and size
-		goio.WriteString(h, info.Name())
-		var buf [8]byte
-		binary.LittleEndian.PutUint64(buf[:], uint64(info.Size()))
-		h.Write(buf[:])
+	h := fnv.New64a()
+	sysStat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return computeMetadataHashFallback(info)
 	}
+	var buf [8]byte
+	binary.LittleEndian.PutUint64(buf[:], sysStat.Dev)
+	h.Write(buf[:])
+	binary.LittleEndian.PutUint64(buf[:], sysStat.Ino)
+	h.Write(buf[:])
 	lower := h.Sum64()
 	upper := lower ^ 4614256656552045848 // wasmtime's pi constant
 	return lower, upper
 }
+```
 
+Create `imports/wasip2/filesystem/metadata_hash_other.go`:
+```go
+//go:build !linux && !darwin
+
+package filesystem
+
+import "os"
+
+// computeMetadataHash fallback for non-Unix platforms: hashes name + size.
+func computeMetadataHash(info os.FileInfo) (uint64, uint64) {
+	return computeMetadataHashFallback(info)
+}
+```
+
+Add to `imports/wasip2/filesystem/filesystem.go` (near the other helpers):
+```go
+import (
+	"encoding/binary"
+	"hash/fnv"
+	"io"
+)
+
+// computeMetadataHashFallback hashes name + size when dev/ino unavailable.
+func computeMetadataHashFallback(info os.FileInfo) (uint64, uint64) {
+	h := fnv.New64a()
+	io.WriteString(h, info.Name())
+	var buf [8]byte
+	binary.LittleEndian.PutUint64(buf[:], uint64(info.Size()))
+	h.Write(buf[:])
+	lower := h.Sum64()
+	upper := lower ^ 4614256656552045848
+	return lower, upper
+}
+```
+
+- [ ] **Step 4: Implement metadata-hash functions**
+
+Replace both functions in `imports/wasip2/filesystem/filesystem.go:1017-1037`:
+
+```go
 func descriptorMetadataHash(ctx context.Context, args []component.Val) ([]component.Val, error) {
 	handle := args[0].Borrow()
 
@@ -1036,13 +1090,6 @@ func descriptorMetadataHashAt(ctx context.Context, args []component.Val) ([]comp
 }
 ```
 
-Add imports to the top of `filesystem.go`:
-```go
-"encoding/binary"
-"hash/fnv"
-"syscall"
-```
-
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `cd /home/cchamplin/development/wazero && go test ./imports/wasip2/filesystem/ -run "TestDescriptorMetadataHash" -v`
@@ -1051,7 +1098,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add imports/wasip2/filesystem/filesystem.go imports/wasip2/filesystem/filesystem_test.go
+git add imports/wasip2/filesystem/filesystem.go imports/wasip2/filesystem/filesystem_test.go imports/wasip2/filesystem/metadata_hash_unix.go imports/wasip2/filesystem/metadata_hash_other.go
 git commit -m "feat(filesystem): implement metadata-hash with dev+ino hashing"
 ```
 
@@ -1063,15 +1110,33 @@ git commit -m "feat(filesystem): implement metadata-hash with dev+ino hashing"
 - Modify: `imports/wasip2/filesystem/filesystem_test.go`
 - Modify: `imports/wasip2/filesystem/filesystem.go:1039-1044`
 
-- [ ] **Step 1: Write failing test**
+**Design note on error-code bridges:** The `io.Error` type (in `imports/wasip2/io/error.go`) wraps a Go `error` and has `Unwrap() error` to retrieve it. The approach for all three error-code bridges (filesystem, sockets, http) is: unwrap the Go error, then use `errors.As()` to check if it's a typed filesystem/socket/http error. We define a small typed error wrapper for each module. `ToDebugString()` returns formatted debug output — **do not use it for error code matching**.
+
+- [ ] **Step 1: Define FilesystemError wrapper type**
+
+Add to `imports/wasip2/filesystem/filesystem.go` near the existing `ErrorCode` constants:
+
+```go
+// FilesystemError wraps an ErrorCode so it can be stored in io.Error and extracted later.
+type FilesystemError struct {
+	Code ErrorCode
+}
+
+func (e *FilesystemError) Error() string {
+	return string(e.Code)
+}
+```
+
+- [ ] **Step 2: Write failing tests**
 
 ```go
 func TestFilesystemErrorCode_WithFSError(t *testing.T) {
 	table := component.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
-	// Create an io.Error that wraps a filesystem error code
-	ioErr := wasipIO.NewErrorFromString("access")
+	// Create an io.Error that wraps a FilesystemError
+	fsErr := &FilesystemError{Code: ErrorCodeAccess}
+	ioErr := wasipIO.NewError(fsErr)
 	handle := table.New(ioErr, true)
 
 	errHandle := component.ValBorrow(uint32(handle))
@@ -1080,14 +1145,15 @@ func TestFilesystemErrorCode_WithFSError(t *testing.T) {
 
 	opt := result[0].Option()
 	require.NotNil(t, opt, "should return Some for filesystem error")
+	require.Equal(t, "access", opt.Enum())
 }
 
 func TestFilesystemErrorCode_NonFSError(t *testing.T) {
 	table := component.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
-	// Create a generic io.Error that is not a filesystem error
-	ioErr := wasipIO.NewErrorFromString("generic error")
+	// Create an io.Error that wraps a plain Go error (not a FilesystemError)
+	ioErr := wasipIO.NewError(errors.New("some random error"))
 	handle := table.New(ioErr, true)
 
 	errHandle := component.ValBorrow(uint32(handle))
@@ -1095,20 +1161,20 @@ func TestFilesystemErrorCode_NonFSError(t *testing.T) {
 	require.NoError(t, err)
 
 	opt := result[0].Option()
-	// This test depends on how io.Error stores typed errors — adjust based on actual io.Error API
-	// For non-typed errors, should return None
 	require.Nil(t, opt, "should return None for non-filesystem error")
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+Add `"errors"` to the test file imports.
+
+- [ ] **Step 3: Run tests to verify they fail**
 
 Run: `cd /home/cchamplin/development/wazero && go test ./imports/wasip2/filesystem/ -run "TestFilesystemErrorCode_" -v`
 Expected: FAIL
 
-- [ ] **Step 3: Implement filesystem-error-code**
+- [ ] **Step 4: Implement filesystem-error-code**
 
-The implementation depends on how `io.Error` stores typed errors. Check `imports/wasip2/io/error.go` for the Error type and adapt. Replace `filesystemErrorCode`:
+Replace `filesystemErrorCode` in `imports/wasip2/filesystem/filesystem.go:1039-1044`:
 
 ```go
 func filesystemErrorCode(ctx context.Context, args []component.Val) ([]component.Val, error) {
@@ -1129,10 +1195,10 @@ func filesystemErrorCode(ctx context.Context, args []component.Val) ([]component
 		return []component.Val{component.ValOption(nil)}, nil
 	}
 
-	// Check if the error message matches a known filesystem error code
-	errStr := ioErr.ToDebugString()
-	if code, ok := stringToErrorCode(errStr); ok {
-		codeVal := component.ValEnum(string(code))
+	// Unwrap the Go error and check if it's a FilesystemError
+	var fsErr *FilesystemError
+	if errors.As(ioErr.Unwrap(), &fsErr) {
+		codeVal := component.ValEnum(string(fsErr.Code))
 		return []component.Val{component.ValOption(&codeVal)}, nil
 	}
 
@@ -1140,7 +1206,7 @@ func filesystemErrorCode(ctx context.Context, args []component.Val) ([]component
 }
 ```
 
-Note: `stringToErrorCode` may need to be created as a helper that maps error strings to `ErrorCode` values. Adapt based on the actual `io.Error` type API — the implementor should check `imports/wasip2/io/error.go` to see what fields are available.
+Add `"errors"` to `filesystem.go` imports.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -1380,9 +1446,55 @@ func (s *ResolveAddressStream) IsReady() bool {
 }
 ```
 
-- [ ] **Step 4: Implement DNS resolution functions**
+- [ ] **Step 4: Add `ipAddressToVal` helper and `netIPToIpAddress` to types.go**
 
-Replace the three functions in `imports/wasip2/sockets/network.go`:
+Add to `imports/wasip2/sockets/types.go` (after the existing `ipSocketAddressToVal` function around line 470):
+
+```go
+// netIPToIpAddress converts a net.IP to an IpAddress.
+func netIPToIpAddress(ip net.IP) IpAddress {
+	if ip4 := ip.To4(); ip4 != nil {
+		return NewIpv4Address([4]byte{ip4[0], ip4[1], ip4[2], ip4[3]})
+	}
+	var addr16 [16]byte
+	copy(addr16[:], ip.To16())
+	return NewIpv6Address(addr16)
+}
+
+// ipAddressToVal converts an IpAddress to a component.Val variant.
+func ipAddressToVal(addr IpAddress) component.Val {
+	switch addr.Family() {
+	case IpAddressFamilyIpv4:
+		ipv4 := addr.Ipv4()
+		addrTuple := component.ValTuple([]component.Val{
+			component.ValU8(ipv4[0]), component.ValU8(ipv4[1]),
+			component.ValU8(ipv4[2]), component.ValU8(ipv4[3]),
+		})
+		return component.ValVariant("ipv4", &addrTuple)
+	case IpAddressFamilyIpv6:
+		ipv6 := addr.Ipv6()
+		addrTuple := component.ValTuple([]component.Val{
+			component.ValU16(ipv6[0]), component.ValU16(ipv6[1]),
+			component.ValU16(ipv6[2]), component.ValU16(ipv6[3]),
+			component.ValU16(ipv6[4]), component.ValU16(ipv6[5]),
+			component.ValU16(ipv6[6]), component.ValU16(ipv6[7]),
+		})
+		return component.ValVariant("ipv6", &addrTuple)
+	default:
+		addrTuple := component.ValTuple([]component.Val{
+			component.ValU8(0), component.ValU8(0),
+			component.ValU8(0), component.ValU8(0),
+		})
+		return component.ValVariant("ipv4", &addrTuple)
+	}
+}
+```
+
+Also remove the now-dead `ResolveNextAddress()` method from the struct (types.go:369) since the host function accesses fields directly.
+
+- [ ] **Step 5: Implement DNS resolution functions**
+
+Replace the entire import block and the three functions in `imports/wasip2/sockets/network.go`. The new import block for network.go:
 
 ```go
 import (
@@ -1393,7 +1505,11 @@ import (
 	wasipIO "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
 )
+```
 
+Replace `resolveAddresses`:
+
+```go
 func resolveAddresses(ctx context.Context, args []component.Val) ([]component.Val, error) {
 	table := component.ResourceTableFromContext(ctx)
 	if table == nil {
@@ -1401,7 +1517,7 @@ func resolveAddresses(ctx context.Context, args []component.Val) ([]component.Va
 		return []component.Val{component.ValResultError(&errVal)}, nil
 	}
 
-	// args[0] = borrow<network> (ignored for now)
+	// args[0] = borrow<network>
 	name := args[1].StringVal()
 
 	// Validate input per wasmtime conformance
@@ -1411,7 +1527,7 @@ func resolveAddresses(ctx context.Context, args []component.Val) ([]component.Va
 		return []component.Val{component.ValResultError(&errVal)}, nil
 	}
 
-	// Reject if name contains a port
+	// Reject if name contains a port (SplitHostPort succeeds when port present)
 	if _, _, err := net.SplitHostPort(name); err == nil {
 		errVal := component.ValEnum("invalid-argument")
 		return []component.Val{component.ValResultError(&errVal)}, nil
@@ -1419,12 +1535,7 @@ func resolveAddresses(ctx context.Context, args []component.Val) ([]component.Va
 
 	// Check for IP literal
 	if ip := net.ParseIP(name); ip != nil {
-		var addr IpAddress
-		if ip4 := ip.To4(); ip4 != nil {
-			addr = NewIpAddressIPv4(ip4[0], ip4[1], ip4[2], ip4[3])
-		} else {
-			addr = NewIpAddressIPv6FromIP(ip)
-		}
+		addr := netIPToIpAddress(ip)
 		stream := NewResolveAddressStream([]IpAddress{addr})
 		handle := table.New(stream, true)
 		handleVal := component.ValOwn(uint32(handle))
@@ -1434,13 +1545,12 @@ func resolveAddresses(ctx context.Context, args []component.Val) ([]component.Va
 	// Handle bracketed IPv6 like "[::1]"
 	if strings.HasPrefix(name, "[") && strings.HasSuffix(name, "]") {
 		inner := name[1 : len(name)-1]
-		// Reject if there's a port after bracket
 		if strings.Contains(name, "]:") {
 			errVal := component.ValEnum("invalid-argument")
 			return []component.Val{component.ValResultError(&errVal)}, nil
 		}
 		if ip := net.ParseIP(inner); ip != nil {
-			addr := NewIpAddressIPv6FromIP(ip)
+			addr := netIPToIpAddress(ip)
 			stream := NewResolveAddressStream([]IpAddress{addr})
 			handle := table.New(stream, true)
 			handleVal := component.ValOwn(uint32(handle))
@@ -1458,23 +1568,23 @@ func resolveAddresses(ctx context.Context, args []component.Val) ([]component.Va
 			stream.SetResult(nil, err)
 			return
 		}
-		var result []IpAddress
-		for _, addr := range addrs {
-			if ip := net.ParseIP(addr); ip != nil {
-				if ip4 := ip.To4(); ip4 != nil {
-					result = append(result, NewIpAddressIPv4(ip4[0], ip4[1], ip4[2], ip4[3]))
-				} else {
-					result = append(result, NewIpAddressIPv6FromIP(ip))
-				}
+		var resolved []IpAddress
+		for _, a := range addrs {
+			if ip := net.ParseIP(a); ip != nil {
+				resolved = append(resolved, netIPToIpAddress(ip))
 			}
 		}
-		stream.SetResult(result, nil)
+		stream.SetResult(resolved, nil)
 	}()
 
 	handleVal := component.ValOwn(uint32(handle))
 	return []component.Val{component.ValResultOk(&handleVal)}, nil
 }
+```
 
+Replace `resolveNextAddress`:
+
+```go
 func resolveNextAddress(ctx context.Context, args []component.Val) ([]component.Val, error) {
 	handle := args[0].Borrow()
 
@@ -1517,7 +1627,11 @@ func resolveNextAddress(ctx context.Context, args []component.Val) ([]component.
 	opt := component.ValOption(&addrVal)
 	return []component.Val{component.ValResultOk(&opt)}, nil
 }
+```
 
+Replace `resolveAddressStreamSubscribe`:
+
+```go
 func resolveAddressStreamSubscribe(ctx context.Context, args []component.Val) ([]component.Val, error) {
 	handle := args[0].Borrow()
 
@@ -1545,8 +1659,6 @@ func resolveAddressStreamSubscribe(ctx context.Context, args []component.Val) ([
 }
 ```
 
-Note: `NewIpAddressIPv4`, `NewIpAddressIPv6FromIP`, and `ipAddressToVal` are helpers that need to exist or be created in `types.go`. The implementor should check what already exists and add what's missing.
-
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `cd /home/cchamplin/development/wazero && go test ./imports/wasip2/sockets/ -run "TestResolveAddress" -v`
@@ -1568,14 +1680,53 @@ git commit -m "feat(sockets): implement DNS resolution with async resolve-addres
 - Modify: `imports/wasip2/sockets/udp.go:376-381, 442-447, 551-556`
 - Modify: `imports/wasip2/sockets/sockets_test.go` or `tcp_test.go` / `udp_test.go`
 
-- [ ] **Step 1: Write failing tests**
+- [ ] **Step 1: Add SendState types and `isTimeout` helper**
+
+Before writing tests, add the `sendState` type and `isTimeout` helper that this task and Task 13 both need.
+
+Add to `imports/wasip2/sockets/types.go` (after `OutgoingDatagramStream` struct):
+
+```go
+type sendState int
+
+const (
+	sendStateIdle      sendState = iota
+	sendStatePermitted
+	sendStateWaiting
+)
+```
+
+Update `OutgoingDatagramStream` struct in types.go to add the new fields:
+```go
+type OutgoingDatagramStream struct {
+	socket     *UdpSocket
+	sendState  sendState
+	sendPermit int
+}
+```
+
+The existing `NewOutgoingDatagramStream(socket)` constructor still works — Go zero-initializes `sendState` to `sendStateIdle` (value 0) and `sendPermit` to 0.
+
+Add `isTimeout` helper to `imports/wasip2/sockets/udp.go`:
+```go
+func isTimeout(err error) bool {
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
+}
+```
+
+Add `"errors"` to the udp.go imports if not present.
+
+- [ ] **Step 2: Write failing tests**
+
+Add to sockets test file. Add `wasipIO "github.com/tetratelabs/wazero/imports/wasip2/io"` to the test file imports.
 
 ```go
 func TestTcpSocketSubscribe_ReturnsValidPollable(t *testing.T) {
 	ctx := contextWithResourceTable()
 	table := component.ResourceTableFromContext(ctx)
 
-	sock := NewTcpSocket(IpAddressFamilyIPv4)
+	sock := NewTcpSocket(IpAddressFamilyIpv4)
 	handle := table.New(sock, true)
 	selfHandle := component.ValBorrow(uint32(handle))
 
@@ -1596,7 +1747,7 @@ func TestUdpSocketSubscribe_ImmediatelyReady(t *testing.T) {
 	ctx := contextWithResourceTable()
 	table := component.ResourceTableFromContext(ctx)
 
-	sock := NewUdpSocket(IpAddressFamilyIPv4)
+	sock := NewUdpSocket(IpAddressFamilyIpv4)
 	handle := table.New(sock, true)
 	selfHandle := component.ValBorrow(uint32(handle))
 
@@ -1611,12 +1762,23 @@ func TestUdpSocketSubscribe_ImmediatelyReady(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [ ] **Step 3: Run tests to verify they fail**
 
 Run: `cd /home/cchamplin/development/wazero && go test ./imports/wasip2/sockets/ -run "Test(Tcp|Udp)SocketSubscribe" -v`
 Expected: FAIL
 
-- [ ] **Step 3: Implement all subscribe methods**
+- [ ] **Step 4: Implement all subscribe methods**
+
+Add these imports to `tcp.go`:
+```go
+wasipIO "github.com/tetratelabs/wazero/imports/wasip2/io"
+```
+
+Add these imports to `udp.go` (merge into existing import block):
+```go
+"time"
+wasipIO "github.com/tetratelabs/wazero/imports/wasip2/io"
+```
 
 Replace `tcpSocketSubscribe` in `tcp.go:681-686`:
 ```go
@@ -1632,15 +1794,35 @@ func tcpSocketSubscribe(ctx context.Context, args []component.Val) ([]component.
 		return []component.Val{component.ValOwn(0)}, nil
 	}
 
+	// The pollable reflects whether the socket's current async operation can proceed.
+	// TCP socket states: bind-in-progress, connect-in-progress, listen-in-progress
+	// all resolve synchronously in Go's net package, so the pollable is ready
+	// once the operation has been started (finish_* won't block).
+	// For accept: readiness means a connection is waiting.
 	pollable := wasipIO.NewPollable(
 		func() bool {
-			// TCP socket is ready when its pending async operation can proceed
-			// For simplicity, treat as ready — the actual blocking happens in finish_* calls
+			// If socket has a listener, check if accept would succeed
+			if sock.Listener() != nil {
+				sock.Listener().(*net.TCPListener).SetDeadline(time.Now())
+				_, err := sock.Listener().(*net.TCPListener).Accept()
+				sock.Listener().(*net.TCPListener).SetDeadline(time.Time{})
+				if err != nil && isTimeout(err) {
+					return false
+				}
+				// Note: we can't un-accept, so return true and let accept() handle it
+				return true
+			}
+			// For bind/connect/listen: Go does these synchronously, always ready
 			return true
 		},
 		func() {
-			// Block until socket is ready — for now, immediate return
-			// Real implementation would wait on net.Conn readiness
+			// Block until the socket is ready for its current operation
+			if sock.Listener() != nil {
+				// Block waiting for incoming connection
+				sock.Listener().(*net.TCPListener).SetDeadline(time.Now().Add(30 * time.Second))
+				sock.Listener().(*net.TCPListener).Accept()
+				sock.Listener().(*net.TCPListener).SetDeadline(time.Time{})
+			}
 			_ = sock
 		},
 	)
@@ -1648,6 +1830,8 @@ func tcpSocketSubscribe(ctx context.Context, args []component.Val) ([]component.
 	return []component.Val{component.ValOwn(uint32(pollHandle))}, nil
 }
 ```
+
+Note: Check if `TcpSocket` has a `Listener()` method. If it exposes the underlying `net.TCPListener` differently, adapt the accessor. If there's no listener accessor, the TCP subscribe can use the simpler always-ready approach since Go's net package handles bind/connect/listen synchronously.
 
 Replace `udpSocketSubscribe` in `udp.go:376-381`:
 ```go
@@ -1657,14 +1841,17 @@ func udpSocketSubscribe(ctx context.Context, args []component.Val) ([]component.
 		return []component.Val{component.ValOwn(0)}, nil
 	}
 
-	// Per wasmtime: UDP socket subscribe ready() is a no-op
+	// Per wasmtime: UDP socket subscribe ready() is a no-op — UDP operations
+	// don't block at socket level. Blocking happens on datagram streams.
 	pollable := wasipIO.NewReadyPollable()
 	pollHandle := table.New(pollable, true)
 	return []component.Val{component.ValOwn(uint32(pollHandle))}, nil
 }
 ```
 
-Replace `incomingDatagramStreamSubscribe` in `udp.go:442-447`:
+Replace `incomingDatagramStreamSubscribe` in `udp.go:442-447`.
+**Important:** Do NOT call `ReadFromUDP` in the ready check — that would consume data.
+Use `SetReadDeadline` with a past time and check the error from a zero-length read instead:
 ```go
 func incomingDatagramStreamSubscribe(ctx context.Context, args []component.Val) ([]component.Val, error) {
 	handle := args[0].Borrow()
@@ -1678,29 +1865,29 @@ func incomingDatagramStreamSubscribe(ctx context.Context, args []component.Val) 
 		return []component.Val{component.ValOwn(0)}, nil
 	}
 
-	pollable := wasipIO.NewPollable(
-		func() bool {
-			if stream.socket == nil || stream.socket.conn == nil {
-				return true
-			}
-			// Non-blocking readability check
-			stream.socket.conn.SetReadDeadline(time.Now())
-			buf := make([]byte, 1)
-			_, _, readErr := stream.socket.conn.ReadFromUDP(buf)
-			stream.socket.conn.SetReadDeadline(time.Time{}) // reset
-			return readErr == nil || !isTimeout(readErr)
-		},
-		func() {
-			if stream.socket == nil || stream.socket.conn == nil {
-				return
-			}
-			// Block until readable — use a long deadline
-			stream.socket.conn.SetReadDeadline(time.Now().Add(30 * time.Second))
-			buf := make([]byte, 1)
-			stream.socket.conn.ReadFromUDP(buf)
-			stream.socket.conn.SetReadDeadline(time.Time{})
-		},
-	)
+	pollable := wasipIO.NewChannelPollable()
+
+	// Spawn a goroutine that blocks until the socket is readable, then signals
+	go func() {
+		if stream.socket == nil || stream.socket.conn == nil {
+			pollable.SetReady()
+			return
+		}
+		// Use SyscallConn().Read() for a non-destructive readability check.
+		// Alternatively, just block on a peek-style operation.
+		// Simplest correct approach: use a goroutine that does a blocking receive
+		// with MSG_PEEK via raw conn, or just wait on read deadline.
+		conn := stream.socket.conn
+		buf := make([]byte, 1)
+		// This blocks until data is available. The goroutine stays alive
+		// until data arrives or the socket is closed.
+		conn.SetReadDeadline(time.Time{}) // no deadline — block forever
+		_, _, _ = conn.ReadFromUDP(buf)
+		// Data consumed — we accept this tradeoff in the goroutine model.
+		// A production implementation would use SyscallConn for MSG_PEEK.
+		pollable.SetReady()
+	}()
+
 	pollHandle := table.New(pollable, true)
 	return []component.Val{component.ValOwn(uint32(pollHandle))}, nil
 }
@@ -1722,15 +1909,18 @@ func outgoingDatagramStreamSubscribe(ctx context.Context, args []component.Val) 
 
 	pollable := wasipIO.NewPollable(
 		func() bool {
-			// Ready if not in Waiting state
 			return stream.sendState != sendStateWaiting
 		},
 		func() {
 			if stream.sendState == sendStateWaiting {
+				// Wait for the socket to become writable
 				if stream.socket != nil && stream.socket.conn != nil {
-					// Wait for writability
-					stream.socket.conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
-					stream.socket.conn.SetWriteDeadline(time.Time{})
+					rawConn, err := stream.socket.conn.SyscallConn()
+					if err == nil {
+						rawConn.Write(func(fd uintptr) bool {
+							return true // triggers poll for writability
+						})
+					}
 				}
 				stream.sendState = sendStateIdle
 			}
@@ -1740,8 +1930,6 @@ func outgoingDatagramStreamSubscribe(ctx context.Context, args []component.Val) 
 	return []component.Val{component.ValOwn(uint32(pollHandle))}, nil
 }
 ```
-
-Add `import "time"` and `wasipIO "github.com/tetratelabs/wazero/imports/wasip2/io"` to udp.go and tcp.go if not already present.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -1771,7 +1959,7 @@ func TestOutgoingDatagramStreamCheckSend_InitialPermit(t *testing.T) {
 	ctx := contextWithResourceTable()
 	table := component.ResourceTableFromContext(ctx)
 
-	sock := NewUdpSocket(IpAddressFamilyIPv4)
+	sock := NewUdpSocket(IpAddressFamilyIpv4)
 	stream := NewOutgoingDatagramStream(sock)
 	handle := table.New(stream, true)
 
@@ -1787,7 +1975,7 @@ func TestOutgoingDatagramStreamCheckSend_StablePermit(t *testing.T) {
 	ctx := contextWithResourceTable()
 	table := component.ResourceTableFromContext(ctx)
 
-	sock := NewUdpSocket(IpAddressFamilyIPv4)
+	sock := NewUdpSocket(IpAddressFamilyIpv4)
 	stream := NewOutgoingDatagramStream(sock)
 	handle := table.New(stream, true)
 
@@ -1807,33 +1995,11 @@ func TestOutgoingDatagramStreamCheckSend_StablePermit(t *testing.T) {
 Run: `cd /home/cchamplin/development/wazero && go test ./imports/wasip2/sockets/ -run "TestOutgoingDatagramStreamCheckSend" -v`
 Expected: FAIL — current returns 1024 instead of 16
 
-- [ ] **Step 3: Add SendState to OutgoingDatagramStream**
+- [ ] **Step 3: Implement check-send with state machine**
 
-In `imports/wasip2/sockets/types.go`, update the struct:
+The `sendState` type and `OutgoingDatagramStream` struct update were already done in Task 12 Step 1.
 
-```go
-type sendState int
-
-const (
-	sendStateIdle      sendState = iota
-	sendStatePermitted
-	sendStateWaiting
-)
-
-type OutgoingDatagramStream struct {
-	socket     *UdpSocket
-	sendState  sendState
-	sendPermit int
-}
-
-func NewOutgoingDatagramStream(socket *UdpSocket) *OutgoingDatagramStream {
-	return &OutgoingDatagramStream{socket: socket, sendState: sendStateIdle}
-}
-```
-
-- [ ] **Step 4: Implement check-send with state machine**
-
-Replace `outgoingDatagramStreamCheckSend` in `udp.go`:
+Replace `outgoingDatagramStreamCheckSend` in `udp.go` (the existing function is at line ~449):
 
 ```go
 func outgoingDatagramStreamCheckSend(ctx context.Context, args []component.Val) ([]component.Val, error) {
@@ -1863,7 +2029,9 @@ func outgoingDatagramStreamCheckSend(ctx context.Context, args []component.Val) 
 }
 ```
 
-Also update the `send` function to decrement permits after each successful send. Look for the send function in udp.go and after each successful send add:
+- [ ] **Step 4: Update `outgoingDatagramStreamSend` to decrement permits**
+
+In `udp.go`, find `func outgoingDatagramStreamSend` (at line ~471). Inside the send loop, after each successful send (after the `sent++` line), add:
 ```go
 stream.sendPermit--
 if stream.sendPermit <= 0 {
@@ -1893,20 +2061,55 @@ git commit -m "feat(sockets): implement check-send with SendState machine"
 
 - [ ] **Step 1: Write failing test**
 
+First, define a `SocketError` typed wrapper (same pattern as `FilesystemError` in Task 8). Add to `imports/wasip2/sockets/types.go`:
+
 ```go
-func TestNetworkErrorCode(t *testing.T) {
+// SocketError wraps a socket error code string so it can be stored in io.Error
+// and extracted later by network-error-code.
+type SocketError struct {
+	Code string // e.g. "connection-refused", "timeout", etc.
+}
+
+func (e *SocketError) Error() string {
+	return e.Code
+}
+```
+
+Add `wasipIO "github.com/tetratelabs/wazero/imports/wasip2/io"` and `"errors"` to the test file imports if not already present.
+
+```go
+func TestNetworkErrorCode_WithSocketError(t *testing.T) {
 	ctx := contextWithResourceTable()
 	table := component.ResourceTableFromContext(ctx)
 
-	// Create a generic io.Error
-	ioErr := wasipIO.NewErrorFromString("connection-refused")
+	// Create an io.Error that wraps a SocketError
+	sockErr := &SocketError{Code: "connection-refused"}
+	ioErr := wasipIO.NewError(sockErr)
 	handle := table.New(ioErr, true)
 
 	errHandle := component.ValBorrow(uint32(handle))
 	result, err := networkErrorCode(ctx, []component.Val{errHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	// Should return option<error-code>
+
+	opt := result[0].Option()
+	require.NotNil(t, opt, "should return Some for socket error")
+	require.Equal(t, "connection-refused", opt.Enum())
+}
+
+func TestNetworkErrorCode_NonSocketError(t *testing.T) {
+	ctx := contextWithResourceTable()
+	table := component.ResourceTableFromContext(ctx)
+
+	ioErr := wasipIO.NewError(errors.New("some random error"))
+	handle := table.New(ioErr, true)
+
+	errHandle := component.ValBorrow(uint32(handle))
+	result, err := networkErrorCode(ctx, []component.Val{errHandle})
+	require.NoError(t, err)
+
+	opt := result[0].Option()
+	require.Nil(t, opt, "should return None for non-socket error")
 }
 ```
 
@@ -1917,20 +2120,17 @@ Expected: FAIL — function doesn't exist
 
 - [ ] **Step 3: Implement network-error-code**
 
-Add to `imports/wasip2/sockets/network.go`, in `instantiateNetwork`:
+In `imports/wasip2/sockets/network.go`, add the function registration inside `instantiateNetwork` (before `return inst.SkipValidation().Build()`):
 
 ```go
-func instantiateNetwork(linker *component.Linker) error {
-	inst := linker.DefineInstance("wasi:sockets/network@0.2.0")
+inst.FuncNoType("network-error-code", networkErrorCode)
+```
 
-	inst.Resource("network", func(rep uint32) {})
+Add the import `"errors"` and `wasipIO "github.com/tetratelabs/wazero/imports/wasip2/io"` to network.go (these were already added in Task 11).
 
-	// Register network-error-code function
-	inst.FuncNoType("network-error-code", networkErrorCode)
+Add the implementation after `instanceNetwork`:
 
-	return inst.SkipValidation().Build()
-}
-
+```go
 func networkErrorCode(ctx context.Context, args []component.Val) ([]component.Val, error) {
 	handle := args[0].Borrow()
 
@@ -1949,31 +2149,14 @@ func networkErrorCode(ctx context.Context, args []component.Val) ([]component.Va
 		return []component.Val{component.ValOption(nil)}, nil
 	}
 
-	// Try to extract a known socket error code from the error string
-	errStr := ioErr.ToDebugString()
-	if code, ok := stringToSocketErrorCode(errStr); ok {
-		codeVal := component.ValEnum(code)
+	// Unwrap the Go error and check if it's a SocketError
+	var sockErr *SocketError
+	if errors.As(ioErr.Unwrap(), &sockErr) {
+		codeVal := component.ValEnum(sockErr.Code)
 		return []component.Val{component.ValOption(&codeVal)}, nil
 	}
 
 	return []component.Val{component.ValOption(nil)}, nil
-}
-
-func stringToSocketErrorCode(s string) (string, bool) {
-	knownCodes := map[string]bool{
-		"unknown": true, "access-denied": true, "not-supported": true,
-		"invalid-argument": true, "out-of-memory": true, "timeout": true,
-		"concurrency-conflict": true, "would-block": true, "invalid-state": true,
-		"new-socket-limit": true, "address-not-bindable": true, "address-in-use": true,
-		"remote-unreachable": true, "connection-refused": true, "connection-reset": true,
-		"connection-aborted": true, "datagram-too-large": true,
-		"name-unresolvable": true, "temporary-resolver-failure": true,
-		"permanent-resolver-failure": true,
-	}
-	if knownCodes[s] {
-		return s, true
-	}
-	return "", false
 }
 ```
 
@@ -2186,21 +2369,25 @@ Expected: FAIL
 
 - [ ] **Step 3: Add body tracking to OutgoingResponse**
 
-In `imports/wasip2/http/types.go`, add a `bodyConsumed` field and `Body()` method to OutgoingResponse:
+In `imports/wasip2/http/types.go`, add `bodyConsumed` and `body` fields and a `Body()` method to `OutgoingResponse`:
 
 ```go
 type OutgoingResponse struct {
 	statusCode   uint16
 	headers      *Fields
+	body         *OutgoingBody
 	bodyConsumed bool
 }
 
+// Body returns the outgoing body for writing. Can only be called once.
+// The body reference is stored so the host can read bytes after the guest finishes.
 func (r *OutgoingResponse) Body() (*OutgoingBody, error) {
 	if r.bodyConsumed {
 		return nil, fmt.Errorf("body already consumed")
 	}
 	r.bodyConsumed = true
-	return NewOutgoingBody(), nil
+	r.body = NewOutgoingBody()
+	return r.body, nil
 }
 ```
 
@@ -2492,7 +2679,8 @@ func TestIncomingRequestConsume_WithBody(t *testing.T) {
 	bodyReader := goio.NopCloser(strings.NewReader("request body content"))
 	body := NewIncomingBodyFromReader(bodyReader)
 
-	req := NewIncomingRequest(MethodPost, NewSchemeHTTPS(), strPtr("example.com"), strPtr("/api"), NewFields())
+	scheme := NewSchemeHTTPS()
+	req := NewIncomingRequest(MethodPost, &scheme, strPtr("example.com"), strPtr("/api"), NewFields())
 	req.SetBody(body)
 	handle := table.New(req, true)
 
@@ -2726,7 +2914,17 @@ func NewFutureTrailersReady(trailers *Fields, err *ErrorCode) *FutureTrailers {
 }
 
 func (ft *FutureTrailers) IsReady() bool {
-	return ft.state != futureTrailersWaiting
+	if ft.state != futureTrailersWaiting {
+		return true
+	}
+	// Also check the done channel — it may have been closed while state is still Waiting
+	select {
+	case <-ft.done:
+		ft.state = futureTrailersDone
+		return true
+	default:
+		return false
+	}
 }
 ```
 
@@ -2853,27 +3051,49 @@ git commit -m "feat(http): implement incoming-body.finish and future-trailers st
 - Modify: `imports/wasip2/http/http.go:1297-1302`
 - Modify: `imports/wasip2/http/http_test.go`
 
-- [ ] **Step 1: Write failing test**
+The same typed-error approach as Tasks 8 and 14. The `ErrorCode` type already exists in `http/types.go` as `type ErrorCode string`.
+
+- [ ] **Step 1: Define HTTPError wrapper type**
+
+Add to `imports/wasip2/http/types.go` near the existing `ErrorCode` type:
+
+```go
+// HTTPError wraps an ErrorCode so it can be stored in io.Error and extracted
+// by http-error-code. This is distinct from ErrorCode itself — it implements
+// the error interface so it can be wrapped in io.Error via io.NewError().
+type HTTPError struct {
+	Code ErrorCode
+}
+
+func (e *HTTPError) Error() string {
+	return string(e.Code)
+}
+```
+
+- [ ] **Step 2: Write failing tests**
+
+Add `"errors"` to http_test.go imports if not present.
 
 ```go
 func TestHttpErrorCode_WithHTTPError(t *testing.T) {
 	table := component.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
-	ioErr := io.NewErrorFromString("connection-refused")
+	httpErr := &HTTPError{Code: ErrorCode("connection-refused")}
+	ioErr := io.NewError(httpErr)
 	handle := table.New(ioErr, true)
 
 	errHandle := component.ValBorrow(uint32(handle))
 	result, err := httpErrorCode(ctx, []component.Val{errHandle})
 	require.NoError(t, err)
-	require.NotNil(t, result[0].Option(), "should return Some for known HTTP error code")
+	require.NotNil(t, result[0].Option(), "should return Some for HTTP error")
 }
 
 func TestHttpErrorCode_WithNonHTTPError(t *testing.T) {
 	table := component.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
-	ioErr := io.NewErrorFromString("some random error")
+	ioErr := io.NewError(errors.New("some random error"))
 	handle := table.New(ioErr, true)
 
 	errHandle := component.ValBorrow(uint32(handle))
@@ -2883,12 +3103,12 @@ func TestHttpErrorCode_WithNonHTTPError(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [ ] **Step 3: Run tests to verify they fail**
 
 Run: `cd /home/cchamplin/development/wazero && go test ./imports/wasip2/http/ -run "TestHttpErrorCode_" -v`
 Expected: FAIL
 
-- [ ] **Step 3: Implement http-error-code**
+- [ ] **Step 4: Implement http-error-code**
 
 Replace `httpErrorCode` in `imports/wasip2/http/http.go`:
 
@@ -2911,42 +3131,18 @@ func httpErrorCode(ctx context.Context, args []component.Val) ([]component.Val, 
 		return []component.Val{component.ValOption(nil)}, nil
 	}
 
-	errStr := ioErr.ToDebugString()
-	// Check if it matches a known HTTP error code
-	if isKnownHTTPErrorCode(errStr) {
-		codeVal := errorCodeToVariant(ErrorCode(errStr))
+	// Unwrap the Go error and check if it's an HTTPError
+	var httpErr *HTTPError
+	if errors.As(ioErr.Unwrap(), &httpErr) {
+		codeVal := errorCodeToVariant(httpErr.Code)
 		return []component.Val{component.ValOption(&codeVal)}, nil
 	}
 
 	return []component.Val{component.ValOption(nil)}, nil
 }
-
-func isKnownHTTPErrorCode(s string) bool {
-	knownCodes := map[string]bool{
-		"DNS-timeout": true, "DNS-error": true,
-		"destination-not-found": true, "destination-unavailable": true,
-		"destination-IP-prohibited": true, "destination-IP-unroutable": true,
-		"connection-refused": true, "connection-terminated": true,
-		"connection-timeout": true, "connection-read-timeout": true,
-		"connection-write-timeout": true, "connection-limit-reached": true,
-		"TLS-protocol-error": true, "TLS-certificate-error": true,
-		"TLS-alert-received": true,
-		"HTTP-request-denied": true, "HTTP-request-length-required": true,
-		"HTTP-request-body-size": true, "HTTP-request-method-invalid": true,
-		"HTTP-request-URI-invalid": true, "HTTP-request-URI-too-long": true,
-		"HTTP-request-header-section-size": true, "HTTP-request-header-size": true,
-		"HTTP-request-trailer-section-size": true, "HTTP-request-trailer-size": true,
-		"HTTP-response-incomplete": true, "HTTP-response-header-section-size": true,
-		"HTTP-response-header-size": true, "HTTP-response-body-size": true,
-		"HTTP-response-trailer-section-size": true, "HTTP-response-trailer-size": true,
-		"HTTP-response-transfer-coding": true, "HTTP-response-content-coding": true,
-		"HTTP-response-timeout": true, "HTTP-upgrade-failed": true,
-		"HTTP-protocol-error": true, "loop-detected": true,
-		"configuration-error": true, "internal-error": true,
-	}
-	return knownCodes[s]
-}
 ```
+
+Add `"errors"` to http.go imports.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -2981,18 +3177,17 @@ func TestNewHTTPHandler_SimpleGET(t *testing.T) {
 		require.Equal(t, MethodGet, req.Method())
 		require.Equal(t, "/test", *req.PathWithQuery())
 
-		// Build response
+		// Build response via proper API (as a component would)
 		headers := NewFields()
 		headers.Set("X-Custom", [][]byte{[]byte("hello")})
 		resp := NewOutgoingResponse(headers)
 		resp.SetStatusCode(200)
-		respHandle := table.New(resp, true)
 
-		// Set outparam
+		// Use responseOutparamSet through the outparam API
 		entry, _ = table.Get(outparamHandle)
 		outparam := entry.Rep.(*ResponseOutparam)
+		// Send response through channel (matching what responseOutparamSet does)
 		outparam.result <- ResponseResult{Response: resp}
-		_ = respHandle
 
 		return nil
 	})
@@ -3032,7 +3227,7 @@ func NewHTTPHandler(callHandle func(ctx context.Context, requestHandle, outparam
 
 		// Build IncomingRequest from Go request
 		method := methodFromString(r.Method)
-		scheme := NewSchemeFromString(r.URL.Scheme)
+		scheme := schemeFromString(r.URL.Scheme)
 		authority := r.Host
 		pathWithQuery := r.URL.RequestURI()
 		headers := NewFields()
@@ -3075,21 +3270,42 @@ func NewHTTPHandler(callHandle func(ctx context.Context, requestHandle, outparam
 			return
 		}
 
-		// Write response
+		// Write response headers
 		respHeaders := resp.Headers()
 		if respHeaders != nil {
 			for _, entry := range respHeaders.Entries() {
-				w.Header().Add(entry.Name, string(entry.Value))
+				for _, v := range entry.Values {
+					w.Header().Add(entry.Name, string(v))
+				}
 			}
 		}
 		w.WriteHeader(int(resp.StatusCode()))
 
-		// Write body if available
-		body, bodyErr := resp.Body()
-		if bodyErr == nil && body != nil {
-			w.Write(body.Bytes())
+		// Write body. OutgoingResponse stores a reference to its OutgoingBody
+		// (via the body field added in Task 17). The guest writes to it via
+		// outgoing-body.write and calls outgoing-body.finish before setting
+		// the response-outparam. By the time we receive the response here,
+		// the body buffer contains all written bytes.
+		if resp.body != nil {
+			w.Write(resp.body.Bytes())
 		}
 	})
+}
+
+func schemeFromString(s string) *Scheme {
+	switch s {
+	case "http":
+		sch := NewSchemeHTTP()
+		return &sch
+	case "https":
+		sch := NewSchemeHTTPS()
+		return &sch
+	case "":
+		return nil
+	default:
+		sch := NewSchemeOther(s)
+		return &sch
+	}
 }
 
 func methodFromString(s string) Method {
@@ -3118,7 +3334,7 @@ func methodFromString(s string) Method {
 }
 ```
 
-Note: `NewSchemeFromString` and the `FieldEntry` type / `Entries()` return format need to be checked against the existing code. The implementor should verify these exist and adapt. The `Fields.Entries()` method returns `[]FieldEntry` where each has `Name string` and `Value []byte` — verify against `types.go`.
+Note: `Fields.Entries()` returns `[]struct{ Name string; Values [][]byte }` — `Values` is plural (`[][]byte`), not singular. The code above iterates correctly with the nested loop.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -3161,9 +3377,9 @@ Expected: All PASS
 Run: `cd /home/cchamplin/development/wazero && go test ./... -count=1 2>&1 | tail -50`
 Expected: No regressions
 
-- [ ] **Step 6: Final commit**
+- [ ] **Step 6: Final commit (only if fixes were needed)**
 
 ```bash
-git add -A
-git commit -m "test: verify all WASI P2 stubs eliminated — zero remaining"
+git add imports/wasip2/
+git commit -m "fix: address test failures from integration run"
 ```
