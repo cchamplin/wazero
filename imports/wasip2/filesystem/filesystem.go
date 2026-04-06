@@ -764,30 +764,43 @@ func descriptorSetTimesAt(ctx context.Context, args []component.Val) ([]componen
 		return errorResult(ErrorCodeBadDescriptor), nil
 	}
 
-	if !desc.Flags().HasWrite() && desc.Flags()&DescriptorFlagMutateDirectory == 0 {
+	// Parent must be a directory
+	if !desc.IsDir() {
+		return errorResult(ErrorCodeNotDirectory), nil
+	}
+
+	if !desc.Flags().HasWrite() {
 		return errorResult(ErrorCodeAccess), nil
 	}
 
 	fullPath := filepath.Join(desc.Path(), pathStr)
 
-	// Respect symlink-follow flag: use Lstat for no-follow, Stat for follow
+	// Security check: ensure the path doesn't escape the descriptor's directory
+	cleanPath := filepath.Clean(fullPath)
+	basePath := filepath.Clean(desc.Path())
+	if len(cleanPath) < len(basePath) || cleanPath[:len(basePath)] != basePath {
+		return errorResult(ErrorCodeAccess), nil
+	}
+
+	// Stat the target to get current times as fallback for no-change
 	var info os.FileInfo
 	var statErr error
 	if pathFlags["symlink-follow"] {
-		info, statErr = os.Stat(fullPath)
+		info, statErr = os.Stat(cleanPath)
 	} else {
-		info, statErr = os.Lstat(fullPath)
+		info, statErr = os.Lstat(cleanPath)
 	}
 	if statErr != nil {
 		return errorResult(MapOSError(statErr)), nil
 	}
 	currentModTime := info.ModTime()
+	// Go's FileInfo doesn't expose atime portably; use mtime as fallback
 	currentAtime := currentModTime
 
 	atime := parseNewTimestamp(accessTimeArg, currentAtime)
 	mtime := parseNewTimestamp(modTimeArg, currentModTime)
 
-	if chtErr := os.Chtimes(fullPath, atime, mtime); chtErr != nil {
+	if chtErr := os.Chtimes(cleanPath, atime, mtime); chtErr != nil {
 		return errorResult(MapOSError(chtErr)), nil
 	}
 
