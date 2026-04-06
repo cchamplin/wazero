@@ -323,7 +323,24 @@ func descriptorAppendViaStream(ctx context.Context, args []component.Val) ([]com
 // descriptorAdvise provides advice about expected access patterns.
 // Signature: func(self: borrow<descriptor>, offset: u64, length: u64, advice: advice) -> result<_, error-code>
 func descriptorAdvise(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// No-op stub - advice is an optimization hint
+	handle := args[0].Borrow()
+	offset := args[1].U64()
+	length := args[2].U64()
+	advice := args[3].Enum()
+
+	desc, err := getDescriptor(ctx, handle)
+	if err != nil {
+		return errorResult(ErrorCodeBadDescriptor), nil
+	}
+
+	if desc.File() == nil {
+		return errorResult(ErrorCodeBadDescriptor), nil
+	}
+
+	if advErr := fadvise(desc.File(), offset, length, advice); advErr != nil {
+		return errorResult(MapOSError(advErr)), nil
+	}
+
 	return []component.Val{component.ValResultOk(nil)}, nil
 }
 

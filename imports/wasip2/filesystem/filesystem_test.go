@@ -162,6 +162,7 @@ func TestDescriptorAppendViaStream(t *testing.T) {
 func TestDescriptorAdvise(t *testing.T) {
 	// Args: self, offset, length, advice
 	// Returns: result<_, error-code>
+	// Without a valid context/resource table, this should return bad-descriptor error
 	selfHandle := component.ValBorrow(0)
 	offset := component.ValU64(0)
 	length := component.ValU64(0)
@@ -170,8 +171,9 @@ func TestDescriptorAdvise(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, component.ValKindResult, result[0].Kind())
-	isOk, _, _ := result[0].Result()
-	require.True(t, isOk, "should return ok result (no-op)")
+	isOk, _, errVal := result[0].Result()
+	require.False(t, isOk, "should return error without valid context")
+	require.Equal(t, "bad-descriptor", errVal.Enum())
 }
 
 func TestDescriptorSyncData(t *testing.T) {
@@ -1701,4 +1703,52 @@ func TestDescriptorLinkAt_NoMutateDirectory(t *testing.T) {
 	isOk, _, errVal := result[0].Result()
 	require.False(t, isOk, "link-at should fail without mutate-directory")
 	require.Equal(t, "access", errVal.Enum())
+}
+
+// ====================
+// Descriptor Advise Tests
+// ====================
+
+func TestDescriptorAdvise_WithRealFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "test.txt")
+	err := os.WriteFile(path, []byte("hello world test data"), 0644)
+	require.NoError(t, err)
+
+	f, err := os.Open(path)
+	require.NoError(t, err)
+	defer f.Close()
+
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+	desc := NewDescriptor(f, false, path, DescriptorFlagRead)
+	handle := table.New(desc, true)
+
+	selfHandle := component.ValBorrow(uint32(handle))
+	offset := component.ValU64(0)
+	length := component.ValU64(100)
+
+	// Test each advice variant
+	adviceVariants := []string{"normal", "sequential", "random", "will-need", "dont-need", "no-reuse"}
+	for _, advice := range adviceVariants {
+		adviceVal := component.ValEnum(advice)
+		result, err := descriptorAdvise(ctx, []component.Val{selfHandle, offset, length, adviceVal})
+		require.NoError(t, err)
+		isOk, _, _ := result[0].Result()
+		require.True(t, isOk, "advise with %s should succeed", advice)
+	}
+}
+
+func TestDescriptorAdvise_BadDescriptor(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+	selfHandle := component.ValBorrow(0)
+	offset := component.ValU64(0)
+	length := component.ValU64(100)
+	advice := component.ValEnum("normal")
+	result, err := descriptorAdvise(ctx, []component.Val{selfHandle, offset, length, advice})
+	require.NoError(t, err)
+	isOk, _, errVal := result[0].Result()
+	require.False(t, isOk, "advise should fail without valid descriptor")
+	require.Equal(t, "bad-descriptor", errVal.Enum())
 }
