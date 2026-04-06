@@ -2158,14 +2158,19 @@ func TestHttpErrorCode_WithHTTPError(t *testing.T) {
 	table := component.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
-	httpErr := &HTTPError{Code: ErrorCode("connection-refused")}
+	httpErr := &HTTPError{Code: ErrorCodeConnectionRefused}
 	ioErr := io.NewError(httpErr)
 	handle := table.New(ioErr, true)
 
 	errHandle := component.ValBorrow(uint32(handle))
 	result, err := httpErrorCode(ctx, []component.Val{errHandle})
 	require.NoError(t, err)
-	require.NotNil(t, result[0].Option(), "should return Some for HTTP error")
+
+	opt := result[0].Option()
+	require.NotNil(t, opt, "should return Some for HTTP error")
+	// HTTP error-code is a variant (not enum) — payload-carrying cases exist.
+	name, _ := opt.Variant()
+	require.Equal(t, "connection-refused", name)
 }
 
 func TestNewHTTPHandler_SimpleGET(t *testing.T) {
