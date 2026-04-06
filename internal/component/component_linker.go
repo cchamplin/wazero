@@ -2522,7 +2522,10 @@ func (l *ComponentLinker) createCanonLowerFunc(
 		if needsRetptr && memory != nil {
 			// Write results to memory at retptr
 			if err := writeResultsToMemory(ctx, memory, reallocFunc, retptr, results, compFunc.Type); err != nil {
-				return
+				// Surface the error rather than silently swallowing it.
+				// Without this, lowering bugs are hidden because the guest
+				// reads uninitialized memory at retptr.
+				panic(fmt.Errorf("canon lower: writeResultsToMemory: %w", err))
 			}
 		} else {
 			// Write results to stack
