@@ -1257,55 +1257,80 @@ func futureTrailersSubscribe(ctx context.Context, args []component.Val) ([]compo
 
 // responseOutparamSet sets the response.
 // Signature: func(param: own<response-outparam>, response: result<own<outgoing-response>, error-code>)
+//
+// Per the WASI HTTP types.wit specification (lines 454-467) and the Component
+// Model canonical ABI (CanonicalABI.md, lift_own at lines 2215-2220), an own
+// handle that does not exist in the table MUST trap. Wazero signals a trap by
+// returning a non-nil Go error from the host function — see
+// internal/component/component_linker.go createCanonLowerFunc, where errors
+// are propagated as panics that the wasm runtime catches as traps.
+//
+// In particular, when the guest passes a bad own<outgoing-response> handle in
+// the Ok branch, this function MUST NOT fabricate a synthetic Err(internal-error)
+// and surface it through the outparam channel — that would make a guest bug
+// indistinguishable from the guest legitimately calling
+// `set(outparam, Err(internal-error))`.
+//
+// Reference: wasmtime's equivalent in
+// crates/wasi-http/src/types_impl.rs (HostResponseOutparam::set) uses
+// `self.table().delete(resp)?` which propagates the error as a wasmtime trap.
 func responseOutparamSet(ctx context.Context, args []component.Val) ([]component.Val, error) {
 	table := getOrCreateTable(ctx)
 	if table == nil {
+		// No resource table at all is a degenerate test/host configuration; in
+		// production a table is always present. Returning unit here preserves
+		// existing behavior for tests that exercise the function without a table.
 		return []component.Val{}, nil
 	}
 
-	// Consume the outparam (own handle)
-	outparamHandle := component.Handle(args[0].Own())
-	outparamEntry, err := table.Remove(outparamHandle)
-	if err != nil {
-		return []component.Val{}, nil
-	}
-	outparam, ok := outparamEntry.Rep.(*ResponseOutparam)
-	if !ok {
-		return []component.Val{}, nil
-	}
-
-	// Parse the result<own<outgoing-response>, error-code>
+	// Parse the result<own<outgoing-response>, error-code> first.
+	// We process the response payload before the outparam handle so that, on
+	// the failure path of an invalid outgoing-response handle, the outparam
+	// remains in the table and is not orphaned. This matches wasmtime's
+	// ordering in HostResponseOutparam::set.
 	isOk, okVal, errVal := args[1].Result()
 
+	var deliver ResponseResult
 	if isOk {
-		// Success: extract outgoing-response
+		// Success branch: lift the own<outgoing-response>. Per CanonicalABI.md
+		// lift_own, an invalid handle traps.
 		respHandle := component.Handle(okVal.Own())
 		respEntry, err := table.Remove(respHandle)
-		if err == nil {
-			if resp, ok := respEntry.Rep.(*OutgoingResponse); ok {
-				select {
-				case outparam.result <- ResponseResult{Response: resp}:
-				default:
-				}
-				return []component.Val{}, nil
-			}
+		if err != nil {
+			return nil, fmt.Errorf("response-outparam.set: invalid outgoing-response handle %d: %w", respHandle, err)
 		}
-		// Handle lookup failed — deliver an internal error so WaitForResponse doesn't hang
-		errCode := ErrorCodeInternalError
-		select {
-		case outparam.result <- ResponseResult{Err: &errCode}:
-		default:
+		resp, ok := respEntry.Rep.(*OutgoingResponse)
+		if !ok {
+			return nil, fmt.Errorf("response-outparam.set: handle %d is not an outgoing-response", respHandle)
 		}
+		deliver = ResponseResult{Response: resp}
 	} else {
-		// Error: extract error-code variant
+		// Error branch: extract the error-code variant case name.
 		// Note: payload fields on variants like dns-error, tls-alert-received,
 		// internal-error(option<string>) are currently discarded.
 		caseName, _ := errVal.Variant()
 		errCode := ErrorCode(caseName)
-		select {
-		case outparam.result <- ResponseResult{Err: &errCode}:
-		default:
-		}
+		deliver = ResponseResult{Err: &errCode}
+	}
+
+	// Lift the outparam own handle. Invalid handle traps per lift_own.
+	outparamHandle := component.Handle(args[0].Own())
+	outparamEntry, err := table.Remove(outparamHandle)
+	if err != nil {
+		return nil, fmt.Errorf("response-outparam.set: invalid response-outparam handle %d: %w", outparamHandle, err)
+	}
+	outparam, ok := outparamEntry.Rep.(*ResponseOutparam)
+	if !ok {
+		return nil, fmt.Errorf("response-outparam.set: handle %d is not a response-outparam", outparamHandle)
+	}
+
+	// Deliver the result through the outparam channel. The channel is buffered
+	// with capacity 1; the spec mandates set is called at most once, so the
+	// non-blocking select-default protects us against a misbehaving guest that
+	// calls set twice without crashing the host.
+	select {
+	case outparam.result <- deliver:
+	default:
 	}
 
 	return []component.Val{}, nil

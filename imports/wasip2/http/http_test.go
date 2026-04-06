@@ -2100,6 +2100,63 @@ func TestResponseOutparamSet_ErrorResponse(t *testing.T) {
 	require.NotNil(t, gotErr)
 }
 
+// TestResponseOutparamSet_BadOutgoingResponseHandle verifies that response-outparam.set
+// traps (returns a non-nil error) when the guest passes an invalid own<outgoing-response>
+// handle in the Ok branch. Per Component Model CanonicalABI.md (lift_own), an own handle
+// that does not exist in the table must trap. This is distinct from the guest legitimately
+// returning Err(internal-error), which must NOT trap and must be delivered through the
+// outparam channel.
+func TestResponseOutparamSet_BadOutgoingResponseHandle(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	outparam := NewResponseOutparam()
+	outparamHandle := table.New(outparam, true)
+
+	// Bogus outgoing-response handle that has nothing in the table.
+	const bogusRespHandleIdx uint32 = 9999
+
+	outparamVal := component.ValOwn(uint32(outparamHandle))
+	respVal := component.ValOwn(bogusRespHandleIdx)
+	resultVal := component.ValResultOk(&respVal)
+
+	// The host function must signal a trap by returning a non-nil error.
+	_, err := responseOutparamSet(ctx, []component.Val{outparamVal, resultVal})
+	require.Error(t, err, "responseOutparamSet must trap on invalid outgoing-response handle")
+	require.Contains(t, err.Error(), "outgoing-response", "error must mention which handle was invalid")
+
+	// Verify nothing was sent on the outparam channel: the trap must NOT be
+	// papered over with a synthetic ErrorCodeInternalError.
+	select {
+	case got := <-outparam.result:
+		t.Fatalf("expected no value on outparam channel after trap, got %+v", got)
+	default:
+		// expected: channel is empty
+	}
+}
+
+// TestResponseOutparamSet_BadOutparamHandle verifies that response-outparam.set traps
+// when the guest passes an invalid own<response-outparam> handle, even if the response
+// payload is well-formed. Per CanonicalABI.md (lift_own), an own handle that does not
+// exist in the table must trap.
+func TestResponseOutparamSet_BadOutparamHandle(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	// Bogus outparam handle that has nothing in the table.
+	const bogusOutparamHandleIdx uint32 = 9999
+
+	// Provide a well-formed Err(error-code) for the response payload so that we
+	// only test the bad outparam handle path.
+	outparamVal := component.ValOwn(bogusOutparamHandleIdx)
+	errCodeVal := component.ValVariant("connection-refused", nil)
+	resultVal := component.ValResultError(&errCodeVal)
+
+	_, err := responseOutparamSet(ctx, []component.Val{outparamVal, resultVal})
+	require.Error(t, err, "responseOutparamSet must trap on invalid response-outparam handle")
+	require.Contains(t, err.Error(), "response-outparam", "error must mention which handle was invalid")
+}
+
 func TestIncomingRequestConsume_WithBody(t *testing.T) {
 	table := component.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)

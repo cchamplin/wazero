@@ -2509,9 +2509,14 @@ func (l *ComponentLinker) createCanonLowerFunc(
 		// Call the component function
 		results, err := compFunc.Impl(ctx, args)
 		if err != nil {
-			// Handle error - for now just return without modifying stack
-			// In a full implementation this would trap
-			return
+			// Propagate host function errors as a wasm trap.
+			// Per Component Model CanonicalABI.md, invalid resource handles,
+			// generation mismatches, and other ABI-level violations must trap.
+			// Host functions signal these by returning a non-nil error; we
+			// translate that into a panic which the wasm runtime catches as a
+			// trap (see internal/engine/interpreter/interpreter.go's recover()
+			// at the call site).
+			panic(fmt.Errorf("canon lower: host function returned error: %w", err))
 		}
 
 		// Lower results to core values
