@@ -533,6 +533,62 @@ func TestDescriptorIsSameObject(t *testing.T) {
 	require.Equal(t, component.ValKindBool, result[0].Kind())
 }
 
+func TestDescriptorIsSameObject_SameFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "test.txt")
+	os.WriteFile(path, []byte("hello"), 0644)
+
+	f1, err := os.Open(path)
+	require.NoError(t, err)
+	defer f1.Close()
+
+	f2, err := os.Open(path)
+	require.NoError(t, err)
+	defer f2.Close()
+
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+	desc1 := NewDescriptor(f1, false, path, DescriptorFlagRead)
+	desc2 := NewDescriptor(f2, false, path, DescriptorFlagRead)
+	h1 := table.New(desc1, true)
+	h2 := table.New(desc2, true)
+
+	selfHandle := component.ValBorrow(uint32(h1))
+	otherHandle := component.ValBorrow(uint32(h2))
+	result, err := descriptorIsSameObject(ctx, []component.Val{selfHandle, otherHandle})
+	require.NoError(t, err)
+	require.True(t, result[0].Bool(), "same file opened twice should be same object")
+}
+
+func TestDescriptorIsSameObject_DifferentFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	path1 := filepath.Join(tmpDir, "file1.txt")
+	path2 := filepath.Join(tmpDir, "file2.txt")
+	os.WriteFile(path1, []byte("hello"), 0644)
+	os.WriteFile(path2, []byte("world"), 0644)
+
+	f1, err := os.Open(path1)
+	require.NoError(t, err)
+	defer f1.Close()
+
+	f2, err := os.Open(path2)
+	require.NoError(t, err)
+	defer f2.Close()
+
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+	desc1 := NewDescriptor(f1, false, path1, DescriptorFlagRead)
+	desc2 := NewDescriptor(f2, false, path2, DescriptorFlagRead)
+	h1 := table.New(desc1, true)
+	h2 := table.New(desc2, true)
+
+	selfHandle := component.ValBorrow(uint32(h1))
+	otherHandle := component.ValBorrow(uint32(h2))
+	result, err := descriptorIsSameObject(ctx, []component.Val{selfHandle, otherHandle})
+	require.NoError(t, err)
+	require.False(t, result[0].Bool(), "different files should not be same object")
+}
+
 func TestDescriptorMetadataHash(t *testing.T) {
 	// Args: self
 	// Returns: result<metadata-hash-value, error-code>

@@ -1159,16 +1159,33 @@ func descriptorUnlinkFileAt(ctx context.Context, args []component.Val) ([]compon
 	return []component.Val{component.ValResultOk(nil)}, nil
 }
 
-// descriptorIsSameObject compares two descriptors for identity.
+// descriptorIsSameObject compares two descriptors for identity using dev+ino via os.SameFile.
 // Signature: func(self: borrow<descriptor>, other: borrow<descriptor>) -> bool
 func descriptorIsSameObject(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Compare handle values - for placeholder, compare the borrow values
-	if len(args) >= 2 {
-		selfHandle := args[0].Borrow()
-		otherHandle := args[1].Borrow()
-		return []component.Val{component.ValBool(selfHandle == otherHandle)}, nil
+	selfHandle := args[0].Borrow()
+	otherHandle := args[1].Borrow()
+
+	selfDesc, err := getDescriptor(ctx, selfHandle)
+	if err != nil {
+		return []component.Val{component.ValBool(false)}, nil
 	}
-	return []component.Val{component.ValBool(false)}, nil
+
+	otherDesc, err := getDescriptor(ctx, otherHandle)
+	if err != nil {
+		return []component.Val{component.ValBool(false)}, nil
+	}
+
+	selfInfo, err := selfDesc.File().Stat()
+	if err != nil {
+		return []component.Val{component.ValBool(false)}, nil
+	}
+
+	otherInfo, err := otherDesc.File().Stat()
+	if err != nil {
+		return []component.Val{component.ValBool(false)}, nil
+	}
+
+	return []component.Val{component.ValBool(os.SameFile(selfInfo, otherInfo))}, nil
 }
 
 // descriptorMetadataHash returns a hash of file metadata.
