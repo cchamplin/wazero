@@ -6,6 +6,7 @@ import (
 	"context"
 	"testing"
 
+	wasipIO "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
@@ -1611,4 +1612,101 @@ func TestInstanceNetwork_DistinctHandles(t *testing.T) {
 	h1 := result1[0].Own()
 	h2 := result2[0].Own()
 	require.NotEqual(t, h1, h2, "each call should return a distinct handle")
+}
+
+func TestTcpSocketSubscribe_ReturnsValidPollable(t *testing.T) {
+	ctx := contextWithResourceTable()
+	table := component.ResourceTableFromContext(ctx)
+
+	sock := NewTcpSocket(IpAddressFamilyIpv4)
+	handle := table.New(sock, true)
+	selfHandle := component.ValBorrow(uint32(handle))
+
+	result, err := tcpSocketSubscribe(ctx, []component.Val{selfHandle})
+	require.NoError(t, err)
+	require.Equal(t, component.ValKindOwn, result[0].Kind())
+	pollHandle := result[0].Own()
+	require.True(t, pollHandle > 0, "should return valid pollable handle")
+
+	// Verify it's a real Pollable in the table
+	entry, err := table.Get(component.Handle(pollHandle))
+	require.NoError(t, err)
+	_, ok := entry.Rep.(*wasipIO.Pollable)
+	require.True(t, ok, "handle should resolve to a Pollable")
+}
+
+func TestUdpSocketSubscribe_ImmediatelyReady(t *testing.T) {
+	ctx := contextWithResourceTable()
+	table := component.ResourceTableFromContext(ctx)
+
+	sock := NewUdpSocket(IpAddressFamilyIpv4)
+	handle := table.New(sock, true)
+	selfHandle := component.ValBorrow(uint32(handle))
+
+	result, err := udpSocketSubscribe(ctx, []component.Val{selfHandle})
+	require.NoError(t, err)
+	pollHandle := result[0].Own()
+
+	entry, err := table.Get(component.Handle(pollHandle))
+	require.NoError(t, err)
+	pollable := entry.Rep.(*wasipIO.Pollable)
+	require.True(t, pollable.Ready(), "UDP socket pollable should be immediately ready")
+}
+
+func TestIncomingDatagramStreamSubscribe_ReturnsValidPollable(t *testing.T) {
+	ctx := contextWithResourceTable()
+	table := component.ResourceTableFromContext(ctx)
+
+	sock := NewUdpSocket(IpAddressFamilyIpv4)
+	stream := NewIncomingDatagramStream(sock)
+	handle := table.New(stream, true)
+	selfHandle := component.ValBorrow(uint32(handle))
+
+	result, err := incomingDatagramStreamSubscribe(ctx, []component.Val{selfHandle})
+	require.NoError(t, err)
+	pollHandle := result[0].Own()
+
+	entry, err := table.Get(component.Handle(pollHandle))
+	require.NoError(t, err)
+	pollable := entry.Rep.(*wasipIO.Pollable)
+	require.True(t, pollable.Ready(), "incoming datagram stream pollable should be immediately ready")
+}
+
+func TestOutgoingDatagramStreamSubscribe_ReturnsValidPollable(t *testing.T) {
+	ctx := contextWithResourceTable()
+	table := component.ResourceTableFromContext(ctx)
+
+	sock := NewUdpSocket(IpAddressFamilyIpv4)
+	stream := NewOutgoingDatagramStream(sock)
+	handle := table.New(stream, true)
+	selfHandle := component.ValBorrow(uint32(handle))
+
+	result, err := outgoingDatagramStreamSubscribe(ctx, []component.Val{selfHandle})
+	require.NoError(t, err)
+	pollHandle := result[0].Own()
+
+	entry, err := table.Get(component.Handle(pollHandle))
+	require.NoError(t, err)
+	pollable := entry.Rep.(*wasipIO.Pollable)
+	require.True(t, pollable.Ready(), "outgoing datagram stream pollable should be ready when sendState is idle")
+}
+
+func TestOutgoingDatagramStreamSubscribe_WaitingState(t *testing.T) {
+	ctx := contextWithResourceTable()
+	table := component.ResourceTableFromContext(ctx)
+
+	sock := NewUdpSocket(IpAddressFamilyIpv4)
+	stream := NewOutgoingDatagramStream(sock)
+	stream.sendState = sendStateWaiting
+	handle := table.New(stream, true)
+	selfHandle := component.ValBorrow(uint32(handle))
+
+	result, err := outgoingDatagramStreamSubscribe(ctx, []component.Val{selfHandle})
+	require.NoError(t, err)
+	pollHandle := result[0].Own()
+
+	entry, err := table.Get(component.Handle(pollHandle))
+	require.NoError(t, err)
+	pollable := entry.Rep.(*wasipIO.Pollable)
+	require.False(t, pollable.Ready(), "outgoing datagram stream pollable should NOT be ready when sendState is waiting")
 }

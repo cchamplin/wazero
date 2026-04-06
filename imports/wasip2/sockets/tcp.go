@@ -7,6 +7,7 @@ import (
 	"net"
 
 	"github.com/tetratelabs/wazero/internal/component"
+	wasipIO "github.com/tetratelabs/wazero/imports/wasip2/io"
 )
 
 // instantiateTcp registers wasi:sockets/tcp@0.2.0
@@ -681,8 +682,16 @@ func tcpSocketSetSendBufferSize(ctx context.Context, args []component.Val) ([]co
 // tcpSocketSubscribe returns a pollable for the socket.
 // Signature: func(self: borrow<tcp-socket>) -> own<pollable>
 func tcpSocketSubscribe(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return placeholder pollable handle
-	return []component.Val{component.ValOwn(0)}, nil
+	table := component.ResourceTableFromContext(ctx)
+	if table == nil {
+		return []component.Val{component.ValOwn(0)}, nil
+	}
+
+	// TCP socket subscribe creates a pollable that is always ready since
+	// Go's net package handles TCP operations synchronously.
+	pollable := wasipIO.NewReadyPollable()
+	pollHandle := table.New(pollable, true)
+	return []component.Val{component.ValOwn(uint32(pollHandle))}, nil
 }
 
 // tcpSocketShutdown shuts down the socket.

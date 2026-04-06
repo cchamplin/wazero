@@ -329,10 +329,21 @@ func NewIncomingDatagramStream(socket *UdpSocket) *IncomingDatagramStream {
 	return &IncomingDatagramStream{socket: socket}
 }
 
+// sendState represents the send readiness state for outgoing datagram streams.
+type sendState int
+
+const (
+	sendStateIdle      sendState = iota
+	sendStatePermitted
+	sendStateWaiting
+)
+
 // OutgoingDatagramStream represents a stream of outgoing datagrams.
 // Matches wasi:sockets/udp outgoing-datagram-stream resource.
 type OutgoingDatagramStream struct {
-	socket *UdpSocket
+	socket     *UdpSocket
+	sendState  sendState
+	sendPermit int
 }
 
 // NewOutgoingDatagramStream creates a new outgoing datagram stream.

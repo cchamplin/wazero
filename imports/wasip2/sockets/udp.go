@@ -7,6 +7,7 @@ import (
 	"net"
 
 	"github.com/tetratelabs/wazero/internal/component"
+	wasipIO "github.com/tetratelabs/wazero/imports/wasip2/io"
 )
 
 // instantiateUdp registers wasi:sockets/udp@0.2.0
@@ -375,8 +376,16 @@ func udpSocketSetSendBufferSize(ctx context.Context, args []component.Val) ([]co
 // udpSocketSubscribe returns a pollable for the socket.
 // Signature: func(self: borrow<udp-socket>) -> own<pollable>
 func udpSocketSubscribe(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return placeholder pollable handle
-	return []component.Val{component.ValOwn(0)}, nil
+	table := component.ResourceTableFromContext(ctx)
+	if table == nil {
+		return []component.Val{component.ValOwn(0)}, nil
+	}
+
+	// Per wasmtime: UDP socket subscribe ready() is a no-op — UDP operations
+	// don't block at socket level. Blocking happens on datagram streams.
+	pollable := wasipIO.NewReadyPollable()
+	pollHandle := table.New(pollable, true)
+	return []component.Val{component.ValOwn(uint32(pollHandle))}, nil
 }
 
 // incomingDatagramStreamReceive receives datagrams from the stream.
@@ -442,8 +451,17 @@ func incomingDatagramStreamReceive(ctx context.Context, args []component.Val) ([
 // incomingDatagramStreamSubscribe returns a pollable for the stream.
 // Signature: func(self: borrow<incoming-datagram-stream>) -> own<pollable>
 func incomingDatagramStreamSubscribe(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return placeholder pollable handle
-	return []component.Val{component.ValOwn(0)}, nil
+	table := component.ResourceTableFromContext(ctx)
+	if table == nil {
+		return []component.Val{component.ValOwn(0)}, nil
+	}
+
+	// Incoming datagram stream subscribe: ready when data is available to read.
+	// Since we don't have a non-destructive readability check, use a ready pollable.
+	// In practice, WASI components poll then call receive().
+	pollable := wasipIO.NewReadyPollable()
+	pollHandle := table.New(pollable, true)
+	return []component.Val{component.ValOwn(uint32(pollHandle))}, nil
 }
 
 // outgoingDatagramStreamCheckSend checks how many datagrams can be sent.
@@ -551,8 +569,33 @@ func outgoingDatagramStreamSend(ctx context.Context, args []component.Val) ([]co
 // outgoingDatagramStreamSubscribe returns a pollable for the stream.
 // Signature: func(self: borrow<outgoing-datagram-stream>) -> own<pollable>
 func outgoingDatagramStreamSubscribe(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return placeholder pollable handle
-	return []component.Val{component.ValOwn(0)}, nil
+	handle := args[0].Borrow()
+	table := component.ResourceTableFromContext(ctx)
+	if table == nil {
+		return []component.Val{component.ValOwn(0)}, nil
+	}
+
+	stream, err := getOutgoingDatagramStream(ctx, handle)
+	if err != nil {
+		// Return a ready pollable on error - guest will discover error on next operation
+		pollable := wasipIO.NewReadyPollable()
+		pollHandle := table.New(pollable, true)
+		return []component.Val{component.ValOwn(uint32(pollHandle))}, nil
+	}
+
+	pollable := wasipIO.NewPollable(
+		func() bool {
+			return stream.sendState != sendStateWaiting
+		},
+		func() {
+			// When waiting, block until writable
+			if stream.sendState == sendStateWaiting {
+				stream.sendState = sendStateIdle
+			}
+		},
+	)
+	pollHandle := table.New(pollable, true)
+	return []component.Val{component.ValOwn(uint32(pollHandle))}, nil
 }
 
 // minUint64 returns the minimum of two uint64 values.
