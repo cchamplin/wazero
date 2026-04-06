@@ -333,6 +333,29 @@ func TestFieldsClone(t *testing.T) {
 	require.Equal(t, component.ValKindOwn, result[0].Kind())
 }
 
+func TestFieldsHas_WithResourceTable(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	fields := NewFields()
+	fields.Set("Content-Type", [][]byte{[]byte("text/html")})
+	handle := table.New(fields, true)
+
+	selfHandle := component.ValBorrow(uint32(handle))
+
+	// Has existing key
+	name := component.ValString("Content-Type")
+	result, err := fieldsHas(ctx, []component.Val{selfHandle, name})
+	require.NoError(t, err)
+	require.True(t, result[0].Bool(), "should return true for existing key")
+
+	// Has missing key
+	name = component.ValString("X-Missing")
+	result, err = fieldsHas(ctx, []component.Val{selfHandle, name})
+	require.NoError(t, err)
+	require.False(t, result[0].Bool(), "should return false for missing key")
+}
+
 // ====================
 // Outgoing Request Tests
 // ====================

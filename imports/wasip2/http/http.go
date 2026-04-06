@@ -38,6 +38,7 @@ func instantiateTypes(linker *component.Linker) error {
 	inst.FuncNoType("[constructor]fields", fieldsConstructor)
 	inst.FuncNoType("[static]fields.from-list", fieldsFromList)
 	inst.FuncNoType("[method]fields.get", fieldsGet)
+	inst.FuncNoType("[method]fields.has", fieldsHas)
 	inst.FuncNoType("[method]fields.set", fieldsSet)
 	inst.FuncNoType("[method]fields.delete", fieldsDelete)
 	inst.FuncNoType("[method]fields.append", fieldsAppend)
@@ -378,6 +379,20 @@ func fieldsGet(ctx context.Context, args []component.Val) ([]component.Val, erro
 		result[i] = component.ValList(bytes)
 	}
 	return []component.Val{component.ValList(result)}, nil
+}
+
+// fieldsHas returns whether a field name exists.
+// Signature: func(self: borrow<fields>, name: field-key) -> bool
+func fieldsHas(ctx context.Context, args []component.Val) ([]component.Val, error) {
+	handle := args[0].Borrow()
+	name := args[1].StringVal()
+
+	fields, err := getFields(ctx, handle)
+	if err != nil {
+		return []component.Val{component.ValBool(false)}, nil
+	}
+
+	return []component.Val{component.ValBool(fields.Has(name))}, nil
 }
 
 // fieldsSet sets the values for a field name.

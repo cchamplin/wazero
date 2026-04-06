@@ -173,6 +173,15 @@ func (f *Fields) Get(name string) [][]byte {
 	return [][]byte{}
 }
 
+// Has returns true if the field name exists.
+func (f *Fields) Has(name string) bool {
+	if f.entries == nil {
+		return false
+	}
+	_, ok := f.entries[name]
+	return ok
+}
+
 // Set sets the values for a field name.
 func (f *Fields) Set(name string, values [][]byte) {
 	f.entries[name] = values
