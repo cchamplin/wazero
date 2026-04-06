@@ -1710,3 +1710,37 @@ func TestOutgoingDatagramStreamSubscribe_WaitingState(t *testing.T) {
 	pollable := entry.Rep.(*wasipIO.Pollable)
 	require.False(t, pollable.Ready(), "outgoing datagram stream pollable should NOT be ready when sendState is waiting")
 }
+
+func TestOutgoingDatagramStreamCheckSend_InitialPermit(t *testing.T) {
+	ctx := contextWithResourceTable()
+	table := component.ResourceTableFromContext(ctx)
+
+	sock := NewUdpSocket(IpAddressFamilyIpv4)
+	stream := NewOutgoingDatagramStream(sock)
+	handle := table.New(stream, true)
+
+	borrow := component.ValBorrow(uint32(handle))
+	result, err := outgoingDatagramStreamCheckSend(ctx, []component.Val{borrow})
+	require.NoError(t, err)
+	isOk, val, _ := result[0].Result()
+	require.True(t, isOk)
+	require.Equal(t, uint64(16), val.U64(), "initial check-send should return 16")
+}
+
+func TestOutgoingDatagramStreamCheckSend_StablePermit(t *testing.T) {
+	ctx := contextWithResourceTable()
+	table := component.ResourceTableFromContext(ctx)
+
+	sock := NewUdpSocket(IpAddressFamilyIpv4)
+	stream := NewOutgoingDatagramStream(sock)
+	handle := table.New(stream, true)
+
+	borrow := component.ValBorrow(uint32(handle))
+	// First call grants permit
+	outgoingDatagramStreamCheckSend(ctx, []component.Val{borrow})
+	// Second call should still return 16 (no sends happened)
+	result, _ := outgoingDatagramStreamCheckSend(ctx, []component.Val{borrow})
+	isOk, val, _ := result[0].Result()
+	require.True(t, isOk)
+	require.Equal(t, uint64(16), val.U64(), "repeated check-send without sends should return same permit")
+}

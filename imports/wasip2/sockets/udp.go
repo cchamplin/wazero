@@ -471,16 +471,27 @@ func outgoingDatagramStreamCheckSend(ctx context.Context, args []component.Val) 
 
 	stream, err := getOutgoingDatagramStream(ctx, handle)
 	if err != nil {
-		capacity := component.ValU64(1024)
+		capacity := component.ValU64(0)
 		return []component.Val{component.ValResultOk(&capacity)}, nil
 	}
 
-	if stream.socket == nil || stream.socket.conn == nil {
-		return []component.Val{errorCodeToVal(ErrorCodeInvalidState)}, nil
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+
+	var permit int
+	switch stream.sendState {
+	case sendStateIdle:
+		const defaultPermit = 16
+		stream.sendState = sendStatePermitted
+		stream.sendPermit = defaultPermit
+		permit = defaultPermit
+	case sendStatePermitted:
+		permit = stream.sendPermit
+	case sendStateWaiting:
+		permit = 0
 	}
 
-	// Return a reasonable send capacity
-	capacity := component.ValU64(1024)
+	capacity := component.ValU64(uint64(permit))
 	return []component.Val{component.ValResultOk(&capacity)}, nil
 }
 
@@ -560,6 +571,13 @@ func outgoingDatagramStreamSend(ctx context.Context, args []component.Val) ([]co
 			return []component.Val{errorCodeToVal(mapNetError(netErr))}, nil
 		}
 		sent++
+
+		stream.mu.Lock()
+		stream.sendPermit--
+		if stream.sendPermit <= 0 {
+			stream.sendState = sendStateWaiting
+		}
+		stream.mu.Unlock()
 	}
 
 	sentVal := component.ValU64(sent)
