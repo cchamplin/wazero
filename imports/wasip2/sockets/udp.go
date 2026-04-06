@@ -517,6 +517,20 @@ func outgoingDatagramStreamSend(ctx context.Context, args []component.Val) ([]co
 	}
 
 	datagrams := datagramsList.List()
+
+	// Per WASI spec: send must be preceded by check-send and datagram count
+	// must not exceed the permitted amount.
+	stream.mu.Lock()
+	if stream.sendState == sendStateIdle {
+		stream.mu.Unlock()
+		return []component.Val{errorCodeToVal(ErrorCodeInvalidState)}, nil
+	}
+	if len(datagrams) > stream.sendPermit {
+		stream.mu.Unlock()
+		return []component.Val{errorCodeToVal(ErrorCodeInvalidState)}, nil
+	}
+	stream.mu.Unlock()
+
 	var sent uint64 = 0
 
 	for _, dg := range datagrams {
