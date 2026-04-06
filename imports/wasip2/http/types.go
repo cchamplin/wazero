@@ -755,15 +755,33 @@ func NewFutureTrailers() *FutureTrailers {
 	return &FutureTrailers{}
 }
 
+// ResponseResult holds the result delivered through a ResponseOutparam.
+type ResponseResult struct {
+	Response *OutgoingResponse
+	Err      *ErrorCode
+}
+
 // ResponseOutparam represents a response outparam for server responses.
 // Matches wasi:http/types response-outparam resource.
 type ResponseOutparam struct {
-	set bool
+	result chan ResponseResult
 }
 
 // NewResponseOutparam creates a new response outparam.
 func NewResponseOutparam() *ResponseOutparam {
-	return &ResponseOutparam{}
+	return &ResponseOutparam{
+		result: make(chan ResponseResult, 1),
+	}
+}
+
+// WaitForResponse blocks until a response is delivered or the context is cancelled.
+func (p *ResponseOutparam) WaitForResponse(ctx context.Context) (*OutgoingResponse, *ErrorCode, error) {
+	select {
+	case r := <-p.result:
+		return r.Response, r.Err, nil
+	case <-ctx.Done():
+		return nil, nil, ctx.Err()
+	}
 }
 
 // RequestOptions represents options for HTTP requests.

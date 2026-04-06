@@ -1251,8 +1251,48 @@ func futureTrailersSubscribe(ctx context.Context, args []component.Val) ([]compo
 // responseOutparamSet sets the response.
 // Signature: func(param: own<response-outparam>, response: result<own<outgoing-response>, error-code>)
 func responseOutparamSet(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// For now, this is a stub for server-side functionality
-	// Returns nothing
+	table := getOrCreateTable(ctx)
+	if table == nil {
+		return []component.Val{}, nil
+	}
+
+	// Consume the outparam (own handle)
+	outparamHandle := component.Handle(args[0].Own())
+	outparamEntry, err := table.Remove(outparamHandle)
+	if err != nil {
+		return []component.Val{}, nil
+	}
+	outparam, ok := outparamEntry.Rep.(*ResponseOutparam)
+	if !ok {
+		return []component.Val{}, nil
+	}
+
+	// Parse the result<own<outgoing-response>, error-code>
+	isOk, okVal, errVal := args[1].Result()
+
+	if isOk {
+		// Success: extract outgoing-response
+		respHandle := component.Handle(okVal.Own())
+		respEntry, err := table.Remove(respHandle)
+		if err == nil {
+			if resp, ok := respEntry.Rep.(*OutgoingResponse); ok {
+				select {
+				case outparam.result <- ResponseResult{Response: resp}:
+				default:
+				}
+				return []component.Val{}, nil
+			}
+		}
+	} else {
+		// Error: extract error-code variant
+		caseName, _ := errVal.Variant()
+		errCode := ErrorCode(caseName)
+		select {
+		case outparam.result <- ResponseResult{Err: &errCode}:
+		default:
+		}
+	}
+
 	return []component.Val{}, nil
 }
 

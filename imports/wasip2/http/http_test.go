@@ -1971,3 +1971,52 @@ func TestIncomingBody_StreamRead(t *testing.T) {
 	_, err = body.Stream()
 	require.Error(t, err)
 }
+
+func TestResponseOutparamSet_OkResponse(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	outparam := NewResponseOutparam()
+	outparamHandle := table.New(outparam, true)
+
+	resp := NewOutgoingResponse(NewFields())
+	resp.SetStatusCode(200)
+	respHandle := table.New(resp, true)
+
+	// Build args: own<response-outparam>, result<own<outgoing-response>, error-code>
+	outparamVal := component.ValOwn(uint32(outparamHandle))
+	respVal := component.ValOwn(uint32(respHandle))
+	resultVal := component.ValResultOk(&respVal)
+
+	result, err := responseOutparamSet(ctx, []component.Val{outparamVal, resultVal})
+	require.NoError(t, err)
+	require.Equal(t, 0, len(result)) // returns unit
+
+	// Verify response is available on channel
+	gotResp, gotErr, waitErr := outparam.WaitForResponse(context.Background())
+	require.NoError(t, waitErr)
+	require.Nil(t, gotErr)
+	require.NotNil(t, gotResp)
+	require.Equal(t, uint16(200), gotResp.StatusCode())
+}
+
+func TestResponseOutparamSet_ErrorResponse(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	outparam := NewResponseOutparam()
+	outparamHandle := table.New(outparam, true)
+
+	outparamVal := component.ValOwn(uint32(outparamHandle))
+	errCodeVal := component.ValVariant("connection-refused", nil)
+	resultVal := component.ValResultError(&errCodeVal)
+
+	result, err := responseOutparamSet(ctx, []component.Val{outparamVal, resultVal})
+	require.NoError(t, err)
+	require.Equal(t, 0, len(result))
+
+	gotResp, gotErr, waitErr := outparam.WaitForResponse(context.Background())
+	require.NoError(t, waitErr)
+	require.Nil(t, gotResp)
+	require.NotNil(t, gotErr)
+}
