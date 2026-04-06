@@ -50,6 +50,15 @@ func getDirEntryStream(ctx context.Context, handle uint32) (*DirectoryEntryStrea
 	return stream, nil
 }
 
+// FilesystemError wraps an ErrorCode so it can be stored in io.Error and extracted later.
+type FilesystemError struct {
+	Code ErrorCode
+}
+
+func (e *FilesystemError) Error() string {
+	return string(e.Code)
+}
+
 // errorResult creates a result<_, error-code> error value.
 func errorResult(code ErrorCode) []component.Val {
 	errVal := component.ValEnum(string(code))
@@ -1254,7 +1263,30 @@ func computeMetadataHashFallback(info os.FileInfo) (uint64, uint64) {
 // filesystemErrorCode converts an error to a filesystem error code.
 // Signature: func(err: borrow<error>) -> option<error-code>
 func filesystemErrorCode(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return None - no error code available for this error
+	handle := args[0].Borrow()
+
+	table := component.ResourceTableFromContext(ctx)
+	if table == nil {
+		return []component.Val{component.ValOption(nil)}, nil
+	}
+
+	entry, err := table.Get(component.Handle(handle))
+	if err != nil {
+		return []component.Val{component.ValOption(nil)}, nil
+	}
+
+	ioErr, ok := entry.Rep.(*wasipIO.Error)
+	if !ok {
+		return []component.Val{component.ValOption(nil)}, nil
+	}
+
+	// Unwrap the Go error and check if it's a FilesystemError
+	var fsErr *FilesystemError
+	if errors.As(ioErr.Unwrap(), &fsErr) {
+		codeVal := component.ValEnum(string(fsErr.Code))
+		return []component.Val{component.ValOption(&codeVal)}, nil
+	}
+
 	return []component.Val{component.ValOption(nil)}, nil
 }
 

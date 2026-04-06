@@ -4,6 +4,7 @@ package filesystem
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -700,6 +701,40 @@ func TestFilesystemErrorCode(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, component.ValKindOption, result[0].Kind())
+}
+
+func TestFilesystemErrorCode_WithFSError(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	// Create an io.Error that wraps a FilesystemError
+	fsErr := &FilesystemError{Code: ErrorCodeAccess}
+	ioErr := wasipIO.NewError(fsErr)
+	handle := table.New(ioErr, true)
+
+	errHandle := component.ValBorrow(uint32(handle))
+	result, err := filesystemErrorCode(ctx, []component.Val{errHandle})
+	require.NoError(t, err)
+
+	opt := result[0].Option()
+	require.NotNil(t, opt, "should return Some for filesystem error")
+	require.Equal(t, "access", opt.Enum())
+}
+
+func TestFilesystemErrorCode_NonFSError(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	// Create an io.Error that wraps a plain Go error (not a FilesystemError)
+	ioErr := wasipIO.NewError(errors.New("some random error"))
+	handle := table.New(ioErr, true)
+
+	errHandle := component.ValBorrow(uint32(handle))
+	result, err := filesystemErrorCode(ctx, []component.Val{errHandle})
+	require.NoError(t, err)
+
+	opt := result[0].Option()
+	require.Nil(t, opt, "should return None for non-filesystem error")
 }
 
 func TestDirectoryEntryStreamReadEntry(t *testing.T) {
