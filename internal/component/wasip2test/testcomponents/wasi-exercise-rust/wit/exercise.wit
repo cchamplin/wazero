@@ -1,0 +1,16 @@
+package test:wasi-exercise@0.1.0;
+
+world exercise {
+    import wasi:filesystem/types@0.2.9;
+    import wasi:filesystem/preopens@0.2.9;
+    import wasi:io/streams@0.2.9;
+
+    /// Exercise filesystem: create file, write, set-size (truncate), read back, verify size.
+    export test-fs-set-size: func() -> string;
+
+    /// Exercise filesystem: metadata-hash stability (call twice, compare).
+    export test-fs-metadata-hash: func() -> string;
+
+    /// Exercise filesystem: is-same-object on same file opened twice.
+    export test-fs-is-same-object: func() -> string;
+}
