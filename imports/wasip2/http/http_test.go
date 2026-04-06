@@ -2128,6 +2128,32 @@ func TestIncomingRequestConsume_WithBody(t *testing.T) {
 	require.NotNil(t, inBody)
 }
 
+func TestIncomingRequestConsume_BodyAlreadyConsumed(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	scheme := NewSchemeHTTPS()
+	pathStr := "/api"
+	req := NewIncomingRequest(MethodPost, &scheme, nil, &pathStr, NewFields())
+	handle := table.New(req, true)
+
+	selfHandle := component.ValBorrow(uint32(handle))
+
+	// First call succeeds
+	result, err := incomingRequestConsume(ctx, []component.Val{selfHandle})
+	require.NoError(t, err)
+	isOk, _, _ := result[0].Result()
+	require.True(t, isOk, "first consume should succeed")
+
+	// Second call must return the body-already-consumed error variant
+	result2, err := incomingRequestConsume(ctx, []component.Val{selfHandle})
+	require.NoError(t, err)
+	isOk2, _, errVal := result2[0].Result()
+	require.False(t, isOk2, "second consume should fail")
+	name, _ := errVal.Variant()
+	require.Equal(t, "body-already-consumed", name)
+}
+
 func TestHttpErrorCode_WithHTTPError(t *testing.T) {
 	table := component.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)

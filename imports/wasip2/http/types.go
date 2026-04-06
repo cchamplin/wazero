@@ -12,6 +12,7 @@ import (
 	gohttp "net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/tetratelabs/wazero/imports/wasip2/io"
@@ -399,7 +400,7 @@ type IncomingRequest struct {
 	pathWithQuery *string
 	headers       *Fields
 	body          *IncomingBody
-	bodyConsumed  bool
+	bodyConsumed  atomic.Bool
 }
 
 // NewIncomingRequest creates a new incoming request.
@@ -444,11 +445,11 @@ func (r *IncomingRequest) SetBody(body *IncomingBody) {
 }
 
 // Consume returns the request body, ensuring it can only be consumed once.
+// Thread-safe via atomic compare-and-swap.
 func (r *IncomingRequest) Consume() (*IncomingBody, error) {
-	if r.bodyConsumed {
+	if !r.bodyConsumed.CompareAndSwap(false, true) {
 		return nil, fmt.Errorf("body already consumed")
 	}
-	r.bodyConsumed = true
 	if r.body != nil {
 		return r.body, nil
 	}
