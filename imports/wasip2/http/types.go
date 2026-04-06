@@ -761,17 +761,56 @@ func (f *FutureIncomingResponse) Destroy() {
 	}
 }
 
+// futureTrailersState represents the state of a FutureTrailers resource.
+type futureTrailersState int
+
+const (
+	futureTrailersWaiting  futureTrailersState = iota
+	futureTrailersDone
+	futureTrailersConsumed
+)
+
 // FutureTrailers represents async trailers.
 // Matches wasi:http/types future-trailers resource.
 type FutureTrailers struct {
-	ready    bool
+	state    futureTrailersState
 	trailers *Fields
 	err      *ErrorCode
+	done     chan struct{}
 }
 
-// NewFutureTrailers creates a new future trailers.
+// NewFutureTrailers creates a new future trailers in the waiting state.
 func NewFutureTrailers() *FutureTrailers {
-	return &FutureTrailers{}
+	return &FutureTrailers{
+		state: futureTrailersWaiting,
+		done:  make(chan struct{}),
+	}
+}
+
+// NewFutureTrailersReady creates a new future trailers that is already resolved.
+func NewFutureTrailersReady(trailers *Fields, err *ErrorCode) *FutureTrailers {
+	done := make(chan struct{})
+	close(done)
+	return &FutureTrailers{
+		state:    futureTrailersDone,
+		trailers: trailers,
+		err:      err,
+		done:     done,
+	}
+}
+
+// IsReady returns true if the future trailers have been resolved.
+func (ft *FutureTrailers) IsReady() bool {
+	if ft.state != futureTrailersWaiting {
+		return true
+	}
+	select {
+	case <-ft.done:
+		ft.state = futureTrailersDone
+		return true
+	default:
+		return false
+	}
 }
 
 // ResponseResult holds the result delivered through a ResponseOutparam.

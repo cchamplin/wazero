@@ -1154,6 +1154,76 @@ func TestFutureTrailersSubscribe(t *testing.T) {
 	require.Equal(t, component.ValKindOwn, result[0].Kind())
 }
 
+func TestIncomingBodyFinish_ReturnsFutureTrailers(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	// Use a non-existent body handle — incomingBodyFinish handles this
+	// gracefully and still creates the FutureTrailers resource.
+	bodyVal := component.ValOwn(uint32(999))
+	result, err := incomingBodyFinish(ctx, []component.Val{bodyVal})
+	require.NoError(t, err)
+	require.Equal(t, component.ValKindOwn, result[0].Kind())
+
+	// Verify the returned handle points to a FutureTrailers by using it
+	ftHandle := result[0].Own()
+	ft, err := getFutureTrailers(ctx, ftHandle)
+	require.NoError(t, err)
+	require.NotNil(t, ft, "finish should return FutureTrailers resource")
+	require.True(t, ft.IsReady(), "future trailers from finish should be ready")
+}
+
+func TestFutureTrailersGet_NoTrailers(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	// Create a ready FutureTrailers directly (no body removal to avoid slot reuse)
+	ft := NewFutureTrailersReady(nil, nil)
+	ftHandle := table.New(ft, true)
+
+	ftBorrow := component.ValBorrow(uint32(ftHandle))
+
+	// Get should return Some (ready)
+	result, err := futureTrailersGet(ctx, []component.Val{ftBorrow})
+	require.NoError(t, err)
+
+	outerOpt := result[0].Option()
+	require.NotNil(t, outerOpt, "should return Some (ready)")
+}
+
+func TestFutureTrailersGet_ConsumedOnSecondCall(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	ft := NewFutureTrailersReady(nil, nil)
+	ftHandle := table.New(ft, true)
+
+	ftBorrow := component.ValBorrow(uint32(ftHandle))
+
+	// First call returns result
+	futureTrailersGet(ctx, []component.Val{ftBorrow})
+
+	// Second call returns None (consumed)
+	result, err := futureTrailersGet(ctx, []component.Val{ftBorrow})
+	require.NoError(t, err)
+	outerOpt := result[0].Option()
+	require.Nil(t, outerOpt, "second get should return None (consumed)")
+}
+
+func TestFutureTrailersSubscribe_ReturnsValidPollable(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	ft := NewFutureTrailersReady(nil, nil)
+	ftHandle := table.New(ft, true)
+
+	ftBorrow := component.ValBorrow(uint32(ftHandle))
+	result, err := futureTrailersSubscribe(ctx, []component.Val{ftBorrow})
+	require.NoError(t, err)
+	require.Equal(t, component.ValKindOwn, result[0].Kind())
+	require.True(t, result[0].Own() > 0, "should return valid pollable handle")
+}
+
 // ====================
 // Response Outparam Tests
 // ====================
@@ -1573,6 +1643,13 @@ func TestFutureIncomingResponse(t *testing.T) {
 func TestFutureTrailers(t *testing.T) {
 	future := NewFutureTrailers()
 	require.NotNil(t, future)
+	require.False(t, future.IsReady(), "new future should not be ready")
+}
+
+func TestFutureTrailersReady(t *testing.T) {
+	future := NewFutureTrailersReady(nil, nil)
+	require.NotNil(t, future)
+	require.True(t, future.IsReady(), "ready future should be ready")
 }
 
 func TestResponseOutparam(t *testing.T) {

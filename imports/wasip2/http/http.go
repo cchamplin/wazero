@@ -1048,10 +1048,9 @@ func incomingBodyFinish(ctx context.Context, args []component.Val) ([]component.
 		}
 	}
 
-	// Create a future trailers that's immediately ready with no trailers
-	futureTrailers := NewFutureTrailers()
-	futureTrailers.ready = true
-	handle := table.New(futureTrailers, true)
+	// For simple cases (no trailer support), resolve immediately with no trailers
+	ft := NewFutureTrailersReady(nil, nil)
+	handle := table.New(ft, true)
 	return []component.Val{component.ValOwn(uint32(handle))}, nil
 }
 
@@ -1196,53 +1195,66 @@ func getFutureTrailers(ctx context.Context, handle uint32) (*FutureTrailers, err
 // futureTrailersGet polls for the trailers.
 // Signature: func(self: borrow<future-trailers>) -> option<result<result<option<own<fields>>, error-code>, _>>
 func futureTrailersGet(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	table := getOrCreateTable(ctx)
-	future, err := getFutureTrailers(ctx, args[0].Borrow())
-	if err != nil || table == nil {
+	ft, err := getFutureTrailers(ctx, args[0].Borrow())
+	if err != nil {
 		return []component.Val{component.ValOption(nil)}, nil
 	}
 
-	if !future.ready {
-		return []component.Val{component.ValOption(nil)}, nil
-	}
+	switch ft.state {
+	case futureTrailersWaiting:
+		select {
+		case <-ft.done:
+			ft.state = futureTrailersDone
+		default:
+			return []component.Val{component.ValOption(nil)}, nil
+		}
+		fallthrough
+	case futureTrailersDone:
+		ft.state = futureTrailersConsumed
 
-	// Trailers are ready
-	if future.err != nil {
-		errVal := errorCodeToVariant(*future.err)
-		innerResult := component.ValResultError(&errVal)
+		table := getOrCreateTable(ctx)
+		if ft.err != nil {
+			errVal := errorCodeToVariant(*ft.err)
+			innerResult := component.ValResultError(&errVal)
+			outerResult := component.ValResultOk(&innerResult)
+			return []component.Val{component.ValOption(&outerResult)}, nil
+		}
+
+		// Ok case: option<trailers>
+		var trailersOpt component.Val
+		if ft.trailers != nil && table != nil {
+			handle := table.New(ft.trailers, true)
+			trailersHandle := component.ValOwn(uint32(handle))
+			trailersOpt = component.ValOption(&trailersHandle)
+		} else {
+			trailersOpt = component.ValOption(nil)
+		}
+
+		innerResult := component.ValResultOk(&trailersOpt)
 		outerResult := component.ValResultOk(&innerResult)
 		return []component.Val{component.ValOption(&outerResult)}, nil
+
+	case futureTrailersConsumed:
+		return []component.Val{component.ValOption(nil)}, nil
 	}
 
-	// Return option<own<fields>> - typically None for most HTTP responses
-	var innerResult component.Val
-	if future.trailers != nil {
-		handle := table.New(future.trailers, true)
-		trailersVal := component.ValOwn(uint32(handle))
-		trailersOpt := component.ValOption(&trailersVal)
-		innerResult = component.ValResultOk(&trailersOpt)
-	} else {
-		noneOpt := component.ValOption(nil)
-		innerResult = component.ValResultOk(&noneOpt)
-	}
-	outerResult := component.ValResultOk(&innerResult)
-	return []component.Val{component.ValOption(&outerResult)}, nil
+	return []component.Val{component.ValOption(nil)}, nil
 }
 
 // futureTrailersSubscribe returns a pollable for the future.
 // Signature: func(self: borrow<future-trailers>) -> own<pollable>
 func futureTrailersSubscribe(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	future, err := getFutureTrailers(ctx, args[0].Borrow())
+	ft, err := getFutureTrailers(ctx, args[0].Borrow())
 	if err != nil {
 		// Return a ready pollable
 		pollable := io.NewReadyPollable()
 		return []component.Val{createPollableHandle(ctx, pollable)}, nil
 	}
 
-	// Create pollable that checks if future is ready
+	// Create pollable that checks if future is ready and blocks on done channel
 	pollable := io.NewPollable(
-		func() bool { return future.ready },
-		func() {}, // No blocking for future trailers
+		func() bool { return ft.IsReady() },
+		func() { <-ft.done },
 	)
 	return []component.Val{createPollableHandle(ctx, pollable)}, nil
 }
