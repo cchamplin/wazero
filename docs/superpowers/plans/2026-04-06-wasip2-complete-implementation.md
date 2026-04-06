@@ -4164,36 +4164,70 @@ git commit -m "test: add host-side integration tests for Rust and Go WASI exerci
 
 ---
 
-### Task 26: Final integration — Run all tests
+### Task 26: Final integration — Verify everything passes
 
-- [ ] **Step 1: Run all HTTP tests**
+This task is a comprehensive verification gate. Every step must pass before the work is considered complete.
 
-Run: `cd /home/cchamplin/development/wazero && go test ./imports/wasip2/http/ -v -count=1`
-Expected: All PASS
+- [ ] **Step 1: Verify the code compiles cleanly**
 
-- [ ] **Step 2: Run all socket tests**
+Run: `cd /home/cchamplin/development/wazero && go build ./...`
+Expected: No errors. If there are errors, fix them before proceeding.
 
-Run: `cd /home/cchamplin/development/wazero && go test ./imports/wasip2/sockets/ -v -count=1`
-Expected: All PASS
+Run: `cd /home/cchamplin/development/wazero && go vet ./...`
+Expected: No warnings or errors.
 
-- [ ] **Step 3: Run all filesystem tests**
+- [ ] **Step 2: Run all wasip2 module tests**
 
-Run: `cd /home/cchamplin/development/wazero && go test ./imports/wasip2/filesystem/ -v -count=1`
-Expected: All PASS
-
-- [ ] **Step 4: Run full wasip2 test suite**
-
-Run: `cd /home/cchamplin/development/wazero && go test ./imports/wasip2/... -v -count=1`
-Expected: All PASS
-
-- [ ] **Step 5: Run full project test suite**
-
-Run: `cd /home/cchamplin/development/wazero && go test ./... -count=1 2>&1 | tail -50`
-Expected: No regressions
-
-- [ ] **Step 6: Final commit (only if fixes were needed)**
+Run each module individually to isolate failures:
 
 ```bash
-git add imports/wasip2/
-git commit -m "fix: address test failures from integration run"
+cd /home/cchamplin/development/wazero
+go test ./imports/wasip2/io/ -v -count=1
+go test ./imports/wasip2/filesystem/ -v -count=1
+go test ./imports/wasip2/sockets/ -v -count=1
+go test ./imports/wasip2/http/ -v -count=1
+go test ./imports/wasip2/... -v -count=1
 ```
+Expected: All PASS with zero failures.
+
+- [ ] **Step 3: Run WASM component integration tests**
+
+Run: `cd /home/cchamplin/development/wazero && go test ./internal/component/wasip2test/ -run "TestWasiExercise" -v -count=1`
+Expected: Both `TestWasiExercise_Rust` and `TestWasiExercise_Go` pass all sub-tests.
+If the `.wasm` files haven't been built yet, this will skip — that's acceptable only if the build tools aren't available. If tools are available, build them first (Task 23/24 build steps).
+
+- [ ] **Step 4: Run full repository unit test suite**
+
+Run: `cd /home/cchamplin/development/wazero && go test ./... -count=1 -timeout=10m 2>&1 | tail -100`
+Expected: No regressions. Every package that passed before this work must still pass. If any test fails, investigate — do NOT skip or ignore failures.
+
+- [ ] **Step 5: Run tests with race detector**
+
+Run: `cd /home/cchamplin/development/wazero && go test -race ./imports/wasip2/... -count=1 -timeout=5m`
+Expected: No data races. The new code introduces goroutines (DNS resolution, channel-based response-outparam, channel-based pollables) — the race detector must confirm these are safe.
+
+- [ ] **Step 6: Verify no stubs remain**
+
+Run these greps to confirm zero stubs remain in the codebase:
+
+```bash
+cd /home/cchamplin/development/wazero
+grep -rn "// Stub" imports/wasip2/ || echo "No stubs found"
+grep -rn "// Return placeholder" imports/wasip2/ || echo "No placeholders found"
+grep -rn "ValOwn(0)" imports/wasip2/ | grep -v "_test.go" | grep -v "table == nil" || echo "No bare ValOwn(0) found"
+grep -rn "// TODO" imports/wasip2/ || echo "No TODOs found"
+```
+Expected: Each grep either returns nothing or only returns acceptable hits (e.g., `ValOwn(0)` in fallback paths where `table == nil`).
+
+- [ ] **Step 7: Fix any issues found**
+
+If any step above failed, fix the issues and re-run the failing steps. Only proceed to commit when ALL steps pass.
+
+```bash
+git add imports/wasip2/ internal/component/wasip2test/
+git commit -m "fix: address failures from final integration verification"
+```
+
+- [ ] **Step 8: Final summary**
+
+List all commits made during this implementation, grouped by layer. Confirm the total count of previously-stubbed functions now implemented.
