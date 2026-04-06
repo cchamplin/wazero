@@ -826,6 +826,10 @@ func descriptorLinkAt(ctx context.Context, args []component.Val) ([]component.Va
 		return errorResult(ErrorCodeBadDescriptor), nil
 	}
 
+	if !desc.IsDir() {
+		return errorResult(ErrorCodeNotDirectory), nil
+	}
+
 	if desc.Flags()&DescriptorFlagMutateDirectory == 0 {
 		return errorResult(ErrorCodeAccess), nil
 	}
@@ -835,6 +839,10 @@ func descriptorLinkAt(ctx context.Context, args []component.Val) ([]component.Va
 		return errorResult(ErrorCodeBadDescriptor), nil
 	}
 
+	if !newDesc.IsDir() {
+		return errorResult(ErrorCodeNotDirectory), nil
+	}
+
 	if newDesc.Flags()&DescriptorFlagMutateDirectory == 0 {
 		return errorResult(ErrorCodeAccess), nil
 	}
@@ -842,7 +850,20 @@ func descriptorLinkAt(ctx context.Context, args []component.Val) ([]component.Va
 	oldFullPath := filepath.Join(desc.Path(), oldPath)
 	newFullPath := filepath.Join(newDesc.Path(), newPath)
 
-	if linkErr := os.Link(oldFullPath, newFullPath); linkErr != nil {
+	// Security check: ensure paths don't escape their descriptor directories
+	oldCleanPath := filepath.Clean(oldFullPath)
+	oldBasePath := filepath.Clean(desc.Path())
+	if len(oldCleanPath) < len(oldBasePath) || oldCleanPath[:len(oldBasePath)] != oldBasePath {
+		return errorResult(ErrorCodeAccess), nil
+	}
+
+	newCleanPath := filepath.Clean(newFullPath)
+	newBasePath := filepath.Clean(newDesc.Path())
+	if len(newCleanPath) < len(newBasePath) || newCleanPath[:len(newBasePath)] != newBasePath {
+		return errorResult(ErrorCodeAccess), nil
+	}
+
+	if linkErr := os.Link(oldCleanPath, newCleanPath); linkErr != nil {
 		return errorResult(MapOSError(linkErr)), nil
 	}
 
