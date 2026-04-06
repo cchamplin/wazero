@@ -775,6 +775,7 @@ const (
 // FutureTrailers represents async trailers.
 // Matches wasi:http/types future-trailers resource.
 type FutureTrailers struct {
+	mu       sync.Mutex
 	state    futureTrailersState
 	trailers *Fields
 	err      *ErrorCode
@@ -802,7 +803,11 @@ func NewFutureTrailersReady(trailers *Fields, err *ErrorCode) *FutureTrailers {
 }
 
 // IsReady returns true if the future trailers have been resolved.
+// Thread-safe: protected by mutex; advances state from waiting to done if the
+// underlying done channel has been closed.
 func (ft *FutureTrailers) IsReady() bool {
+	ft.mu.Lock()
+	defer ft.mu.Unlock()
 	if ft.state != futureTrailersWaiting {
 		return true
 	}
@@ -813,6 +818,35 @@ func (ft *FutureTrailers) IsReady() bool {
 	default:
 		return false
 	}
+}
+
+// State returns the current state. Thread-safe.
+func (ft *FutureTrailers) State() futureTrailersState {
+	ft.mu.Lock()
+	defer ft.mu.Unlock()
+	return ft.state
+}
+
+// SetConsumed marks the future trailers as consumed.
+// Returns true if the state successfully transitioned from done to consumed,
+// false if it was already consumed or still waiting.
+func (ft *FutureTrailers) SetConsumed() bool {
+	ft.mu.Lock()
+	defer ft.mu.Unlock()
+	// Advance from waiting to done if the channel has fired
+	if ft.state == futureTrailersWaiting {
+		select {
+		case <-ft.done:
+			ft.state = futureTrailersDone
+		default:
+			return false
+		}
+	}
+	if ft.state == futureTrailersDone {
+		ft.state = futureTrailersConsumed
+		return true
+	}
+	return false
 }
 
 // ResponseResult holds the result delivered through a ResponseOutparam.

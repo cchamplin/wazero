@@ -1201,45 +1201,36 @@ func futureTrailersGet(ctx context.Context, args []component.Val) ([]component.V
 		return []component.Val{component.ValOption(nil)}, nil
 	}
 
-	switch ft.state {
-	case futureTrailersWaiting:
-		select {
-		case <-ft.done:
-			ft.state = futureTrailersDone
-		default:
-			return []component.Val{component.ValOption(nil)}, nil
-		}
-		fallthrough
-	case futureTrailersDone:
-		ft.state = futureTrailersConsumed
-
-		table := getOrCreateTable(ctx)
-		if ft.err != nil {
-			errVal := errorCodeToVariant(*ft.err)
-			innerResult := component.ValResultError(&errVal)
-			outerResult := component.ValResultOk(&innerResult)
-			return []component.Val{component.ValOption(&outerResult)}, nil
-		}
-
-		// Ok case: option<trailers>
-		var trailersOpt component.Val
-		if ft.trailers != nil && table != nil {
-			handle := table.New(ft.trailers, true)
-			trailersHandle := component.ValOwn(uint32(handle))
-			trailersOpt = component.ValOption(&trailersHandle)
-		} else {
-			trailersOpt = component.ValOption(nil)
-		}
-
-		innerResult := component.ValResultOk(&trailersOpt)
-		outerResult := component.ValResultOk(&innerResult)
-		return []component.Val{component.ValOption(&outerResult)}, nil
-
-	case futureTrailersConsumed:
+	// SetConsumed atomically advances state to consumed if currently waiting+ready
+	// or done. Returns false if still waiting (channel not closed) or already consumed.
+	if !ft.SetConsumed() {
 		return []component.Val{component.ValOption(nil)}, nil
 	}
 
-	return []component.Val{component.ValOption(nil)}, nil
+	// State has now transitioned to consumed; ft.err and ft.trailers are
+	// safe to read since they were set before the done channel was closed
+	// (happens-before relationship via the channel close).
+	table := getOrCreateTable(ctx)
+	if ft.err != nil {
+		errVal := errorCodeToVariant(*ft.err)
+		innerResult := component.ValResultError(&errVal)
+		outerResult := component.ValResultOk(&innerResult)
+		return []component.Val{component.ValOption(&outerResult)}, nil
+	}
+
+	// Ok case: option<trailers>
+	var trailersOpt component.Val
+	if ft.trailers != nil && table != nil {
+		handle := table.New(ft.trailers, true)
+		trailersHandle := component.ValOwn(uint32(handle))
+		trailersOpt = component.ValOption(&trailersHandle)
+	} else {
+		trailersOpt = component.ValOption(nil)
+	}
+
+	innerResult := component.ValResultOk(&trailersOpt)
+	outerResult := component.ValResultOk(&innerResult)
+	return []component.Val{component.ValOption(&outerResult)}, nil
 }
 
 // futureTrailersSubscribe returns a pollable for the future.
