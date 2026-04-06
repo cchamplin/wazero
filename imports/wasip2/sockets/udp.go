@@ -4,6 +4,7 @@ package sockets
 
 import (
 	"context"
+	"fmt"
 	"net"
 
 	"github.com/tetratelabs/wazero/internal/component"
@@ -512,24 +513,39 @@ func outgoingDatagramStreamSend(ctx context.Context, args []component.Val) ([]co
 		return []component.Val{component.ValResultOk(&sentVal)}, nil
 	}
 
+	datagrams := datagramsList.List()
+
+	// Per wasi:sockets/udp@0.2.0 udp.wit (proposals/sockets/wit/udp.wit
+	// lines 256-257):
+	//
+	//   Each call to `send` must be permitted by a preceding `check-send`.
+	//   Implementations must trap if either `check-send` was not called or
+	//   `datagrams` contains more items than `check-send` permitted.
+	//
+	// These are TRAP conditions, not in-band error returns. In wazero, a
+	// host function traps by returning (nil, error); createCanonLowerFunc
+	// in internal/component/component_linker.go converts that to a panic
+	// which the wasm runtime catches and propagates as a wasm trap.
+	// Wasmtime does the same via SocketError::trap(...) — see
+	// debug-vendored/wasmtime/crates/wasi/src/p2/host/udp.rs lines 337-351.
+	stream.mu.Lock()
+	switch stream.sendState {
+	case sendStatePermitted:
+		if len(datagrams) > stream.sendPermit {
+			stream.mu.Unlock()
+			return nil, fmt.Errorf("wasi:sockets/udp outgoing-datagram-stream.send: unpermitted: argument exceeds permitted size (got %d, permit %d)", len(datagrams), stream.sendPermit)
+		}
+	case sendStateIdle, sendStateWaiting:
+		stream.mu.Unlock()
+		return nil, fmt.Errorf("wasi:sockets/udp outgoing-datagram-stream.send: unpermitted: must call check-send first")
+	}
+	stream.mu.Unlock()
+
+	// After preconditions: if the underlying socket is not in a sendable
+	// state, this is a legitimate in-band runtime error (not a trap).
 	if stream.socket == nil || stream.socket.conn == nil {
 		return []component.Val{errorCodeToVal(ErrorCodeInvalidState)}, nil
 	}
-
-	datagrams := datagramsList.List()
-
-	// Per WASI spec: send must be preceded by check-send and datagram count
-	// must not exceed the permitted amount.
-	stream.mu.Lock()
-	if stream.sendState == sendStateIdle {
-		stream.mu.Unlock()
-		return []component.Val{errorCodeToVal(ErrorCodeInvalidState)}, nil
-	}
-	if len(datagrams) > stream.sendPermit {
-		stream.mu.Unlock()
-		return []component.Val{errorCodeToVal(ErrorCodeInvalidState)}, nil
-	}
-	stream.mu.Unlock()
 
 	var sent uint64 = 0
 

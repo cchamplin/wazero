@@ -1746,6 +1746,119 @@ func TestOutgoingDatagramStreamCheckSend_StablePermit(t *testing.T) {
 	require.Equal(t, uint64(16), val.U64(), "repeated check-send without sends should return same permit")
 }
 
+// makeOutgoingDatagramVal constructs an outgoing-datagram record Val with the
+// given payload and no remote-address override. Used by trap-path tests — the
+// datagrams never reach the wire because the precondition check runs first.
+func makeOutgoingDatagramVal(data []byte) component.Val {
+	dataVals := make([]component.Val, len(data))
+	for i, b := range data {
+		dataVals[i] = component.ValU8(b)
+	}
+	// remote-address is option<ip-socket-address>; pass none.
+	return component.ValRecord(map[string]component.Val{
+		"data":           component.ValList(dataVals),
+		"remote-address": component.ValOption(nil),
+	})
+}
+
+// TestOutgoingDatagramStreamSend_TrapsOnMissingCheckSend verifies that calling
+// send without first calling check-send traps the guest.
+//
+// Per wasi:sockets/udp@0.2.0 udp.wit lines 256-257:
+//
+//	Each call to `send` must be permitted by a preceding `check-send`.
+//	Implementations must trap if either `check-send` was not called or
+//	`datagrams` contains more items than `check-send` permitted.
+//
+// In wazero, host functions trap by returning a non-nil Go error; the
+// component canon lower wrapper in internal/component/component_linker.go
+// (createCanonLowerFunc) translates that into a panic which the wasm
+// runtime catches as a trap.
+func TestOutgoingDatagramStreamSend_TrapsOnMissingCheckSend(t *testing.T) {
+	ctx := contextWithResourceTable()
+	table := component.ResourceTableFromContext(ctx)
+
+	sock := NewUdpSocket(IpAddressFamilyIpv4)
+	stream := NewOutgoingDatagramStream(sock)
+	// Default sendState is sendStateIdle — no check-send has been called.
+	handle := table.New(stream, true)
+	selfHandle := component.ValBorrow(uint32(handle))
+
+	datagrams := component.ValList([]component.Val{
+		makeOutgoingDatagramVal([]byte{0x01, 0x02, 0x03}),
+	})
+
+	result, err := outgoingDatagramStreamSend(ctx, []component.Val{selfHandle, datagrams})
+	require.Error(t, err, "send without preceding check-send must return a Go error (trap)")
+	require.Nil(t, result, "trap path must return nil result")
+}
+
+// TestOutgoingDatagramStreamSend_TrapsOnDatagramsExceedingPermit verifies that
+// calling send with more datagrams than the most recent check-send permitted
+// traps the guest (udp.wit lines 256-257, cited above).
+func TestOutgoingDatagramStreamSend_TrapsOnDatagramsExceedingPermit(t *testing.T) {
+	ctx := contextWithResourceTable()
+	table := component.ResourceTableFromContext(ctx)
+
+	sock := NewUdpSocket(IpAddressFamilyIpv4)
+	stream := NewOutgoingDatagramStream(sock)
+	handle := table.New(stream, true)
+	selfHandle := component.ValBorrow(uint32(handle))
+
+	// Grant a permit of 16 via check-send.
+	checkResult, checkErr := outgoingDatagramStreamCheckSend(ctx, []component.Val{selfHandle})
+	require.NoError(t, checkErr)
+	isOk, val, _ := checkResult[0].Result()
+	require.True(t, isOk)
+	require.Equal(t, uint64(16), val.U64(), "check-send should grant 16")
+
+	// Build 17 datagrams — one more than permitted.
+	datagramVals := make([]component.Val, 17)
+	for i := range datagramVals {
+		datagramVals[i] = makeOutgoingDatagramVal([]byte{byte(i)})
+	}
+	datagrams := component.ValList(datagramVals)
+
+	result, err := outgoingDatagramStreamSend(ctx, []component.Val{selfHandle, datagrams})
+	require.Error(t, err, "send with more datagrams than permitted must return a Go error (trap)")
+	require.Nil(t, result, "trap path must return nil result")
+}
+
+// TestOutgoingDatagramStreamSend_NoTrapWhenWithinPermit verifies the happy
+// precondition path: after check-send, a send within the permitted count
+// must NOT trap. The function may still return an in-band socket error in
+// its Result payload because no real UDP socket is bound in this unit test,
+// but the Go-level error returned by the host function must be nil — that
+// is the signal the caller uses to distinguish trap from in-band error.
+func TestOutgoingDatagramStreamSend_NoTrapWhenWithinPermit(t *testing.T) {
+	ctx := contextWithResourceTable()
+	table := component.ResourceTableFromContext(ctx)
+
+	sock := NewUdpSocket(IpAddressFamilyIpv4)
+	stream := NewOutgoingDatagramStream(sock)
+	handle := table.New(stream, true)
+	selfHandle := component.ValBorrow(uint32(handle))
+
+	// Grant a permit via check-send.
+	_, checkErr := outgoingDatagramStreamCheckSend(ctx, []component.Val{selfHandle})
+	require.NoError(t, checkErr)
+
+	// Single datagram, well within the permit of 16.
+	datagrams := component.ValList([]component.Val{
+		makeOutgoingDatagramVal([]byte{0xAA}),
+	})
+
+	result, err := outgoingDatagramStreamSend(ctx, []component.Val{selfHandle, datagrams})
+	// The critical assertion: precondition check must pass, so Go error is nil.
+	// The in-band Result may be Err(invalid-state) because socket.conn is nil
+	// (the stream was not created via the bound-and-streaming path), but that
+	// is a legitimate runtime error, not a precondition trap.
+	require.NoError(t, err, "send within permitted count must NOT trap")
+	require.NotNil(t, result, "non-trap path must return a non-nil result")
+	require.Equal(t, 1, len(result))
+	require.Equal(t, component.ValKindResult, result[0].Kind())
+}
+
 func TestNetworkErrorCode_WithSocketError(t *testing.T) {
 	ctx := contextWithResourceTable()
 	table := component.ResourceTableFromContext(ctx)
