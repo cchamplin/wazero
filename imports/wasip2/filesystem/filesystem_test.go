@@ -243,8 +243,9 @@ func TestDescriptorSetTimes(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, component.ValKindResult, result[0].Kind())
-	isOk, _, _ := result[0].Result()
-	require.True(t, isOk, "should return ok result")
+	isOk, _, errVal := result[0].Result()
+	require.False(t, isOk, "should return error without valid context")
+	require.Equal(t, "bad-descriptor", errVal.Enum())
 }
 
 func TestDescriptorRead(t *testing.T) {
