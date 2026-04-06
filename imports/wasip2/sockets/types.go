@@ -443,6 +443,16 @@ func (s *ResolveAddressStream) NextAddress() (*IpAddress, error) {
 	return addr, nil
 }
 
+// SocketError wraps a socket error code string so it can be stored in io.Error
+// and extracted later by network-error-code.
+type SocketError struct {
+	Code string // e.g. "connection-refused", "timeout", etc.
+}
+
+func (e *SocketError) Error() string {
+	return e.Code
+}
+
 // ===========================
 // Address Conversion Helpers
 // ===========================

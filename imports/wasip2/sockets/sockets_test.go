@@ -4,6 +4,7 @@ package sockets
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	wasipIO "github.com/tetratelabs/wazero/imports/wasip2/io"
@@ -1743,4 +1744,38 @@ func TestOutgoingDatagramStreamCheckSend_StablePermit(t *testing.T) {
 	isOk, val, _ := result[0].Result()
 	require.True(t, isOk)
 	require.Equal(t, uint64(16), val.U64(), "repeated check-send without sends should return same permit")
+}
+
+func TestNetworkErrorCode_WithSocketError(t *testing.T) {
+	ctx := contextWithResourceTable()
+	table := component.ResourceTableFromContext(ctx)
+
+	// Create an io.Error that wraps a SocketError
+	sockErr := &SocketError{Code: "connection-refused"}
+	ioErr := wasipIO.NewError(sockErr)
+	handle := table.New(ioErr, true)
+
+	errHandle := component.ValBorrow(uint32(handle))
+	result, err := networkErrorCode(ctx, []component.Val{errHandle})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(result))
+
+	opt := result[0].Option()
+	require.NotNil(t, opt, "should return Some for socket error")
+	require.Equal(t, "connection-refused", opt.Enum())
+}
+
+func TestNetworkErrorCode_NonSocketError(t *testing.T) {
+	ctx := contextWithResourceTable()
+	table := component.ResourceTableFromContext(ctx)
+
+	ioErr := wasipIO.NewError(errors.New("some random error"))
+	handle := table.New(ioErr, true)
+
+	errHandle := component.ValBorrow(uint32(handle))
+	result, err := networkErrorCode(ctx, []component.Val{errHandle})
+	require.NoError(t, err)
+
+	opt := result[0].Option()
+	require.Nil(t, opt, "should return None for non-socket error")
 }

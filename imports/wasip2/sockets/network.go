@@ -4,6 +4,7 @@ package sockets
 
 import (
 	"context"
+	"errors"
 	"net"
 	"strings"
 
@@ -19,6 +20,8 @@ func instantiateNetwork(linker *component.Linker) error {
 	inst.Resource("network", func(rep uint32) {
 		// Destructor - nothing to clean up for now
 	})
+
+	inst.FuncNoType("network-error-code", networkErrorCode)
 
 	return inst.SkipValidation().Build()
 }
@@ -195,4 +198,34 @@ func resolveAddressStreamSubscribe(ctx context.Context, args []component.Val) ([
 	)
 	pollHandle := table.New(pollable, true)
 	return []component.Val{component.ValOwn(uint32(pollHandle))}, nil
+}
+
+// networkErrorCode extracts a socket error code from an io.Error resource.
+// Signature: func(err: borrow<error>) -> option<error-code>
+func networkErrorCode(ctx context.Context, args []component.Val) ([]component.Val, error) {
+	handle := args[0].Borrow()
+
+	table := component.ResourceTableFromContext(ctx)
+	if table == nil {
+		return []component.Val{component.ValOption(nil)}, nil
+	}
+
+	entry, err := table.Get(component.Handle(handle))
+	if err != nil {
+		return []component.Val{component.ValOption(nil)}, nil
+	}
+
+	ioErr, ok := entry.Rep.(*wasipIO.Error)
+	if !ok {
+		return []component.Val{component.ValOption(nil)}, nil
+	}
+
+	// Unwrap the Go error and check if it's a SocketError
+	var sockErr *SocketError
+	if errors.As(ioErr.Unwrap(), &sockErr) {
+		codeVal := component.ValEnum(sockErr.Code)
+		return []component.Val{component.ValOption(&codeVal)}, nil
+	}
+
+	return []component.Val{component.ValOption(nil)}, nil
 }
