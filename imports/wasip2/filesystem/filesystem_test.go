@@ -590,33 +590,106 @@ func TestDescriptorIsSameObject_DifferentFiles(t *testing.T) {
 }
 
 func TestDescriptorMetadataHash(t *testing.T) {
-	// Args: self
-	// Returns: result<metadata-hash-value, error-code>
-	selfHandle := component.ValBorrow(0)
-	result, err := descriptorMetadataHash(context.Background(), []component.Val{selfHandle})
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "test.txt")
+	os.WriteFile(path, []byte("hello"), 0644)
+
+	f, err := os.Open(path)
 	require.NoError(t, err)
-	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
-	isOk, ok, _ := result[0].Result()
-	require.True(t, isOk, "should return ok result")
-	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindRecord, ok.Kind())
+	defer f.Close()
+
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+	desc := NewDescriptor(f, false, path, DescriptorFlagRead)
+	handle := table.New(desc, true)
+
+	selfHandle := component.ValBorrow(uint32(handle))
+
+	// Call twice — should produce same hash
+	result1, err := descriptorMetadataHash(ctx, []component.Val{selfHandle})
+	require.NoError(t, err)
+	isOk1, hash1, _ := result1[0].Result()
+	require.True(t, isOk1)
+
+	result2, err := descriptorMetadataHash(ctx, []component.Val{selfHandle})
+	require.NoError(t, err)
+	isOk2, hash2, _ := result2[0].Result()
+	require.True(t, isOk2)
+
+	rec1 := hash1.Record()
+	rec2 := hash2.Record()
+	require.Equal(t, rec1["lower"].U64(), rec2["lower"].U64(), "lower hash should be stable")
+	require.Equal(t, rec1["upper"].U64(), rec2["upper"].U64(), "upper hash should be stable")
+
+	// Hash should not be all zeros
+	require.True(t, rec1["lower"].U64() != 0 || rec1["upper"].U64() != 0, "hash should not be zero")
+}
+
+func TestDescriptorMetadataHash_DifferentFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	path1 := filepath.Join(tmpDir, "file1.txt")
+	path2 := filepath.Join(tmpDir, "file2.txt")
+	os.WriteFile(path1, []byte("hello"), 0644)
+	os.WriteFile(path2, []byte("world"), 0644)
+
+	f1, _ := os.Open(path1)
+	defer f1.Close()
+	f2, _ := os.Open(path2)
+	defer f2.Close()
+
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+	h1 := table.New(NewDescriptor(f1, false, path1, DescriptorFlagRead), true)
+	h2 := table.New(NewDescriptor(f2, false, path2, DescriptorFlagRead), true)
+
+	result1, _ := descriptorMetadataHash(ctx, []component.Val{component.ValBorrow(uint32(h1))})
+	result2, _ := descriptorMetadataHash(ctx, []component.Val{component.ValBorrow(uint32(h2))})
+
+	_, hash1, _ := result1[0].Result()
+	_, hash2, _ := result2[0].Result()
+
+	rec1 := hash1.Record()
+	rec2 := hash2.Record()
+	// Different files should produce different hashes
+	require.True(t, rec1["lower"].U64() != rec2["lower"].U64() || rec1["upper"].U64() != rec2["upper"].U64(),
+		"different files should produce different hashes")
+}
+
+func TestDescriptorMetadataHash_BadDescriptor(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+	selfHandle := component.ValBorrow(0)
+	result, err := descriptorMetadataHash(ctx, []component.Val{selfHandle})
+	require.NoError(t, err)
+	isOk, _, errVal := result[0].Result()
+	require.False(t, isOk, "should fail with bad descriptor")
+	require.Equal(t, "bad-descriptor", errVal.Enum())
 }
 
 func TestDescriptorMetadataHashAt(t *testing.T) {
-	// Args: self, path-flags, path
-	// Returns: result<metadata-hash-value, error-code>
-	selfHandle := component.ValBorrow(0)
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "child.txt")
+	os.WriteFile(filePath, []byte("hello"), 0644)
+
+	dirFile, _ := os.Open(tmpDir)
+	defer dirFile.Close()
+
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+	desc := NewDescriptor(dirFile, true, tmpDir, DescriptorFlagRead)
+	handle := table.New(desc, true)
+
+	selfHandle := component.ValBorrow(uint32(handle))
 	pathFlags := component.ValFlags(map[string]bool{"symlink-follow": true})
-	path := component.ValString("file.txt")
-	result, err := descriptorMetadataHashAt(context.Background(), []component.Val{selfHandle, pathFlags, path})
+	pathVal := component.ValString("child.txt")
+
+	result, err := descriptorMetadataHashAt(ctx, []component.Val{selfHandle, pathFlags, pathVal})
 	require.NoError(t, err)
-	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
-	isOk, ok, _ := result[0].Result()
-	require.True(t, isOk, "should return ok result")
-	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindRecord, ok.Kind())
+	isOk, hash, _ := result[0].Result()
+	require.True(t, isOk)
+
+	rec := hash.Record()
+	require.True(t, rec["lower"].U64() != 0 || rec["upper"].U64() != 0, "hash should not be zero")
 }
 
 func TestFilesystemErrorCode(t *testing.T) {
@@ -1809,3 +1882,4 @@ func TestDescriptorAdvise_BadDescriptor(t *testing.T) {
 	require.False(t, isOk, "advise should fail without valid descriptor")
 	require.Equal(t, "bad-descriptor", errVal.Enum())
 }
+

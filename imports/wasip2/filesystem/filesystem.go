@@ -4,7 +4,9 @@ package filesystem
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
+	"hash/fnv"
 	goio "io"
 	"os"
 	"path/filepath"
@@ -1191,10 +1193,22 @@ func descriptorIsSameObject(ctx context.Context, args []component.Val) ([]compon
 // descriptorMetadataHash returns a hash of file metadata.
 // Signature: func(self: borrow<descriptor>) -> result<metadata-hash-value, error-code>
 func descriptorMetadataHash(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return zeroed hash as placeholder
+	handle := args[0].Borrow()
+
+	desc, err := getDescriptor(ctx, handle)
+	if err != nil {
+		return errorResult(ErrorCodeBadDescriptor), nil
+	}
+
+	info, statErr := desc.File().Stat()
+	if statErr != nil {
+		return errorResult(MapOSError(statErr)), nil
+	}
+
+	lower, upper := computeMetadataHash(info)
 	hash := component.ValRecord(map[string]component.Val{
-		"lower": component.ValU64(0),
-		"upper": component.ValU64(0),
+		"lower": component.ValU64(lower),
+		"upper": component.ValU64(upper),
 	})
 	return []component.Val{component.ValResultOk(&hash)}, nil
 }
@@ -1202,12 +1216,39 @@ func descriptorMetadataHash(ctx context.Context, args []component.Val) ([]compon
 // descriptorMetadataHashAt returns a hash of file metadata for a path.
 // Signature: func(self: borrow<descriptor>, path-flags: path-flags, path: string) -> result<metadata-hash-value, error-code>
 func descriptorMetadataHashAt(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Return zeroed hash as placeholder
+	handle := args[0].Borrow()
+	// args[1] = path-flags (symlink-follow handled by os.Stat vs os.Lstat)
+	pathStr := args[2].StringVal()
+
+	desc, err := getDescriptor(ctx, handle)
+	if err != nil {
+		return errorResult(ErrorCodeBadDescriptor), nil
+	}
+
+	fullPath := filepath.Join(desc.Path(), pathStr)
+	info, statErr := os.Stat(fullPath)
+	if statErr != nil {
+		return errorResult(MapOSError(statErr)), nil
+	}
+
+	lower, upper := computeMetadataHash(info)
 	hash := component.ValRecord(map[string]component.Val{
-		"lower": component.ValU64(0),
-		"upper": component.ValU64(0),
+		"lower": component.ValU64(lower),
+		"upper": component.ValU64(upper),
 	})
 	return []component.Val{component.ValResultOk(&hash)}, nil
+}
+
+// computeMetadataHashFallback hashes name + size when dev/ino unavailable.
+func computeMetadataHashFallback(info os.FileInfo) (uint64, uint64) {
+	h := fnv.New64a()
+	goio.WriteString(h, info.Name())
+	var buf [8]byte
+	binary.LittleEndian.PutUint64(buf[:], uint64(info.Size()))
+	h.Write(buf[:])
+	lower := h.Sum64()
+	upper := lower ^ 4614256656552045848
+	return lower, upper
 }
 
 // filesystemErrorCode converts an error to a filesystem error code.
