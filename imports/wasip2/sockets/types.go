@@ -341,9 +341,10 @@ const (
 // OutgoingDatagramStream represents a stream of outgoing datagrams.
 // Matches wasi:sockets/udp outgoing-datagram-stream resource.
 type OutgoingDatagramStream struct {
+	mu         sync.Mutex
 	socket     *UdpSocket
 	sendState  sendState
-	sendPermit int
+	sendPermit int // tracks datagrams permitted by check-send (Task 13)
 }
 
 // NewOutgoingDatagramStream creates a new outgoing datagram stream.

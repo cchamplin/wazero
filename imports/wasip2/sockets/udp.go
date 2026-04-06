@@ -585,10 +585,13 @@ func outgoingDatagramStreamSubscribe(ctx context.Context, args []component.Val) 
 
 	pollable := wasipIO.NewPollable(
 		func() bool {
+			stream.mu.Lock()
+			defer stream.mu.Unlock()
 			return stream.sendState != sendStateWaiting
 		},
 		func() {
-			// When waiting, block until writable
+			stream.mu.Lock()
+			defer stream.mu.Unlock()
 			if stream.sendState == sendStateWaiting {
 				stream.sendState = sendStateIdle
 			}
