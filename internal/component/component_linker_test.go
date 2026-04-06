@@ -239,6 +239,259 @@ func (m *testMockFunction) Call(ctx context.Context, params ...uint64) ([]uint64
 }
 func (m *testMockFunction) CallWithStack(ctx context.Context, stack []uint64) error { return nil }
 
+// makeReallocStub returns a testMockFunction that emulates cabi_realloc by
+// bump-allocating from a counter that starts at startPtr. The returned
+// function returns the new pointer in results[0].
+func makeReallocStub(startPtr uint32) (*testMockFunction, *uint32) {
+	cursor := startPtr
+	return &testMockFunction{
+		callFn: func(ctx context.Context, params ...uint64) ([]uint64, error) {
+			// realloc(old_ptr, old_size, align, new_size) -> new_ptr
+			align := uint32(params[2])
+			size := uint32(params[3])
+			if align == 0 {
+				align = 1
+			}
+			// Align cursor up to 'align'.
+			cursor = (cursor + align - 1) &^ (align - 1)
+			ptr := cursor
+			cursor += size
+			return []uint64{uint64(ptr)}, nil
+		},
+	}, &cursor
+}
+
+// TestWriteValTyped_ListOfU32 verifies that lowering list<u32> writes
+// (ptr, len) at the offset, allocates element storage via realloc, and
+// writes each u32 as 4 bytes little-endian. This is the simplest list
+// element type and exercises the type-aware fast path.
+func TestWriteValTyped_ListOfU32(t *testing.T) {
+	mem := &mockMemory{data: make([]byte, 0x4000)}
+	realloc, _ := makeReallocStub(0x100)
+
+	// list<u32>: TypeIdx 0 = u32 (alias), TypeIdx 1 = list<u32>.
+	localTypes := map[uint32]*TypeDef{
+		0: {Kind: TypeDefKindDefined, Handle: &ValTypeRef{IsPrimitive: true, Primitive: 0x79}}, // u32 alias
+		1: {Kind: TypeDefKindDefined, List: &ListTypeDef{
+			ElementType: ValTypeRef{IsPrimitive: true, Primitive: 0x79}, // u32
+		}},
+	}
+	listRef := ValTypeRef{TypeIdx: 1}
+
+	val := ValList([]Val{ValU32(11), ValU32(22), ValU32(33)})
+
+	err := writeValTyped(context.Background(), mem, realloc, 0, val, listRef, localTypes)
+	require.NoError(t, err)
+
+	// (ptr, len) at offset 0
+	ptr, _ := mem.ReadUint32Le(0)
+	length, _ := mem.ReadUint32Le(4)
+	require.Equal(t, uint32(0x100), ptr)
+	require.Equal(t, uint32(3), length)
+
+	// Elements at the allocated buffer
+	v0, _ := mem.ReadUint32Le(ptr)
+	v1, _ := mem.ReadUint32Le(ptr + 4)
+	v2, _ := mem.ReadUint32Le(ptr + 8)
+	require.Equal(t, uint32(11), v0)
+	require.Equal(t, uint32(22), v1)
+	require.Equal(t, uint32(33), v2)
+}
+
+// TestWriteValTyped_ListOfString verifies that lowering list<string> writes
+// each string element as a (ptr, len) pair, with the underlying UTF-8 bytes
+// allocated via realloc. Element size is 8 (string is ptr+len) per spec.
+func TestWriteValTyped_ListOfString(t *testing.T) {
+	mem := &mockMemory{data: make([]byte, 0x4000)}
+	realloc, _ := makeReallocStub(0x200)
+
+	localTypes := map[uint32]*TypeDef{
+		0: {Kind: TypeDefKindDefined, List: &ListTypeDef{
+			ElementType: ValTypeRef{IsPrimitive: true, Primitive: 0x73}, // string
+		}},
+	}
+	listRef := ValTypeRef{TypeIdx: 0}
+
+	val := ValList([]Val{ValString("ab"), ValString("xyz")})
+
+	err := writeValTyped(context.Background(), mem, realloc, 0, val, listRef, localTypes)
+	require.NoError(t, err)
+
+	// list (ptr, len) at offset 0; len = 2
+	listPtr, _ := mem.ReadUint32Le(0)
+	listLen, _ := mem.ReadUint32Le(4)
+	require.Equal(t, uint32(2), listLen)
+	// Element 0 is at listPtr+0, element 1 at listPtr+8 (string elem_size = 8)
+	s0Ptr, _ := mem.ReadUint32Le(listPtr)
+	s0Len, _ := mem.ReadUint32Le(listPtr + 4)
+	s1Ptr, _ := mem.ReadUint32Le(listPtr + 8)
+	s1Len, _ := mem.ReadUint32Le(listPtr + 12)
+	require.Equal(t, uint32(2), s0Len)
+	require.Equal(t, uint32(3), s1Len)
+	s0Bytes, _ := mem.Read(s0Ptr, s0Len)
+	s1Bytes, _ := mem.Read(s1Ptr, s1Len)
+	require.Equal(t, "ab", string(s0Bytes))
+	require.Equal(t, "xyz", string(s1Bytes))
+}
+
+// TestWriteValTyped_ListOfTupleU32String verifies the canonical-ABI
+// element layout for list<tuple<u32, string>>:
+//   - elem_size(tuple<u32, string>) = align_to(4 (u32) + 8 (string), 4) = 12
+//   - alignment(tuple<u32, string>) = max(4, 4) = 4
+// Each list element occupies 12 bytes (4 for u32 + 4+4 for string ptr,len).
+func TestWriteValTyped_ListOfTupleU32String(t *testing.T) {
+	mem := &mockMemory{data: make([]byte, 0x4000)}
+	realloc, _ := makeReallocStub(0x300)
+
+	// TypeIdx 0 = tuple<u32, string>, TypeIdx 1 = list<tuple<u32, string>>.
+	localTypes := map[uint32]*TypeDef{
+		0: {Kind: TypeDefKindDefined, Tuple: &TupleTypeDef{
+			Types: []ValTypeRef{
+				{IsPrimitive: true, Primitive: 0x79}, // u32
+				{IsPrimitive: true, Primitive: 0x73}, // string
+			},
+		}},
+		1: {Kind: TypeDefKindDefined, List: &ListTypeDef{
+			ElementType: ValTypeRef{TypeIdx: 0},
+		}},
+	}
+	listRef := ValTypeRef{TypeIdx: 1}
+
+	val := ValList([]Val{
+		ValTuple([]Val{ValU32(0xdeadbeef), ValString("hi")}),
+		ValTuple([]Val{ValU32(0xfeedface), ValString("there")}),
+	})
+
+	err := writeValTyped(context.Background(), mem, realloc, 0, val, listRef, localTypes)
+	require.NoError(t, err)
+
+	// list ptr/len at offset 0
+	listPtr, _ := mem.ReadUint32Le(0)
+	listLen, _ := mem.ReadUint32Le(4)
+	require.Equal(t, uint32(2), listLen)
+
+	// First element: u32 at +0, string ptr at +4, string len at +8
+	const elemSize = 12
+	u0, _ := mem.ReadUint32Le(listPtr)
+	s0Ptr, _ := mem.ReadUint32Le(listPtr + 4)
+	s0Len, _ := mem.ReadUint32Le(listPtr + 8)
+	require.Equal(t, uint32(0xdeadbeef), u0)
+	require.Equal(t, uint32(2), s0Len)
+	s0Bytes, _ := mem.Read(s0Ptr, s0Len)
+	require.Equal(t, "hi", string(s0Bytes))
+
+	// Second element starts at listPtr + elemSize.
+	u1, _ := mem.ReadUint32Le(listPtr + elemSize)
+	s1Ptr, _ := mem.ReadUint32Le(listPtr + elemSize + 4)
+	s1Len, _ := mem.ReadUint32Le(listPtr + elemSize + 8)
+	require.Equal(t, uint32(0xfeedface), u1)
+	require.Equal(t, uint32(5), s1Len)
+	s1Bytes, _ := mem.Read(s1Ptr, s1Len)
+	require.Equal(t, "there", string(s1Bytes))
+}
+
+// TestWriteValTyped_ListOfTupleOwnString verifies the layout for
+// list<tuple<own<R>, string>>, the exact shape used by
+// wasi:filesystem/preopens.get-directories. The own handle is written
+// as a 4-byte index and the string follows as (ptr, len). This is the
+// regression test for the original bug.
+func TestWriteValTyped_ListOfTupleOwnString(t *testing.T) {
+	mem := &mockMemory{data: make([]byte, 0x4000)}
+	realloc, _ := makeReallocStub(0x400)
+
+	// TypeIdx 0 = own<R> (resource type R is irrelevant for layout)
+	// TypeIdx 1 = tuple<own<R>, string>
+	// TypeIdx 2 = list<tuple<own<R>, string>>
+	localTypes := map[uint32]*TypeDef{
+		0: {Kind: TypeDefKindDefined, Handle: &ValTypeRef{IsOwn: true}},
+		1: {Kind: TypeDefKindDefined, Tuple: &TupleTypeDef{
+			Types: []ValTypeRef{
+				{TypeIdx: 0},                         // own<R>
+				{IsPrimitive: true, Primitive: 0x73}, // string
+			},
+		}},
+		2: {Kind: TypeDefKindDefined, List: &ListTypeDef{
+			ElementType: ValTypeRef{TypeIdx: 1},
+		}},
+	}
+	listRef := ValTypeRef{TypeIdx: 2}
+
+	val := ValList([]Val{
+		ValTuple([]Val{ValOwn(7), ValString("/")}),
+	})
+
+	err := writeValTyped(context.Background(), mem, realloc, 0, val, listRef, localTypes)
+	require.NoError(t, err)
+
+	listPtr, _ := mem.ReadUint32Le(0)
+	listLen, _ := mem.ReadUint32Le(4)
+	require.Equal(t, uint32(1), listLen)
+
+	// Tuple element layout: own at +0, string at +4 (ptr) and +8 (len)
+	handle, _ := mem.ReadUint32Le(listPtr)
+	pathPtr, _ := mem.ReadUint32Le(listPtr + 4)
+	pathLen, _ := mem.ReadUint32Le(listPtr + 8)
+	require.Equal(t, uint32(7), handle)
+	require.Equal(t, uint32(1), pathLen)
+	pathBytes, _ := mem.Read(pathPtr, pathLen)
+	require.Equal(t, "/", string(pathBytes))
+}
+
+// TestCabiSize_RecordSpecExample verifies the canonical ABI elem_size and
+// alignment for tuple<u32, string>:
+//   alignment(u32) = 4, elem_size(u32) = 4
+//   alignment(string) = 4, elem_size(string) = 8
+//   tuple field offsets: u32 at 0, string at align_to(4,4)=4
+//   total before final padding: 4 + 8 = 12
+//   alignment(tuple) = max(4,4) = 4
+//   align_to(12, 4) = 12 → elem_size = 12
+func TestCabiSize_TupleU32String(t *testing.T) {
+	localTypes := map[uint32]*TypeDef{
+		0: {Kind: TypeDefKindDefined, Tuple: &TupleTypeDef{
+			Types: []ValTypeRef{
+				{IsPrimitive: true, Primitive: 0x79}, // u32
+				{IsPrimitive: true, Primitive: 0x73}, // string
+			},
+		}},
+	}
+	ref := ValTypeRef{TypeIdx: 0}
+	require.Equal(t, uint32(4), cabiAlignTypeRef(ref, localTypes))
+	require.Equal(t, uint32(12), cabiSizeTypeRef(ref, localTypes))
+}
+
+// TestCabiSize_TupleU64String verifies that 8-byte alignment from u64 is
+// honored for the whole tuple:
+//   tuple<u64, string>: u64 (size 8, align 8) + string (size 8, align 4)
+//   alignment = max(8, 4) = 8
+//   field offsets: u64 at 0, string at align_to(8, 4) = 8
+//   total = 8 + 8 = 16; align_to(16, 8) = 16
+func TestCabiSize_TupleU64String(t *testing.T) {
+	localTypes := map[uint32]*TypeDef{
+		0: {Kind: TypeDefKindDefined, Tuple: &TupleTypeDef{
+			Types: []ValTypeRef{
+				{IsPrimitive: true, Primitive: 0x77}, // u64
+				{IsPrimitive: true, Primitive: 0x73}, // string
+			},
+		}},
+	}
+	ref := ValTypeRef{TypeIdx: 0}
+	require.Equal(t, uint32(8), cabiAlignTypeRef(ref, localTypes))
+	require.Equal(t, uint32(16), cabiSizeTypeRef(ref, localTypes))
+}
+
+// TestCabiSize_ListOfU8 verifies that elem_size(list<u8>) = 8 (ptr + len)
+// regardless of the inner element size.
+func TestCabiSize_ListOfU8(t *testing.T) {
+	localTypes := map[uint32]*TypeDef{
+		0: {Kind: TypeDefKindDefined, List: &ListTypeDef{
+			ElementType: ValTypeRef{IsPrimitive: true, Primitive: 0x7d}, // u8
+		}},
+	}
+	ref := ValTypeRef{TypeIdx: 0}
+	require.Equal(t, uint32(4), cabiAlignTypeRef(ref, localTypes))
+	require.Equal(t, uint32(8), cabiSizeTypeRef(ref, localTypes))
+}
+
 // TestComponentLinker_OrderedInstantiation verifies that core instances are
 // instantiated in order and that imports can be resolved from previously
 // instantiated instances.

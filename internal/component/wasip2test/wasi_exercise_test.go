@@ -97,21 +97,6 @@ func runWasiExercise(t *testing.T, wasmFile string) {
 			}
 
 			resultStr := result[0].StringVal()
-
-			// Known limitation: wazero's component-runtime canonical ABI lowering
-			// of list<tuple<own<descriptor>, string>> currently produces an empty
-			// list to the guest even when the host returns populated tuples. This
-			// is exposed by these tests for the first time and tracked separately.
-			// Until that lowering is fixed, the components see no preopened
-			// directories and report this exact string. Skip rather than fail so
-			// the integration plumbing (compile/instantiate/call) is still
-			// validated end-to-end.
-			if resultStr == "no preopened directories" {
-				t.Skipf("[%s] %s: skipped due to known runtime limitation in canonical ABI lowering of list<tuple<own,string>>; host returns populated tuples but guest sees empty list",
-					tc.area, tc.name)
-				return
-			}
-
 			if resultStr != "ok" {
 				t.Fatalf("[%s] %s returned: %q", tc.area, tc.name, resultStr)
 			}
