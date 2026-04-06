@@ -391,7 +391,26 @@ func descriptorGetType(ctx context.Context, args []component.Val) ([]component.V
 // descriptorSetSize sets the size of a file.
 // Signature: func(self: borrow<descriptor>, size: u64) -> result<_, error-code>
 func descriptorSetSize(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	// Stub - return success
+	handle := args[0].Borrow()
+	size := args[1].U64()
+
+	desc, err := getDescriptor(ctx, handle)
+	if err != nil {
+		return errorResult(ErrorCodeBadDescriptor), nil
+	}
+
+	if desc.IsDir() {
+		return errorResult(ErrorCodeIsDirectory), nil
+	}
+
+	if !desc.Flags().HasWrite() {
+		return errorResult(ErrorCodeAccess), nil
+	}
+
+	if truncErr := desc.File().Truncate(int64(size)); truncErr != nil {
+		return errorResult(MapOSError(truncErr)), nil
+	}
+
 	return []component.Val{component.ValResultOk(nil)}, nil
 }
 

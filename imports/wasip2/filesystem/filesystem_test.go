@@ -218,14 +218,16 @@ func TestDescriptorGetType(t *testing.T) {
 func TestDescriptorSetSize(t *testing.T) {
 	// Args: self, size
 	// Returns: result<_, error-code>
+	// Without a valid context/resource table, this should return bad-descriptor error
 	selfHandle := component.ValBorrow(0)
 	size := component.ValU64(0)
 	result, err := descriptorSetSize(context.Background(), []component.Val{selfHandle, size})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, component.ValKindResult, result[0].Kind())
-	isOk, _, _ := result[0].Result()
-	require.True(t, isOk, "should return ok result")
+	isOk, _, errVal := result[0].Result()
+	require.False(t, isOk, "should return error without valid context")
+	require.Equal(t, "bad-descriptor", errVal.Enum())
 }
 
 func TestDescriptorSetTimes(t *testing.T) {
@@ -1389,4 +1391,101 @@ func TestDescriptorAppendViaStream_IsDirectory(t *testing.T) {
 	isOk, _, errVal := result[0].Result()
 	require.False(t, isOk, "should return error result")
 	require.Equal(t, "is-directory", errVal.Enum())
+}
+
+// ====================
+// descriptor.set-size tests
+// ====================
+
+func TestDescriptorSetSize_Truncate(t *testing.T) {
+	ctx := createTestContext()
+	testContent := []byte("hello world")
+	handle, path := createTestFileDescriptor(t, ctx, testContent)
+	defer os.Remove(path)
+
+	// Truncate to 5 bytes
+	result, err := descriptorSetSize(ctx, []component.Val{
+		component.ValBorrow(handle),
+		component.ValU64(5),
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(result))
+	isOk, _, _ := result[0].Result()
+	require.True(t, isOk, "set-size should succeed")
+
+	// Verify file is now 5 bytes
+	info, statErr := os.Stat(path)
+	require.NoError(t, statErr)
+	require.Equal(t, int64(5), info.Size())
+}
+
+func TestDescriptorSetSize_Extend(t *testing.T) {
+	ctx := createTestContext()
+	testContent := []byte("hello")
+	handle, path := createTestFileDescriptor(t, ctx, testContent)
+	defer os.Remove(path)
+
+	// Extend to 10 bytes
+	result, err := descriptorSetSize(ctx, []component.Val{
+		component.ValBorrow(handle),
+		component.ValU64(10),
+	})
+	require.NoError(t, err)
+	isOk, _, _ := result[0].Result()
+	require.True(t, isOk, "set-size should succeed")
+
+	info, statErr := os.Stat(path)
+	require.NoError(t, statErr)
+	require.Equal(t, int64(10), info.Size())
+}
+
+func TestDescriptorSetSize_NoWritePermission(t *testing.T) {
+	ctx := createTestContext()
+	table := component.ResourceTableFromContext(ctx)
+	require.NotNil(t, table)
+
+	tmpFile, err := os.CreateTemp("", "test-readonly-*.txt")
+	require.NoError(t, err)
+	defer os.Remove(tmpFile.Name())
+
+	_, err = tmpFile.Write([]byte("hello"))
+	require.NoError(t, err)
+
+	// Create descriptor with read-only flags
+	desc := NewDescriptor(tmpFile, false, tmpFile.Name(), DescriptorFlagRead)
+	handle := table.New(desc, true)
+
+	result, err := descriptorSetSize(ctx, []component.Val{
+		component.ValBorrow(uint32(handle.Index())),
+		component.ValU64(0),
+	})
+	require.NoError(t, err)
+	isOk, _, errVal := result[0].Result()
+	require.False(t, isOk, "set-size should fail without write permission")
+	require.Equal(t, "access", errVal.Enum())
+}
+
+func TestDescriptorSetSize_IsDirectory(t *testing.T) {
+	ctx := createTestContext()
+	handle, _ := createTestDirDescriptor(t, ctx)
+
+	result, err := descriptorSetSize(ctx, []component.Val{
+		component.ValBorrow(handle),
+		component.ValU64(0),
+	})
+	require.NoError(t, err)
+	isOk, _, errVal := result[0].Result()
+	require.False(t, isOk, "set-size should fail on directory")
+	require.Equal(t, "is-directory", errVal.Enum())
+}
+
+func TestDescriptorSetSize_BadDescriptor(t *testing.T) {
+	result, err := descriptorSetSize(context.Background(), []component.Val{
+		component.ValBorrow(0),
+		component.ValU64(0),
+	})
+	require.NoError(t, err)
+	isOk, _, errVal := result[0].Result()
+	require.False(t, isOk, "set-size should fail with bad descriptor")
+	require.Equal(t, "bad-descriptor", errVal.Enum())
 }
