@@ -4,6 +4,7 @@ package http
 
 import (
 	"context"
+	"errors"
 	goio "io"
 	gohttp "net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
@@ -2124,4 +2126,62 @@ func TestIncomingRequestConsume_WithBody(t *testing.T) {
 	inBody, ok := entry.Rep.(*IncomingBody)
 	require.True(t, ok)
 	require.NotNil(t, inBody)
+}
+
+func TestHttpErrorCode_WithHTTPError(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	httpErr := &HTTPError{Code: ErrorCode("connection-refused")}
+	ioErr := io.NewError(httpErr)
+	handle := table.New(ioErr, true)
+
+	errHandle := component.ValBorrow(uint32(handle))
+	result, err := httpErrorCode(ctx, []component.Val{errHandle})
+	require.NoError(t, err)
+	require.NotNil(t, result[0].Option(), "should return Some for HTTP error")
+}
+
+func TestNewHTTPHandler_SimpleGET(t *testing.T) {
+	handler := NewHTTPHandler(func(ctx context.Context, requestHandle, outparamHandle component.Handle) error {
+		table := component.ResourceTableFromContext(ctx)
+
+		// Read request
+		entry, _ := table.Get(requestHandle)
+		req := entry.Rep.(*IncomingRequest)
+		require.Equal(t, MethodGet, req.Method())
+		require.Equal(t, "/test", *req.PathWithQuery())
+
+		// Build response
+		headers := NewFields()
+		headers.Set("X-Custom", [][]byte{[]byte("hello")})
+		resp := NewOutgoingResponse(headers)
+		resp.SetStatusCode(200)
+
+		// Send response through outparam channel
+		entry, _ = table.Get(outparamHandle)
+		outparam := entry.Rep.(*ResponseOutparam)
+		outparam.result <- ResponseResult{Response: resp}
+
+		return nil
+	})
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	require.Equal(t, 200, w.Code)
+}
+
+func TestHttpErrorCode_WithNonHTTPError(t *testing.T) {
+	table := component.NewResourceTable()
+	ctx := component.WithResourceTable(context.Background(), table)
+
+	ioErr := io.NewError(errors.New("some random error"))
+	handle := table.New(ioErr, true)
+
+	errHandle := component.ValBorrow(uint32(handle))
+	result, err := httpErrorCode(ctx, []component.Val{errHandle})
+	require.NoError(t, err)
+	require.Nil(t, result[0].Option(), "should return None for non-HTTP error")
 }
