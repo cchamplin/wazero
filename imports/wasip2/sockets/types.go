@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/tetratelabs/wazero/internal/component"
@@ -353,26 +354,81 @@ func NewNetwork() *Network {
 // ResolveAddressStream represents a stream of resolved addresses.
 // Matches wasi:sockets/ip-name-lookup resolve-address-stream resource.
 type ResolveAddressStream struct {
+	mu        sync.Mutex
 	addresses []IpAddress
 	index     int
+	done      chan struct{} // closed when resolution completes
+	resolved  bool         // guards against double-close of done
+	err       error        // non-nil if resolution failed
+	cancel    context.CancelFunc
 }
 
-// NewResolveAddressStream creates a new resolve address stream.
+// NewResolveAddressStream creates a new resolve address stream with already-resolved addresses.
 func NewResolveAddressStream(addresses []IpAddress) *ResolveAddressStream {
+	done := make(chan struct{})
+	close(done) // already resolved
 	return &ResolveAddressStream{
 		addresses: addresses,
 		index:     0,
+		done:      done,
+		resolved:  true,
 	}
 }
 
-// ResolveNextAddress returns the next address from the stream.
-func (s *ResolveAddressStream) ResolveNextAddress() (*IpAddress, bool) {
+// NewResolveAddressStreamAsync creates a new resolve address stream for async resolution.
+// The cancel function will be called when the stream is closed to stop in-flight DNS lookups.
+func NewResolveAddressStreamAsync(cancel context.CancelFunc) *ResolveAddressStream {
+	return &ResolveAddressStream{
+		done:   make(chan struct{}),
+		cancel: cancel,
+	}
+}
+
+// Close cancels any in-flight DNS resolution.
+func (s *ResolveAddressStream) Close() {
+	if s.cancel != nil {
+		s.cancel()
+	}
+}
+
+// SetResult sets the resolution result and marks the stream as ready.
+// Safe to call multiple times; only the first call takes effect.
+func (s *ResolveAddressStream) SetResult(addresses []IpAddress, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.resolved {
+		return
+	}
+	s.addresses = addresses
+	s.err = err
+	s.resolved = true
+	close(s.done)
+}
+
+// IsReady returns true if the resolution has completed (success or failure).
+func (s *ResolveAddressStream) IsReady() bool {
+	select {
+	case <-s.done:
+		return true
+	default:
+		return false
+	}
+}
+
+// NextAddress returns the next resolved address, or nil if exhausted.
+// Thread-safe.
+func (s *ResolveAddressStream) NextAddress() (*IpAddress, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.err != nil {
+		return nil, s.err
+	}
 	if s.index >= len(s.addresses) {
-		return nil, false
+		return nil, nil
 	}
 	addr := &s.addresses[s.index]
 	s.index++
-	return addr, true
+	return addr, nil
 }
 
 // ===========================
@@ -477,6 +533,44 @@ func ipSocketAddressToVal(addr *IpSocketAddress) component.Val {
 			"address": component.ValTuple([]component.Val{component.ValU8(0), component.ValU8(0), component.ValU8(0), component.ValU8(0)}),
 		})
 		return component.ValVariant("ipv4", &addrRecord)
+	}
+}
+
+// netIPToIpAddress converts a net.IP to an IpAddress.
+func netIPToIpAddress(ip net.IP) IpAddress {
+	if ip4 := ip.To4(); ip4 != nil {
+		return NewIpv4Address([4]byte{ip4[0], ip4[1], ip4[2], ip4[3]})
+	}
+	var addr16 [16]byte
+	copy(addr16[:], ip.To16())
+	return NewIpv6Address(addr16)
+}
+
+// ipAddressToVal converts an IpAddress to a component.Val variant.
+func ipAddressToVal(addr IpAddress) component.Val {
+	switch addr.Family() {
+	case IpAddressFamilyIpv4:
+		ipv4 := addr.Ipv4()
+		addrTuple := component.ValTuple([]component.Val{
+			component.ValU8(ipv4[0]), component.ValU8(ipv4[1]),
+			component.ValU8(ipv4[2]), component.ValU8(ipv4[3]),
+		})
+		return component.ValVariant("ipv4", &addrTuple)
+	case IpAddressFamilyIpv6:
+		ipv6 := addr.Ipv6()
+		tupleVals := make([]component.Val, 8)
+		for i := 0; i < 8; i++ {
+			u16Val := uint16(ipv6[i*2])<<8 | uint16(ipv6[i*2+1])
+			tupleVals[i] = component.ValU16(u16Val)
+		}
+		addrTuple := component.ValTuple(tupleVals)
+		return component.ValVariant("ipv6", &addrTuple)
+	default:
+		addrTuple := component.ValTuple([]component.Val{
+			component.ValU8(0), component.ValU8(0),
+			component.ValU8(0), component.ValU8(0),
+		})
+		return component.ValVariant("ipv4", &addrTuple)
 	}
 }
 

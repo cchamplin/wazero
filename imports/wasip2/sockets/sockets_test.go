@@ -119,43 +119,77 @@ func TestInstantiateIpNameLookup(t *testing.T) {
 	require.True(t, hasSubscribe, "subscribe method should be defined")
 }
 
-func TestResolveAddresses(t *testing.T) {
-	// Args: network (borrow<network>), name (string)
-	// Returns: result<own<resolve-address-stream>, error-code>
+func TestResolveAddresses_IPv4Literal(t *testing.T) {
+	ctx := contextWithResourceTable()
+
 	network := component.ValBorrow(0)
-	name := component.ValString("localhost")
-	result, err := resolveAddresses(context.Background(), []component.Val{network, name})
+	name := component.ValString("127.0.0.1")
+	result, err := resolveAddresses(ctx, []component.Val{network, name})
 	require.NoError(t, err)
-	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
-	isOk, ok, _ := result[0].Result()
-	require.True(t, isOk, "should return ok result")
-	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindOwn, ok.Kind())
+	isOk, streamHandle, _ := result[0].Result()
+	require.True(t, isOk, "resolving IP literal should succeed")
+	require.NotNil(t, streamHandle)
+
+	// Get next address
+	borrow := component.ValBorrow(streamHandle.Own())
+	result, err = resolveNextAddress(ctx, []component.Val{borrow})
+	require.NoError(t, err)
+	isOk, addrOpt, _ := result[0].Result()
+	require.True(t, isOk)
+	opt := addrOpt.Option()
+	require.NotNil(t, opt, "should return an address for IP literal")
+
+	// Second call should return None (exhausted)
+	result, err = resolveNextAddress(ctx, []component.Val{borrow})
+	require.NoError(t, err)
+	isOk, addrOpt, _ = result[0].Result()
+	require.True(t, isOk)
+	opt = addrOpt.Option()
+	require.Nil(t, opt, "should return None when exhausted")
 }
 
-func TestResolveNextAddress(t *testing.T) {
-	// Args: self (borrow<resolve-address-stream>)
-	// Returns: result<option<ip-address>, error-code>
-	selfHandle := component.ValBorrow(0)
-	result, err := resolveNextAddress(context.Background(), []component.Val{selfHandle})
+func TestResolveAddresses_EmptyString(t *testing.T) {
+	ctx := contextWithResourceTable()
+	network := component.ValBorrow(0)
+	name := component.ValString("")
+	result, err := resolveAddresses(ctx, []component.Val{network, name})
 	require.NoError(t, err)
-	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
-	isOk, ok, _ := result[0].Result()
-	require.True(t, isOk, "should return ok result")
-	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindOption, ok.Kind())
+	isOk, _, _ := result[0].Result()
+	require.False(t, isOk, "empty string should fail")
+}
+
+func TestResolveAddresses_InvalidWithPort(t *testing.T) {
+	ctx := contextWithResourceTable()
+	network := component.ValBorrow(0)
+	name := component.ValString("127.0.0.1:80")
+	result, err := resolveAddresses(ctx, []component.Val{network, name})
+	require.NoError(t, err)
+	isOk, _, _ := result[0].Result()
+	require.False(t, isOk, "address with port should fail")
+}
+
+func TestResolveAddresses_InvalidWithSlash(t *testing.T) {
+	ctx := contextWithResourceTable()
+	network := component.ValBorrow(0)
+	name := component.ValString("example.com/path")
+	result, err := resolveAddresses(ctx, []component.Val{network, name})
+	require.NoError(t, err)
+	isOk, _, _ := result[0].Result()
+	require.False(t, isOk, "address with slash should fail")
 }
 
 func TestResolveAddressStreamSubscribe(t *testing.T) {
-	// Args: self (borrow<resolve-address-stream>)
-	// Returns: own<pollable>
-	selfHandle := component.ValBorrow(0)
-	result, err := resolveAddressStreamSubscribe(context.Background(), []component.Val{selfHandle})
+	ctx := contextWithResourceTable()
+	network := component.ValBorrow(0)
+	name := component.ValString("127.0.0.1")
+	result, _ := resolveAddresses(ctx, []component.Val{network, name})
+	_, streamHandle, _ := result[0].Result()
+
+	borrow := component.ValBorrow(streamHandle.Own())
+	result, err := resolveAddressStreamSubscribe(ctx, []component.Val{borrow})
 	require.NoError(t, err)
-	require.Equal(t, 1, len(result))
 	require.Equal(t, component.ValKindOwn, result[0].Kind())
+	require.True(t, result[0].Own() > 0, "subscribe should return valid pollable handle")
 }
 
 // ====================
@@ -1026,16 +1060,35 @@ func TestResolveAddressStream(t *testing.T) {
 	}
 	stream := NewResolveAddressStream(addresses)
 
-	addr1, ok := stream.ResolveNextAddress()
-	require.True(t, ok)
+	require.True(t, stream.IsReady(), "synchronous stream should be immediately ready")
+
+	addr1, err := stream.NextAddress()
+	require.NoError(t, err)
+	require.NotNil(t, addr1)
 	require.Equal(t, [4]byte{127, 0, 0, 1}, addr1.Ipv4())
 
-	addr2, ok := stream.ResolveNextAddress()
-	require.True(t, ok)
+	addr2, err := stream.NextAddress()
+	require.NoError(t, err)
+	require.NotNil(t, addr2)
 	require.Equal(t, [4]byte{192, 168, 1, 1}, addr2.Ipv4())
 
-	_, ok = stream.ResolveNextAddress()
-	require.False(t, ok)
+	addr3, err := stream.NextAddress()
+	require.NoError(t, err)
+	require.Nil(t, addr3, "should be exhausted")
+}
+
+func TestResolveAddressStreamAsync(t *testing.T) {
+	_, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stream := NewResolveAddressStreamAsync(cancel)
+	require.False(t, stream.IsReady(), "async stream should not be ready initially")
+
+	stream.SetResult([]IpAddress{NewIpv4Address([4]byte{10, 0, 0, 1})}, nil)
+	require.True(t, stream.IsReady(), "async stream should be ready after SetResult")
+
+	addr, err := stream.NextAddress()
+	require.NoError(t, err)
+	require.NotNil(t, addr)
 }
 
 func TestDatagramStreams(t *testing.T) {
