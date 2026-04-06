@@ -498,6 +498,16 @@ func (r *OutgoingResponse) Body() (*OutgoingBody, error) {
 	return r.body, nil
 }
 
+// BodyBytes returns the bytes that have been written to the body buffer,
+// or nil if the body was never accessed. Read-only accessor that does not
+// consume the body.
+func (r *OutgoingResponse) BodyBytes() []byte {
+	if r.body == nil {
+		return nil
+	}
+	return r.body.Bytes()
+}
+
 // IncomingResponse represents an incoming HTTP response.
 // Matches wasi:http/types incoming-response resource.
 type IncomingResponse struct {

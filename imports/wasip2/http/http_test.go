@@ -2202,6 +2202,63 @@ func TestNewHTTPHandler_SimpleGET(t *testing.T) {
 	handler.ServeHTTP(w, req)
 
 	require.Equal(t, 200, w.Code)
+	require.Equal(t, "hello", w.Header().Get("X-Custom"))
+}
+
+func TestNewHTTPHandler_CallHandleError(t *testing.T) {
+	handler := NewHTTPHandler(func(ctx context.Context, requestHandle, outparamHandle component.Handle) error {
+		return errors.New("handler crashed")
+	})
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	require.Equal(t, gohttp.StatusInternalServerError, w.Code)
+}
+
+func TestNewHTTPHandler_ErrorCodeResponse(t *testing.T) {
+	handler := NewHTTPHandler(func(ctx context.Context, requestHandle, outparamHandle component.Handle) error {
+		table := component.ResourceTableFromContext(ctx)
+		entry, _ := table.Get(outparamHandle)
+		outparam := entry.Rep.(*ResponseOutparam)
+		errCode := ErrorCodeConnectionRefused
+		outparam.result <- ResponseResult{Err: &errCode}
+		return nil
+	})
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	require.Equal(t, gohttp.StatusBadGateway, w.Code)
+}
+
+func TestNewHTTPHandler_HeadersAreLowercased(t *testing.T) {
+	var sawLowercase bool
+	handler := NewHTTPHandler(func(ctx context.Context, requestHandle, outparamHandle component.Handle) error {
+		table := component.ResourceTableFromContext(ctx)
+		entry, _ := table.Get(requestHandle)
+		req := entry.Rep.(*IncomingRequest)
+		// Component-side lookup uses lowercase key.
+		sawLowercase = req.Headers().Has("x-test-header")
+
+		respHeaders := NewFields()
+		resp := NewOutgoingResponse(respHeaders)
+		resp.SetStatusCode(200)
+		entry, _ = table.Get(outparamHandle)
+		outparam := entry.Rep.(*ResponseOutparam)
+		outparam.result <- ResponseResult{Response: resp}
+		return nil
+	})
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.Header.Set("X-Test-Header", "value")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	require.Equal(t, 200, w.Code)
+	require.True(t, sawLowercase, "component should see lowercase header name")
 }
 
 func TestHttpErrorCode_WithNonHTTPError(t *testing.T) {

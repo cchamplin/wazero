@@ -5,9 +5,16 @@ package http
 import (
 	"context"
 	gohttp "net/http"
+	"strings"
+	"time"
 
 	"github.com/tetratelabs/wazero/internal/component"
 )
+
+// defaultHandlerTimeout is the maximum time NewHTTPHandler will wait for a
+// component-side response. Without this, a misbehaving component that never
+// writes to the outparam channel would hang the host handler indefinitely.
+const defaultHandlerTimeout = 30 * time.Second
 
 // instantiateIncomingHandler registers wasi:http/incoming-handler@0.2.0
 func instantiateIncomingHandler(linker *component.Linker) error {
@@ -25,29 +32,49 @@ func instantiateIncomingHandler(linker *component.Linker) error {
 func NewHTTPHandler(callHandle func(ctx context.Context, requestHandle, outparamHandle component.Handle) error) gohttp.Handler {
 	return gohttp.HandlerFunc(func(w gohttp.ResponseWriter, r *gohttp.Request) {
 		table := component.NewResourceTable()
-		ctx := component.WithResourceTable(r.Context(), table)
+
+		// Apply a default deadline so a misbehaving component cannot hang the
+		// host handler indefinitely. Callers wanting a different deadline can
+		// wrap the request with a custom context before passing it in.
+		ctx, cancel := context.WithTimeout(r.Context(), defaultHandlerTimeout)
+		defer cancel()
+		ctx = component.WithResourceTable(ctx, table)
 
 		// Build IncomingRequest from Go request
 		method := methodFromHTTPMethod(r.Method)
-		scheme := schemeFromString(r.URL.Scheme)
+		scheme := schemeForRequest(r)
 		authority := r.Host
 		pathWithQuery := r.URL.RequestURI()
 		headers := NewFields()
 		for name, values := range r.Header {
+			// WASI HTTP uses lowercase header names; Go canonicalizes to
+			// Title-Case form. Normalize so component lookups match.
+			lowerName := strings.ToLower(name)
 			for _, v := range values {
-				headers.Append(name, []byte(v))
+				headers.Append(lowerName, []byte(v))
 			}
 		}
 
 		req := NewIncomingRequest(method, scheme, &authority, &pathWithQuery, headers)
-		if r.Body != nil {
-			req.SetBody(NewIncomingBodyFromReader(r.Body))
-		}
+		// r.Body is always non-nil for server requests; it returns EOF when
+		// there is no body.
+		req.SetBody(NewIncomingBodyFromReader(r.Body))
 		requestHandle := table.New(req, true)
 
 		// Create response outparam with channel
 		outparam := NewResponseOutparam()
 		outparamHandle := table.New(outparam, true)
+
+		// Ensure resources are cleaned up on every exit path. Delete is a
+		// no-op if the component already consumed the handle.
+		defer func() {
+			_, _ = table.Remove(requestHandle)
+			if entry, err := table.Remove(outparamHandle); err == nil {
+				if op, ok := entry.Rep.(*ResponseOutparam); ok {
+					op.Destroy()
+				}
+			}
+		}()
 
 		// Call the component's handle function
 		if err := callHandle(ctx, requestHandle, outparamHandle); err != nil {
@@ -83,11 +110,26 @@ func NewHTTPHandler(callHandle func(ctx context.Context, requestHandle, outparam
 		}
 		w.WriteHeader(int(resp.StatusCode()))
 
-		// Write body
-		if resp.body != nil {
-			w.Write(resp.body.Bytes())
+		// Write body via the public accessor (no private field reach-in).
+		if body := resp.BodyBytes(); body != nil {
+			w.Write(body)
 		}
 	})
+}
+
+// schemeForRequest derives a WASI Scheme from a Go HTTP request, defaulting
+// to http or https based on TLS state when the URL scheme is empty (which it
+// always is for server-side requests).
+func schemeForRequest(r *gohttp.Request) *Scheme {
+	if r.URL.Scheme != "" {
+		return schemeFromString(r.URL.Scheme)
+	}
+	if r.TLS != nil {
+		sch := NewSchemeHTTPS()
+		return &sch
+	}
+	sch := NewSchemeHTTP()
+	return &sch
 }
 
 func schemeFromString(s string) *Scheme {
