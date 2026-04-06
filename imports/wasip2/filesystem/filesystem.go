@@ -1260,7 +1260,7 @@ func descriptorMetadataHash(ctx context.Context, args []component.Val) ([]compon
 // Signature: func(self: borrow<descriptor>, path-flags: path-flags, path: string) -> result<metadata-hash-value, error-code>
 func descriptorMetadataHashAt(ctx context.Context, args []component.Val) ([]component.Val, error) {
 	handle := args[0].Borrow()
-	// args[1] = path-flags (symlink-follow handled by os.Stat vs os.Lstat)
+	pathFlags := args[1].Flags()
 	pathStr := args[2].StringVal()
 
 	desc, err := getDescriptor(ctx, handle)
@@ -1268,8 +1268,28 @@ func descriptorMetadataHashAt(ctx context.Context, args []component.Val) ([]comp
 		return errorResult(ErrorCodeBadDescriptor), nil
 	}
 
+	// Parent must be a directory
+	if !desc.IsDir() {
+		return errorResult(ErrorCodeNotDirectory), nil
+	}
+
 	fullPath := filepath.Join(desc.Path(), pathStr)
-	info, statErr := os.Stat(fullPath)
+
+	// Security check: ensure the path doesn't escape the descriptor's directory
+	cleanPath := filepath.Clean(fullPath)
+	basePath := filepath.Clean(desc.Path())
+	if len(cleanPath) < len(basePath) || cleanPath[:len(basePath)] != basePath {
+		return errorResult(ErrorCodeAccess), nil
+	}
+
+	// Respect symlink-follow flag
+	var info os.FileInfo
+	var statErr error
+	if pathFlags["symlink-follow"] {
+		info, statErr = os.Stat(cleanPath)
+	} else {
+		info, statErr = os.Lstat(cleanPath)
+	}
 	if statErr != nil {
 		return errorResult(MapOSError(statErr)), nil
 	}
