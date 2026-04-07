@@ -18,7 +18,7 @@ func computeMetadataHash(info os.FileInfo) (uint64, uint64) {
 		return computeMetadataHashFallback(info)
 	}
 	var buf [8]byte
-	binary.LittleEndian.PutUint64(buf[:], sysStat.Dev)
+	binary.LittleEndian.PutUint64(buf[:], uint64(sysStat.Dev))
 	h.Write(buf[:])
 	binary.LittleEndian.PutUint64(buf[:], sysStat.Ino)
 	h.Write(buf[:])
