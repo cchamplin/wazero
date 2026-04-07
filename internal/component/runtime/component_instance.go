@@ -7,13 +7,19 @@ package runtime
 import "github.com/tetratelabs/wazero/internal/component/types"
 
 // ComponentInstance is the runtime state for one instantiated component
-// (top-level or nested). Matches the spec's ComponentInstance at
+// (top-level or nested). Matches the synchronous-execution subset of the
+// spec's ComponentInstance at
 // debug-vendored/component-model/design/mvp/canonical-abi/definitions.py:256-273.
 //
 // One ComponentInstance per instantiation. For nested instantiation,
 // Parent points to the parent instance. For top-level instances, Parent
 // is nil. Each instance owns its own Table, its own MayLeave flag, and
 // its own ResourceTypes pool.
+//
+// The async-concurrency fields from the spec (backpressure, exclusive,
+// num_waiting_to_enter) are intentionally absent in Session 0 and will
+// be added when async task primitives land. The spec's `store` field has
+// no wazero counterpart at this layer.
 type ComponentInstance struct {
 	// ID is a monotonically-assigned runtime instance identifier.
 	ID uint32

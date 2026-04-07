@@ -77,6 +77,13 @@ func TestComponentInstance_LookupResourceTypeWalksParents(t *testing.T) {
 	parent.ResourceTypes = []*ResourceType{rt}
 
 	child := NewComponentInstance(2, parent)
+	// Child's own resource pool — first findInstance iteration finds
+	// the child itself, no walk-up needed.
+	childRT := &ResourceType{}
+	child.ResourceTypes = []*ResourceType{childRT}
+	if got := child.LookupResourceType(types.RuntimeComponentInstanceIdx(2), types.ResourceIdx(0)); got != childRT {
+		t.Errorf("LookupResourceType on child = %v, want %v", got, childRT)
+	}
 	// Lookup of a resource owned by the parent should walk up.
 	got := child.LookupResourceType(types.RuntimeComponentInstanceIdx(1), types.ResourceIdx(0))
 	if got != rt {
