@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/internalapi"
 	"github.com/tetratelabs/wazero/internal/testing/require"
@@ -40,7 +41,7 @@ func TestCanonResourceNew(t *testing.T) {
 	require.NotNil(t, inst.resourceTable)
 
 	// Verify the handle is in the table and owned
-	h := Handle(handleIdx)
+	h := runtime.Handle(handleIdx)
 	entry, err := inst.resourceTable.Get(h)
 	require.NoError(t, err)
 	require.Equal(t, "my-resource-rep", entry.Rep)
@@ -89,13 +90,13 @@ func TestCanonResourceRep_InvalidHandle(t *testing.T) {
 	// No resource table initialized
 	_, err := inst.ResourceRep(999)
 	require.Error(t, err)
-	require.True(t, errors.Is(err, ErrInvalidHandle))
+	require.True(t, errors.Is(err, runtime.ErrInvalidHandle))
 
 	// Initialize table but use invalid handle
-	inst.resourceTable = NewResourceTable()
+	inst.resourceTable = runtime.NewResourceTable()
 	_, err = inst.ResourceRep(999)
 	require.Error(t, err)
-	require.True(t, errors.Is(err, ErrInvalidHandle))
+	require.True(t, errors.Is(err, runtime.ErrInvalidHandle))
 }
 
 // TestCanonResourceDrop_Owned tests dropping an owned handle with destructor.
@@ -178,10 +179,10 @@ func TestCanonResourceDrop_DifferentResourceTypes(t *testing.T) {
 // TestCanonResourceDrop_Borrowed tests dropping a borrowed handle.
 func TestCanonResourceDrop_Borrowed(t *testing.T) {
 	inst := &Instance{}
-	inst.resourceTable = NewResourceTable()
+	inst.resourceTable = runtime.NewResourceTable()
 
 	// Create a call context and set initial borrow count
-	ctx := NewCallContext()
+	ctx := runtime.NewCallContext()
 	ctx.IncrementBorrows() // Simulate receiving a borrowed handle
 	inst.SetCallContext(ctx)
 
@@ -211,7 +212,7 @@ func TestCanonResourceDrop_Borrowed(t *testing.T) {
 // TestCanonResourceDrop_BorrowedNoCallContext tests dropping borrowed without context.
 func TestCanonResourceDrop_BorrowedNoCallContext(t *testing.T) {
 	inst := &Instance{}
-	inst.resourceTable = NewResourceTable()
+	inst.resourceTable = runtime.NewResourceTable()
 
 	// Create a borrowed handle directly
 	h := inst.resourceTable.New("borrowed-rep", false)
@@ -228,13 +229,13 @@ func TestCanonResourceDrop_InvalidHandle(t *testing.T) {
 	// No resource table
 	err := inst.ResourceDrop(999, 0)
 	require.Error(t, err)
-	require.True(t, errors.Is(err, ErrInvalidHandle))
+	require.True(t, errors.Is(err, runtime.ErrInvalidHandle))
 
 	// With table but invalid handle
-	inst.resourceTable = NewResourceTable()
+	inst.resourceTable = runtime.NewResourceTable()
 	err = inst.ResourceDrop(999, 0)
 	require.Error(t, err)
-	require.True(t, errors.Is(err, ErrInvalidHandle))
+	require.True(t, errors.Is(err, runtime.ErrInvalidHandle))
 }
 
 // TestCanonResourceDrop_DoubleDrop tests dropping the same handle twice.
@@ -261,7 +262,7 @@ func TestInstance_SetCallContext(t *testing.T) {
 	require.Nil(t, inst.CallContext())
 
 	// Set context
-	ctx := NewCallContext()
+	ctx := runtime.NewCallContext()
 	inst.SetCallContext(ctx)
 
 	// Get context
@@ -324,7 +325,7 @@ func TestExportedFuncCall_OwnArgument(t *testing.T) {
 	}
 
 	inst := &Instance{
-		resourceTable: NewResourceTable(),
+		resourceTable: runtime.NewResourceTable(),
 	}
 
 	// Create function type with own<T> parameter
@@ -346,10 +347,10 @@ func TestExportedFuncCall_OwnArgument(t *testing.T) {
 
 	// Call with an own handle - the uint32 value is the representation
 	// that will be turned into a handle via LowerOwn
-	results, err := f.Call(context.Background(), ValOwn(123))
+	results, err := f.Call(context.Background(), types.ValOwn(123))
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results))
-	require.Equal(t, ValKindS32, results[0].Kind())
+	require.Equal(t, types.ValKindS32, results[0].Kind())
 	require.Equal(t, int32(42), results[0].S32())
 
 	// The LowerOwn should have created a handle at index 0
@@ -364,7 +365,7 @@ func TestExportedFuncCall_BorrowArgument(t *testing.T) {
 	var capturedInst *Instance
 
 	inst := &Instance{
-		resourceTable: NewResourceTable(),
+		resourceTable: runtime.NewResourceTable(),
 	}
 	capturedInst = inst
 
@@ -397,7 +398,7 @@ func TestExportedFuncCall_BorrowArgument(t *testing.T) {
 	}
 
 	// Call with a borrow handle - the callee drops it before return
-	results, err := f.Call(context.Background(), ValBorrow(456))
+	results, err := f.Call(context.Background(), types.ValBorrow(456))
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results))
 	require.Equal(t, int32(99), results[0].S32())
@@ -410,7 +411,7 @@ func TestExportedFuncCall_BorrowArgument(t *testing.T) {
 // TestExportedFuncCall_OwnResult tests returning own<T> from a function.
 func TestExportedFuncCall_OwnResult(t *testing.T) {
 	inst := &Instance{
-		resourceTable: NewResourceTable(),
+		resourceTable: runtime.NewResourceTable(),
 	}
 
 	// Pre-create an owned handle that the "callee" will return
@@ -424,7 +425,7 @@ func TestExportedFuncCall_OwnResult(t *testing.T) {
 	}
 
 	funcType := &FuncType{
-		Params:  []NamedValType{},
+		Params: []NamedValType{},
 		Results: []NamedValType{
 			{Name: "", ValType: ValTypeRef{IsOwn: true, TypeIdx: 0}},
 		},
@@ -440,13 +441,13 @@ func TestExportedFuncCall_OwnResult(t *testing.T) {
 	results, err := f.Call(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results))
-	require.Equal(t, ValKindOwn, results[0].Kind())
+	require.Equal(t, types.ValKindOwn, results[0].Kind())
 }
 
 // TestExportedFuncCall_OutstandingBorrowTrap tests that outstanding borrows cause a trap.
 func TestExportedFuncCall_OutstandingBorrowTrap(t *testing.T) {
 	inst := &Instance{
-		resourceTable: NewResourceTable(),
+		resourceTable: runtime.NewResourceTable(),
 	}
 
 	coreFunc := &mockFunction{
@@ -475,15 +476,15 @@ func TestExportedFuncCall_OutstandingBorrowTrap(t *testing.T) {
 
 	// Call with a borrow - the LowerBorrow will increment borrow count,
 	// and since the "callee" doesn't drop it, ValidateReturn should trap
-	_, err := f.Call(context.Background(), ValBorrow(789))
+	_, err := f.Call(context.Background(), types.ValBorrow(789))
 	require.Error(t, err)
-	require.True(t, errors.Is(err, ErrOutstandingBorrows))
+	require.True(t, errors.Is(err, runtime.ErrOutstandingBorrows))
 }
 
 // TestExportedFuncCall_BorrowDroppedBeforeReturn tests that dropping borrows allows return.
 func TestExportedFuncCall_BorrowDroppedBeforeReturn(t *testing.T) {
 	inst := &Instance{
-		resourceTable: NewResourceTable(),
+		resourceTable: runtime.NewResourceTable(),
 	}
 
 	// Track the instance to drop the borrow during call
@@ -521,7 +522,7 @@ func TestExportedFuncCall_BorrowDroppedBeforeReturn(t *testing.T) {
 	}
 
 	// Call with a borrow - the callee drops it, so ValidateReturn succeeds
-	results, err := f.Call(context.Background(), ValBorrow(789))
+	results, err := f.Call(context.Background(), types.ValBorrow(789))
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results))
 	require.Equal(t, int32(42), results[0].S32())
@@ -539,7 +540,7 @@ func TestExportedFuncCall_MultipleOwnBorrowParams(t *testing.T) {
 	}
 
 	inst := &Instance{
-		resourceTable: NewResourceTable(),
+		resourceTable: runtime.NewResourceTable(),
 	}
 
 	funcType := &FuncType{
@@ -561,9 +562,9 @@ func TestExportedFuncCall_MultipleOwnBorrowParams(t *testing.T) {
 	}
 
 	// The call will fail with outstanding borrow since we don't drop it
-	_, err := f.Call(context.Background(), ValOwn(1), ValBorrow(2), ValOwn(3))
+	_, err := f.Call(context.Background(), types.ValOwn(1), types.ValBorrow(2), types.ValOwn(3))
 	require.Error(t, err)
-	require.True(t, errors.Is(err, ErrOutstandingBorrows))
+	require.True(t, errors.Is(err, runtime.ErrOutstandingBorrows))
 
 	// Verify that all three parameters were passed as handles
 	require.Equal(t, 3, len(capturedParams))
@@ -578,15 +579,15 @@ func TestExportedFuncCall_CallContextRestored(t *testing.T) {
 	}
 
 	inst := &Instance{
-		resourceTable: NewResourceTable(),
+		resourceTable: runtime.NewResourceTable(),
 	}
 
 	// Set a pre-existing call context
-	prevCtx := NewCallContext()
+	prevCtx := runtime.NewCallContext()
 	inst.SetCallContext(prevCtx)
 
 	funcType := &FuncType{
-		Params:  []NamedValType{},
+		Params: []NamedValType{},
 		Results: []NamedValType{
 			{Name: "", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7a}}, // s32
 		},
@@ -771,18 +772,18 @@ type mockModule struct {
 	memory api.Memory
 }
 
-func (m *mockModule) String() string                                         { return "mockModule" }
-func (m *mockModule) Name() string                                           { return "test" }
-func (m *mockModule) Memory() api.Memory                                     { return m.memory }
-func (m *mockModule) ExportedFunction(name string) api.Function              { return nil }
+func (m *mockModule) String() string                            { return "mockModule" }
+func (m *mockModule) Name() string                              { return "test" }
+func (m *mockModule) Memory() api.Memory                        { return m.memory }
+func (m *mockModule) ExportedFunction(name string) api.Function { return nil }
 func (m *mockModule) ExportedFunctionDefinitions() map[string]api.FunctionDefinition {
 	return nil
 }
-func (m *mockModule) ExportedMemory(name string) api.Memory                  { return m.memory }
+func (m *mockModule) ExportedMemory(name string) api.Memory { return m.memory }
 func (m *mockModule) ExportedMemoryDefinitions() map[string]api.MemoryDefinition {
 	return nil
 }
-func (m *mockModule) ExportedGlobal(name string) api.Global                  { return nil }
+func (m *mockModule) ExportedGlobal(name string) api.Global { return nil }
 func (m *mockModule) CloseWithExitCode(ctx context.Context, exitCode uint32) error {
 	return nil
 }
@@ -840,7 +841,7 @@ func TestExportedFunc_Call_ListWithRealloc(t *testing.T) {
 	mockMod := &mockModule{memory: mem}
 	inst := &Instance{
 		coreInstances: []api.Module{mockMod},
-		resourceTable: NewResourceTable(),
+		resourceTable: runtime.NewResourceTable(),
 	}
 
 	// Create function type with two parameters (the runtime detects lists by Val.Kind())
@@ -864,8 +865,8 @@ func TestExportedFunc_Call_ListWithRealloc(t *testing.T) {
 	}
 
 	// Create two lists with different data
-	list1 := ValList([]Val{ValS32(1), ValS32(2), ValS32(3)})
-	list2 := ValList([]Val{ValS32(4), ValS32(5)})
+	list1 := types.ValList([]types.Val{types.ValS32(1), types.ValS32(2), types.ValS32(3)})
+	list2 := types.ValList([]types.Val{types.ValS32(4), types.ValS32(5)})
 
 	// Call function with two lists
 	_, err := f.Call(context.Background(), list1, list2)
@@ -940,7 +941,7 @@ func TestExportedFunc_Call_ListWithoutRealloc(t *testing.T) {
 	mockMod := &mockModule{memory: mem}
 	inst := &Instance{
 		coreInstances: []api.Module{mockMod},
-		resourceTable: NewResourceTable(),
+		resourceTable: runtime.NewResourceTable(),
 	}
 
 	funcType := &FuncType{
@@ -960,7 +961,7 @@ func TestExportedFunc_Call_ListWithoutRealloc(t *testing.T) {
 		reallocFunc: nil, // No realloc function
 	}
 
-	list := ValList([]Val{ValS32(1), ValS32(2)})
+	list := types.ValList([]types.Val{types.ValS32(1), types.ValS32(2)})
 
 	_, err := f.Call(context.Background(), list)
 	require.Error(t, err)
@@ -982,7 +983,7 @@ func TestExportedFunc_Call_EmptyList(t *testing.T) {
 	mockMod := &mockModule{memory: mem}
 	inst := &Instance{
 		coreInstances: []api.Module{mockMod},
-		resourceTable: NewResourceTable(),
+		resourceTable: runtime.NewResourceTable(),
 	}
 
 	funcType := &FuncType{
@@ -1002,7 +1003,7 @@ func TestExportedFunc_Call_EmptyList(t *testing.T) {
 		reallocFunc: nil, // No realloc - should be OK for empty list
 	}
 
-	emptyList := ValList([]Val{})
+	emptyList := types.ValList([]types.Val{})
 
 	_, err := f.Call(context.Background(), emptyList)
 	require.NoError(t, err)
@@ -1041,7 +1042,7 @@ func TestExportedFunc_Call_ListOfS64(t *testing.T) {
 	mockMod := &mockModule{memory: mem}
 	inst := &Instance{
 		coreInstances: []api.Module{mockMod},
-		resourceTable: NewResourceTable(),
+		resourceTable: runtime.NewResourceTable(),
 	}
 
 	funcType := &FuncType{
@@ -1062,7 +1063,7 @@ func TestExportedFunc_Call_ListOfS64(t *testing.T) {
 	}
 
 	// Test with s64 values including max int64
-	list := ValList([]Val{ValS64(1), ValS64(2), ValS64(math.MaxInt64)})
+	list := types.ValList([]types.Val{types.ValS64(1), types.ValS64(2), types.ValS64(math.MaxInt64)})
 
 	_, err := f.Call(context.Background(), list)
 	require.NoError(t, err)
@@ -1116,7 +1117,7 @@ func TestExportedFunc_Call_ListOfF32(t *testing.T) {
 	mockMod := &mockModule{memory: mem}
 	inst := &Instance{
 		coreInstances: []api.Module{mockMod},
-		resourceTable: NewResourceTable(),
+		resourceTable: runtime.NewResourceTable(),
 	}
 
 	funcType := &FuncType{
@@ -1137,7 +1138,7 @@ func TestExportedFunc_Call_ListOfF32(t *testing.T) {
 	}
 
 	// Test with f32 values including infinity
-	list := ValList([]Val{ValF32(1.5), ValF32(-3.14), ValF32(float32(math.Inf(1)))})
+	list := types.ValList([]types.Val{types.ValF32(1.5), types.ValF32(-3.14), types.ValF32(float32(math.Inf(1)))})
 
 	_, err := f.Call(context.Background(), list)
 	require.NoError(t, err)
@@ -1191,7 +1192,7 @@ func TestExportedFunc_Call_ListOfF64(t *testing.T) {
 	mockMod := &mockModule{memory: mem}
 	inst := &Instance{
 		coreInstances: []api.Module{mockMod},
-		resourceTable: NewResourceTable(),
+		resourceTable: runtime.NewResourceTable(),
 	}
 
 	funcType := &FuncType{
@@ -1212,7 +1213,7 @@ func TestExportedFunc_Call_ListOfF64(t *testing.T) {
 	}
 
 	// Test with f64 values including NaN
-	list := ValList([]Val{ValF64(1.5), ValF64(-3.14159265358979), ValF64(math.NaN())})
+	list := types.ValList([]types.Val{types.ValF64(1.5), types.ValF64(-3.14159265358979), types.ValF64(math.NaN())})
 
 	_, err := f.Call(context.Background(), list)
 	require.NoError(t, err)
@@ -1262,7 +1263,7 @@ func TestExportedFunc_Call_ListOfU8(t *testing.T) {
 	mockMod := &mockModule{memory: mem}
 	inst := &Instance{
 		coreInstances: []api.Module{mockMod},
-		resourceTable: NewResourceTable(),
+		resourceTable: runtime.NewResourceTable(),
 	}
 
 	funcType := &FuncType{
@@ -1283,7 +1284,7 @@ func TestExportedFunc_Call_ListOfU8(t *testing.T) {
 	}
 
 	// Test with u8 values
-	list := ValList([]Val{ValU8(0), ValU8(127), ValU8(255)})
+	list := types.ValList([]types.Val{types.ValU8(0), types.ValU8(127), types.ValU8(255)})
 
 	_, err := f.Call(context.Background(), list)
 	require.NoError(t, err)
@@ -1333,7 +1334,7 @@ func TestExportedFunc_Call_ListOfS8(t *testing.T) {
 	mockMod := &mockModule{memory: mem}
 	inst := &Instance{
 		coreInstances: []api.Module{mockMod},
-		resourceTable: NewResourceTable(),
+		resourceTable: runtime.NewResourceTable(),
 	}
 
 	funcType := &FuncType{
@@ -1354,7 +1355,7 @@ func TestExportedFunc_Call_ListOfS8(t *testing.T) {
 	}
 
 	// Test with s8 values including negatives
-	list := ValList([]Val{ValS8(-128), ValS8(0), ValS8(127)})
+	list := types.ValList([]types.Val{types.ValS8(-128), types.ValS8(0), types.ValS8(127)})
 
 	_, err := f.Call(context.Background(), list)
 	require.NoError(t, err)
@@ -1408,7 +1409,7 @@ func TestExportedFunc_Call_ListOfU16(t *testing.T) {
 	mockMod := &mockModule{memory: mem}
 	inst := &Instance{
 		coreInstances: []api.Module{mockMod},
-		resourceTable: NewResourceTable(),
+		resourceTable: runtime.NewResourceTable(),
 	}
 
 	funcType := &FuncType{
@@ -1429,7 +1430,7 @@ func TestExportedFunc_Call_ListOfU16(t *testing.T) {
 	}
 
 	// Test with u16 values
-	list := ValList([]Val{ValU16(0), ValU16(32767), ValU16(65535)})
+	list := types.ValList([]types.Val{types.ValU16(0), types.ValU16(32767), types.ValU16(65535)})
 
 	_, err := f.Call(context.Background(), list)
 	require.NoError(t, err)
@@ -1483,7 +1484,7 @@ func TestExportedFunc_Call_ListOfS16(t *testing.T) {
 	mockMod := &mockModule{memory: mem}
 	inst := &Instance{
 		coreInstances: []api.Module{mockMod},
-		resourceTable: NewResourceTable(),
+		resourceTable: runtime.NewResourceTable(),
 	}
 
 	funcType := &FuncType{
@@ -1504,7 +1505,7 @@ func TestExportedFunc_Call_ListOfS16(t *testing.T) {
 	}
 
 	// Test with s16 values including negatives
-	list := ValList([]Val{ValS16(-32768), ValS16(0), ValS16(32767)})
+	list := types.ValList([]types.Val{types.ValS16(-32768), types.ValS16(0), types.ValS16(32767)})
 
 	_, err := f.Call(context.Background(), list)
 	require.NoError(t, err)
@@ -1558,7 +1559,7 @@ func TestExportedFunc_Call_ListOfU64(t *testing.T) {
 	mockMod := &mockModule{memory: mem}
 	inst := &Instance{
 		coreInstances: []api.Module{mockMod},
-		resourceTable: NewResourceTable(),
+		resourceTable: runtime.NewResourceTable(),
 	}
 
 	funcType := &FuncType{
@@ -1579,7 +1580,7 @@ func TestExportedFunc_Call_ListOfU64(t *testing.T) {
 	}
 
 	// Test with u64 values including max uint64
-	list := ValList([]Val{ValU64(1), ValU64(2), ValU64(math.MaxUint64)})
+	list := types.ValList([]types.Val{types.ValU64(1), types.ValU64(2), types.ValU64(math.MaxUint64)})
 
 	_, err := f.Call(context.Background(), list)
 	require.NoError(t, err)
@@ -1629,7 +1630,7 @@ func TestExportedFunc_Call_ListOfBool(t *testing.T) {
 	mockMod := &mockModule{memory: mem}
 	inst := &Instance{
 		coreInstances: []api.Module{mockMod},
-		resourceTable: NewResourceTable(),
+		resourceTable: runtime.NewResourceTable(),
 	}
 
 	funcType := &FuncType{
@@ -1650,7 +1651,7 @@ func TestExportedFunc_Call_ListOfBool(t *testing.T) {
 	}
 
 	// Test with bool values
-	list := ValList([]Val{ValBool(false), ValBool(true), ValBool(false)})
+	list := types.ValList([]types.Val{types.ValBool(false), types.ValBool(true), types.ValBool(false)})
 
 	_, err := f.Call(context.Background(), list)
 	require.NoError(t, err)
@@ -1877,7 +1878,7 @@ func TestExportedFunc_Call_ListOfChar(t *testing.T) {
 	mockMod := &mockModule{memory: mem}
 	inst := &Instance{
 		coreInstances: []api.Module{mockMod},
-		resourceTable: NewResourceTable(),
+		resourceTable: runtime.NewResourceTable(),
 	}
 
 	funcType := &FuncType{
@@ -1898,7 +1899,7 @@ func TestExportedFunc_Call_ListOfChar(t *testing.T) {
 	}
 
 	// Test with char values including Unicode
-	list := ValList([]Val{ValChar('A'), ValChar('Z'), ValChar('\U0001F600')}) // emoji
+	list := types.ValList([]types.Val{types.ValChar('A'), types.ValChar('Z'), types.ValChar('\U0001F600')}) // emoji
 
 	_, err := f.Call(context.Background(), list)
 	require.NoError(t, err)
@@ -1928,7 +1929,7 @@ func TestInstance_ValueIndexSpace(t *testing.T) {
 	inst := &Instance{}
 
 	// Should be able to add values
-	idx := inst.AddValue(ValS32(42))
+	idx := inst.AddValue(types.ValS32(42))
 	if idx != 0 {
 		t.Errorf("first value should be index 0, got %d", idx)
 	}
@@ -1951,7 +1952,7 @@ func TestInstance_ValueIndexSpace(t *testing.T) {
 // TestInstance_ConsumeValue tests consuming values from the value index space.
 func TestInstance_ConsumeValue(t *testing.T) {
 	inst := &Instance{}
-	inst.AddValue(ValS32(42))
+	inst.AddValue(types.ValS32(42))
 
 	// Consume the value
 	val, err := inst.ConsumeValue(0)
@@ -2163,7 +2164,7 @@ func TestLiftResolvedType_RecordRetptr(t *testing.T) {
 		},
 	}
 
-	callCtx := NewCallContext()
+	callCtx := runtime.NewCallContext()
 	results, err := f.liftResolvedType(recordType, []uint64{100}, nil, callCtx)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results))
@@ -2184,7 +2185,7 @@ func TestLiftResolvedType_RecordFlat(t *testing.T) {
 		},
 	}
 
-	callCtx := NewCallContext()
+	callCtx := runtime.NewCallContext()
 	results, err := f.liftResolvedType(recordType, []uint64{99}, nil, callCtx)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results))
@@ -2214,7 +2215,7 @@ func TestLiftResolvedType_LargeRecordRetptr(t *testing.T) {
 		},
 	}
 
-	callCtx := NewCallContext()
+	callCtx := runtime.NewCallContext()
 	results, err := f.liftResolvedType(recordType, []uint64{200}, nil, callCtx)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results))
@@ -2234,7 +2235,7 @@ func TestLiftFieldFromMemory_AllPrimitiveTypes(t *testing.T) {
 		setup    func(mem *mockMemory, offset uint32)
 		offset   uint32
 		valType  types.ValType
-		check    func(t *testing.T, val Val)
+		check    func(t *testing.T, val types.Val)
 		wantSize uint32
 	}{
 		{
@@ -2244,7 +2245,7 @@ func TestLiftFieldFromMemory_AllPrimitiveTypes(t *testing.T) {
 			},
 			offset:  0,
 			valType: types.Bool{},
-			check: func(t *testing.T, val Val) {
+			check: func(t *testing.T, val types.Val) {
 				require.True(t, val.Bool())
 			},
 			wantSize: 1,
@@ -2256,7 +2257,7 @@ func TestLiftFieldFromMemory_AllPrimitiveTypes(t *testing.T) {
 			},
 			offset:  1,
 			valType: types.Bool{},
-			check: func(t *testing.T, val Val) {
+			check: func(t *testing.T, val types.Val) {
 				require.False(t, val.Bool())
 			},
 			wantSize: 1,
@@ -2268,7 +2269,7 @@ func TestLiftFieldFromMemory_AllPrimitiveTypes(t *testing.T) {
 			},
 			offset:  10,
 			valType: types.U8{},
-			check: func(t *testing.T, val Val) {
+			check: func(t *testing.T, val types.Val) {
 				require.Equal(t, uint8(200), val.U8())
 			},
 			wantSize: 1,
@@ -2280,7 +2281,7 @@ func TestLiftFieldFromMemory_AllPrimitiveTypes(t *testing.T) {
 			},
 			offset:  20,
 			valType: types.S8{},
-			check: func(t *testing.T, val Val) {
+			check: func(t *testing.T, val types.Val) {
 				require.Equal(t, int8(-42), val.S8())
 			},
 			wantSize: 1,
@@ -2292,7 +2293,7 @@ func TestLiftFieldFromMemory_AllPrimitiveTypes(t *testing.T) {
 			},
 			offset:  100,
 			valType: types.U32{},
-			check: func(t *testing.T, val Val) {
+			check: func(t *testing.T, val types.Val) {
 				require.Equal(t, uint32(123456), val.U32())
 			},
 			wantSize: 4,
@@ -2305,7 +2306,7 @@ func TestLiftFieldFromMemory_AllPrimitiveTypes(t *testing.T) {
 			},
 			offset:  200,
 			valType: types.S32{},
-			check: func(t *testing.T, val Val) {
+			check: func(t *testing.T, val types.Val) {
 				require.Equal(t, int32(-999), val.S32())
 			},
 			wantSize: 4,

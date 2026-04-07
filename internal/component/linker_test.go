@@ -6,6 +6,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -23,8 +24,8 @@ func TestLinker_DefineFunc(t *testing.T) {
 		Results: []NamedValType{{Name: "", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7f}}},
 	}
 
-	err := l.DefineFunc("test:api", "add", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
-		return []Val{ValS32(42)}, nil
+	err := l.DefineFunc("test:api", "add", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		return []types.Val{types.ValS32(42)}, nil
 	})
 	require.NoError(t, err)
 
@@ -38,13 +39,13 @@ func TestLinker_DefineFunc_Duplicate(t *testing.T) {
 	l := NewLinker()
 	funcType := &FuncType{}
 
-	err := l.DefineFunc("test", "fn", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
+	err := l.DefineFunc("test", "fn", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		return nil, nil
 	})
 	require.NoError(t, err)
 
 	// Duplicate should error
-	err = l.DefineFunc("test", "fn", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
+	err = l.DefineFunc("test", "fn", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		return nil, nil
 	})
 	require.Error(t, err)
@@ -56,10 +57,10 @@ func TestLinker_DefineInstance(t *testing.T) {
 	funcType := &FuncType{}
 
 	err := l.DefineInstance("wasi:io/streams@0.2.0").
-		Func("read", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
+		Func("read", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			return nil, nil
 		}).
-		Func("write", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
+		Func("write", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			return nil, nil
 		}).
 		Build()
@@ -108,7 +109,7 @@ func TestLinker_Get_Direct(t *testing.T) {
 	l := NewLinker()
 	funcType := &FuncType{}
 
-	l.DefineFunc("test:api", "fn", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
+	l.DefineFunc("test:api", "fn", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		return nil, nil
 	})
 
@@ -131,7 +132,7 @@ func TestLinker_Get_Instance(t *testing.T) {
 	funcType := &FuncType{}
 
 	l.DefineInstance("wasi:io/streams@0.2.0").
-		Func("read", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
+		Func("read", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			return nil, nil
 		}).
 		Build()
@@ -151,7 +152,7 @@ func TestLinker_MatchImport_OldImportNewItem(t *testing.T) {
 	funcType := &FuncType{}
 
 	// Define v1.0.1
-	err := l.DefineFunc("test:api@1.0.1", "fn", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
+	err := l.DefineFunc("test:api@1.0.1", "fn", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		return nil, nil
 	})
 	require.NoError(t, err)
@@ -169,7 +170,7 @@ func TestLinker_MatchImport_NewImportOldItem(t *testing.T) {
 	funcType := &FuncType{}
 
 	// Define v1.0.0
-	err := l.DefineFunc("test:api@1.0.0", "fn", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
+	err := l.DefineFunc("test:api@1.0.0", "fn", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		return nil, nil
 	})
 	require.NoError(t, err)
@@ -185,14 +186,14 @@ func TestLinker_MatchImport_SelectsMax(t *testing.T) {
 	funcType := &FuncType{}
 
 	// Define multiple versions
-	l.DefineFunc("test:api@1.0.0", "fn", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
-		return []Val{ValS32(100)}, nil
+	l.DefineFunc("test:api@1.0.0", "fn", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		return []types.Val{types.ValS32(100)}, nil
 	})
-	l.DefineFunc("test:api@1.0.2", "fn", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
-		return []Val{ValS32(102)}, nil
+	l.DefineFunc("test:api@1.0.2", "fn", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		return []types.Val{types.ValS32(102)}, nil
 	})
-	l.DefineFunc("test:api@1.0.1", "fn", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
-		return []Val{ValS32(101)}, nil
+	l.DefineFunc("test:api@1.0.1", "fn", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		return []types.Val{types.ValS32(101)}, nil
 	})
 
 	// Request v1.0.0 - should select highest compatible (v1.0.2)
@@ -211,7 +212,7 @@ func TestLinker_MatchImport_DirectMatch(t *testing.T) {
 	l := NewLinker()
 	funcType := &FuncType{}
 
-	l.DefineFunc("test", "fn", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
+	l.DefineFunc("test", "fn", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		return nil, nil
 	})
 
@@ -242,8 +243,8 @@ func TestLinker_Instantiate_WithImports(t *testing.T) {
 	funcType := &FuncType{}
 
 	// Define the import
-	err := l.DefineFunc("test:api@1.0.0", "fn", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
-		return []Val{ValS32(42)}, nil
+	err := l.DefineFunc("test:api@1.0.0", "fn", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		return []types.Val{types.ValS32(42)}, nil
 	})
 	require.NoError(t, err)
 
@@ -404,8 +405,8 @@ func TestLinker_RelaxedSemverMatching_FuncImport(t *testing.T) {
 	funcType := &FuncType{}
 
 	// Define v0.2.0
-	err := l.DefineFunc("test:api@0.2.0", "fn", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
-		return []Val{ValS32(200)}, nil
+	err := l.DefineFunc("test:api@0.2.0", "fn", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		return []types.Val{types.ValS32(200)}, nil
 	})
 	require.NoError(t, err)
 
@@ -436,7 +437,7 @@ func TestLinker_RelaxedSemverMatching_InstanceImport(t *testing.T) {
 
 	// Define instance at v0.2.0
 	err := l.DefineInstance("wasi:cli/environment@0.2.0").
-		Func("get-environment", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
+		Func("get-environment", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			return nil, nil
 		}).
 		Build()
@@ -466,7 +467,7 @@ func TestLinker_RelaxedSemverMatching_DifferentMinor(t *testing.T) {
 	funcType := &FuncType{}
 
 	// Define v0.2.0
-	err := l.DefineFunc("test:api@0.2.0", "fn", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
+	err := l.DefineFunc("test:api@0.2.0", "fn", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		return nil, nil
 	})
 	require.NoError(t, err)
@@ -485,7 +486,7 @@ func TestLinker_RelaxedSemverMatching_Post1_0(t *testing.T) {
 	funcType := &FuncType{}
 
 	// Define v1.0.0
-	err := l.DefineFunc("test:api@1.0.0", "fn", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
+	err := l.DefineFunc("test:api@1.0.0", "fn", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		return nil, nil
 	})
 	require.NoError(t, err)
@@ -503,7 +504,7 @@ func TestLinker_MatchLockedDep(t *testing.T) {
 
 	// Define the dependency with version in namespace
 	err := l.DefineInstance("my-pkg@1.2.3").
-		FuncNoType("fn", func(ctx context.Context, args []Val) ([]Val, error) {
+		FuncNoType("fn", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			return nil, nil
 		}).
 		Build()
@@ -525,7 +526,7 @@ func TestLinker_MatchLockedDep_NotFound(t *testing.T) {
 
 	// Define a different version
 	err := l.DefineInstance("my-pkg@1.0.0").
-		FuncNoType("fn", func(ctx context.Context, args []Val) ([]Val, error) {
+		FuncNoType("fn", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			return nil, nil
 		}).
 		Build()
@@ -541,8 +542,8 @@ func TestLinker_MatchUnlockedDep(t *testing.T) {
 
 	// Define multiple versions
 	for _, ver := range []string{"1.0.0", "1.5.0", "2.0.0"} {
-		err := l.DefineInstance("my-pkg@" + ver).
-			FuncNoType("fn", func(ctx context.Context, args []Val) ([]Val, error) {
+		err := l.DefineInstance("my-pkg@"+ver).
+			FuncNoType("fn", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 				return nil, nil
 			}).
 			Build()
@@ -559,8 +560,8 @@ func TestLinker_MatchUnlockedDep_MatchAll(t *testing.T) {
 	l := NewLinker()
 
 	for _, ver := range []string{"0.1.0", "1.0.0", "3.0.0"} {
-		err := l.DefineInstance("pkg@" + ver).
-			FuncNoType("fn", func(ctx context.Context, args []Val) ([]Val, error) {
+		err := l.DefineInstance("pkg@"+ver).
+			FuncNoType("fn", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 				return nil, nil
 			}).
 			Build()
@@ -578,8 +579,8 @@ func TestLinker_MatchUnlockedDep_NoMatch(t *testing.T) {
 
 	// Define versions outside the requested range
 	for _, ver := range []string{"0.5.0", "3.0.0"} {
-		err := l.DefineInstance("my-pkg@" + ver).
-			FuncNoType("fn", func(ctx context.Context, args []Val) ([]Val, error) {
+		err := l.DefineInstance("my-pkg@"+ver).
+			FuncNoType("fn", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 				return nil, nil
 			}).
 			Build()
@@ -612,7 +613,7 @@ func TestLinker_MatchPlainImport(t *testing.T) {
 
 	// Define a plain instance (no version, no slash)
 	err := l.DefineInstance("my-component").
-		FuncNoType("fn", func(ctx context.Context, args []Val) ([]Val, error) {
+		FuncNoType("fn", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			return nil, nil
 		}).
 		Build()
@@ -631,7 +632,7 @@ func TestLinker_MatchInterfaceImport_Unchanged(t *testing.T) {
 
 	// Define instance at v0.2.0
 	err := l.DefineInstance("wasi:cli/environment@0.2.0").
-		Func("get-environment", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
+		Func("get-environment", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			return nil, nil
 		}).
 		Build()

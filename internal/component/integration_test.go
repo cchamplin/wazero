@@ -6,6 +6,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -20,11 +21,11 @@ func TestIntegration_ComponentWithFuncImport(t *testing.T) {
 		Results: []NamedValType{{Name: "", ValType: ValTypeRef{IsPrimitive: true, Primitive: 0x7f}}},
 	}
 
-	err := l.DefineFunc("test:host@1.0.0", "double", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
+	err := l.DefineFunc("test:host@1.0.0", "double", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		if len(args) > 0 {
-			return []Val{ValS32(args[0].S32() * 2)}, nil
+			return []types.Val{types.ValS32(args[0].S32() * 2)}, nil
 		}
-		return []Val{ValS32(0)}, nil
+		return []types.Val{types.ValS32(0)}, nil
 	})
 	require.NoError(t, err)
 
@@ -67,7 +68,7 @@ func TestIntegration_FuncImportSemverMatch(t *testing.T) {
 	funcType := &FuncType{}
 
 	// Define v1.0.1 (newer)
-	err := l.DefineFunc("api@1.0.1", "fn", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
+	err := l.DefineFunc("api@1.0.1", "fn", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		return nil, nil
 	})
 	require.NoError(t, err)
@@ -100,7 +101,7 @@ func TestIntegration_FuncImportSemverMismatch(t *testing.T) {
 	funcType := &FuncType{}
 
 	// Define v1.0.0 (older)
-	err := l.DefineFunc("api@1.0.0", "fn", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
+	err := l.DefineFunc("api@1.0.0", "fn", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		return nil, nil
 	})
 	require.NoError(t, err)
@@ -132,7 +133,7 @@ func TestIntegration_FuncImportMajorVersionMismatch(t *testing.T) {
 	funcType := &FuncType{}
 
 	// Define v2.0.0
-	err := l.DefineFunc("api@2.0.0", "fn", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
+	err := l.DefineFunc("api@2.0.0", "fn", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		return nil, nil
 	})
 	require.NoError(t, err)
@@ -166,10 +167,10 @@ func TestIntegration_InstanceImport(t *testing.T) {
 
 	// Define instance with multiple exports
 	err := l.DefineInstance("wasi:io/streams@0.2.0").
-		Func("read", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
+		Func("read", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			return nil, nil
 		}).
-		Func("write", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
+		Func("write", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			return nil, nil
 		}).
 		Build()
@@ -193,7 +194,7 @@ func TestIntegration_InstanceImportWithVersioning(t *testing.T) {
 
 	// Define instance at v0.2.1
 	err := l.DefineInstance("wasi:io/streams@0.2.1").
-		Func("read", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
+		Func("read", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			return nil, nil
 		}).
 		Build()
@@ -221,11 +222,11 @@ func TestIntegration_FullLinkingScenario(t *testing.T) {
 		},
 	}
 
-	err := l.DefineFunc("math@1.0.0", "add", addType, func(ctx context.Context, args []Val) ([]Val, error) {
+	err := l.DefineFunc("math@1.0.0", "add", addType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		if len(args) >= 2 {
-			return []Val{ValS32(args[0].S32() + args[1].S32())}, nil
+			return []types.Val{types.ValS32(args[0].S32() + args[1].S32())}, nil
 		}
-		return []Val{ValS32(0)}, nil
+		return []types.Val{types.ValS32(0)}, nil
 	})
 	require.NoError(t, err)
 
@@ -239,11 +240,11 @@ func TestIntegration_FullLinkingScenario(t *testing.T) {
 		},
 	}
 
-	err = l.DefineFunc("math@1.0.0", "mul", mulType, func(ctx context.Context, args []Val) ([]Val, error) {
+	err = l.DefineFunc("math@1.0.0", "mul", mulType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		if len(args) >= 2 {
-			return []Val{ValS32(args[0].S32() * args[1].S32())}, nil
+			return []types.Val{types.ValS32(args[0].S32() * args[1].S32())}, nil
 		}
-		return []Val{ValS32(0)}, nil
+		return []types.Val{types.ValS32(0)}, nil
 	})
 	require.NoError(t, err)
 
@@ -302,18 +303,18 @@ func TestIntegration_MultipleVersionedImports(t *testing.T) {
 	funcType := &FuncType{}
 
 	// Define multiple versions of the same function
-	err := l.DefineFunc("api@1.0.0", "fn", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
-		return []Val{ValS32(100)}, nil
+	err := l.DefineFunc("api@1.0.0", "fn", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		return []types.Val{types.ValS32(100)}, nil
 	})
 	require.NoError(t, err)
 
-	err = l.DefineFunc("api@1.0.2", "fn", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
-		return []Val{ValS32(102)}, nil
+	err = l.DefineFunc("api@1.0.2", "fn", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		return []types.Val{types.ValS32(102)}, nil
 	})
 	require.NoError(t, err)
 
-	err = l.DefineFunc("api@1.0.1", "fn", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
-		return []Val{ValS32(101)}, nil
+	err = l.DefineFunc("api@1.0.1", "fn", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		return []types.Val{types.ValS32(101)}, nil
 	})
 	require.NoError(t, err)
 
@@ -372,7 +373,7 @@ func TestIntegration_MixedImports(t *testing.T) {
 	funcType := &FuncType{}
 
 	// Define a function
-	err := l.DefineFunc("api@1.0.0", "process", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
+	err := l.DefineFunc("api@1.0.0", "process", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		return nil, nil
 	})
 	require.NoError(t, err)
@@ -525,7 +526,7 @@ func TestIntegration_Pre1_0_SemverHandling(t *testing.T) {
 	funcType := &FuncType{}
 
 	// Define v0.2.1
-	err := l.DefineFunc("api@0.2.1", "fn", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
+	err := l.DefineFunc("api@0.2.1", "fn", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		return nil, nil
 	})
 	require.NoError(t, err)
@@ -557,7 +558,7 @@ func TestIntegration_Pre1_0_MinorVersionMismatch(t *testing.T) {
 	funcType := &FuncType{}
 
 	// Define v0.3.0
-	err := l.DefineFunc("api@0.3.0", "fn", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
+	err := l.DefineFunc("api@0.3.0", "fn", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		return nil, nil
 	})
 	require.NoError(t, err)
@@ -588,12 +589,12 @@ func TestIntegration_WASILikeNamespace(t *testing.T) {
 	funcType := &FuncType{}
 
 	// Define WASI-like functions
-	err := l.DefineFunc("wasi:cli/environment@0.2.0", "get-environment", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
+	err := l.DefineFunc("wasi:cli/environment@0.2.0", "get-environment", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		return nil, nil
 	})
 	require.NoError(t, err)
 
-	err = l.DefineFunc("wasi:cli/stdin@0.2.0", "get-stdin", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
+	err = l.DefineFunc("wasi:cli/stdin@0.2.0", "get-stdin", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		return nil, nil
 	})
 	require.NoError(t, err)
@@ -633,7 +634,7 @@ func TestIntegration_HostFunctionCallback(t *testing.T) {
 	callCount := 0
 	funcType := &FuncType{}
 
-	err := l.DefineFunc("test@1.0.0", "increment", funcType, func(ctx context.Context, args []Val) ([]Val, error) {
+	err := l.DefineFunc("test@1.0.0", "increment", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		callCount++
 		return nil, nil
 	})
@@ -664,9 +665,9 @@ func TestIntegration_InstanceBuilderChaining(t *testing.T) {
 
 	// Build instance with chained calls
 	err := l.DefineInstance("api@1.0.0").
-		Func("a", funcType, func(ctx context.Context, args []Val) ([]Val, error) { return nil, nil }).
-		Func("b", funcType, func(ctx context.Context, args []Val) ([]Val, error) { return nil, nil }).
-		Func("c", funcType, func(ctx context.Context, args []Val) ([]Val, error) { return nil, nil }).
+		Func("a", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) { return nil, nil }).
+		Func("b", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) { return nil, nil }).
+		Func("c", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) { return nil, nil }).
 		Build()
 	require.NoError(t, err)
 

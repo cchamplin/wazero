@@ -10,6 +10,7 @@ import (
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/component/binary"
 	"github.com/tetratelabs/wazero/internal/component/testdata"
+	ctypes "github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -34,7 +35,7 @@ func TestInstantiate_AddS32(t *testing.T) {
 	require.NotNil(t, add, "expected 'add' export")
 
 	// Call add(2, 3) and expect 5
-	results, err := add.Call(ctx, component.ValS32(2), component.ValS32(3))
+	results, err := add.Call(ctx, ctypes.ValS32(2), ctypes.ValS32(3))
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results))
 	require.Equal(t, int32(5), results[0].S32())
@@ -70,7 +71,7 @@ func TestInstantiate_AddS32_EdgeCases(t *testing.T) {
 	for _, tt := range tests {
 		tc := tt
 		t.Run(tc.name, func(t *testing.T) {
-			results, err := add.Call(ctx, component.ValS32(tc.a), component.ValS32(tc.b))
+			results, err := add.Call(ctx, ctypes.ValS32(tc.a), ctypes.ValS32(tc.b))
 			require.NoError(t, err)
 			require.Equal(t, 1, len(results))
 			require.Equal(t, tc.expected, results[0].S32())

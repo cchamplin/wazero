@@ -4,6 +4,8 @@ package component
 import (
 	"context"
 	"testing"
+
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 func TestNewTypeChecker(t *testing.T) {
@@ -150,8 +152,8 @@ func TestCheckInstance_ExtraExportsOK(t *testing.T) {
 	// Actual has more exports - should pass (width subtyping)
 	actual := &InstanceDef{
 		Exports: map[string]Definition{
-			"required-fn": &FuncDef{Callback: func(ctx context.Context, args []Val) ([]Val, error) { return nil, nil }},
-			"extra-fn":    &FuncDef{Callback: func(ctx context.Context, args []Val) ([]Val, error) { return nil, nil }},
+			"required-fn": &FuncDef{Callback: func(ctx context.Context, args []types.Val) ([]types.Val, error) { return nil, nil }},
+			"extra-fn":    &FuncDef{Callback: func(ctx context.Context, args []types.Val) ([]types.Val, error) { return nil, nil }},
 		},
 	}
 

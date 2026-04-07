@@ -6,6 +6,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 func TestExecuteStartFunction_Basic(t *testing.T) {
@@ -24,13 +26,13 @@ func TestExecuteStartFunction_Basic(t *testing.T) {
 	}
 
 	// Add a value to be passed to start function
-	inst.AddValue(ValString("World"))
+	inst.AddValue(types.ValString("World"))
 
 	// Add the start function that prepends "Hello, "
 	inst.componentFuncs[0] = ComponentFunc{
-		Impl: func(ctx context.Context, args []Val) ([]Val, error) {
+		Impl: func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			name := args[0].StringVal()
-			return []Val{ValString("Hello, " + name)}, nil
+			return []types.Val{types.ValString("Hello, " + name)}, nil
 		},
 	}
 
@@ -87,11 +89,11 @@ func TestExecuteStartFunction_ValueAlreadyConsumed(t *testing.T) {
 	}
 
 	// Add and immediately consume the value
-	inst.AddValue(ValS32(42))
+	inst.AddValue(types.ValS32(42))
 	_, _ = inst.ConsumeValue(0)
 
 	inst.componentFuncs[0] = ComponentFunc{
-		Impl: func(ctx context.Context, args []Val) ([]Val, error) {
+		Impl: func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			return nil, nil
 		},
 	}
@@ -120,15 +122,15 @@ func TestExecuteStartFunction_MultipleArgs(t *testing.T) {
 	}
 
 	// Add values to be passed to start function
-	inst.AddValue(ValS32(10))
-	inst.AddValue(ValS32(20))
+	inst.AddValue(types.ValS32(10))
+	inst.AddValue(types.ValS32(20))
 
 	// Add the start function that adds two numbers
 	inst.componentFuncs[0] = ComponentFunc{
-		Impl: func(ctx context.Context, args []Val) ([]Val, error) {
+		Impl: func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			a := args[0].S32()
 			b := args[1].S32()
-			return []Val{ValS32(a + b)}, nil
+			return []types.Val{types.ValS32(a + b)}, nil
 		},
 	}
 
@@ -195,8 +197,8 @@ func TestExecuteStartFunction_ResultCountMismatch(t *testing.T) {
 
 	// Function returns only 1 result
 	inst.componentFuncs[0] = ComponentFunc{
-		Impl: func(ctx context.Context, args []Val) ([]Val, error) {
-			return []Val{ValS32(42)}, nil
+		Impl: func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+			return []types.Val{types.ValS32(42)}, nil
 		},
 	}
 
@@ -224,8 +226,8 @@ func TestExecuteStartFunction_MultipleResults(t *testing.T) {
 
 	// Function returns three values
 	inst.componentFuncs[0] = ComponentFunc{
-		Impl: func(ctx context.Context, args []Val) ([]Val, error) {
-			return []Val{ValS32(1), ValS32(2), ValS32(3)}, nil
+		Impl: func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+			return []types.Val{types.ValS32(1), types.ValS32(2), types.ValS32(3)}, nil
 		},
 	}
 
@@ -265,7 +267,7 @@ func TestExecuteStartFunction_ReturnsError(t *testing.T) {
 
 	expectedErr := errors.New("initialization failed")
 	inst.componentFuncs[0] = ComponentFunc{
-		Impl: func(ctx context.Context, args []Val) ([]Val, error) {
+		Impl: func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			return nil, expectedErr
 		},
 	}
@@ -296,10 +298,10 @@ func TestExecuteStartFunction_ValueIndexOutOfRange(t *testing.T) {
 	}
 
 	// Add only one value at index 0
-	inst.AddValue(ValS32(42))
+	inst.AddValue(types.ValS32(42))
 
 	inst.componentFuncs[0] = ComponentFunc{
-		Impl: func(ctx context.Context, args []Val) ([]Val, error) {
+		Impl: func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			return nil, nil
 		},
 	}

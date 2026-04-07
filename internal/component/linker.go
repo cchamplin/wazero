@@ -6,10 +6,12 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 // HostFunc is a host function that can be called from a component.
-type HostFunc func(ctx context.Context, args []Val) ([]Val, error)
+type HostFunc func(ctx context.Context, args []types.Val) ([]types.Val, error)
 
 // Definition is an item that can satisfy a component import.
 type Definition interface {
@@ -51,7 +53,7 @@ func (*ComponentDef) definition() {}
 // binary value data from the component format. ImportedValueDef wraps
 // a runtime Val for use in the linker.
 type ImportedValueDef struct {
-	Value Val
+	Value types.Val
 }
 
 func (*ImportedValueDef) definition() {}
@@ -66,8 +68,8 @@ func (*TypeDefDef) definition() {}
 
 // Linker resolves component imports and instantiates components.
 type Linker struct {
-	definitions    map[string]Definition
-	relaxedSemver  bool
+	definitions   map[string]Definition
+	relaxedSemver bool
 }
 
 // NewLinker creates a new component linker.

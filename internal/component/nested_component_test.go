@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/internalapi"
 )
 
@@ -42,8 +43,8 @@ func TestInstantiateNestedComponent_Basic(t *testing.T) {
 	parent := &Instance{
 		componentFuncs: map[uint32]ComponentFunc{
 			0: {
-				Impl: func(ctx context.Context, args []Val) ([]Val, error) {
-					return []Val{ValS32(42)}, nil
+				Impl: func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+					return []types.Val{types.ValS32(42)}, nil
 				},
 			},
 		},
@@ -288,7 +289,7 @@ func TestInstantiateNestedComponent_ValueArg(t *testing.T) {
 
 	// Parent with a value in its value space
 	parent := &Instance{}
-	parent.AddValue(ValS32(123))
+	parent.AddValue(types.ValS32(123))
 
 	compInst := &ComponentInstance{
 		Kind:         ComponentInstanceExprInstantiate,
@@ -426,8 +427,8 @@ func TestInstantiateNestedComponent_ThreeLevels(t *testing.T) {
 	grandparent := &Instance{
 		componentFuncs: map[uint32]ComponentFunc{
 			0: {
-				Impl: func(ctx context.Context, args []Val) ([]Val, error) {
-					return []Val{ValS32(1)}, nil
+				Impl: func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+					return []types.Val{types.ValS32(1)}, nil
 				},
 			},
 		},
@@ -460,8 +461,8 @@ func TestInstantiateNestedComponent_ThreeLevels(t *testing.T) {
 
 	// Add a function to child instance for grandchild to import
 	childInst.componentFuncs[0] = ComponentFunc{
-		Impl: func(ctx context.Context, args []Val) ([]Val, error) {
-			return []Val{ValS32(2)}, nil
+		Impl: func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+			return []types.Val{types.ValS32(2)}, nil
 		},
 	}
 
@@ -527,8 +528,8 @@ func TestInstantiateNestedComponent_ExportsInstance(t *testing.T) {
 	parent := &Instance{
 		componentFuncs: map[uint32]ComponentFunc{
 			0: {
-				Impl: func(ctx context.Context, args []Val) ([]Val, error) {
-					return []Val{ValS32(42)}, nil
+				Impl: func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+					return []types.Val{types.ValS32(42)}, nil
 				},
 			},
 		},
@@ -1166,13 +1167,13 @@ func TestResolveFromParentScope_ComponentFuncsOrdering(t *testing.T) {
 	parent := &Instance{
 		componentFuncs: map[uint32]ComponentFunc{
 			0: {
-				Impl: func(ctx context.Context, args []Val) ([]Val, error) {
-					return []Val{ValS32(1)}, nil
+				Impl: func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+					return []types.Val{types.ValS32(1)}, nil
 				},
 			},
 			5: {
-				Impl: func(ctx context.Context, args []Val) ([]Val, error) {
-					return []Val{ValS32(5)}, nil
+				Impl: func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+					return []types.Val{types.ValS32(5)}, nil
 				},
 			},
 		},
@@ -1210,21 +1211,21 @@ func (m *mockModuleForExport) ExportedFunction(name string) api.Function {
 }
 
 // Stub implementations for api.Module interface
-func (m *mockModuleForExport) Name() string                         { return "mock" }
-func (m *mockModuleForExport) Memory() api.Memory                   { return nil }
+func (m *mockModuleForExport) Name() string                          { return "mock" }
+func (m *mockModuleForExport) Memory() api.Memory                    { return nil }
 func (m *mockModuleForExport) ExportedMemory(name string) api.Memory { return nil }
 func (m *mockModuleForExport) ExportedFunctionDefinitions() map[string]api.FunctionDefinition {
 	return nil
 }
-func (m *mockModuleForExport) ExportedGlobal(name string) api.Global               { return nil }
+func (m *mockModuleForExport) ExportedGlobal(name string) api.Global { return nil }
 func (m *mockModuleForExport) ExportedMemoryDefinitions() map[string]api.MemoryDefinition {
 	return nil
 }
 func (m *mockModuleForExport) CloseWithExitCode(ctx context.Context, exitCode uint32) error {
 	return nil
 }
-func (m *mockModuleForExport) Close(ctx context.Context) error    { return nil }
-func (m *mockModuleForExport) IsClosed() bool                     { return false }
+func (m *mockModuleForExport) Close(ctx context.Context) error            { return nil }
+func (m *mockModuleForExport) IsClosed() bool                             { return false }
 func (m *mockModuleForExport) NumericCustomSections() []api.CustomSection { return nil }
-func (m *mockModuleForExport) CustomSections() []api.CustomSection { return nil }
-func (m *mockModuleForExport) String() string                       { return "mock" }
+func (m *mockModuleForExport) CustomSections() []api.CustomSection        { return nil }
+func (m *mockModuleForExport) String() string                             { return "mock" }

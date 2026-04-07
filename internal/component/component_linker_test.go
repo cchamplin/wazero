@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/internalapi"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
@@ -14,13 +15,13 @@ func TestComponentLinkerDefineFunc(t *testing.T) {
 	// Use nil runtime for unit tests since we can't import wazero
 	linker := NewComponentLinker(nil)
 
-	err := linker.DefineFunc("test:api@1.0.0", "hello", func(ctx context.Context, args []Val) ([]Val, error) {
-		return []Val{ValString("Hello!")}, nil
+	err := linker.DefineFunc("test:api@1.0.0", "hello", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		return []types.Val{types.ValString("Hello!")}, nil
 	})
 	require.NoError(t, err)
 
 	// Duplicate should fail
-	err = linker.DefineFunc("test:api@1.0.0", "hello", func(ctx context.Context, args []Val) ([]Val, error) {
+	err = linker.DefineFunc("test:api@1.0.0", "hello", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		return nil, nil
 	})
 	require.Error(t, err)
@@ -30,10 +31,10 @@ func TestComponentLinkerDefineInstance(t *testing.T) {
 	linker := NewComponentLinker(nil)
 
 	err := linker.DefineInstance("wasi:cli/environment@0.2.0").
-		Func("get-environment", func(ctx context.Context, args []Val) ([]Val, error) {
+		Func("get-environment", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			return nil, nil
 		}).
-		Func("get-arguments", func(ctx context.Context, args []Val) ([]Val, error) {
+		Func("get-arguments", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			return nil, nil
 		}).
 		Build()
@@ -77,8 +78,8 @@ func TestComponentLinkerMatchImport(t *testing.T) {
 	linker := NewComponentLinker(nil)
 
 	// Define v1.0.1
-	err := linker.DefineFunc("test:api@1.0.1", "fn", func(ctx context.Context, args []Val) ([]Val, error) {
-		return []Val{ValS32(101)}, nil
+	err := linker.DefineFunc("test:api@1.0.1", "fn", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		return []types.Val{types.ValS32(101)}, nil
 	})
 	require.NoError(t, err)
 
@@ -106,7 +107,7 @@ func TestComponentLinkerDefineInstanceDuplicate(t *testing.T) {
 	linker := NewComponentLinker(nil)
 
 	err := linker.DefineInstance("api@1.0.0").
-		Func("fn", func(ctx context.Context, args []Val) ([]Val, error) {
+		Func("fn", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			return nil, nil
 		}).
 		Build()
@@ -114,7 +115,7 @@ func TestComponentLinkerDefineInstanceDuplicate(t *testing.T) {
 
 	// Duplicate instance should fail
 	err = linker.DefineInstance("api@1.0.0").
-		Func("fn2", func(ctx context.Context, args []Val) ([]Val, error) {
+		Func("fn2", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			return nil, nil
 		}).
 		Build()
@@ -125,7 +126,7 @@ func TestComponentLinkerInstanceBuilderResource(t *testing.T) {
 	linker := NewComponentLinker(nil)
 
 	err := linker.DefineInstance("api@1.0.0").
-		Func("read", func(ctx context.Context, args []Val) ([]Val, error) {
+		Func("read", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			return nil, nil
 		}).
 		Resource("handle", func(rep uint32) {}).
@@ -282,7 +283,10 @@ func TestComponentLinker_OrderedInstantiation(t *testing.T) {
 	resolvedImports := make(map[string]Definition)
 	canonLowers := make(map[uint32]canonLowerInfo)
 	canonResources := make(map[uint32]canonResourceInfo)
-	funcAliases := make(map[uint32]struct{ instanceIdx uint32; exportName string })
+	funcAliases := make(map[uint32]struct {
+		instanceIdx uint32
+		exportName  string
+	})
 	resolver := linker.buildImportResolver(ctx, inst, c, &c.CoreInstances[1], resolvedImports, canonLowers, canonResources, funcAliases)
 	require.NotNil(t, resolver)
 
@@ -337,8 +341,8 @@ func TestComponentLinker_TypeCheckingIntegration(t *testing.T) {
 	// Note: DefineFunc doesn't attach type info to FuncDef, so type checking
 	// will pass if the FuncDef.Type is nil (trust the host).
 	// This test documents the behavior and verifies no panics occur.
-	err := linker.DefineFunc("test", "fn", func(ctx context.Context, args []Val) ([]Val, error) {
-		return []Val{ValString("wrong")}, nil
+	err := linker.DefineFunc("test", "fn", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		return []types.Val{types.ValString("wrong")}, nil
 	})
 	require.NoError(t, err)
 
@@ -406,9 +410,9 @@ func TestComponentLinker_TypeCheckingInstanceImport(t *testing.T) {
 
 	// Define instance with the expected "greet" export
 	err := linker.DefineInstance("test:api/greeting@1.0.0").
-		Func("greet", func(ctx context.Context, args []Val) ([]Val, error) {
+		Func("greet", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			name := args[0].StringVal()
-			return []Val{ValString("Hello, " + name)}, nil
+			return []types.Val{types.ValString("Hello, " + name)}, nil
 		}).
 		Build()
 	require.NoError(t, err)
@@ -471,8 +475,8 @@ func TestComponentLinker_TypeCheckingMissingExport(t *testing.T) {
 
 	// Define instance WITHOUT the expected "greet" export (missing export)
 	err := linker.DefineInstance("test:api/greeting@1.0.0").
-		Func("goodbye", func(ctx context.Context, args []Val) ([]Val, error) {
-			return []Val{ValString("Goodbye!")}, nil
+		Func("goodbye", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+			return []types.Val{types.ValString("Goodbye!")}, nil
 		}).
 		Build()
 	require.NoError(t, err)

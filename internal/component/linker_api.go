@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/internalapi"
 )
 
@@ -42,7 +43,7 @@ func (l *ComponentLinkerWrapper) DefineFunc(namespace, name string, fn any) erro
 		return l.linker.DefineFunc(namespace, name, hf)
 	}
 	// For non-HostFunc, wrap it (simplified - just stores a placeholder)
-	wrapper := func(ctx context.Context, args []Val) ([]Val, error) {
+	wrapper := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		// Placeholder - full implementation would call fn with converted args
 		return nil, nil
 	}
@@ -104,7 +105,7 @@ func (b *ComponentInstanceBuilderWrapper) Func(name string, fn any) api.Componen
 		b.builder.Func(name, nil, hf)
 	} else {
 		// Wrap non-HostFunc (simplified)
-		wrapper := func(ctx context.Context, args []Val) ([]Val, error) {
+		wrapper := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			return nil, nil
 		}
 		b.builder.Func(name, nil, wrapper)
@@ -143,7 +144,7 @@ func (b *ComponentInstanceBuilderWrapper2) Func(name string, fn any) api.Compone
 		b.builder.Func(name, hf)
 	} else {
 		// Wrap non-HostFunc (simplified)
-		wrapper := func(ctx context.Context, args []Val) ([]Val, error) {
+		wrapper := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			return nil, nil
 		}
 		b.builder.Func(name, wrapper)
@@ -225,7 +226,7 @@ type ComponentFuncWrapper struct {
 // Call invokes the function with the given arguments.
 func (f *ComponentFuncWrapper) Call(ctx context.Context, params ...any) ([]any, error) {
 	// Convert params to Val
-	vals := make([]Val, len(params))
+	vals := make([]types.Val, len(params))
 	for i, p := range params {
 		vals[i] = anyToVal(p)
 	}
@@ -282,164 +283,164 @@ func (w *ComponentInstanceWrapper) Close(ctx context.Context) error {
 
 // anyToVal converts a Go value to a component Val.
 // Supports primitives, maps (records), slices (lists/tuples), and Val directly.
-func anyToVal(p any) Val {
+func anyToVal(p any) types.Val {
 	switch v := p.(type) {
-	case Val:
+	case types.Val:
 		// Already a Val, use directly
 		return v
 	case bool:
-		return ValBool(v)
+		return types.ValBool(v)
 	case int8:
-		return ValS8(v)
+		return types.ValS8(v)
 	case uint8:
-		return ValU8(v)
+		return types.ValU8(v)
 	case int16:
-		return ValS16(v)
+		return types.ValS16(v)
 	case uint16:
-		return ValU16(v)
+		return types.ValU16(v)
 	case int32:
-		return ValS32(v)
+		return types.ValS32(v)
 	case uint32:
-		return ValU32(v)
+		return types.ValU32(v)
 	case int64:
-		return ValS64(v)
+		return types.ValS64(v)
 	case uint64:
-		return ValU64(v)
+		return types.ValU64(v)
 	case float32:
-		return ValF32(v)
+		return types.ValF32(v)
 	case float64:
-		return ValF64(v)
+		return types.ValF64(v)
 	case string:
-		return ValString(v)
+		return types.ValString(v)
 	// Note: rune is an alias for int32, so we can't have a separate case.
-	// Users who want to pass a char should use component.ValChar() directly.
+	// Users who want to pass a char should use types.ValChar() directly.
 	case map[string]any:
 		// Record: convert map[string]any to ValRecord
-		fields := make(map[string]Val)
+		fields := make(map[string]types.Val)
 		for k, fv := range v {
 			fields[k] = anyToVal(fv)
 		}
-		return ValRecord(fields)
-	case map[string]Val:
+		return types.ValRecord(fields)
+	case map[string]types.Val:
 		// Record with Val values directly
-		return ValRecord(v)
+		return types.ValRecord(v)
 	case []any:
 		// List: convert []any to ValList
-		elements := make([]Val, len(v))
+		elements := make([]types.Val, len(v))
 		for i, e := range v {
 			elements[i] = anyToVal(e)
 		}
-		return ValList(elements)
-	case []Val:
+		return types.ValList(elements)
+	case []types.Val:
 		// List with Val values directly
-		return ValList(v)
+		return types.ValList(v)
 	case []uint8:
 		// List<u8>: convert typed byte slice to ValList of U8
-		elements := make([]Val, len(v))
+		elements := make([]types.Val, len(v))
 		for i, e := range v {
-			elements[i] = ValU8(e)
+			elements[i] = types.ValU8(e)
 		}
-		return ValList(elements)
+		return types.ValList(elements)
 	case []int8:
-		elements := make([]Val, len(v))
+		elements := make([]types.Val, len(v))
 		for i, e := range v {
-			elements[i] = ValS8(e)
+			elements[i] = types.ValS8(e)
 		}
-		return ValList(elements)
+		return types.ValList(elements)
 	case []uint16:
-		elements := make([]Val, len(v))
+		elements := make([]types.Val, len(v))
 		for i, e := range v {
-			elements[i] = ValU16(e)
+			elements[i] = types.ValU16(e)
 		}
-		return ValList(elements)
+		return types.ValList(elements)
 	case []int16:
-		elements := make([]Val, len(v))
+		elements := make([]types.Val, len(v))
 		for i, e := range v {
-			elements[i] = ValS16(e)
+			elements[i] = types.ValS16(e)
 		}
-		return ValList(elements)
+		return types.ValList(elements)
 	case []uint32:
-		elements := make([]Val, len(v))
+		elements := make([]types.Val, len(v))
 		for i, e := range v {
-			elements[i] = ValU32(e)
+			elements[i] = types.ValU32(e)
 		}
-		return ValList(elements)
+		return types.ValList(elements)
 	case []int32:
-		elements := make([]Val, len(v))
+		elements := make([]types.Val, len(v))
 		for i, e := range v {
-			elements[i] = ValS32(e)
+			elements[i] = types.ValS32(e)
 		}
-		return ValList(elements)
+		return types.ValList(elements)
 	case []uint64:
-		elements := make([]Val, len(v))
+		elements := make([]types.Val, len(v))
 		for i, e := range v {
-			elements[i] = ValU64(e)
+			elements[i] = types.ValU64(e)
 		}
-		return ValList(elements)
+		return types.ValList(elements)
 	case []int64:
-		elements := make([]Val, len(v))
+		elements := make([]types.Val, len(v))
 		for i, e := range v {
-			elements[i] = ValS64(e)
+			elements[i] = types.ValS64(e)
 		}
-		return ValList(elements)
+		return types.ValList(elements)
 	case []float32:
-		elements := make([]Val, len(v))
+		elements := make([]types.Val, len(v))
 		for i, e := range v {
-			elements[i] = ValF32(e)
+			elements[i] = types.ValF32(e)
 		}
-		return ValList(elements)
+		return types.ValList(elements)
 	case []float64:
-		elements := make([]Val, len(v))
+		elements := make([]types.Val, len(v))
 		for i, e := range v {
-			elements[i] = ValF64(e)
+			elements[i] = types.ValF64(e)
 		}
-		return ValList(elements)
+		return types.ValList(elements)
 	case []string:
-		elements := make([]Val, len(v))
+		elements := make([]types.Val, len(v))
 		for i, e := range v {
-			elements[i] = ValString(e)
+			elements[i] = types.ValString(e)
 		}
-		return ValList(elements)
+		return types.ValList(elements)
 	case nil:
 		// nil represents option::none
-		return ValOption(nil)
+		return types.ValOption(nil)
 	default:
 		// Unsupported type - return zero Val
-		return Val{}
+		return types.Val{}
 	}
 }
 
 // valToAny converts a component Val to a Go value.
 // Records become map[string]any, lists become []any, etc.
-func valToAny(r Val) any {
+func valToAny(r types.Val) any {
 	switch r.Kind() {
-	case ValKindBool:
+	case types.ValKindBool:
 		return r.Bool()
-	case ValKindS8:
+	case types.ValKindS8:
 		return r.S8()
-	case ValKindU8:
+	case types.ValKindU8:
 		return r.U8()
-	case ValKindS16:
+	case types.ValKindS16:
 		return r.S16()
-	case ValKindU16:
+	case types.ValKindU16:
 		return r.U16()
-	case ValKindS32:
+	case types.ValKindS32:
 		return r.S32()
-	case ValKindU32:
+	case types.ValKindU32:
 		return r.U32()
-	case ValKindS64:
+	case types.ValKindS64:
 		return r.S64()
-	case ValKindU64:
+	case types.ValKindU64:
 		return r.U64()
-	case ValKindF32:
+	case types.ValKindF32:
 		return r.F32()
-	case ValKindF64:
+	case types.ValKindF64:
 		return r.F64()
-	case ValKindChar:
+	case types.ValKindChar:
 		return r.Char()
-	case ValKindString:
+	case types.ValKindString:
 		return r.StringVal()
-	case ValKindRecord:
+	case types.ValKindRecord:
 		// Convert record to map[string]any
 		rec := r.Record()
 		out := make(map[string]any)
@@ -447,7 +448,7 @@ func valToAny(r Val) any {
 			out[k] = valToAny(v)
 		}
 		return out
-	case ValKindList:
+	case types.ValKindList:
 		// Convert list to []any
 		list := r.List()
 		out := make([]any, len(list))
@@ -455,7 +456,7 @@ func valToAny(r Val) any {
 			out[i] = valToAny(v)
 		}
 		return out
-	case ValKindTuple:
+	case types.ValKindTuple:
 		// Convert tuple to []any
 		tuple := r.Tuple()
 		out := make([]any, len(tuple))
@@ -463,7 +464,7 @@ func valToAny(r Val) any {
 			out[i] = valToAny(v)
 		}
 		return out
-	case ValKindOption:
+	case types.ValKindOption:
 		// Convert option to *any (nil for None)
 		opt := r.Option()
 		if opt == nil {
@@ -471,7 +472,7 @@ func valToAny(r Val) any {
 		}
 		v := valToAny(*opt)
 		return v
-	case ValKindResult:
+	case types.ValKindResult:
 		// Convert result to a struct-like map
 		isOk, okVal, errVal := r.Result()
 		result := map[string]any{"ok": isOk}
@@ -481,7 +482,7 @@ func valToAny(r Val) any {
 			result["error"] = valToAny(*errVal)
 		}
 		return result
-	case ValKindVariant:
+	case types.ValKindVariant:
 		// Convert variant to a map with case name and payload
 		caseName, payload := r.Variant()
 		result := map[string]any{"case": caseName}
@@ -489,13 +490,13 @@ func valToAny(r Val) any {
 			result["payload"] = valToAny(*payload)
 		}
 		return result
-	case ValKindEnum:
+	case types.ValKindEnum:
 		return r.Enum()
-	case ValKindFlags:
+	case types.ValKindFlags:
 		return r.Flags()
-	case ValKindOwn:
+	case types.ValKindOwn:
 		return r.Own()
-	case ValKindBorrow:
+	case types.ValKindBorrow:
 		return r.Borrow()
 	default:
 		return nil

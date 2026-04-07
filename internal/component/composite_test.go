@@ -10,6 +10,7 @@ import (
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/component/binary"
 	"github.com/tetratelabs/wazero/internal/component/testdata"
+	ctypes "github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -28,9 +29,9 @@ func TestEchoRecord(t *testing.T) {
 	require.NotNil(t, echo)
 
 	// Call with record { x: 10, y: 20 }
-	input := component.ValRecord(map[string]component.Val{
-		"x": component.ValS32(10),
-		"y": component.ValS32(20),
+	input := ctypes.ValRecord(map[string]ctypes.Val{
+		"x": ctypes.ValS32(10),
+		"y": ctypes.ValS32(20),
 	})
 
 	results, err := echo.Call(ctx, input)
@@ -58,11 +59,11 @@ func TestEchoRecord_EdgeCases(t *testing.T) {
 	require.NotNil(t, echo)
 
 	tests := []struct {
-		name     string
-		inputX   int32
-		inputY   int32
-		expectX  int32
-		expectY  int32
+		name    string
+		inputX  int32
+		inputY  int32
+		expectX int32
+		expectY int32
 	}{
 		{
 			name:    "zero values",
@@ -89,9 +90,9 @@ func TestEchoRecord_EdgeCases(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			input := component.ValRecord(map[string]component.Val{
-				"x": component.ValS32(tc.inputX),
-				"y": component.ValS32(tc.inputY),
+			input := ctypes.ValRecord(map[string]ctypes.Val{
+				"x": ctypes.ValS32(tc.inputX),
+				"y": ctypes.ValS32(tc.inputY),
 			})
 
 			results, err := echo.Call(ctx, input)
@@ -121,7 +122,7 @@ func TestOptionRoundtrip(t *testing.T) {
 
 	t.Run("None case", func(t *testing.T) {
 		// Call with None (nil payload)
-		input := component.ValOption(nil)
+		input := ctypes.ValOption(nil)
 
 		results, err := echo.Call(ctx, input)
 		require.NoError(t, err)
@@ -134,8 +135,8 @@ func TestOptionRoundtrip(t *testing.T) {
 
 	t.Run("Some case", func(t *testing.T) {
 		// Call with Some(42)
-		val := component.ValS32(42)
-		input := component.ValOption(&val)
+		val := ctypes.ValS32(42)
+		input := ctypes.ValOption(&val)
 
 		results, err := echo.Call(ctx, input)
 		require.NoError(t, err)
@@ -197,11 +198,11 @@ func TestListSum(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			// Convert input to list of Val
-			elements := make([]component.Val, len(tc.input))
+			elements := make([]ctypes.Val, len(tc.input))
 			for i, v := range tc.input {
-				elements[i] = component.ValS32(v)
+				elements[i] = ctypes.ValS32(v)
 			}
-			input := component.ValList(elements)
+			input := ctypes.ValList(elements)
 
 			results, err := sum.Call(ctx, input)
 			require.NoError(t, err)
@@ -227,7 +228,7 @@ func TestResultDivide(t *testing.T) {
 
 	t.Run("Ok case", func(t *testing.T) {
 		// divide(10, 2) should return Ok(5)
-		results, err := divide.Call(ctx, component.ValS32(10), component.ValS32(2))
+		results, err := divide.Call(ctx, ctypes.ValS32(10), ctypes.ValS32(2))
 		require.NoError(t, err)
 		require.Equal(t, 1, len(results))
 
@@ -240,7 +241,7 @@ func TestResultDivide(t *testing.T) {
 
 	t.Run("Error case", func(t *testing.T) {
 		// divide(10, 0) should return Error(1) (division by zero)
-		results, err := divide.Call(ctx, component.ValS32(10), component.ValS32(0))
+		results, err := divide.Call(ctx, ctypes.ValS32(10), ctypes.ValS32(0))
 		require.NoError(t, err)
 		require.Equal(t, 1, len(results))
 
@@ -269,7 +270,7 @@ func TestResultDivide(t *testing.T) {
 
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
-				results, err := divide.Call(ctx, component.ValS32(tc.a), component.ValS32(tc.b))
+				results, err := divide.Call(ctx, ctypes.ValS32(tc.a), ctypes.ValS32(tc.b))
 				require.NoError(t, err)
 				require.Equal(t, 1, len(results))
 

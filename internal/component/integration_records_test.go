@@ -139,9 +139,9 @@ func TestPublicAPIRecordWithDifferentValues(t *testing.T) {
 	// Test cases with different values
 	// The echo_record component doubles both coordinates
 	testCases := []struct {
-		name     string
-		x        int32
-		y        int32
+		name      string
+		x         int32
+		y         int32
 		expectedX int32
 		expectedY int32
 	}{

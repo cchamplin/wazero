@@ -4,6 +4,8 @@ package component
 import (
 	"context"
 	"testing"
+
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 func TestValueImport(t *testing.T) {
@@ -26,7 +28,7 @@ func TestValueImport(t *testing.T) {
 	linker := NewComponentLinker(nil)
 
 	// Define the value
-	linker.DefineValue("config", "name", ValString("TestApp"))
+	linker.DefineValue("config", "name", types.ValString("TestApp"))
 
 	ctx := context.Background()
 	inst, err := linker.Instantiate(ctx, compiled)

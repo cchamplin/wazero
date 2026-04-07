@@ -3,6 +3,8 @@ package component
 
 import (
 	"testing"
+
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 func TestResolveOuterAlias_Type(t *testing.T) {
@@ -190,7 +192,7 @@ func TestResolveOuterAlias_Grandparent(t *testing.T) {
 
 func TestResolveOuterAlias_ValueSort(t *testing.T) {
 	parent := &Instance{}
-	parent.AddValue(ValS32(42))
+	parent.AddValue(types.ValS32(42))
 
 	child := &Instance{}
 	parent.AddChild(child)

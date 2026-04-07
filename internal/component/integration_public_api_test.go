@@ -16,6 +16,7 @@ import (
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/internal/component"
+	ctypes "github.com/tetratelabs/wazero/internal/component/types"
 )
 
 func TestPublicAPICompileComponent(t *testing.T) {
@@ -158,8 +159,8 @@ func TestPublicAPIComponentLinker(t *testing.T) {
 
 	// Define a host function using the internal HostFunc type
 	// The public API accepts any, but HostFunc is recognized directly
-	err := linker.DefineFunc("test:api@1.0.0", "greet", component.HostFunc(func(ctx context.Context, args []component.Val) ([]component.Val, error) {
-		return []component.Val{component.ValString("Hello!")}, nil
+	err := linker.DefineFunc("test:api@1.0.0", "greet", component.HostFunc(func(ctx context.Context, args []ctypes.Val) ([]ctypes.Val, error) {
+		return []ctypes.Val{ctypes.ValString("Hello!")}, nil
 	}))
 	if err != nil {
 		t.Fatalf("DefineFunc: %v", err)
@@ -167,8 +168,8 @@ func TestPublicAPIComponentLinker(t *testing.T) {
 
 	// Define an instance with multiple exports
 	err = linker.DefineInstance("test:env@1.0.0").
-		Func("get-value", component.HostFunc(func(ctx context.Context, args []component.Val) ([]component.Val, error) {
-			return []component.Val{component.ValS32(42)}, nil
+		Func("get-value", component.HostFunc(func(ctx context.Context, args []ctypes.Val) ([]ctypes.Val, error) {
+			return []ctypes.Val{ctypes.ValS32(42)}, nil
 		})).
 		Build()
 	if err != nil {

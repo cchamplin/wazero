@@ -19,20 +19,22 @@ type closeMockModule struct {
 	closeErr error
 }
 
-func (m *closeMockModule) String() string                                       { return "closeMock" }
-func (m *closeMockModule) Name() string                                         { return "closeMock" }
-func (m *closeMockModule) Memory() api.Memory                                   { return nil }
-func (m *closeMockModule) ExportedFunction(string) api.Function                 { return nil }
+func (m *closeMockModule) String() string                       { return "closeMock" }
+func (m *closeMockModule) Name() string                         { return "closeMock" }
+func (m *closeMockModule) Memory() api.Memory                   { return nil }
+func (m *closeMockModule) ExportedFunction(string) api.Function { return nil }
 func (m *closeMockModule) ExportedFunctionDefinitions() map[string]api.FunctionDefinition {
 	return nil
 }
-func (m *closeMockModule) ExportedMemory(string) api.Memory                     { return nil }
+func (m *closeMockModule) ExportedMemory(string) api.Memory { return nil }
 func (m *closeMockModule) ExportedMemoryDefinitions() map[string]api.MemoryDefinition {
 	return nil
 }
-func (m *closeMockModule) ExportedGlobal(string) api.Global                     { return nil }
-func (m *closeMockModule) CloseWithExitCode(_ context.Context, _ uint32) error  { return m.Close(context.Background()) }
-func (m *closeMockModule) IsClosed() bool                                       { return m.closed }
+func (m *closeMockModule) ExportedGlobal(string) api.Global { return nil }
+func (m *closeMockModule) CloseWithExitCode(_ context.Context, _ uint32) error {
+	return m.Close(context.Background())
+}
+func (m *closeMockModule) IsClosed() bool { return m.closed }
 func (m *closeMockModule) Close(context.Context) error {
 	if m.closed {
 		return nil

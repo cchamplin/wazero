@@ -5,7 +5,10 @@ package component
 import (
 	"context"
 	"fmt"
+
 	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 // instantiateNestedComponent creates an instance of a nested component.
@@ -38,7 +41,7 @@ func (l *ComponentLinker) instantiateNestedComponent(
 		component:      nestedComp,
 		coreInstances:  make([]api.Module, 0),
 		exports:        make(map[string]*ExportedFunc),
-		resourceTable:  NewResourceTable(),
+		resourceTable:  runtime.NewResourceTable(),
 		componentFuncs: make(map[uint32]ComponentFunc),
 	}
 
@@ -280,7 +283,7 @@ func instanceToDefinition(inst *Instance) *InstanceDef {
 				Type: fn.funcType,
 				// Wrap ExportedFunc.Call to match HostFunc signature
 				// ExportedFunc.Call uses variadic params, HostFunc uses slice
-				Callback: func(ctx context.Context, args []Val) ([]Val, error) {
+				Callback: func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 					return exportedFn.Call(ctx, args...)
 				},
 			}

@@ -4,6 +4,7 @@ package component
 import (
 	"testing"
 
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -89,7 +90,7 @@ func TestValueIndexSpaceOverflow(t *testing.T) {
 
 	// Add several values
 	for i := 0; i < 100; i++ {
-		inst.AddValue(ValS32(int32(i)))
+		inst.AddValue(types.ValS32(int32(i)))
 	}
 
 	// All values should be retrievable
