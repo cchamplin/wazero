@@ -53,12 +53,12 @@
 
 ### Item 1: Verify `types.List{Length *uint32}` covers fixed-size lists; add tests for both shapes
 
-- **status:** claimed
+- **status:** done
 - **claimed_by:** 2026-04-07 session-loop1-open
-- **spec_review:** -
-- **code_review:** -
-- **commit:** -
-- **notes:** Pre-decided: `definitions.py:122-125` `ListType(t, l=None)` matches wazero's existing `List{Element ValType, Length *uint32}` exactly. No new type needed.
+- **spec_review:** 2026-04-07 PASSED (re-review after gofmt+glyph fixes; cited definitions.py:122-125, 1082-1085, 1140-1143, 1721-1724)
+- **code_review:** 2026-04-07 PASSED (1 NIT-ONLY round resolved: gofmt struct alignment + 2 unicode ↔ glyphs replaced with ASCII "corresponds to")
+- **commit:** 1d406669
+- **notes:** Pre-decided: `definitions.py:122-125` `ListType(t, l=None)` matches wazero's existing `List{Element ValType, Length *uint32}` exactly. No new type needed. Pre-existing gofmt issues at composite_test.go:36, 323, 402-404 (doubled spaces before end-of-line comments) noted as out-of-scope follow-up — they predate this item and should be cleaned up separately.
 
 **Files:**
 - Read: `internal/component/types/composite.go` (existing `List` struct)

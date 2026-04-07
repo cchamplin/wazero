@@ -157,9 +157,28 @@ func (v Variant) PayloadOffset() uint32 {
 	return alignTo(v.DiscriminantSize(), payloadAlign)
 }
 
-// List represents a list type.
-// If Length is nil, it's a dynamic list (ptr + len in memory).
-// If Length is set, it's a fixed-length list (inline elements).
+// List represents a list type, covering both shapes of the spec's
+// `ListType(t, l=None)` form.
+//
+// Spec: debug-vendored/component-model/design/mvp/canonical-abi/definitions.py:122-125
+//
+//	@dataclass
+//	class ListType(ValType):
+//	  t: ValType
+//	  l: Optional[int] = None
+//
+// The optional `l` field selects between two shapes:
+//
+//   - Length == nil corresponds to spec `ListType(t, l=None)`: a dynamic list
+//     represented in memory as a (ptr: i32, len: i32) pair. Size 8, align 4,
+//     flatten 2.
+//   - Length != nil corresponds to spec `ListType(t, l=N)`: a fixed-length list
+//     whose N elements are stored inline. Size N*size(t), align align(t),
+//     flatten N*flatten(t).
+//
+// The Size, Align, and FlattenCount methods below mirror the spec helpers
+// alignment_list (definitions.py:1082-1085), elem_size_list
+// (definitions.py:1140-1143), and flatten_list (definitions.py:1721-1724).
 type List struct {
 	Element ValType
 	Length  *uint32 // nil for dynamic lists, set for fixed-length

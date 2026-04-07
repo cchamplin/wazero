@@ -465,6 +465,94 @@ func TestFixedLengthListIsFixedLength(t *testing.T) {
 	}
 }
 
+// TestListShapesBothForms exercises both shapes of the spec's ListType
+// (definitions.py:122-125):
+//
+//   - ListType(t, l=None): dynamic list (ptr+len), independent of element type.
+//   - ListType(t, l=N):    fixed-length list, layout depends on element type.
+//
+// Layouts cross-check spec helpers alignment_list (definitions.py:1082-1085),
+// elem_size_list (definitions.py:1140-1143), and flatten_list
+// (definitions.py:1721-1724).
+func TestListShapesBothForms(t *testing.T) {
+	four := uint32(4)
+	eight := uint32(8)
+
+	tests := []struct {
+		name        string
+		list        List
+		wantSize    uint32
+		wantAlign   uint32
+		wantFlatten int
+		wantIsFixed bool
+	}{
+		// Dynamic shape: ListType(t, l=None). Always 8/4/2.
+		{
+			name:        "dynamic list<u32>",
+			list:        List{Element: U32{}},
+			wantSize:    8,
+			wantAlign:   4,
+			wantFlatten: 2,
+			wantIsFixed: false,
+		},
+		{
+			name:        "dynamic list<u8>",
+			list:        List{Element: U8{}},
+			wantSize:    8,
+			wantAlign:   4,
+			wantFlatten: 2,
+			wantIsFixed: false,
+		},
+		{
+			name:        "dynamic list<string>",
+			list:        List{Element: String{}},
+			wantSize:    8,
+			wantAlign:   4,
+			wantFlatten: 2,
+			wantIsFixed: false,
+		},
+
+		// Fixed shape: ListType(t, l=N). Layout follows element type.
+		{
+			// 4 * elem_size(u32)=4 = 16; align(u32)=4; 4 * flatten(u32)=1 = 4.
+			name:        "fixed list<u32, 4>",
+			list:        List{Element: U32{}, Length: &four},
+			wantSize:    16,
+			wantAlign:   4,
+			wantFlatten: 4,
+			wantIsFixed: true,
+		},
+		{
+			// 8 * elem_size(u8)=1 = 8; align(u8)=1; 8 * flatten(u8)=1 = 8.
+			name:        "fixed list<u8, 8>",
+			list:        List{Element: U8{}, Length: &eight},
+			wantSize:    8,
+			wantAlign:   1,
+			wantFlatten: 8,
+			wantIsFixed: true,
+		},
+		{
+			// 4 * elem_size(string)=8 = 32; align(string)=4;
+			// 4 * flatten(string)=2 = 8.
+			name:        "fixed list<string, 4>",
+			list:        List{Element: String{}, Length: &four},
+			wantSize:    32,
+			wantAlign:   4,
+			wantFlatten: 8,
+			wantIsFixed: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.wantSize, tc.list.Size())
+			require.Equal(t, tc.wantAlign, tc.list.Align())
+			require.Equal(t, tc.wantFlatten, tc.list.FlattenCount())
+			require.Equal(t, tc.wantIsFixed, tc.list.IsFixedLength())
+		})
+	}
+}
+
 func TestEmptyRecordSize(t *testing.T) {
 	// Per Canonical ABI spec, empty records have size 0 and align 1.
 	emptyRecord := Record{Fields: []Field{}}
