@@ -221,3 +221,19 @@ func TestValBorrowWrongKind(t *testing.T) {
 	err := require.CapturePanic(func() { v.Borrow() })
 	require.Error(t, err)
 }
+
+func TestNewValKindConstants(t *testing.T) {
+	cases := []struct {
+		k    ValKind
+		want string
+	}{
+		{ValKindStream, "stream"},
+		{ValKindFuture, "future"},
+		{ValKindErrorContext, "error-context"},
+	}
+	for _, c := range cases {
+		if got := c.k.String(); got != c.want {
+			t.Errorf("ValKind(%d).String() = %q, want %q", c.k, got, c.want)
+		}
+	}
+}

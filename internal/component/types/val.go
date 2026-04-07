@@ -38,6 +38,9 @@ const (
 	ValKindFlags
 	ValKindOwn
 	ValKindBorrow
+	ValKindStream
+	ValKindFuture
+	ValKindErrorContext
 )
 
 // Kind returns the type of this value.
@@ -346,6 +349,12 @@ func (k ValKind) String() string {
 		return "own"
 	case ValKindBorrow:
 		return "borrow"
+	case ValKindStream:
+		return "stream"
+	case ValKindFuture:
+		return "future"
+	case ValKindErrorContext:
+		return "error-context"
 	default:
 		return fmt.Sprintf("unknown(%d)", k)
 	}
