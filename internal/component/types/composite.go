@@ -4,486 +4,127 @@
 
 package types
 
-import "fmt"
-
-// Field represents a named field in a record.
-type Field struct {
+// RecordField is one field of a record type. Order is significant
+// (spec-defined); names are unique within the record.
+type RecordField struct {
 	Name string
 	Type ValType
 }
 
-// Record represents a record (struct) type with named fields.
-type Record struct {
-	Fields []Field
+// TypeRecord is a record (struct) type with named, ordered fields.
+// Spec: definitions.py:118-121 (RecordType).
+type TypeRecord struct {
+	Fields []RecordField
+	ABI    CanonicalABIInfo
 }
 
-func (Record) valType() {}
-
-func (r Record) Size() uint32 {
-	if len(r.Fields) == 0 {
-		// Per Canonical ABI spec, empty records have size 0.
-		return 0
-	}
-	size := uint32(0)
-	maxAlign := uint32(1)
-	for _, f := range r.Fields {
-		align := f.Type.Align()
-		if align > maxAlign {
-			maxAlign = align
-		}
-		// Align current offset
-		size = alignTo(size, align)
-		size += f.Type.Size()
-	}
-	// Pad to struct alignment
-	return alignTo(size, maxAlign)
+// VariantCase is one case of a variant type. HasPayload distinguishes
+// the unit case from the payload case (Payload is zero-valued iff
+// HasPayload is false).
+type VariantCase struct {
+	Name       string
+	Payload    ValType
+	HasPayload bool
 }
 
-func (r Record) Align() uint32 {
-	maxAlign := uint32(1)
-	for _, f := range r.Fields {
-		if a := f.Type.Align(); a > maxAlign {
-			maxAlign = a
-		}
-	}
-	return maxAlign
+// TypeVariant is a discriminated-union variant type.
+// Spec: definitions.py:128-132 (VariantType).
+type TypeVariant struct {
+	Cases []VariantCase
+	ABI   CanonicalABIInfo
+	Disc  DiscriminantInfo
 }
 
-func (r Record) FlattenCount() int {
-	count := 0
-	for _, f := range r.Fields {
-		count += f.Type.FlattenCount()
-	}
-	return count
-}
-
-// FieldOffsets returns the byte offset of each field in memory.
-func (r Record) FieldOffsets() []uint32 {
-	offsets := make([]uint32, len(r.Fields))
-	offset := uint32(0)
-	for i, f := range r.Fields {
-		offset = alignTo(offset, f.Type.Align())
-		offsets[i] = offset
-		offset += f.Type.Size()
-	}
-	return offsets
-}
-
-// alignTo rounds offset up to the given alignment.
-func alignTo(offset, align uint32) uint32 {
-	return (offset + align - 1) &^ (align - 1)
-}
-
-// Case represents a case in a variant type.
-type Case struct {
-	Name string
-	Type ValType // nil for cases with no payload
-}
-
-// Variant represents a discriminated union type.
-type Variant struct {
-	Cases []Case
-}
-
-func (Variant) valType() {}
-
-// DiscriminantSize returns the size of the discriminant in bytes.
-func (v Variant) DiscriminantSize() uint32 {
-	n := len(v.Cases)
-	switch {
-	case n <= 0x100: // 256
-		return 1
-	case n <= 0x10000: // 65536
-		return 2
-	default:
-		return 4
-	}
-}
-
-func (v Variant) Size() uint32 {
-	discSize := v.DiscriminantSize()
-	payloadSize := uint32(0)
-	payloadAlign := uint32(1)
-	for _, c := range v.Cases {
-		if c.Type != nil {
-			if s := c.Type.Size(); s > payloadSize {
-				payloadSize = s
-			}
-			if a := c.Type.Align(); a > payloadAlign {
-				payloadAlign = a
-			}
-		}
-	}
-	// discriminant + padding + payload, aligned to variant alignment
-	offset := alignTo(discSize, payloadAlign)
-	return alignTo(offset+payloadSize, v.Align())
-}
-
-func (v Variant) Align() uint32 {
-	align := v.DiscriminantSize()
-	for _, c := range v.Cases {
-		if c.Type != nil {
-			if a := c.Type.Align(); a > align {
-				align = a
-			}
-		}
-	}
-	return align
-}
-
-func (v Variant) FlattenCount() int {
-	// discriminant + max payload flattening
-	maxPayload := 0
-	for _, c := range v.Cases {
-		if c.Type != nil {
-			if n := c.Type.FlattenCount(); n > maxPayload {
-				maxPayload = n
-			}
-		}
-	}
-	return 1 + maxPayload
-}
-
-// PayloadOffset returns the byte offset where payload data starts.
-func (v Variant) PayloadOffset() uint32 {
-	payloadAlign := uint32(1)
-	for _, c := range v.Cases {
-		if c.Type != nil {
-			if a := c.Type.Align(); a > payloadAlign {
-				payloadAlign = a
-			}
-		}
-	}
-	return alignTo(v.DiscriminantSize(), payloadAlign)
-}
-
-// List represents a list type, covering both shapes of the spec's
-// `ListType(t, l=None)` form.
-//
-// Spec: debug-vendored/component-model/design/mvp/canonical-abi/definitions.py:122-125
-//
-//	@dataclass
-//	class ListType(ValType):
-//	  t: ValType
-//	  l: Optional[int] = None
-//
-// The optional `l` field selects between two shapes:
-//
-//   - Length == nil corresponds to spec `ListType(t, l=None)`: a dynamic list
-//     represented in memory as a (ptr: i32, len: i32) pair. Size 8, align 4,
-//     flatten 2.
-//   - Length != nil corresponds to spec `ListType(t, l=N)`: a fixed-length list
-//     whose N elements are stored inline. Size N*size(t), align align(t),
-//     flatten N*flatten(t).
-//
-// The Size, Align, and FlattenCount methods below mirror the spec helpers
-// alignment_list (definitions.py:1082-1085), elem_size_list
-// (definitions.py:1140-1143), and flatten_list (definitions.py:1721-1724).
-type List struct {
+// TypeList is a dynamic-length list. Memory layout is (ptr: i32, len: i32).
+// Fixed-length lists are a distinct type — see TypeFixedLengthList.
+// Spec: definitions.py:122-125 (ListType with l == None).
+type TypeList struct {
 	Element ValType
-	Length  *uint32 // nil for dynamic lists, set for fixed-length
+	ABI     CanonicalABIInfo
 }
 
-func (List) valType() {}
-
-// Size returns the size of the list in memory.
-// Dynamic lists: 8 bytes (ptr: i32, len: i32)
-// Fixed lists: length * element_size
-func (l List) Size() uint32 {
-	if l.Length != nil {
-		return *l.Length * l.Element.Size()
-	}
-	return 8 // ptr + len
-}
-
-// Align returns the alignment of the list.
-// Dynamic lists: 4 (pointer alignment)
-// Fixed lists: element alignment
-func (l List) Align() uint32 {
-	if l.Length != nil {
-		return l.Element.Align()
-	}
-	return 4
-}
-
-// FlattenCount returns the number of core wasm values when flattened.
-// Dynamic lists: 2 (pointer and length)
-// Fixed lists: length * element_flatten_count
-func (l List) FlattenCount() int {
-	if l.Length != nil {
-		return int(*l.Length) * l.Element.FlattenCount()
-	}
-	return 2
-}
-
-// ElementSize returns the size of each element.
-func (l List) ElementSize() uint32 { return l.Element.Size() }
-
-// ElementAlign returns the alignment of each element.
-func (l List) ElementAlign() uint32 { return l.Element.Align() }
-
-// IsFixedLength returns true if this is a fixed-length list.
-func (l List) IsFixedLength() bool { return l.Length != nil }
-
-// Option represents an optional value type (sugar for variant { none, some(T) }).
-type Option struct {
-	Some ValType
-}
-
-func (Option) valType() {}
-
-func (o Option) Size() uint32 {
-	return o.asVariant().Size()
-}
-
-func (o Option) Align() uint32 {
-	return o.asVariant().Align()
-}
-
-func (o Option) FlattenCount() int {
-	return o.asVariant().FlattenCount()
-}
-
-// asVariant returns the equivalent Variant representation.
-func (o Option) asVariant() Variant {
-	return Variant{
-		Cases: []Case{
-			{Name: "none", Type: nil},
-			{Name: "some", Type: o.Some},
-		},
-	}
-}
-
-// Result represents a result type (sugar for variant { ok(T), error(E) }).
-type Result struct {
-	Ok    ValType // nil for result<_, E>
-	Error ValType // nil for result<T, _>
-}
-
-func (Result) valType() {}
-
-func (r Result) Size() uint32 {
-	return r.asVariant().Size()
-}
-
-func (r Result) Align() uint32 {
-	return r.asVariant().Align()
-}
-
-func (r Result) FlattenCount() int {
-	return r.asVariant().FlattenCount()
-}
-
-// asVariant returns the equivalent Variant representation.
-func (r Result) asVariant() Variant {
-	return Variant{
-		Cases: []Case{
-			{Name: "ok", Type: r.Ok},
-			{Name: "error", Type: r.Error},
-		},
-	}
-}
-
-// Enum represents an enumeration type (discriminant-only variant).
-type Enum struct {
-	Cases []string
-}
-
-func (Enum) valType() {}
-
-func (e Enum) Size() uint32 {
-	n := len(e.Cases)
-	switch {
-	case n <= 0x100: // 256
-		return 1
-	case n <= 0x10000: // 65536
-		return 2
-	default:
-		return 4
-	}
-}
-
-func (e Enum) Align() uint32 {
-	return e.Size()
-}
-
-func (Enum) FlattenCount() int {
-	return 1
-}
-
-// Flags represents a flags (bitfield) type.
-type Flags struct {
-	Names []string
-}
-
-func (Flags) valType() {}
-
-func (f Flags) Size() uint32 {
-	n := len(f.Names)
-	switch {
-	case n == 0:
-		return 0
-	case n <= 8:
-		return 1
-	case n <= 16:
-		return 2
-	default:
-		// Round up to multiple of 32 bits
-		return 4 * uint32((n+31)/32)
-	}
-}
-
-func (f Flags) Align() uint32 {
-	n := len(f.Names)
-	switch {
-	case n == 0:
-		return 1
-	case n <= 8:
-		return 1
-	case n <= 16:
-		return 2
-	default:
-		return 4
-	}
-}
-
-func (f Flags) FlattenCount() int {
-	n := len(f.Names)
-	if n == 0 {
-		return 0
-	}
-	// Number of i32s needed
-	return (n + 31) / 32
-}
-
-// Stream is the type of a wasi-async `stream<T>`. It is recognised as a
-// value type so the binary parser can produce a complete type graph, but
-// the synchronous canonical ABI implementation does not lift or lower
-// streams; lift/lower of `Stream` traps with an "async not yet supported"
-// error. Async support is deferred to a follow-up project — see
-// docs/plans/2026-04-07-canonical-abi-unification-design.md "Out of scope".
+// TypeFixedLengthList is a list with a compile-time-known length. Memory
+// layout is `length` elements stored inline, not via ptr+len indirection.
+// Distinct from TypeList because spec and wasmtime treat them as distinct
+// types: a function expecting `list<u32>` cannot accept a `list<u32, 5>`
+// and vice versa.
 //
-// Spec: debug-vendored/component-model/design/mvp/canonical-abi/definitions.py:174-176
-//
-//	@dataclass
-//	class StreamType(ValType):
-//	  t: Optional[ValType]
-//
-// The element type may be nil for `stream<>`. Stream handles flatten to a
-// single i32 per spec lines 1080 (alignment), 1138 (elem_size), and 1719
-// (flatten_type) — same shape as `Own`/`Borrow`.
-type Stream struct {
-	Element ValType // may be nil for stream<>
+// Spec: definitions.py:122-125 — `ListType(t, l)` with `l != None`.
+// Wasmtime: environ/src/component/types.rs uses TypeListIndex (lists)
+// and TypeFixedLengthListIndex (fixed-length lists) as distinct keys.
+type TypeFixedLengthList struct {
+	Element ValType
+	Length  uint32 // > 0 per spec
+	ABI     CanonicalABIInfo
 }
 
-func (Stream) valType() {}
-
-// Size returns 4 because stream handles are i32 indices.
-// Spec: definitions.py:1138 (case StreamType() | FutureType() : return 4)
-func (Stream) Size() uint32 { return 4 }
-
-// Align returns 4 for i32 alignment.
-// Spec: definitions.py:1080 (case StreamType() | FutureType() : return 4)
-func (Stream) Align() uint32 { return 4 }
-
-// FlattenCount returns 1 because a stream handle is a single i32.
-// Spec: definitions.py:1719 (case StreamType() | FutureType() : return ['i32'])
-func (Stream) FlattenCount() int { return 1 }
-
-// Future is the type of a wasi-async `future<T>`. It is recognised as a
-// value type so the binary parser can produce a complete type graph, but
-// the synchronous canonical ABI implementation does not lift or lower
-// futures; lift/lower of `Future` traps with an "async not yet supported"
-// error. Async support is deferred to a follow-up project — see
-// docs/plans/2026-04-07-canonical-abi-unification-design.md "Out of scope".
-//
-// Spec: debug-vendored/component-model/design/mvp/canonical-abi/definitions.py:178-180
-//
-//	@dataclass
-//	class FutureType(ValType):
-//	  t: Optional[ValType]
-//
-// The element type may be nil for `future<>`. Future handles flatten to a
-// single i32 per spec lines 1080 (alignment), 1138 (elem_size), and 1719
-// (flatten_type) — same shape as `Own`/`Borrow`.
-type Future struct {
-	Element ValType // may be nil for future<>
-}
-
-func (Future) valType() {}
-
-// Size returns 4 because future handles are i32 indices.
-// Spec: definitions.py:1138 (case StreamType() | FutureType() : return 4)
-func (Future) Size() uint32 { return 4 }
-
-// Align returns 4 for i32 alignment.
-// Spec: definitions.py:1080 (case StreamType() | FutureType() : return 4)
-func (Future) Align() uint32 { return 4 }
-
-// FlattenCount returns 1 because a future handle is a single i32.
-// Spec: definitions.py:1719 (case StreamType() | FutureType() : return ['i32'])
-func (Future) FlattenCount() int { return 1 }
-
-// ErrorContext is the type of a wasi-async `error-context` value. It is
-// recognised as a value type so the binary parser can produce a complete
-// type graph, but the synchronous canonical ABI implementation does not
-// lift or lower error-context values; lift/lower of `ErrorContext` traps
-// with an "async not yet supported" error. Async support is deferred to a
-// follow-up project — see
-// docs/plans/2026-04-07-canonical-abi-unification-design.md "Out of scope".
-//
-// Spec: debug-vendored/component-model/design/mvp/canonical-abi/definitions.py:120
-//
-//	class ErrorContextType(ValType): pass
-//
-// ErrorContext flattens to a single i32 handle per spec lines 1074
-// (alignment), 1132 (elem_size), and 1713 (flatten_type) — same shape as
-// `Own`/`Borrow`.
-type ErrorContext struct{}
-
-func (ErrorContext) valType() {}
-
-// Size returns 4 because error-context handles are i32 indices.
-// Spec: definitions.py:1132 (case ErrorContextType() : return 4)
-func (ErrorContext) Size() uint32 { return 4 }
-
-// Align returns 4 for i32 alignment.
-// Spec: definitions.py:1074 (case ErrorContextType() : return 4)
-func (ErrorContext) Align() uint32 { return 4 }
-
-// FlattenCount returns 1 because an error-context handle is a single i32.
-// Spec: definitions.py:1713 (case ErrorContextType() : return ['i32'])
-func (ErrorContext) FlattenCount() int { return 1 }
-
-// Tuple represents a tuple type (positional record).
-type Tuple struct {
+// TypeTuple is a positional record (anonymous struct).
+// Spec: definitions.py:126-127 (TupleType).
+type TypeTuple struct {
 	Types []ValType
+	ABI   CanonicalABIInfo
 }
 
-func (Tuple) valType() {}
-
-func (t Tuple) Size() uint32 {
-	return t.asRecord().Size()
+// TypeFlags is a set of named boolean flags packed into i32 words.
+// Spec: definitions.py:166-168 (FlagsType).
+type TypeFlags struct {
+	Names []string
+	ABI   CanonicalABIInfo
 }
 
-func (t Tuple) Align() uint32 {
-	return t.asRecord().Align()
+// TypeEnum is a discriminant-only variant (no payloads).
+// Spec: definitions.py:163-165 (EnumType).
+type TypeEnum struct {
+	Names []string
+	ABI   CanonicalABIInfo
+	Disc  DiscriminantInfo
 }
 
-func (t Tuple) FlattenCount() int {
-	return t.asRecord().FlattenCount()
+// TypeOption is syntactic sugar for variant{none, some(T)}.
+// Spec: definitions.py:160-162 (OptionType).
+type TypeOption struct {
+	Element ValType
+	ABI     CanonicalABIInfo
+	Disc    DiscriminantInfo
 }
 
-// ElementOffsets returns the byte offset of each element in memory.
-func (t Tuple) ElementOffsets() []uint32 {
-	return t.asRecord().FieldOffsets()
+// TypeResult is syntactic sugar for variant{ok(T), error(E)}.
+// Spec: definitions.py:155-159 (ResultType).
+type TypeResult struct {
+	OK     ValType
+	Err    ValType
+	HasOK  bool
+	HasErr bool
+	ABI    CanonicalABIInfo
+	Disc   DiscriminantInfo
 }
 
-// asRecord returns the equivalent Record representation.
-func (t Tuple) asRecord() Record {
-	fields := make([]Field, len(t.Types))
-	for i, typ := range t.Types {
-		fields[i] = Field{Name: fmt.Sprintf("%d", i), Type: typ}
-	}
-	return Record{Fields: fields}
+// TypeStream is an async stream-of-element type. Lift/lower traps
+// in Session 0; per-instance table identity is added when async lands.
+type TypeStream struct {
+	Element    ValType
+	HasElement bool
+}
+
+// TypeFuture is an async future-of-element type. Lift/lower traps
+// in Session 0; per-instance table identity is added when async lands.
+type TypeFuture struct {
+	Element    ValType
+	HasElement bool
+}
+
+// TypeErrorContextTable is intentionally empty for Session 0. The
+// per-instance table identity layering analogous to TypeResourceTable
+// is added when async lift/lower lands.
+type TypeErrorContextTable struct{}
+
+// TypeFunc represents a component function type. Matches the wasmtime
+// shape (environ/src/component/types.rs:557-566): params and results
+// are each a Tuple (a ValType of TypeKindTuple). One mechanism for
+// "ordered list of types," reused.
+type TypeFunc struct {
+	Async      bool
+	ParamNames []string
+	Params     ValType // TypeKindTuple
+	Results    ValType // TypeKindTuple
 }
