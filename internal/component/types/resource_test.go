@@ -4,85 +4,70 @@
 
 package types
 
-import (
-	"testing"
+import "testing"
 
-	"github.com/tetratelabs/wazero/internal/testing/require"
-)
-
-func TestOwnType(t *testing.T) {
-	// own<T> is represented as i32 handle index
-	o := Own{ResourceIdx: 0}
-	require.Equal(t, uint32(4), o.Size())
-	require.Equal(t, uint32(4), o.Align())
-	require.Equal(t, 1, o.FlattenCount())
-}
-
-func TestBorrowType(t *testing.T) {
-	// borrow<T> same layout as own
-	b := Borrow{ResourceIdx: 0}
-	require.Equal(t, uint32(4), b.Size())
-	require.Equal(t, uint32(4), b.Align())
-	require.Equal(t, 1, b.FlattenCount())
-}
-
-func TestOwnAndBorrowDistinct(t *testing.T) {
-	o := Own{ResourceIdx: 5}
-	b := Borrow{ResourceIdx: 5}
-
-	// They reference the same resource type but are different handle types
-	require.Equal(t, o.ResourceIdx, b.ResourceIdx)
-
-	// Type assertion should work
-	var _ ValType = o
-	var _ ValType = b
-}
-
-func TestResourceType(t *testing.T) {
-	// Resource with destructor
-	dtorIdx := uint32(42)
-	r := ResourceType{
-		Destructor: &dtorIdx,
+func TestResourceIdxRoundTrip(t *testing.T) {
+	var r ResourceIdx = 5
+	if uint32(r) != 5 {
+		t.Errorf("ResourceIdx round-trip = %d, want 5", uint32(r))
 	}
-	require.NotNil(t, r.Destructor)
-	require.Equal(t, uint32(42), *r.Destructor)
-
-	// Resource without destructor
-	r2 := ResourceType{
-		Destructor: nil,
-	}
-	require.Nil(t, r2.Destructor)
 }
 
-func TestResourceType_HasDestructor(t *testing.T) {
-	// Resource with destructor
-	rt := ResourceType{
-		Destructor: ptrTo(uint32(5)),
+func TestRuntimeComponentInstanceIdxRoundTrip(t *testing.T) {
+	var i RuntimeComponentInstanceIdx = 7
+	if uint32(i) != 7 {
+		t.Errorf("RuntimeComponentInstanceIdx round-trip = %d, want 7", uint32(i))
 	}
-	require.True(t, rt.HasDestructor())
-
-	// Resource without destructor
-	rtNoDtor := ResourceType{}
-	require.False(t, rtNoDtor.HasDestructor())
 }
 
-func TestResourceType_InstanceID(t *testing.T) {
-	rt := ResourceType{
-		InstanceID: 42,
+func TestResourceTableIdxRoundTrip(t *testing.T) {
+	var idx ResourceTableIdx = 11
+	if uint32(idx) != 11 {
+		t.Errorf("ResourceTableIdx round-trip = %d, want 11", uint32(idx))
 	}
-	require.Equal(t, uint32(42), rt.InstanceID)
 }
 
-func TestResourceType_AsyncDestructor(t *testing.T) {
-	rt := ResourceType{
-		Destructor:   ptrTo(uint32(5)),
-		DtorAsync:    true,
-		DtorCallback: ptrTo(uint32(6)),
+func TestTypeResourceTableConcrete(t *testing.T) {
+	rt := TypeResourceTable{
+		Concrete: true,
+		Resource: 3,
+		Instance: 1,
 	}
-	require.True(t, rt.DtorAsync)
-	require.NotNil(t, rt.DtorCallback)
+	if !rt.Concrete {
+		t.Errorf("Concrete = false, want true")
+	}
+	if rt.Resource != 3 {
+		t.Errorf("Resource = %d, want 3", rt.Resource)
+	}
+	if rt.Instance != 1 {
+		t.Errorf("Instance = %d, want 1", rt.Instance)
+	}
 }
 
-func ptrTo(v uint32) *uint32 {
-	return &v
+func TestTypeResourceTableAbstract(t *testing.T) {
+	rt := TypeResourceTable{
+		Concrete:    false,
+		AbstractIdx: 42,
+	}
+	if rt.Concrete {
+		t.Errorf("Concrete = true, want false")
+	}
+	if rt.AbstractIdx != 42 {
+		t.Errorf("AbstractIdx = %d, want 42", rt.AbstractIdx)
+	}
+}
+
+func TestOwnBorrowValType(t *testing.T) {
+	// Own and Borrow are encoded as ValType values, not separate structs.
+	own := ValType{Kind: TypeKindOwn, Index: 5}
+	borrow := ValType{Kind: TypeKindBorrow, Index: 5}
+	if own.Kind != TypeKindOwn {
+		t.Errorf("own.Kind = %v, want TypeKindOwn", own.Kind)
+	}
+	if borrow.Kind != TypeKindBorrow {
+		t.Errorf("borrow.Kind = %v, want TypeKindBorrow", borrow.Kind)
+	}
+	if own == borrow {
+		t.Errorf("own and borrow at same index should be distinct ValTypes")
+	}
 }

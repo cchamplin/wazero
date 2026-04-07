@@ -4,77 +4,44 @@
 
 package types
 
-// Own represents an owning handle to a resource.
-// When an own<T> is dropped, the resource's destructor is called.
+// ResourceIdx names a resource *declaration* — a `(type $r (resource ...))`
+// site in a component's binary. Unique within a single component's type
+// section. The runtime nominal layer maps (RuntimeComponentInstanceIdx,
+// ResourceIdx) → *runtime.ResourceType for the spec's `is` check at
+// definitions.py:1345.
+type ResourceIdx uint32
+
+// RuntimeComponentInstanceIdx names an instantiated component instance
+// at runtime, assigned monotonically at instantiation time.
+type RuntimeComponentInstanceIdx uint32
+
+// ResourceTableIdx is the index of a TypeResourceTable entry in
+// ComponentTypes.ResourceTables. TypeKindOwn / TypeKindBorrow ValTypes
+// carry this as their Index field.
+type ResourceTableIdx uint32
+
+// TypeResourceTable is the structural layer in ComponentTypes.ResourceTables.
+// Two variants:
 //
-// TODO: Per spec, should track ResourceType reference for validation during lift/lower.
-// This would enable validation that the handle's resource type matches the expected type
-// (spec lines 2218-2219).
-type Own struct {
-	ResourceIdx uint32 // Index of the resource type in component's type section
-	// TODO: ResourceType *ResourceType // Reference to the resource type (for validation)
-}
-
-func (Own) valType() {}
-
-// Size returns 4 because handles are i32 indices.
-func (Own) Size() uint32 { return 4 }
-
-// Align returns 4 for i32 alignment.
-func (Own) Align() uint32 { return 4 }
-
-// FlattenCount returns 1 because a handle is a single i32.
-func (Own) FlattenCount() int { return 1 }
-
-// Borrow represents a borrowed handle to a resource.
-// Borrows do not own the resource and must not outlive the call scope.
+//   - Concrete: bound to a specific runtime component instance. Resolves
+//     at call time via runtime.ComponentInstance.ResourceTypes (possibly
+//     walking to a parent or across instances) to the nominal
+//     *runtime.ResourceType for validity checking.
+//   - Abstract: lives only inside a not-yet-instantiated component or
+//     instance type declaration. Cannot be lifted/lowered at runtime;
+//     lift/lower traps if reached at call time.
 //
-// TODO: Per spec, should track ResourceType reference for validation during lift/lower.
-// This would enable validation that the handle's resource type matches the expected type
-// (spec lines 2237-2238).
-type Borrow struct {
-	ResourceIdx uint32 // Index of the resource type in component's type section
-	// TODO: ResourceType *ResourceType // Reference to the resource type (for validation)
-}
-
-func (Borrow) valType() {}
-
-// Size returns 4 because handles are i32 indices.
-func (Borrow) Size() uint32 { return 4 }
-
-// Align returns 4 for i32 alignment.
-func (Borrow) Align() uint32 { return 4 }
-
-// FlattenCount returns 1 because a handle is a single i32.
-func (Borrow) FlattenCount() int { return 1 }
-
-// ResourceType represents a resource type definition.
-// Resources have an optional destructor that is called when the resource is dropped.
+// At end of Session 0 ALL entries are Abstract — Concrete promotion at
+// instantiation time is Session 2 work.
 //
-// From spec (CanonicalABI.md:537-549):
-//
-//	class ResourceType(Type):
-//	  impl: ComponentInstance
-//	  dtor: Optional[Callable]
-//	  dtor_async: bool
-//	  dtor_callback: Optional[Callable]
-type ResourceType struct {
-	// InstanceID identifies the component instance that defines this resource type.
-	// This corresponds to the 'impl' field in the spec.
-	InstanceID uint32
+// Spec: CanonicalABI.md:531-549.
+type TypeResourceTable struct {
+	Concrete bool
 
-	// Destructor is the index of the destructor function (nil if no destructor).
-	// This is the core function index in the defining instance.
-	Destructor *uint32
+	// Concrete fields (Concrete == true)
+	Resource ResourceIdx                 // which nominal declaration
+	Instance RuntimeComponentInstanceIdx // which instance defines it
 
-	// DtorAsync indicates if the destructor is an async function.
-	DtorAsync bool
-
-	// DtorCallback is the callback function index for async destructors.
-	DtorCallback *uint32
-}
-
-// HasDestructor returns true if this resource type has a destructor.
-func (rt *ResourceType) HasDestructor() bool {
-	return rt.Destructor != nil
+	// Abstract fields (Concrete == false)
+	AbstractIdx uint32
 }
