@@ -223,7 +223,7 @@ func TestComponentInstanceExprKind(t *testing.T) {
 }
 
 func TestComponentInstance_Instantiate(t *testing.T) {
-	ci := ComponentInstance{
+	ci := ParsedComponentInstance{
 		Kind:         ComponentInstanceExprInstantiate,
 		ComponentIdx: 0,
 		Args: []ComponentInstantiateArg{
@@ -237,7 +237,7 @@ func TestComponentInstance_Instantiate(t *testing.T) {
 
 func TestComponent_ComponentInstances(t *testing.T) {
 	c := &Component{
-		ComponentInstances: []ComponentInstance{
+		ComponentInstances: []ParsedComponentInstance{
 			{Kind: ComponentInstanceExprInstantiate, ComponentIdx: 0},
 		},
 	}

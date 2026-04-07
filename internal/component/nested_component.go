@@ -12,12 +12,12 @@ import (
 )
 
 // instantiateNestedComponent creates an instance of a nested component.
-// This is called when processing ComponentInstance definitions of kind Instantiate.
+// This is called when processing ParsedComponentInstance definitions of kind Instantiate.
 // It resolves arguments from the parent scope and establishes the parent/child relationship.
 func (l *ComponentLinker) instantiateNestedComponent(
 	ctx context.Context,
 	parent *Instance,
-	compInst *ComponentInstance,
+	compInst *ParsedComponentInstance,
 	parentComponent *Component,
 ) (*Instance, error) {
 	// Get the nested component definition

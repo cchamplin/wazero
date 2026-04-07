@@ -238,7 +238,7 @@ func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledCom
 	// Process nested component instances.
 	// Track the mapping from instance-space index to component instance definition
 	// so we can wire shim exports later during export processing.
-	componentInstDefs := make(map[uint32]*ComponentInstance)
+	componentInstDefs := make(map[uint32]*ParsedComponentInstance)
 	for i := range c.ComponentInstances {
 		compInst := &c.ComponentInstances[i]
 		if compInst.Kind == ComponentInstanceExprInstantiate {
@@ -471,7 +471,7 @@ func (l *ComponentLinker) buildComponentFuncs(inst *Instance, c *Component, reso
 			// Look up which import this instance refers to.
 			importName, ok := instanceToImport[alias.InstanceIdx]
 			if !ok {
-				// Instance might be a ComponentInstance definition, not an import.
+				// Instance might be a ParsedComponentInstance definition, not an import.
 				// For now, we only handle imported instances.
 				continue
 			}
@@ -1376,7 +1376,7 @@ func (l *ComponentLinker) wireExportedFunc(
 // import/export mapping to create proper ExportedFunc objects on the nested instance.
 func (l *ComponentLinker) wireNestedComponentExports(
 	parent *Instance, parentComp *Component,
-	nestedInst *Instance, compInstDef *ComponentInstance,
+	nestedInst *Instance, compInstDef *ParsedComponentInstance,
 	funcSpace *CoreFuncIndexSpace, memSpace *CoreMemoryIndexSpace,
 ) error {
 	nestedComp := nestedInst.component

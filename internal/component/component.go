@@ -58,7 +58,7 @@ type Component struct {
 	CoreInstances []CoreInstance
 
 	// ComponentInstances contains component instance definitions (section ID 5).
-	ComponentInstances []ComponentInstance
+	ComponentInstances []ParsedComponentInstance
 
 	// Components contains nested component definitions (section ID 4).
 	Components []*Component
@@ -701,8 +701,8 @@ type ComponentInlineExport struct {
 	Idx  uint32
 }
 
-// ComponentInstance represents a component instance definition (section ID 5).
-type ComponentInstance struct {
+// ParsedComponentInstance represents a component instance definition (section ID 5).
+type ParsedComponentInstance struct {
 	Kind ComponentInstanceExprKind
 
 	// For Instantiate

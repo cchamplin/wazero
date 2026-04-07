@@ -51,7 +51,7 @@ func TestInstantiateNestedComponent_Basic(t *testing.T) {
 	}
 
 	// Component instance definition
-	compInst := &ComponentInstance{
+	compInst := &ParsedComponentInstance{
 		Kind:         ComponentInstanceExprInstantiate,
 		ComponentIdx: 0,
 		Args: []ComponentInstantiateArg{
@@ -83,7 +83,7 @@ func TestInstantiateNestedComponent_Basic(t *testing.T) {
 func TestInstantiateNestedComponent_ComponentIdxOutOfRange(t *testing.T) {
 	parent := &Instance{}
 
-	compInst := &ComponentInstance{
+	compInst := &ParsedComponentInstance{
 		Kind:         ComponentInstanceExprInstantiate,
 		ComponentIdx: 5, // Out of range
 		Args:         []ComponentInstantiateArg{},
@@ -119,7 +119,7 @@ func TestInstantiateNestedComponent_FuncArgNotFound(t *testing.T) {
 		componentFuncs: map[uint32]ComponentFunc{}, // Empty - no functions
 	}
 
-	compInst := &ComponentInstance{
+	compInst := &ParsedComponentInstance{
 		Kind:         ComponentInstanceExprInstantiate,
 		ComponentIdx: 0,
 		Args: []ComponentInstantiateArg{
@@ -158,7 +158,7 @@ func TestInstantiateNestedComponent_InstanceArg(t *testing.T) {
 	providedInstance := &Instance{}
 	parent.AddInstanceToSpace(providedInstance)
 
-	compInst := &ComponentInstance{
+	compInst := &ParsedComponentInstance{
 		Kind:         ComponentInstanceExprInstantiate,
 		ComponentIdx: 0,
 		Args: []ComponentInstantiateArg{
@@ -205,7 +205,7 @@ func TestInstantiateNestedComponent_TypeArg(t *testing.T) {
 	providedType := &TypeDef{Kind: TypeDefKindFunc}
 	parent.AddTypeToSpace(providedType)
 
-	compInst := &ComponentInstance{
+	compInst := &ParsedComponentInstance{
 		Kind:         ComponentInstanceExprInstantiate,
 		ComponentIdx: 0,
 		Args: []ComponentInstantiateArg{
@@ -249,7 +249,7 @@ func TestInstantiateNestedComponent_ComponentArg(t *testing.T) {
 	parent := &Instance{}
 	parent.AddComponentToSpace(nestedComponent)
 
-	compInst := &ComponentInstance{
+	compInst := &ParsedComponentInstance{
 		Kind:         ComponentInstanceExprInstantiate,
 		ComponentIdx: 0,
 		Args: []ComponentInstantiateArg{
@@ -291,7 +291,7 @@ func TestInstantiateNestedComponent_ValueArg(t *testing.T) {
 	parent := &Instance{}
 	parent.AddValue(types.ValS32(123))
 
-	compInst := &ComponentInstance{
+	compInst := &ParsedComponentInstance{
 		Kind:         ComponentInstanceExprInstantiate,
 		ComponentIdx: 0,
 		Args: []ComponentInstantiateArg{
@@ -333,7 +333,7 @@ func TestInstantiateNestedComponent_TypeFromParentComponent(t *testing.T) {
 	// Parent with no types in type space, but parent component has types
 	parent := &Instance{}
 
-	compInst := &ComponentInstance{
+	compInst := &ParsedComponentInstance{
 		Kind:         ComponentInstanceExprInstantiate,
 		ComponentIdx: 0,
 		Args: []ComponentInstantiateArg{
@@ -438,7 +438,7 @@ func TestInstantiateNestedComponent_ThreeLevels(t *testing.T) {
 	ctx := context.Background()
 
 	// Instantiate level 2 (child) from grandparent
-	childCompInst := &ComponentInstance{
+	childCompInst := &ParsedComponentInstance{
 		Kind:         ComponentInstanceExprInstantiate,
 		ComponentIdx: 0,
 		Args: []ComponentInstantiateArg{
@@ -467,7 +467,7 @@ func TestInstantiateNestedComponent_ThreeLevels(t *testing.T) {
 	}
 
 	// Instantiate level 3 (grandchild) from child
-	grandchildCompInst := &ComponentInstance{
+	grandchildCompInst := &ParsedComponentInstance{
 		Kind:         ComponentInstanceExprInstantiate,
 		ComponentIdx: 0,
 		Args: []ComponentInstantiateArg{
@@ -540,7 +540,7 @@ func TestInstantiateNestedComponent_ExportsInstance(t *testing.T) {
 	}
 
 	// Component instance definition
-	compInst := &ComponentInstance{
+	compInst := &ParsedComponentInstance{
 		Kind:         ComponentInstanceExprInstantiate,
 		ComponentIdx: 0,
 		Args: []ComponentInstantiateArg{
@@ -665,7 +665,7 @@ func TestWireNestedComponentExports_ShimPattern(t *testing.T) {
 
 	// The component instance definition that instantiates the shim:
 	//   (instantiate $shim (with "import-func-process" (func 30)))
-	compInstDef := &ComponentInstance{
+	compInstDef := &ParsedComponentInstance{
 		Kind:         ComponentInstanceExprInstantiate,
 		ComponentIdx: 0,
 		Args: []ComponentInstantiateArg{
@@ -778,7 +778,7 @@ func TestWireNestedComponentExports_MultipleExports(t *testing.T) {
 		exports:   make(map[string]*ExportedFunc),
 	}
 
-	compInstDef := &ComponentInstance{
+	compInstDef := &ParsedComponentInstance{
 		Kind: ComponentInstanceExprInstantiate,
 		Args: []ComponentInstantiateArg{
 			{Name: "import-fn-a", Sort: SortFunc, Idx: 10},
@@ -868,7 +868,7 @@ func TestWireNestedComponentExports_NilComponent(t *testing.T) {
 	}
 
 	l := &ComponentLinker{}
-	err := l.wireNestedComponentExports(nil, nil, nestedInst, &ComponentInstance{}, nil, nil)
+	err := l.wireNestedComponentExports(nil, nil, nestedInst, &ParsedComponentInstance{}, nil, nil)
 	if err != nil {
 		t.Fatalf("should not error on nil component: %v", err)
 	}

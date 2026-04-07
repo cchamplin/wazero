@@ -11,8 +11,8 @@ import (
 )
 
 // decodeComponentInstance decodes a single component instance definition.
-func decodeComponentInstance(r *bytes.Reader) (component.ComponentInstance, error) {
-	var ci component.ComponentInstance
+func decodeComponentInstance(r *bytes.Reader) (component.ParsedComponentInstance, error) {
+	var ci component.ParsedComponentInstance
 
 	kindByte, err := r.ReadByte()
 	if err != nil {
