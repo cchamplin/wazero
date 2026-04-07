@@ -6,13 +6,13 @@ import (
 	"math"
 	"testing"
 
-	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
 func TestLowerFlatS32(t *testing.T) {
-	val := component.ValS32(-42)
+	val := types.ValS32(-42)
 	flat, err := LowerFlat(nil, types.S32{}, val)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(flat))
@@ -24,28 +24,28 @@ func TestLowerFlatS32(t *testing.T) {
 }
 
 func TestLowerFlatU64(t *testing.T) {
-	val := component.ValU64(0xDEADBEEF12345678)
+	val := types.ValU64(0xDEADBEEF12345678)
 	flat, err := LowerFlat(nil, types.U64{}, val)
 	require.NoError(t, err)
 	require.Equal(t, []uint64{0xDEADBEEF12345678}, flat)
 }
 
 func TestLowerFlatBool(t *testing.T) {
-	val := component.ValBool(true)
+	val := types.ValBool(true)
 	flat, err := LowerFlat(nil, types.Bool{}, val)
 	require.NoError(t, err)
 	require.Equal(t, []uint64{1}, flat)
 }
 
 func TestLowerFlatBoolFalse(t *testing.T) {
-	val := component.ValBool(false)
+	val := types.ValBool(false)
 	flat, err := LowerFlat(nil, types.Bool{}, val)
 	require.NoError(t, err)
 	require.Equal(t, []uint64{0}, flat)
 }
 
 func TestLowerFlatS8(t *testing.T) {
-	val := component.ValS8(-128)
+	val := types.ValS8(-128)
 	flat, err := LowerFlat(nil, types.S8{}, val)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(flat))
@@ -57,14 +57,14 @@ func TestLowerFlatS8(t *testing.T) {
 }
 
 func TestLowerFlatU8(t *testing.T) {
-	val := component.ValU8(255)
+	val := types.ValU8(255)
 	flat, err := LowerFlat(nil, types.U8{}, val)
 	require.NoError(t, err)
 	require.Equal(t, []uint64{255}, flat)
 }
 
 func TestLowerFlatS16(t *testing.T) {
-	val := component.ValS16(-32768)
+	val := types.ValS16(-32768)
 	flat, err := LowerFlat(nil, types.S16{}, val)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(flat))
@@ -76,42 +76,42 @@ func TestLowerFlatS16(t *testing.T) {
 }
 
 func TestLowerFlatU16(t *testing.T) {
-	val := component.ValU16(65535)
+	val := types.ValU16(65535)
 	flat, err := LowerFlat(nil, types.U16{}, val)
 	require.NoError(t, err)
 	require.Equal(t, []uint64{65535}, flat)
 }
 
 func TestLowerFlatU32(t *testing.T) {
-	val := component.ValU32(0xDEADBEEF)
+	val := types.ValU32(0xDEADBEEF)
 	flat, err := LowerFlat(nil, types.U32{}, val)
 	require.NoError(t, err)
 	require.Equal(t, []uint64{0xDEADBEEF}, flat)
 }
 
 func TestLowerFlatS64(t *testing.T) {
-	val := component.ValS64(-1)
+	val := types.ValS64(-1)
 	flat, err := LowerFlat(nil, types.S64{}, val)
 	require.NoError(t, err)
 	require.Equal(t, []uint64{0xFFFFFFFFFFFFFFFF}, flat)
 }
 
 func TestLowerFlatF32(t *testing.T) {
-	val := component.ValF32(3.14)
+	val := types.ValF32(3.14)
 	flat, err := LowerFlat(nil, types.F32{}, val)
 	require.NoError(t, err)
 	require.Equal(t, []uint64{uint64(math.Float32bits(3.14))}, flat)
 }
 
 func TestLowerFlatF64(t *testing.T) {
-	val := component.ValF64(3.14159265359)
+	val := types.ValF64(3.14159265359)
 	flat, err := LowerFlat(nil, types.F64{}, val)
 	require.NoError(t, err)
 	require.Equal(t, []uint64{math.Float64bits(3.14159265359)}, flat)
 }
 
 func TestLowerFlatChar(t *testing.T) {
-	val := component.ValChar(0x1F600) // Unicode smiley face
+	val := types.ValChar(0x1F600) // Unicode smiley face
 	flat, err := LowerFlat(nil, types.Char{}, val)
 	require.NoError(t, err)
 	require.Equal(t, []uint64{0x1F600}, flat)
@@ -131,7 +131,7 @@ func TestLowerFlatString(t *testing.T) {
 		},
 	}
 
-	val := component.ValString("hello")
+	val := types.ValString("hello")
 	flat, err := LowerFlat(ctx, types.String{}, val)
 	require.NoError(t, err)
 	require.Equal(t, 2, len(flat))
@@ -151,7 +151,7 @@ func TestLowerFlatStringEmpty(t *testing.T) {
 		},
 	}
 
-	val := component.ValString("")
+	val := types.ValString("")
 	flat, err := LowerFlat(ctx, types.String{}, val)
 	require.NoError(t, err)
 	require.Equal(t, []uint64{0, 0}, flat)
@@ -169,7 +169,7 @@ func TestLowerFlatStringUnicode(t *testing.T) {
 		},
 	}
 
-	val := component.ValString("日本語")
+	val := types.ValString("日本語")
 	flat, err := LowerFlat(ctx, types.String{}, val)
 	require.NoError(t, err)
 	require.Equal(t, uint64(16), flat[0]) // ptr
@@ -184,9 +184,9 @@ func TestLowerFlatRecord(t *testing.T) {
 			{Name: "b", Type: types.U64{}},
 		},
 	}
-	val := component.ValRecord(map[string]component.Val{
-		"a": component.ValS32(42),
-		"b": component.ValU64(100),
+	val := types.ValRecord(map[string]types.Val{
+		"a": types.ValS32(42),
+		"b": types.ValU64(100),
 	})
 
 	flat, err := LowerFlat(nil, recType, val)
@@ -206,11 +206,11 @@ func TestLowerFlatRecordNested(t *testing.T) {
 			{Name: "value", Type: types.U64{}},
 		},
 	}
-	val := component.ValRecord(map[string]component.Val{
-		"outer": component.ValRecord(map[string]component.Val{
-			"inner": component.ValS32(42),
+	val := types.ValRecord(map[string]types.Val{
+		"outer": types.ValRecord(map[string]types.Val{
+			"inner": types.ValS32(42),
 		}),
-		"value": component.ValU64(100),
+		"value": types.ValU64(100),
 	})
 
 	flat, err := LowerFlat(nil, outerType, val)
@@ -222,7 +222,7 @@ func TestLowerFlatRecordEmpty(t *testing.T) {
 	recType := types.Record{
 		Fields: []types.Field{},
 	}
-	val := component.ValRecord(map[string]component.Val{})
+	val := types.ValRecord(map[string]types.Val{})
 
 	flat, err := LowerFlat(nil, recType, val)
 	require.NoError(t, err)
@@ -237,8 +237,8 @@ func TestLowerFlatRecordMissingField(t *testing.T) {
 		},
 	}
 	// Missing field "b"
-	val := component.ValRecord(map[string]component.Val{
-		"a": component.ValS32(42),
+	val := types.ValRecord(map[string]types.Val{
+		"a": types.ValS32(42),
 	})
 
 	_, err := LowerFlat(nil, recType, val)
@@ -254,8 +254,8 @@ func TestLowerFlatVariant(t *testing.T) {
 			{Name: "some", Type: types.S32{}},
 		},
 	}
-	payload := component.ValS32(42)
-	val := component.ValVariant("some", &payload)
+	payload := types.ValS32(42)
+	val := types.ValVariant("some", &payload)
 
 	flat, err := LowerFlat(nil, varType, val)
 	require.NoError(t, err)
@@ -269,7 +269,7 @@ func TestLowerFlatVariantNoPayload(t *testing.T) {
 			{Name: "some", Type: types.S32{}},
 		},
 	}
-	val := component.ValVariant("none", nil)
+	val := types.ValVariant("none", nil)
 
 	flat, err := LowerFlat(nil, varType, val)
 	require.NoError(t, err)
@@ -284,7 +284,7 @@ func TestLowerFlatVariantUnknownCase(t *testing.T) {
 			{Name: "some", Type: types.S32{}},
 		},
 	}
-	val := component.ValVariant("unknown", nil)
+	val := types.ValVariant("unknown", nil)
 
 	_, err := LowerFlat(nil, varType, val)
 	require.Error(t, err)
@@ -299,7 +299,7 @@ func TestLowerFlatVariantMissingPayload(t *testing.T) {
 		},
 	}
 	// Case "some" requires a payload but none provided
-	val := component.ValVariant("some", nil)
+	val := types.ValVariant("some", nil)
 
 	_, err := LowerFlat(nil, varType, val)
 	require.Error(t, err)
@@ -312,9 +312,9 @@ func TestLowerFlatTuple(t *testing.T) {
 	tupleType := types.Tuple{
 		Types: []types.ValType{types.S32{}, types.U64{}},
 	}
-	val := component.ValTuple([]component.Val{
-		component.ValS32(42),
-		component.ValU64(100),
+	val := types.ValTuple([]types.Val{
+		types.ValS32(42),
+		types.ValU64(100),
 	})
 
 	flat, err := LowerFlat(nil, tupleType, val)
@@ -326,7 +326,7 @@ func TestLowerFlatTupleEmpty(t *testing.T) {
 	tupleType := types.Tuple{
 		Types: []types.ValType{},
 	}
-	val := component.ValTuple([]component.Val{})
+	val := types.ValTuple([]types.Val{})
 
 	flat, err := LowerFlat(nil, tupleType, val)
 	require.NoError(t, err)
@@ -337,11 +337,11 @@ func TestLowerFlatTupleNested(t *testing.T) {
 	innerTuple := types.Tuple{Types: []types.ValType{types.U64{}, types.Bool{}}}
 	outerTuple := types.Tuple{Types: []types.ValType{types.S32{}, innerTuple}}
 
-	val := component.ValTuple([]component.Val{
-		component.ValS32(42),
-		component.ValTuple([]component.Val{
-			component.ValU64(100),
-			component.ValBool(true),
+	val := types.ValTuple([]types.Val{
+		types.ValS32(42),
+		types.ValTuple([]types.Val{
+			types.ValU64(100),
+			types.ValBool(true),
 		}),
 	})
 
@@ -355,7 +355,7 @@ func TestLowerFlatTupleBoundsError(t *testing.T) {
 		Types: []types.ValType{types.S32{}, types.U64{}},
 	}
 	// Tuple with only 1 element when 2 expected
-	val := component.ValTuple([]component.Val{component.ValS32(42)})
+	val := types.ValTuple([]types.Val{types.ValS32(42)})
 	_, err := LowerFlat(nil, tupleType, val)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "expected 2")
@@ -365,8 +365,8 @@ func TestLowerFlatTupleBoundsError(t *testing.T) {
 
 func TestLowerFlatOptionSome(t *testing.T) {
 	optType := types.Option{Some: types.S32{}}
-	payload := component.ValS32(42)
-	val := component.ValOption(&payload)
+	payload := types.ValS32(42)
+	val := types.ValOption(&payload)
 
 	flat, err := LowerFlat(nil, optType, val)
 	require.NoError(t, err)
@@ -376,7 +376,7 @@ func TestLowerFlatOptionSome(t *testing.T) {
 
 func TestLowerFlatOptionNone(t *testing.T) {
 	optType := types.Option{Some: types.S32{}}
-	val := component.ValOption(nil)
+	val := types.ValOption(nil)
 
 	flat, err := LowerFlat(nil, optType, val)
 	require.NoError(t, err)
@@ -392,11 +392,11 @@ func TestLowerFlatOptionWithRecord(t *testing.T) {
 		},
 	}
 	optType := types.Option{Some: recType}
-	payload := component.ValRecord(map[string]component.Val{
-		"a": component.ValS32(10),
-		"b": component.ValU64(20),
+	payload := types.ValRecord(map[string]types.Val{
+		"a": types.ValS32(10),
+		"b": types.ValU64(20),
 	})
-	val := component.ValOption(&payload)
+	val := types.ValOption(&payload)
 
 	flat, err := LowerFlat(nil, optType, val)
 	require.NoError(t, err)
@@ -408,8 +408,8 @@ func TestLowerFlatOptionWithRecord(t *testing.T) {
 
 func TestLowerFlatResultOk(t *testing.T) {
 	resType := types.Result{Ok: types.S32{}, Error: types.U32{}}
-	payload := component.ValS32(42)
-	val := component.ValResultOk(&payload)
+	payload := types.ValS32(42)
+	val := types.ValResultOk(&payload)
 
 	flat, err := LowerFlat(nil, resType, val)
 	require.NoError(t, err)
@@ -419,8 +419,8 @@ func TestLowerFlatResultOk(t *testing.T) {
 
 func TestLowerFlatResultErr(t *testing.T) {
 	resType := types.Result{Ok: types.S32{}, Error: types.U32{}}
-	payload := component.ValU32(99)
-	val := component.ValResultError(&payload)
+	payload := types.ValU32(99)
+	val := types.ValResultError(&payload)
 
 	flat, err := LowerFlat(nil, resType, val)
 	require.NoError(t, err)
@@ -430,7 +430,7 @@ func TestLowerFlatResultErr(t *testing.T) {
 
 func TestLowerFlatResultOkNoPayload(t *testing.T) {
 	resType := types.Result{Ok: nil, Error: types.U32{}}
-	val := component.ValResultOk(nil)
+	val := types.ValResultOk(nil)
 
 	flat, err := LowerFlat(nil, resType, val)
 	require.NoError(t, err)
@@ -440,7 +440,7 @@ func TestLowerFlatResultOkNoPayload(t *testing.T) {
 
 func TestLowerFlatResultErrNoPayload(t *testing.T) {
 	resType := types.Result{Ok: types.S32{}, Error: nil}
-	val := component.ValResultError(nil)
+	val := types.ValResultError(nil)
 
 	flat, err := LowerFlat(nil, resType, val)
 	require.NoError(t, err)
@@ -451,8 +451,8 @@ func TestLowerFlatResultErrNoPayload(t *testing.T) {
 func TestLowerFlatResultWithDifferentPayloadSizes(t *testing.T) {
 	// result<u64, u32> - ok is larger than error
 	resType := types.Result{Ok: types.U64{}, Error: types.U32{}}
-	payload := component.ValU64(12345678901234)
-	val := component.ValResultOk(&payload)
+	payload := types.ValU64(12345678901234)
+	val := types.ValResultOk(&payload)
 
 	flat, err := LowerFlat(nil, resType, val)
 	require.NoError(t, err)
@@ -463,7 +463,7 @@ func TestLowerFlatResultWithDifferentPayloadSizes(t *testing.T) {
 
 func TestLowerFlatEnum(t *testing.T) {
 	enumType := types.Enum{Cases: []string{"a", "b", "c"}}
-	val := component.ValEnum("b")
+	val := types.ValEnum("b")
 
 	flat, err := LowerFlat(nil, enumType, val)
 	require.NoError(t, err)
@@ -472,7 +472,7 @@ func TestLowerFlatEnum(t *testing.T) {
 
 func TestLowerFlatEnumFirstCase(t *testing.T) {
 	enumType := types.Enum{Cases: []string{"first", "second", "third"}}
-	val := component.ValEnum("first")
+	val := types.ValEnum("first")
 
 	flat, err := LowerFlat(nil, enumType, val)
 	require.NoError(t, err)
@@ -481,7 +481,7 @@ func TestLowerFlatEnumFirstCase(t *testing.T) {
 
 func TestLowerFlatEnumLastCase(t *testing.T) {
 	enumType := types.Enum{Cases: []string{"a", "b", "c"}}
-	val := component.ValEnum("c")
+	val := types.ValEnum("c")
 
 	flat, err := LowerFlat(nil, enumType, val)
 	require.NoError(t, err)
@@ -490,7 +490,7 @@ func TestLowerFlatEnumLastCase(t *testing.T) {
 
 func TestLowerFlatEnumInvalidCase(t *testing.T) {
 	enumType := types.Enum{Cases: []string{"a", "b", "c"}}
-	val := component.ValEnum("unknown")
+	val := types.ValEnum("unknown")
 
 	_, err := LowerFlat(nil, enumType, val)
 	require.Error(t, err)
@@ -501,7 +501,7 @@ func TestLowerFlatEnumInvalidCase(t *testing.T) {
 
 func TestLowerFlatFlags(t *testing.T) {
 	flagsType := types.Flags{Names: []string{"read", "write", "execute"}}
-	val := component.ValFlags(map[string]bool{
+	val := types.ValFlags(map[string]bool{
 		"read":    true,
 		"write":   false,
 		"execute": true,
@@ -514,7 +514,7 @@ func TestLowerFlatFlags(t *testing.T) {
 
 func TestLowerFlatFlagsAllSet(t *testing.T) {
 	flagsType := types.Flags{Names: []string{"a", "b", "c"}}
-	val := component.ValFlags(map[string]bool{
+	val := types.ValFlags(map[string]bool{
 		"a": true,
 		"b": true,
 		"c": true,
@@ -527,7 +527,7 @@ func TestLowerFlatFlagsAllSet(t *testing.T) {
 
 func TestLowerFlatFlagsNoneSet(t *testing.T) {
 	flagsType := types.Flags{Names: []string{"a", "b", "c"}}
-	val := component.ValFlags(map[string]bool{
+	val := types.ValFlags(map[string]bool{
 		"a": false,
 		"b": false,
 		"c": false,
@@ -540,7 +540,7 @@ func TestLowerFlatFlagsNoneSet(t *testing.T) {
 
 func TestLowerFlatFlagsEmpty(t *testing.T) {
 	flagsType := types.Flags{Names: []string{}}
-	val := component.ValFlags(map[string]bool{})
+	val := types.ValFlags(map[string]bool{})
 
 	flat, err := LowerFlat(nil, flagsType, val)
 	require.NoError(t, err)
@@ -562,7 +562,7 @@ func TestLowerFlatFlagsMany(t *testing.T) {
 	flagMap["flag0"] = true
 	flagMap["flag15"] = true
 	flagMap["flag31"] = true
-	val := component.ValFlags(flagMap)
+	val := types.ValFlags(flagMap)
 
 	flat, err := LowerFlat(nil, flagsType, val)
 	require.NoError(t, err)
@@ -585,7 +585,7 @@ func TestLowerFlatFlagsMoreThan32(t *testing.T) {
 	flagMap["flag31"] = true
 	flagMap["flag32"] = true
 	flagMap["flag63"] = true
-	val := component.ValFlags(flagMap)
+	val := types.ValFlags(flagMap)
 
 	flat, err := LowerFlat(nil, flagsType, val)
 	require.NoError(t, err)
@@ -608,10 +608,10 @@ func TestLowerFlatList(t *testing.T) {
 	}
 
 	listType := types.List{Element: types.S32{}}
-	val := component.ValList([]component.Val{
-		component.ValS32(1),
-		component.ValS32(2),
-		component.ValS32(3),
+	val := types.ValList([]types.Val{
+		types.ValS32(1),
+		types.ValS32(2),
+		types.ValS32(3),
 	})
 
 	flat, err := LowerFlat(ctx, listType, val)
@@ -631,7 +631,7 @@ func TestLowerFlatList(t *testing.T) {
 func TestLowerFlatListEmpty(t *testing.T) {
 	// Empty list doesn't require memory context
 	listType := types.List{Element: types.U64{}}
-	val := component.ValList([]component.Val{})
+	val := types.ValList([]types.Val{})
 
 	flat, err := LowerFlat(nil, listType, val)
 	require.NoError(t, err)
@@ -641,7 +641,7 @@ func TestLowerFlatListEmpty(t *testing.T) {
 func TestLowerFlatListNoContextError(t *testing.T) {
 	// Non-empty list without context should error
 	listType := types.List{Element: types.S32{}}
-	val := component.ValList([]component.Val{component.ValS32(42)})
+	val := types.ValList([]types.Val{types.ValS32(42)})
 
 	_, err := LowerFlat(nil, listType, val)
 	require.Error(t, err)
@@ -653,69 +653,69 @@ func TestLowerFlatRoundTrip(t *testing.T) {
 	tests := []struct {
 		name string
 		typ  types.ValType
-		val  component.Val
+		val  types.Val
 	}{
-		{"Bool true", types.Bool{}, component.ValBool(true)},
-		{"Bool false", types.Bool{}, component.ValBool(false)},
-		{"S8 positive", types.S8{}, component.ValS8(42)},
-		{"S8 negative", types.S8{}, component.ValS8(-42)},
-		{"U8", types.U8{}, component.ValU8(200)},
-		{"S16 positive", types.S16{}, component.ValS16(1000)},
-		{"S16 negative", types.S16{}, component.ValS16(-1000)},
-		{"U16", types.U16{}, component.ValU16(50000)},
-		{"S32 positive", types.S32{}, component.ValS32(100000)},
-		{"S32 negative", types.S32{}, component.ValS32(-100000)},
-		{"U32", types.U32{}, component.ValU32(3000000000)},
-		{"S64 positive", types.S64{}, component.ValS64(9000000000000)},
-		{"S64 negative", types.S64{}, component.ValS64(-9000000000000)},
-		{"U64", types.U64{}, component.ValU64(0xDEADBEEF12345678)},
-		{"F32", types.F32{}, component.ValF32(3.14)},
-		{"F64", types.F64{}, component.ValF64(3.14159265359)},
-		{"Char ASCII", types.Char{}, component.ValChar('A')},
-		{"Char Unicode", types.Char{}, component.ValChar(0x1F600)},
+		{"Bool true", types.Bool{}, types.ValBool(true)},
+		{"Bool false", types.Bool{}, types.ValBool(false)},
+		{"S8 positive", types.S8{}, types.ValS8(42)},
+		{"S8 negative", types.S8{}, types.ValS8(-42)},
+		{"U8", types.U8{}, types.ValU8(200)},
+		{"S16 positive", types.S16{}, types.ValS16(1000)},
+		{"S16 negative", types.S16{}, types.ValS16(-1000)},
+		{"U16", types.U16{}, types.ValU16(50000)},
+		{"S32 positive", types.S32{}, types.ValS32(100000)},
+		{"S32 negative", types.S32{}, types.ValS32(-100000)},
+		{"U32", types.U32{}, types.ValU32(3000000000)},
+		{"S64 positive", types.S64{}, types.ValS64(9000000000000)},
+		{"S64 negative", types.S64{}, types.ValS64(-9000000000000)},
+		{"U64", types.U64{}, types.ValU64(0xDEADBEEF12345678)},
+		{"F32", types.F32{}, types.ValF32(3.14)},
+		{"F64", types.F64{}, types.ValF64(3.14159265359)},
+		{"Char ASCII", types.Char{}, types.ValChar('A')},
+		{"Char Unicode", types.Char{}, types.ValChar(0x1F600)},
 		{"Record simple", types.Record{Fields: []types.Field{
 			{Name: "a", Type: types.S32{}},
 			{Name: "b", Type: types.U64{}},
-		}}, component.ValRecord(map[string]component.Val{
-			"a": component.ValS32(42),
-			"b": component.ValU64(100),
+		}}, types.ValRecord(map[string]types.Val{
+			"a": types.ValS32(42),
+			"b": types.ValU64(100),
 		})},
 		{"Variant some", types.Variant{Cases: []types.Case{
 			{Name: "none", Type: nil},
 			{Name: "some", Type: types.S32{}},
-		}}, func() component.Val {
-			p := component.ValS32(42)
-			return component.ValVariant("some", &p)
+		}}, func() types.Val {
+			p := types.ValS32(42)
+			return types.ValVariant("some", &p)
 		}()},
 		{"Variant none", types.Variant{Cases: []types.Case{
 			{Name: "none", Type: nil},
 			{Name: "some", Type: types.S32{}},
-		}}, component.ValVariant("none", nil)},
+		}}, types.ValVariant("none", nil)},
 
 		// New composite types
 		{"Tuple simple", types.Tuple{Types: []types.ValType{
 			types.S32{}, types.U64{},
-		}}, component.ValTuple([]component.Val{
-			component.ValS32(42),
-			component.ValU64(100),
+		}}, types.ValTuple([]types.Val{
+			types.ValS32(42),
+			types.ValU64(100),
 		})},
 		{"Tuple empty", types.Tuple{Types: []types.ValType{}},
-			component.ValTuple([]component.Val{})},
-		{"Option some", types.Option{Some: types.S32{}}, func() component.Val {
-			p := component.ValS32(42)
-			return component.ValOption(&p)
+			types.ValTuple([]types.Val{})},
+		{"Option some", types.Option{Some: types.S32{}}, func() types.Val {
+			p := types.ValS32(42)
+			return types.ValOption(&p)
 		}()},
-		{"Option none", types.Option{Some: types.S32{}}, component.ValOption(nil)},
-		{"Result ok", types.Result{Ok: types.S32{}, Error: types.U32{}}, func() component.Val {
-			p := component.ValS32(42)
-			return component.ValResultOk(&p)
+		{"Option none", types.Option{Some: types.S32{}}, types.ValOption(nil)},
+		{"Result ok", types.Result{Ok: types.S32{}, Error: types.U32{}}, func() types.Val {
+			p := types.ValS32(42)
+			return types.ValResultOk(&p)
 		}()},
-		{"Result err", types.Result{Ok: types.S32{}, Error: types.U32{}}, func() component.Val {
-			p := component.ValU32(99)
-			return component.ValResultError(&p)
+		{"Result err", types.Result{Ok: types.S32{}, Error: types.U32{}}, func() types.Val {
+			p := types.ValU32(99)
+			return types.ValResultError(&p)
 		}()},
-		{"Enum", types.Enum{Cases: []string{"a", "b", "c"}}, component.ValEnum("b")},
-		{"Flags", types.Flags{Names: []string{"read", "write", "execute"}}, component.ValFlags(map[string]bool{
+		{"Enum", types.Enum{Cases: []string{"a", "b", "c"}}, types.ValEnum("b")},
+		{"Flags", types.Flags{Names: []string{"read", "write", "execute"}}, types.ValFlags(map[string]bool{
 			"read":    true,
 			"write":   false,
 			"execute": true,
@@ -765,9 +765,9 @@ func TestLowerFlatRoundTrip(t *testing.T) {
 				require.Equal(t, len(origRec), len(liftedRec))
 				for k, v := range origRec {
 					switch v.Kind() {
-					case component.ValKindS32:
+					case types.ValKindS32:
 						require.Equal(t, v.S32(), liftedRec[k].S32())
-					case component.ValKindU64:
+					case types.ValKindU64:
 						require.Equal(t, v.U64(), liftedRec[k].U64())
 					}
 				}
@@ -780,7 +780,7 @@ func TestLowerFlatRoundTrip(t *testing.T) {
 				} else {
 					require.NotNil(t, liftedPayload)
 					// For s32 payload
-					if origPayload.Kind() == component.ValKindS32 {
+					if origPayload.Kind() == types.ValKindS32 {
 						require.Equal(t, origPayload.S32(), liftedPayload.S32())
 					}
 				}
@@ -790,9 +790,9 @@ func TestLowerFlatRoundTrip(t *testing.T) {
 				require.Equal(t, len(origElems), len(liftedElems))
 				for i, origElem := range origElems {
 					switch origElem.Kind() {
-					case component.ValKindS32:
+					case types.ValKindS32:
 						require.Equal(t, origElem.S32(), liftedElems[i].S32())
-					case component.ValKindU64:
+					case types.ValKindU64:
 						require.Equal(t, origElem.U64(), liftedElems[i].U64())
 					}
 				}
@@ -803,7 +803,7 @@ func TestLowerFlatRoundTrip(t *testing.T) {
 					require.Nil(t, liftedPayload)
 				} else {
 					require.NotNil(t, liftedPayload)
-					if origPayload.Kind() == component.ValKindS32 {
+					if origPayload.Kind() == types.ValKindS32 {
 						require.Equal(t, origPayload.S32(), liftedPayload.S32())
 					}
 				}
@@ -816,7 +816,7 @@ func TestLowerFlatRoundTrip(t *testing.T) {
 						require.Nil(t, liftedOk)
 					} else {
 						require.NotNil(t, liftedOk)
-						if origOk.Kind() == component.ValKindS32 {
+						if origOk.Kind() == types.ValKindS32 {
 							require.Equal(t, origOk.S32(), liftedOk.S32())
 						}
 					}
@@ -825,7 +825,7 @@ func TestLowerFlatRoundTrip(t *testing.T) {
 						require.Nil(t, liftedErr)
 					} else {
 						require.NotNil(t, liftedErr)
-						if origErr.Kind() == component.ValKindU32 {
+						if origErr.Kind() == types.ValKindU32 {
 							require.Equal(t, origErr.U32(), liftedErr.U32())
 						}
 					}
@@ -858,7 +858,7 @@ func TestLowerHeapString(t *testing.T) {
 		},
 	}
 
-	val := component.ValString("hello")
+	val := types.ValString("hello")
 	err := LowerHeap(ctx, types.String{}, val, 0)
 	require.NoError(t, err)
 
@@ -882,7 +882,7 @@ func TestLowerHeapStringAtOffset(t *testing.T) {
 		},
 	}
 
-	val := component.ValString("test")
+	val := types.ValString("test")
 	err := LowerHeap(ctx, types.String{}, val, 8) // Write ptr/len at offset 8
 	require.NoError(t, err)
 
@@ -906,7 +906,7 @@ func TestLowerHeapStringEmpty(t *testing.T) {
 		},
 	}
 
-	val := component.ValString("")
+	val := types.ValString("")
 	err := LowerHeap(ctx, types.String{}, val, 0)
 	require.NoError(t, err)
 
@@ -925,62 +925,62 @@ func TestLowerHeapPrimitives(t *testing.T) {
 	}
 
 	// Test Bool
-	err := LowerHeap(ctx, types.Bool{}, component.ValBool(true), 0)
+	err := LowerHeap(ctx, types.Bool{}, types.ValBool(true), 0)
 	require.NoError(t, err)
 	require.Equal(t, uint8(1), data[0])
 
-	err = LowerHeap(ctx, types.Bool{}, component.ValBool(false), 1)
+	err = LowerHeap(ctx, types.Bool{}, types.ValBool(false), 1)
 	require.NoError(t, err)
 	require.Equal(t, uint8(0), data[1])
 
 	// Test U8/S8
-	err = LowerHeap(ctx, types.U8{}, component.ValU8(0xAB), 2)
+	err = LowerHeap(ctx, types.U8{}, types.ValU8(0xAB), 2)
 	require.NoError(t, err)
 	require.Equal(t, uint8(0xAB), data[2])
 
-	err = LowerHeap(ctx, types.S8{}, component.ValS8(-1), 3)
+	err = LowerHeap(ctx, types.S8{}, types.ValS8(-1), 3)
 	require.NoError(t, err)
 	require.Equal(t, uint8(0xFF), data[3])
 
 	// Test U16/S16
-	err = LowerHeap(ctx, types.U16{}, component.ValU16(0x1234), 4)
+	err = LowerHeap(ctx, types.U16{}, types.ValU16(0x1234), 4)
 	require.NoError(t, err)
 	require.Equal(t, uint16(0x1234), binary.LittleEndian.Uint16(data[4:]))
 
-	err = LowerHeap(ctx, types.S16{}, component.ValS16(-1), 6)
+	err = LowerHeap(ctx, types.S16{}, types.ValS16(-1), 6)
 	require.NoError(t, err)
 	require.Equal(t, uint16(0xFFFF), binary.LittleEndian.Uint16(data[6:]))
 
 	// Test U32/S32
-	err = LowerHeap(ctx, types.U32{}, component.ValU32(0xDEADBEEF), 8)
+	err = LowerHeap(ctx, types.U32{}, types.ValU32(0xDEADBEEF), 8)
 	require.NoError(t, err)
 	require.Equal(t, uint32(0xDEADBEEF), binary.LittleEndian.Uint32(data[8:]))
 
-	err = LowerHeap(ctx, types.S32{}, component.ValS32(-42), 12)
+	err = LowerHeap(ctx, types.S32{}, types.ValS32(-42), 12)
 	require.NoError(t, err)
 	require.Equal(t, int32(-42), int32(binary.LittleEndian.Uint32(data[12:])))
 
 	// Test U64/S64
-	err = LowerHeap(ctx, types.U64{}, component.ValU64(0x123456789ABCDEF0), 16)
+	err = LowerHeap(ctx, types.U64{}, types.ValU64(0x123456789ABCDEF0), 16)
 	require.NoError(t, err)
 	require.Equal(t, uint64(0x123456789ABCDEF0), binary.LittleEndian.Uint64(data[16:]))
 
-	err = LowerHeap(ctx, types.S64{}, component.ValS64(-1), 24)
+	err = LowerHeap(ctx, types.S64{}, types.ValS64(-1), 24)
 	require.NoError(t, err)
 	require.Equal(t, uint64(0xFFFFFFFFFFFFFFFF), binary.LittleEndian.Uint64(data[24:]))
 
 	// Test F32
-	err = LowerHeap(ctx, types.F32{}, component.ValF32(3.14), 32)
+	err = LowerHeap(ctx, types.F32{}, types.ValF32(3.14), 32)
 	require.NoError(t, err)
 	require.Equal(t, math.Float32bits(3.14), binary.LittleEndian.Uint32(data[32:]))
 
 	// Test F64
-	err = LowerHeap(ctx, types.F64{}, component.ValF64(3.14159), 40)
+	err = LowerHeap(ctx, types.F64{}, types.ValF64(3.14159), 40)
 	require.NoError(t, err)
 	require.Equal(t, math.Float64bits(3.14159), binary.LittleEndian.Uint64(data[40:]))
 
 	// Test Char
-	err = LowerHeap(ctx, types.Char{}, component.ValChar(0x1F600), 48)
+	err = LowerHeap(ctx, types.Char{}, types.ValChar(0x1F600), 48)
 	require.NoError(t, err)
 	require.Equal(t, uint32(0x1F600), binary.LittleEndian.Uint32(data[48:]))
 }
@@ -988,7 +988,7 @@ func TestLowerHeapPrimitives(t *testing.T) {
 // --- LowerOwn Tests ---
 
 func TestLowerOwn(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 
 	ctx := &LowerContext{
 		ResourceTable: table,
@@ -999,7 +999,7 @@ func TestLowerOwn(t *testing.T) {
 	require.NoError(t, err)
 
 	// Should be in table now
-	h := component.MakeHandle(handleIdx, 0)
+	h := runtime.MakeHandle(handleIdx, 0)
 	entry, err := table.Get(h)
 	require.NoError(t, err)
 	require.Equal(t, "my-resource", entry.Rep)
@@ -1018,7 +1018,7 @@ func TestLowerOwn_NoResourceTable(t *testing.T) {
 }
 
 func TestLowerOwn_MultipleResources(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 
 	ctx := &LowerContext{
 		ResourceTable: table,
@@ -1040,17 +1040,17 @@ func TestLowerOwn_MultipleResources(t *testing.T) {
 	require.NotEqual(t, idx1, idx3)
 
 	// Verify all are in table
-	h1 := component.MakeHandle(idx1, 0)
+	h1 := runtime.MakeHandle(idx1, 0)
 	entry1, err := table.Get(h1)
 	require.NoError(t, err)
 	require.Equal(t, "resource-1", entry1.Rep)
 
-	h2 := component.MakeHandle(idx2, 0)
+	h2 := runtime.MakeHandle(idx2, 0)
 	entry2, err := table.Get(h2)
 	require.NoError(t, err)
 	require.Equal(t, "resource-2", entry2.Rep)
 
-	h3 := component.MakeHandle(idx3, 0)
+	h3 := runtime.MakeHandle(idx3, 0)
 	entry3, err := table.Get(h3)
 	require.NoError(t, err)
 	require.Equal(t, "resource-3", entry3.Rep)
@@ -1064,7 +1064,7 @@ func TestLowerOwn_WithComplexRep(t *testing.T) {
 	}
 	resource := &MyResource{Name: "test", Value: 42}
 
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 
 	ctx := &LowerContext{
 		ResourceTable: table,
@@ -1074,7 +1074,7 @@ func TestLowerOwn_WithComplexRep(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify we can get back the same struct
-	h := component.MakeHandle(handleIdx, 0)
+	h := runtime.MakeHandle(handleIdx, 0)
 	entry, err := table.Get(h)
 	require.NoError(t, err)
 
@@ -1085,7 +1085,7 @@ func TestLowerOwn_WithComplexRep(t *testing.T) {
 }
 
 func TestLowerOwn_RoundTripWithLiftOwn(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 
 	lowerCtx := &LowerContext{
 		ResourceTable: table,
@@ -1105,7 +1105,7 @@ func TestLowerOwn_RoundTripWithLiftOwn(t *testing.T) {
 	require.Equal(t, "my-resource", rep)
 
 	// Handle should be removed from table now
-	h := component.MakeHandle(handleIdx, 0)
+	h := runtime.MakeHandle(handleIdx, 0)
 	_, err = table.Get(h)
 	require.Error(t, err)
 }
@@ -1113,8 +1113,8 @@ func TestLowerOwn_RoundTripWithLiftOwn(t *testing.T) {
 // --- LowerBorrow Tests ---
 
 func TestLowerBorrow(t *testing.T) {
-	table := component.NewResourceTable()
-	callCtx := component.NewCallContext()
+	table := runtime.NewResourceTable()
+	callCtx := runtime.NewCallContext()
 
 	ctx := &LowerContext{
 		ResourceTable: table,
@@ -1126,7 +1126,7 @@ func TestLowerBorrow(t *testing.T) {
 	require.NoError(t, err)
 
 	// Should be in table as borrowed
-	h := component.MakeHandle(handleIdx, 0)
+	h := runtime.MakeHandle(handleIdx, 0)
 	entry, err := table.Get(h)
 	require.NoError(t, err)
 	require.Equal(t, "my-resource", entry.Rep)
@@ -1148,7 +1148,7 @@ func TestLowerBorrow_NoResourceTable(t *testing.T) {
 }
 
 func TestLowerBorrow_NoCallContext(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 
 	ctx := &LowerContext{
 		ResourceTable: table,
@@ -1160,7 +1160,7 @@ func TestLowerBorrow_NoCallContext(t *testing.T) {
 	require.NoError(t, err)
 
 	// Should be in table as borrowed
-	h := component.MakeHandle(handleIdx, 0)
+	h := runtime.MakeHandle(handleIdx, 0)
 	entry, err := table.Get(h)
 	require.NoError(t, err)
 	require.Equal(t, "my-resource", entry.Rep)
@@ -1168,8 +1168,8 @@ func TestLowerBorrow_NoCallContext(t *testing.T) {
 }
 
 func TestLowerBorrow_MultipleBorrows(t *testing.T) {
-	table := component.NewResourceTable()
-	callCtx := component.NewCallContext()
+	table := runtime.NewResourceTable()
+	callCtx := runtime.NewCallContext()
 
 	ctx := &LowerContext{
 		ResourceTable: table,
@@ -1195,19 +1195,19 @@ func TestLowerBorrow_MultipleBorrows(t *testing.T) {
 	require.NotEqual(t, idx1, idx3)
 
 	// Verify all are in table as borrowed
-	h1 := component.MakeHandle(idx1, 0)
+	h1 := runtime.MakeHandle(idx1, 0)
 	entry1, err := table.Get(h1)
 	require.NoError(t, err)
 	require.Equal(t, "resource-1", entry1.Rep)
 	require.False(t, entry1.Own)
 
-	h2 := component.MakeHandle(idx2, 0)
+	h2 := runtime.MakeHandle(idx2, 0)
 	entry2, err := table.Get(h2)
 	require.NoError(t, err)
 	require.Equal(t, "resource-2", entry2.Rep)
 	require.False(t, entry2.Own)
 
-	h3 := component.MakeHandle(idx3, 0)
+	h3 := runtime.MakeHandle(idx3, 0)
 	entry3, err := table.Get(h3)
 	require.NoError(t, err)
 	require.Equal(t, "resource-3", entry3.Rep)
@@ -1222,8 +1222,8 @@ func TestLowerBorrow_WithComplexRep(t *testing.T) {
 	}
 	resource := &MyResource{Name: "test", Value: 42}
 
-	table := component.NewResourceTable()
-	callCtx := component.NewCallContext()
+	table := runtime.NewResourceTable()
+	callCtx := runtime.NewCallContext()
 
 	ctx := &LowerContext{
 		ResourceTable: table,
@@ -1234,7 +1234,7 @@ func TestLowerBorrow_WithComplexRep(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify we can get back the same struct
-	h := component.MakeHandle(handleIdx, 0)
+	h := runtime.MakeHandle(handleIdx, 0)
 	entry, err := table.Get(h)
 	require.NoError(t, err)
 
@@ -1247,9 +1247,9 @@ func TestLowerBorrow_WithComplexRep(t *testing.T) {
 }
 
 func TestLowerBorrow_RoundTripWithLiftBorrow(t *testing.T) {
-	table := component.NewResourceTable()
-	callCtx := component.NewCallContext()
-	borrowScope := component.NewBorrowScope(table)
+	table := runtime.NewResourceTable()
+	callCtx := runtime.NewCallContext()
+	borrowScope := runtime.NewBorrowScope(table)
 
 	lowerCtx := &LowerContext{
 		ResourceTable: table,
@@ -1272,7 +1272,7 @@ func TestLowerBorrow_RoundTripWithLiftBorrow(t *testing.T) {
 	require.Equal(t, "my-resource", rep)
 
 	// Handle should still be in table (borrows don't remove)
-	h := component.MakeHandle(handleIdx, 0)
+	h := runtime.MakeHandle(handleIdx, 0)
 	entry, err := table.Get(h)
 	require.NoError(t, err)
 	require.Equal(t, "my-resource", entry.Rep)
@@ -1288,8 +1288,8 @@ func TestLowerFlatVariantTypeCoercion(t *testing.T) {
 	}}
 
 	// Lower float_case with value 3.14
-	floatPayload := component.ValF32(3.14)
-	val := component.ValVariant("float_case", &floatPayload)
+	floatPayload := types.ValF32(3.14)
+	val := types.ValVariant("float_case", &floatPayload)
 
 	ctx := &LowerContext{Opts: &Options{}}
 	flat, err := LowerFlat(ctx, variantType, val)
@@ -1320,8 +1320,8 @@ func TestLowerFlatVariantI32ToI64Coercion(t *testing.T) {
 	}}
 
 	// Lower small case with value 42
-	intPayload := component.ValS32(42)
-	val := component.ValVariant("small", &intPayload)
+	intPayload := types.ValS32(42)
+	val := types.ValVariant("small", &intPayload)
 
 	ctx := &LowerContext{Opts: &Options{}}
 	flat, err := LowerFlat(ctx, variantType, val)
@@ -1349,8 +1349,8 @@ func TestLowerFlatVariantF32ToI64Coercion(t *testing.T) {
 	}}
 
 	// Lower float_val case with value 2.5
-	floatPayload := component.ValF32(2.5)
-	val := component.ValVariant("float_val", &floatPayload)
+	floatPayload := types.ValF32(2.5)
+	val := types.ValVariant("float_val", &floatPayload)
 
 	ctx := &LowerContext{Opts: &Options{}}
 	flat, err := LowerFlat(ctx, variantType, val)
@@ -1381,8 +1381,8 @@ func TestLowerFlatVariantF64ToI64Coercion(t *testing.T) {
 	}}
 
 	// Lower float_val case with value 3.14159
-	floatPayload := component.ValF64(3.14159)
-	val := component.ValVariant("float_val", &floatPayload)
+	floatPayload := types.ValF64(3.14159)
+	val := types.ValVariant("float_val", &floatPayload)
 
 	ctx := &LowerContext{Opts: &Options{}}
 	flat, err := LowerFlat(ctx, variantType, val)
@@ -1416,8 +1416,8 @@ func TestLowerFlatVariantRoundTripWithCoercion(t *testing.T) {
 	}}
 
 	// Test small case
-	intPayload := component.ValS32(-42) // Negative to test sign extension
-	val := component.ValVariant("small", &intPayload)
+	intPayload := types.ValS32(-42) // Negative to test sign extension
+	val := types.ValVariant("small", &intPayload)
 
 	flat, err := LowerFlat(nil, variantType, val)
 	if err != nil {
@@ -1451,8 +1451,8 @@ func TestLowerFlatVariantF32RoundTrip(t *testing.T) {
 	}}
 
 	// Test float case
-	floatPayload := component.ValF32(3.14)
-	val := component.ValVariant("float_case", &floatPayload)
+	floatPayload := types.ValF32(3.14)
+	val := types.ValVariant("float_case", &floatPayload)
 
 	flat, err := LowerFlat(nil, variantType, val)
 	if err != nil {
@@ -1496,8 +1496,8 @@ func TestLowerFlatVariantDifferentPayloadCounts(t *testing.T) {
 	}}
 
 	// Lower single case - should produce [0, value, 0] (discriminant + payload + padding)
-	intPayload := component.ValS32(42)
-	val := component.ValVariant("single", &intPayload)
+	intPayload := types.ValS32(42)
+	val := types.ValVariant("single", &intPayload)
 
 	flat, err := LowerFlat(nil, variantType, val)
 	if err != nil {
@@ -1547,8 +1547,8 @@ func TestLowerFlatVariantCoercionMatchesJoinedType(t *testing.T) {
 	}}
 
 	// Test: lower small case, verify flat representation matches what lift expects
-	intPayload := component.ValS32(0x7FFFFFFF) // max positive i32
-	val := component.ValVariant("small", &intPayload)
+	intPayload := types.ValS32(0x7FFFFFFF) // max positive i32
+	val := types.ValVariant("small", &intPayload)
 
 	flat, err := LowerFlat(nil, variantType, val)
 	if err != nil {
@@ -1568,8 +1568,8 @@ func TestLowerFlatVariantCoercionMatchesJoinedType(t *testing.T) {
 	}
 
 	// Also test negative value - should be zero-extended (treated as unsigned i32)
-	intPayload2 := component.ValS32(-1) // 0xFFFFFFFF as unsigned
-	val2 := component.ValVariant("small", &intPayload2)
+	intPayload2 := types.ValS32(-1) // 0xFFFFFFFF as unsigned
+	val2 := types.ValVariant("small", &intPayload2)
 
 	flat2, err := LowerFlat(nil, variantType, val2)
 	if err != nil {
@@ -1609,12 +1609,12 @@ func TestLowerHeapFixedLengthList(t *testing.T) {
 	length := uint32(3)
 	listType := types.List{Element: types.U32{}, Length: &length}
 
-	elements := []component.Val{
-		component.ValU32(10),
-		component.ValU32(20),
-		component.ValU32(30),
+	elements := []types.Val{
+		types.ValU32(10),
+		types.ValU32(20),
+		types.ValU32(30),
 	}
-	val := component.ValList(elements)
+	val := types.ValList(elements)
 
 	err := LowerHeap(ctx, listType, val, 0)
 	if err != nil {
@@ -1637,12 +1637,12 @@ func TestLowerFlatFixedLengthList(t *testing.T) {
 	length := uint32(3)
 	listType := types.List{Element: types.U32{}, Length: &length}
 
-	elements := []component.Val{
-		component.ValU32(10),
-		component.ValU32(20),
-		component.ValU32(30),
+	elements := []types.Val{
+		types.ValU32(10),
+		types.ValU32(20),
+		types.ValU32(30),
 	}
-	val := component.ValList(elements)
+	val := types.ValList(elements)
 
 	flat, err := LowerFlat(ctx, listType, val)
 	if err != nil {
@@ -1670,11 +1670,11 @@ func TestLowerHeapFixedLengthListLengthMismatch(t *testing.T) {
 	listType := types.List{Element: types.U32{}, Length: &length}
 
 	// Provide only 2 elements when 3 are expected
-	elements := []component.Val{
-		component.ValU32(10),
-		component.ValU32(20),
+	elements := []types.Val{
+		types.ValU32(10),
+		types.ValU32(20),
 	}
-	val := component.ValList(elements)
+	val := types.ValList(elements)
 
 	err := LowerHeap(ctx, listType, val, 0)
 	if err == nil {
@@ -1692,13 +1692,13 @@ func TestLowerFlatFixedLengthListLengthMismatch(t *testing.T) {
 	listType := types.List{Element: types.U32{}, Length: &length}
 
 	// Provide 4 elements when 3 are expected
-	elements := []component.Val{
-		component.ValU32(10),
-		component.ValU32(20),
-		component.ValU32(30),
-		component.ValU32(40),
+	elements := []types.Val{
+		types.ValU32(10),
+		types.ValU32(20),
+		types.ValU32(30),
+		types.ValU32(40),
 	}
-	val := component.ValList(elements)
+	val := types.ValList(elements)
 
 	_, err := LowerFlat(ctx, listType, val)
 	if err == nil {
@@ -1716,8 +1716,8 @@ func TestLowerHeapFixedLengthListEmpty(t *testing.T) {
 	length := uint32(0)
 	listType := types.List{Element: types.U32{}, Length: &length}
 
-	elements := []component.Val{}
-	val := component.ValList(elements)
+	elements := []types.Val{}
+	val := types.ValList(elements)
 
 	err := LowerHeap(ctx, listType, val, 0)
 	if err != nil {
@@ -1732,8 +1732,8 @@ func TestLowerFlatFixedLengthListEmpty(t *testing.T) {
 	length := uint32(0)
 	listType := types.List{Element: types.U32{}, Length: &length}
 
-	elements := []component.Val{}
-	val := component.ValList(elements)
+	elements := []types.Val{}
+	val := types.ValList(elements)
 
 	flat, err := LowerFlat(ctx, listType, val)
 	if err != nil {
@@ -1786,9 +1786,9 @@ func TestLowerAsyncTypesTraps(t *testing.T) {
 		{"ErrorContext", types.ErrorContext{}},
 	}
 
-	// A zero-value component.Val is sufficient: lower must trap before
+	// A zero-value types.Val is sufficient: lower must trap before
 	// it tries to interpret the value.
-	zero := component.Val{}
+	zero := types.Val{}
 
 	for _, tt := range tests {
 		tc := tt
@@ -1819,7 +1819,7 @@ func TestLowerBorrowOptimization(t *testing.T) {
 	// Per spec lines 2679-2680, when lowering a borrow to the same
 	// instance that implements the resource, return rep directly.
 
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := &LowerContext{
 		ResourceTable: table,
 		// TODO: Set Instance to match resource's implementing instance
@@ -1841,7 +1841,7 @@ func TestLowerBorrowOptimization(t *testing.T) {
 	// Otherwise, idx should be a new handle index
 
 	// For now, verify the current behavior: a new handle is created
-	h := component.MakeHandle(idx, 0)
+	h := runtime.MakeHandle(idx, 0)
 	entry, err := table.Get(h)
 	if err != nil {
 		t.Fatalf("Failed to get handle from table: %v", err)

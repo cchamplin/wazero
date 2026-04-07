@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
@@ -144,7 +144,7 @@ func TestLiftFlatRecord(t *testing.T) {
 
 	val, err := LiftFlat(nil, recType, iter)
 	require.NoError(t, err)
-	require.Equal(t, component.ValKindRecord, val.Kind())
+	require.Equal(t, types.ValKindRecord, val.Kind())
 
 	rec := val.Record()
 	require.Equal(t, int32(42), rec["a"].S32())
@@ -169,12 +169,12 @@ func TestLiftFlatRecordNested(t *testing.T) {
 
 	val, err := LiftFlat(nil, outerType, iter)
 	require.NoError(t, err)
-	require.Equal(t, component.ValKindRecord, val.Kind())
+	require.Equal(t, types.ValKindRecord, val.Kind())
 
 	rec := val.Record()
 	// Check outer field is a record
 	outerVal := rec["outer"]
-	require.Equal(t, component.ValKindRecord, outerVal.Kind())
+	require.Equal(t, types.ValKindRecord, outerVal.Kind())
 	innerRec := outerVal.Record()
 	require.Equal(t, int32(42), innerRec["inner"].S32())
 	// Check value field
@@ -190,7 +190,7 @@ func TestLiftFlatRecordEmpty(t *testing.T) {
 
 	val, err := LiftFlat(nil, recType, iter)
 	require.NoError(t, err)
-	require.Equal(t, component.ValKindRecord, val.Kind())
+	require.Equal(t, types.ValKindRecord, val.Kind())
 
 	rec := val.Record()
 	require.Equal(t, 0, len(rec))
@@ -214,7 +214,7 @@ func TestLiftFlatRecordWithString(t *testing.T) {
 	}
 	val, err := LiftFlat(ctx, recType, iter)
 	require.NoError(t, err)
-	require.Equal(t, component.ValKindRecord, val.Kind())
+	require.Equal(t, types.ValKindRecord, val.Kind())
 	rec := val.Record()
 	require.Equal(t, "hello", rec["message"].StringVal())
 }
@@ -311,7 +311,7 @@ func TestLiftFlatTuple(t *testing.T) {
 	}
 	val, err := LiftFlat(nil, tupleType, iter)
 	require.NoError(t, err)
-	require.Equal(t, component.ValKindTuple, val.Kind())
+	require.Equal(t, types.ValKindTuple, val.Kind())
 	elems := val.Tuple()
 	require.Equal(t, 2, len(elems))
 	require.Equal(t, int32(42), elems[0].S32())
@@ -326,7 +326,7 @@ func TestLiftFlatTupleEmpty(t *testing.T) {
 	}
 	val, err := LiftFlat(nil, tupleType, iter)
 	require.NoError(t, err)
-	require.Equal(t, component.ValKindTuple, val.Kind())
+	require.Equal(t, types.ValKindTuple, val.Kind())
 	elems := val.Tuple()
 	require.Equal(t, 0, len(elems))
 }
@@ -339,7 +339,7 @@ func TestLiftFlatTupleNested(t *testing.T) {
 
 	val, err := LiftFlat(nil, outerTuple, iter)
 	require.NoError(t, err)
-	require.Equal(t, component.ValKindTuple, val.Kind())
+	require.Equal(t, types.ValKindTuple, val.Kind())
 	elems := val.Tuple()
 	require.Equal(t, 2, len(elems))
 	require.Equal(t, int32(42), elems[0].S32())
@@ -357,7 +357,7 @@ func TestLiftFlatOptionSome(t *testing.T) {
 	optType := types.Option{Some: types.S32{}}
 	val, err := LiftFlat(nil, optType, iter)
 	require.NoError(t, err)
-	require.Equal(t, component.ValKindOption, val.Kind())
+	require.Equal(t, types.ValKindOption, val.Kind())
 	payload := val.Option()
 	require.NotNil(t, payload)
 	require.Equal(t, int32(42), payload.S32())
@@ -369,7 +369,7 @@ func TestLiftFlatOptionNone(t *testing.T) {
 	optType := types.Option{Some: types.S32{}}
 	val, err := LiftFlat(nil, optType, iter)
 	require.NoError(t, err)
-	require.Equal(t, component.ValKindOption, val.Kind())
+	require.Equal(t, types.ValKindOption, val.Kind())
 	require.Nil(t, val.Option())
 }
 
@@ -410,7 +410,7 @@ func TestLiftFlatResultOk(t *testing.T) {
 	resType := types.Result{Ok: types.S32{}, Error: types.U32{}}
 	val, err := LiftFlat(nil, resType, iter)
 	require.NoError(t, err)
-	require.Equal(t, component.ValKindResult, val.Kind())
+	require.Equal(t, types.ValKindResult, val.Kind())
 	isOk, ok, errVal := val.Result()
 	require.True(t, isOk)
 	require.NotNil(t, ok)
@@ -424,7 +424,7 @@ func TestLiftFlatResultErr(t *testing.T) {
 	resType := types.Result{Ok: types.S32{}, Error: types.U32{}}
 	val, err := LiftFlat(nil, resType, iter)
 	require.NoError(t, err)
-	require.Equal(t, component.ValKindResult, val.Kind())
+	require.Equal(t, types.ValKindResult, val.Kind())
 	isOk, ok, errVal := val.Result()
 	require.False(t, isOk)
 	require.Nil(t, ok)
@@ -476,7 +476,7 @@ func TestLiftFlatEnum(t *testing.T) {
 	enumType := types.Enum{Cases: []string{"a", "b", "c"}}
 	val, err := LiftFlat(nil, enumType, iter)
 	require.NoError(t, err)
-	require.Equal(t, component.ValKindEnum, val.Kind())
+	require.Equal(t, types.ValKindEnum, val.Kind())
 	require.Equal(t, "b", val.Enum())
 }
 
@@ -515,7 +515,7 @@ func TestLiftFlatFlags(t *testing.T) {
 	flagsType := types.Flags{Names: []string{"read", "write", "execute"}}
 	val, err := LiftFlat(nil, flagsType, iter)
 	require.NoError(t, err)
-	require.Equal(t, component.ValKindFlags, val.Kind())
+	require.Equal(t, types.ValKindFlags, val.Kind())
 	flags := val.Flags()
 	require.True(t, flags["read"])
 	require.False(t, flags["write"])
@@ -611,7 +611,7 @@ func TestLiftFlatList(t *testing.T) {
 	listType := types.List{Element: types.S32{}}
 	val, err := LiftFlat(ctx, listType, iter)
 	require.NoError(t, err)
-	require.Equal(t, component.ValKindList, val.Kind())
+	require.Equal(t, types.ValKindList, val.Kind())
 
 	list := val.List()
 	require.Equal(t, 5, len(list))
@@ -634,7 +634,7 @@ func TestLiftFlatListPtrAndLen(t *testing.T) {
 	listType := types.List{Element: types.U64{}}
 	val, err := LiftFlat(ctx, listType, iter)
 	require.NoError(t, err)
-	require.Equal(t, component.ValKindList, val.Kind())
+	require.Equal(t, types.ValKindList, val.Kind())
 
 	list := val.List()
 	require.Equal(t, 3, len(list))
@@ -649,7 +649,7 @@ func TestLiftFlatListEmpty(t *testing.T) {
 	listType := types.List{Element: types.S32{}}
 	val, err := LiftFlat(nil, listType, iter)
 	require.NoError(t, err)
-	require.Equal(t, component.ValKindList, val.Kind())
+	require.Equal(t, types.ValKindList, val.Kind())
 	require.Equal(t, 0, len(val.List()))
 }
 
@@ -778,7 +778,7 @@ func TestLiftHeapRecord(t *testing.T) {
 	// Record { a: u8, b: u32, c: u16 } at offset 16
 	// Layout: u8@0, padding@1-3, u32@4, u16@8
 	data := make([]byte, 32)
-	data[16] = 0x42                                  // a = 0x42
+	data[16] = 0x42                                      // a = 0x42
 	binary.LittleEndian.PutUint32(data[20:], 0xDEADBEEF) // b at offset 16+4
 	binary.LittleEndian.PutUint16(data[24:], 0x1234)     // c at offset 16+8
 
@@ -807,7 +807,7 @@ func TestLiftHeapRecordEmpty(t *testing.T) {
 
 	val, err := LiftHeap(ctx, recType, 0)
 	require.NoError(t, err)
-	require.Equal(t, component.ValKindRecord, val.Kind())
+	require.Equal(t, types.ValKindRecord, val.Kind())
 	require.Equal(t, 0, len(val.Record()))
 }
 
@@ -848,10 +848,10 @@ func TestLiftHeapRecordAllPrimitives(t *testing.T) {
 	// { a: bool, b: u8, c: u16, d: u32, e: u64 }
 	// Layout: bool@0, u8@1, u16@2, u32@4, u64@8
 	data := make([]byte, 32)
-	data[0] = 1                                           // bool true
-	data[1] = 0xAB                                        // u8
-	binary.LittleEndian.PutUint16(data[2:], 0x1234)       // u16
-	binary.LittleEndian.PutUint32(data[4:], 0xDEADBEEF)   // u32
+	data[0] = 1                                                 // bool true
+	data[1] = 0xAB                                              // u8
+	binary.LittleEndian.PutUint16(data[2:], 0x1234)             // u16
+	binary.LittleEndian.PutUint32(data[4:], 0xDEADBEEF)         // u32
 	binary.LittleEndian.PutUint64(data[8:], 0x123456789ABCDEF0) // u64
 
 	ctx := &LiftContext{Memory: &mockMemory{data: data}}
@@ -883,7 +883,7 @@ func TestLiftHeapRecordWithPadding(t *testing.T) {
 	// - a is at 4+0 = 4
 	// - b is at 4+8 = 12 (aligned to 8 bytes within the record)
 	data := make([]byte, 24)
-	data[4] = 0x42                                              // a at offset 4+0=4
+	data[4] = 0x42                                               // a at offset 4+0=4
 	binary.LittleEndian.PutUint64(data[12:], 0xDEADBEEFCAFEBABE) // b at offset 4+8=12
 
 	ctx := &LiftContext{Memory: &mockMemory{data: data}}
@@ -933,7 +933,7 @@ func TestLiftHeapTuple(t *testing.T) {
 	// tuple<s32, u64> at offset 0
 	// Layout: s32@0, padding@4-7, u64@8
 	data := make([]byte, 32)
-	binary.LittleEndian.PutUint32(data[0:], 42)            // s32
+	binary.LittleEndian.PutUint32(data[0:], 42)           // s32
 	binary.LittleEndian.PutUint64(data[8:], 0x1234567890) // u64 (aligned to 8)
 
 	ctx := &LiftContext{Memory: &mockMemory{data: data}}
@@ -941,7 +941,7 @@ func TestLiftHeapTuple(t *testing.T) {
 
 	val, err := LiftHeap(ctx, tupleType, 0)
 	require.NoError(t, err)
-	require.Equal(t, component.ValKindTuple, val.Kind())
+	require.Equal(t, types.ValKindTuple, val.Kind())
 
 	elems := val.Tuple()
 	require.Equal(t, 2, len(elems))
@@ -956,7 +956,7 @@ func TestLiftHeapTupleEmpty(t *testing.T) {
 
 	val, err := LiftHeap(ctx, tupleType, 0)
 	require.NoError(t, err)
-	require.Equal(t, component.ValKindTuple, val.Kind())
+	require.Equal(t, types.ValKindTuple, val.Kind())
 	require.Equal(t, 0, len(val.Tuple()))
 }
 
@@ -992,7 +992,7 @@ func TestLiftHeapVariant(t *testing.T) {
 	// Layout: discriminant (1 byte), padding, s32 at aligned offset
 	// With s32 alignment of 4: disc@0, padding@1-3, payload@4
 	data := make([]byte, 16)
-	data[0] = 1 // discriminant = some
+	data[0] = 1                                 // discriminant = some
 	binary.LittleEndian.PutUint32(data[4:], 42) // payload
 
 	ctx := &LiftContext{Memory: &mockMemory{data: data}}
@@ -1055,7 +1055,7 @@ func TestLiftHeapVariantWithRecord(t *testing.T) {
 	// variant { empty, pair(record { x: u16, y: u16 }) }
 	// Layout: disc@0, padding@1, record@2 (record has align 2)
 	data := make([]byte, 16)
-	data[0] = 1 // discriminant = pair
+	data[0] = 1                                 // discriminant = pair
 	binary.LittleEndian.PutUint16(data[2:], 10) // x
 	binary.LittleEndian.PutUint16(data[4:], 20) // y
 
@@ -1094,7 +1094,7 @@ func TestLiftHeapVariantManyCase(t *testing.T) {
 
 	// Select case 256
 	data := make([]byte, 16)
-	binary.LittleEndian.PutUint16(data[0:], 256) // 2-byte discriminant
+	binary.LittleEndian.PutUint16(data[0:], 256)        // 2-byte discriminant
 	binary.LittleEndian.PutUint32(data[4:], 0xDEADBEEF) // payload at offset 4 (aligned)
 
 	ctx := &LiftContext{Memory: &mockMemory{data: data}}
@@ -1123,7 +1123,7 @@ func TestLiftHeapOptionSome(t *testing.T) {
 
 	val, err := LiftHeap(ctx, optType, 0)
 	require.NoError(t, err)
-	require.Equal(t, component.ValKindOption, val.Kind())
+	require.Equal(t, types.ValKindOption, val.Kind())
 
 	payload := val.Option()
 	require.NotNil(t, payload)
@@ -1140,7 +1140,7 @@ func TestLiftHeapOptionNone(t *testing.T) {
 
 	val, err := LiftHeap(ctx, optType, 0)
 	require.NoError(t, err)
-	require.Equal(t, component.ValKindOption, val.Kind())
+	require.Equal(t, types.ValKindOption, val.Kind())
 	require.Nil(t, val.Option())
 }
 
@@ -1162,8 +1162,8 @@ func TestLiftHeapOptionWithRecord(t *testing.T) {
 	// option<record { x: u8, y: u16 }>
 	// Layout: disc@0, y has align 2, so record at offset 2
 	data := make([]byte, 16)
-	data[0] = 1    // Some
-	data[2] = 0x11 // x
+	data[0] = 1                                     // Some
+	data[2] = 0x11                                  // x
 	binary.LittleEndian.PutUint16(data[4:], 0x2222) // y at offset 4 within record (2+2)
 
 	ctx := &LiftContext{Memory: &mockMemory{data: data}}
@@ -1190,7 +1190,7 @@ func TestLiftHeapOptionWithRecord(t *testing.T) {
 func TestLiftHeapResultOk(t *testing.T) {
 	// result<s32, u32> as Ok(42)
 	data := make([]byte, 16)
-	data[0] = 0 // Ok
+	data[0] = 0                                 // Ok
 	binary.LittleEndian.PutUint32(data[4:], 42) // payload at aligned offset
 
 	ctx := &LiftContext{Memory: &mockMemory{data: data}}
@@ -1198,7 +1198,7 @@ func TestLiftHeapResultOk(t *testing.T) {
 
 	val, err := LiftHeap(ctx, resType, 0)
 	require.NoError(t, err)
-	require.Equal(t, component.ValKindResult, val.Kind())
+	require.Equal(t, types.ValKindResult, val.Kind())
 
 	isOk, ok, errVal := val.Result()
 	require.True(t, isOk)
@@ -1210,7 +1210,7 @@ func TestLiftHeapResultOk(t *testing.T) {
 func TestLiftHeapResultError(t *testing.T) {
 	// result<s32, u32> as Err(99)
 	data := make([]byte, 16)
-	data[0] = 1 // Error
+	data[0] = 1                                 // Error
 	binary.LittleEndian.PutUint32(data[4:], 99) // payload at aligned offset
 
 	ctx := &LiftContext{Memory: &mockMemory{data: data}}
@@ -1290,7 +1290,7 @@ func TestLiftHeapEnum(t *testing.T) {
 
 	val, err := LiftHeap(ctx, enumType, 0)
 	require.NoError(t, err)
-	require.Equal(t, component.ValKindEnum, val.Kind())
+	require.Equal(t, types.ValKindEnum, val.Kind())
 	require.Equal(t, "b", val.Enum())
 }
 
@@ -1360,7 +1360,7 @@ func TestLiftHeapFlags(t *testing.T) {
 
 	val, err := LiftHeap(ctx, flagsType, 0)
 	require.NoError(t, err)
-	require.Equal(t, component.ValKindFlags, val.Kind())
+	require.Equal(t, types.ValKindFlags, val.Kind())
 
 	flags := val.Flags()
 	require.True(t, flags["read"])
@@ -1465,8 +1465,8 @@ func TestLiftHeapFlagsMoreThan32(t *testing.T) {
 	}
 
 	data := make([]byte, 16)
-	binary.LittleEndian.PutUint32(data[0:], (1<<0)|(1<<31))  // first u32
-	binary.LittleEndian.PutUint32(data[4:], (1<<0)|(1<<31))  // second u32 (flags 32-63)
+	binary.LittleEndian.PutUint32(data[0:], (1<<0)|(1<<31)) // first u32
+	binary.LittleEndian.PutUint32(data[4:], (1<<0)|(1<<31)) // second u32 (flags 32-63)
 
 	ctx := &LiftContext{Memory: &mockMemory{data: data}}
 	flagsType := types.Flags{Names: names}
@@ -1501,7 +1501,7 @@ func TestLiftHeapList(t *testing.T) {
 
 	val, err := LiftHeap(ctx, listType, 0)
 	require.NoError(t, err)
-	require.Equal(t, component.ValKindList, val.Kind())
+	require.Equal(t, types.ValKindList, val.Kind())
 
 	elems := val.List()
 	require.Equal(t, 3, len(elems))
@@ -1613,7 +1613,7 @@ func TestLiftFlatString(t *testing.T) {
 
 	val, err := LiftFlat(ctx, types.String{}, iter)
 	require.NoError(t, err)
-	require.Equal(t, component.ValKindString, val.Kind())
+	require.Equal(t, types.ValKindString, val.Kind())
 	require.Equal(t, "hello", val.StringVal())
 }
 
@@ -1684,15 +1684,15 @@ func TestLiftHeapString(t *testing.T) {
 
 	val, err := LiftHeap(ctx, types.String{}, 0)
 	require.NoError(t, err)
-	require.Equal(t, component.ValKindString, val.Kind())
+	require.Equal(t, types.ValKindString, val.Kind())
 	require.Equal(t, "hello", val.StringVal())
 }
 
 func TestLiftHeapStringAtOffset(t *testing.T) {
 	// String ptr/len at offset 8, actual string at offset 24
 	data := make([]byte, 48)
-	binary.LittleEndian.PutUint32(data[8:], 24)  // ptr at offset 8
-	binary.LittleEndian.PutUint32(data[12:], 4)  // len at offset 12
+	binary.LittleEndian.PutUint32(data[8:], 24) // ptr at offset 8
+	binary.LittleEndian.PutUint32(data[12:], 4) // len at offset 12
 	copy(data[24:], "test")
 
 	ctx := &LiftContext{
@@ -1740,7 +1740,7 @@ func TestLiftHeapStringUnicode(t *testing.T) {
 // --- LiftOwn Tests ---
 
 func TestLiftOwn(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	h := table.New("my-resource", true)
 
 	ctx := &LiftContext{
@@ -1758,7 +1758,7 @@ func TestLiftOwn(t *testing.T) {
 }
 
 func TestLiftOwn_WithActiveBorrows(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	h := table.New("my-resource", true)
 	err := table.IncrementLends(h) // Active borrow
 	require.NoError(t, err)
@@ -1774,7 +1774,7 @@ func TestLiftOwn_WithActiveBorrows(t *testing.T) {
 }
 
 func TestLiftOwn_NotOwned(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	// Create a borrow handle (own=false)
 	h := table.New("borrowed-resource", false)
 
@@ -1789,7 +1789,7 @@ func TestLiftOwn_NotOwned(t *testing.T) {
 }
 
 func TestLiftOwn_InvalidHandle(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 
 	ctx := &LiftContext{
 		ResourceTable: table,
@@ -1813,7 +1813,7 @@ func TestLiftOwn_NoResourceTable(t *testing.T) {
 }
 
 func TestLiftOwn_MultipleTimes(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	h := table.New("my-resource", true)
 
 	ctx := &LiftContext{
@@ -1838,7 +1838,7 @@ func TestLiftOwn_WithComplexRep(t *testing.T) {
 	}
 	resource := &MyResource{Name: "test", Value: 42}
 
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	h := table.New(resource, true)
 
 	ctx := &LiftContext{
@@ -1858,9 +1858,9 @@ func TestLiftOwn_WithComplexRep(t *testing.T) {
 // --- LiftBorrow Tests ---
 
 func TestLiftBorrow(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	h := table.New("my-resource", true)
-	scope := component.NewBorrowScope(table)
+	scope := runtime.NewBorrowScope(table)
 
 	ctx := &LiftContext{
 		ResourceTable: table,
@@ -1888,9 +1888,9 @@ func TestLiftBorrow(t *testing.T) {
 }
 
 func TestLiftBorrow_MultipleBorrows(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	h := table.New("shared-resource", true)
-	scope := component.NewBorrowScope(table)
+	scope := runtime.NewBorrowScope(table)
 
 	ctx := &LiftContext{
 		ResourceTable: table,
@@ -1918,7 +1918,7 @@ func TestLiftBorrow_MultipleBorrows(t *testing.T) {
 }
 
 func TestLiftBorrow_NoBorrowScope(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	h := table.New("my-resource", true)
 
 	ctx := &LiftContext{
@@ -1940,8 +1940,8 @@ func TestLiftBorrow_NoBorrowScope(t *testing.T) {
 }
 
 func TestLiftBorrow_InvalidHandle(t *testing.T) {
-	table := component.NewResourceTable()
-	scope := component.NewBorrowScope(table)
+	table := runtime.NewResourceTable()
+	scope := runtime.NewBorrowScope(table)
 
 	ctx := &LiftContext{
 		ResourceTable: table,
@@ -1966,9 +1966,9 @@ func TestLiftBorrow_NoResourceTable(t *testing.T) {
 }
 
 func TestLiftBorrow_PreventsLiftOwnWhileBorrowed(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	h := table.New("my-resource", true)
-	scope := component.NewBorrowScope(table)
+	scope := runtime.NewBorrowScope(table)
 
 	ctx := &LiftContext{
 		ResourceTable: table,
@@ -2001,9 +2001,9 @@ func TestLiftBorrow_WithComplexRep(t *testing.T) {
 	}
 	resource := &MyResource{Name: "borrowed", Value: 100}
 
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	h := table.New(resource, true)
-	scope := component.NewBorrowScope(table)
+	scope := runtime.NewBorrowScope(table)
 
 	ctx := &LiftContext{
 		ResourceTable: table,
@@ -2027,9 +2027,9 @@ func TestLiftBorrow_WithComplexRep(t *testing.T) {
 
 func TestLiftBorrow_BorrowedHandle(t *testing.T) {
 	// Test borrowing from a handle that is itself a borrow (own=false)
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	h := table.New("borrowed-resource", false) // Not owned
-	scope := component.NewBorrowScope(table)
+	scope := runtime.NewBorrowScope(table)
 
 	ctx := &LiftContext{
 		ResourceTable: table,
@@ -2053,7 +2053,7 @@ func TestLiftOwnResourceTypeValidation(t *testing.T) {
 	// doesn't track which resource type each handle belongs to.
 
 	// For now, we test that LiftOwn works with valid handles
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 
 	// Create a test resource
 	type testRes struct {
@@ -2092,8 +2092,8 @@ func TestLiftBorrowResourceTypeValidation(t *testing.T) {
 	// doesn't track which resource type each handle belongs to.
 
 	// For now, we test that LiftBorrow works with valid handles
-	table := component.NewResourceTable()
-	scope := component.NewBorrowScope(table)
+	table := runtime.NewResourceTable()
+	scope := runtime.NewBorrowScope(table)
 
 	// Create a test resource
 	type testRes struct {
@@ -2775,7 +2775,7 @@ func TestLiftAsyncTypesTraps(t *testing.T) {
 			iter := NewFlatIter([]uint64{0})
 			val, err := LiftFlat(nil, tc.typ, iter)
 			require.Error(t, err)
-			require.Equal(t, component.Val{}, val)
+			require.Equal(t, types.Val{}, val)
 			if !strings.Contains(err.Error(), "async not yet supported") {
 				t.Fatalf("expected error to mention 'async not yet supported', got: %v", err)
 			}
@@ -2785,7 +2785,7 @@ func TestLiftAsyncTypesTraps(t *testing.T) {
 			ctx := &LiftContext{Memory: &mockMemory{data: data}}
 			val, err := LiftHeap(ctx, tc.typ, 0)
 			require.Error(t, err)
-			require.Equal(t, component.Val{}, val)
+			require.Equal(t, types.Val{}, val)
 			if !strings.Contains(err.Error(), "async not yet supported") {
 				t.Fatalf("expected error to mention 'async not yet supported', got: %v", err)
 			}

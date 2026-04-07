@@ -3,7 +3,7 @@
 package abi
 
 import (
-	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
 )
 
 // LowerBorrowWithType implements the Canonical ABI lower_borrow function with
@@ -19,10 +19,10 @@ import (
 //	  h.borrow_scope.num_borrows += 1
 //	  return cx.inst.table.add(h)
 func LowerBorrowWithType(
-	table *component.ResourceTable,
-	callCtx *component.CallContext,
+	table *runtime.ResourceTable,
+	callCtx *runtime.CallContext,
 	rep uint32,
-	resourceType component.ResourceTypeInfo,
+	resourceType runtime.ResourceTypeInfo,
 	currentInstanceID uint32,
 ) (uint32, error) {
 	// Same-instance optimization: return rep directly
@@ -50,9 +50,9 @@ func LowerBorrowWithType(
 //	  h = ResourceHandle(t.rt, rep, own = True)
 //	  return cx.inst.table.add(h)
 func LowerOwnWithType(
-	table *component.ResourceTable,
+	table *runtime.ResourceTable,
 	rep uint32,
-	resourceType component.ResourceTypeInfo,
+	resourceType runtime.ResourceTypeInfo,
 ) (uint32, error) {
 	handle := table.NewWithType(rep, true, resourceType.TypeID())
 	return uint32(handle), nil

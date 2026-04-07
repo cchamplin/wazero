@@ -6,12 +6,11 @@ import (
 	"math"
 
 	"github.com/tetratelabs/wazero/api"
-	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 // LowerFlat lowers a component Val to flat core wasm values.
-func LowerFlat(ctx *LowerContext, typ types.ValType, val component.Val) ([]uint64, error) {
+func LowerFlat(ctx *LowerContext, typ types.ValType, val types.Val) ([]uint64, error) {
 	switch typ.(type) {
 	case types.Bool:
 		if val.Bool() {
@@ -320,7 +319,7 @@ func LowerFlat(ctx *LowerContext, typ types.ValType, val component.Val) ([]uint6
 }
 
 // LowerHeap lowers a component Val to heap memory at the given offset.
-func LowerHeap(ctx *LowerContext, typ types.ValType, val component.Val, offset uint32) error {
+func LowerHeap(ctx *LowerContext, typ types.ValType, val types.Val, offset uint32) error {
 	switch typ.(type) {
 	case types.Bool:
 		if val.Bool() {

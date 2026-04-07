@@ -5,7 +5,7 @@ import (
 	"math"
 
 	"github.com/tetratelabs/wazero/api"
-	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
@@ -49,60 +49,60 @@ func (f *FlatIter) NextF64() float64 {
 }
 
 // LiftFlat lifts a flat representation to a component Val.
-func LiftFlat(ctx *LiftContext, typ types.ValType, iter *FlatIter) (component.Val, error) {
+func LiftFlat(ctx *LiftContext, typ types.ValType, iter *FlatIter) (types.Val, error) {
 	switch typ.(type) {
 	case types.Bool:
-		return component.ValBool(iter.NextI32() != 0), nil
+		return types.ValBool(iter.NextI32() != 0), nil
 	case types.S8:
-		return component.ValS8(int8(iter.NextI32())), nil
+		return types.ValS8(int8(iter.NextI32())), nil
 	case types.U8:
-		return component.ValU8(uint8(iter.NextI32())), nil
+		return types.ValU8(uint8(iter.NextI32())), nil
 	case types.S16:
-		return component.ValS16(int16(iter.NextI32())), nil
+		return types.ValS16(int16(iter.NextI32())), nil
 	case types.U16:
-		return component.ValU16(uint16(iter.NextI32())), nil
+		return types.ValU16(uint16(iter.NextI32())), nil
 	case types.S32:
-		return component.ValS32(int32(iter.NextI32())), nil
+		return types.ValS32(int32(iter.NextI32())), nil
 	case types.U32:
-		return component.ValU32(iter.NextI32()), nil
+		return types.ValU32(iter.NextI32()), nil
 	case types.S64:
-		return component.ValS64(int64(iter.NextI64())), nil
+		return types.ValS64(int64(iter.NextI64())), nil
 	case types.U64:
-		return component.ValU64(iter.NextI64()), nil
+		return types.ValU64(iter.NextI64()), nil
 	case types.F32:
-		return component.ValF32(canonicalizeNaN32(iter.NextF32())), nil
+		return types.ValF32(canonicalizeNaN32(iter.NextF32())), nil
 	case types.F64:
-		return component.ValF64(canonicalizeNaN64(iter.NextF64())), nil
+		return types.ValF64(canonicalizeNaN64(iter.NextF64())), nil
 	case types.Char:
 		c := iter.NextI32()
 		if !isValidUnicodeScalar(c) {
-			return component.Val{}, fmt.Errorf("invalid char value: U+%04X is not a valid Unicode scalar value", c)
+			return types.Val{}, fmt.Errorf("invalid char value: U+%04X is not a valid Unicode scalar value", c)
 		}
-		return component.ValChar(rune(c)), nil
+		return types.ValChar(rune(c)), nil
 	case types.String:
 		ptr := iter.NextI32()
 		taggedLen := iter.NextI32()
 		s, err := liftStringFromPtrLen(ctx, ptr, taggedLen)
 		if err != nil {
-			return component.Val{}, err
+			return types.Val{}, err
 		}
-		return component.ValString(s), nil
+		return types.ValString(s), nil
 	case types.Record:
 		t := typ.(types.Record)
-		fields := make(map[string]component.Val)
+		fields := make(map[string]types.Val)
 		for _, f := range t.Fields {
 			fieldVal, err := LiftFlat(ctx, f.Type, iter)
 			if err != nil {
-				return component.Val{}, fmt.Errorf("lift record field %s: %w", f.Name, err)
+				return types.Val{}, fmt.Errorf("lift record field %s: %w", f.Name, err)
 			}
 			fields[f.Name] = fieldVal
 		}
-		return component.ValRecord(fields), nil
+		return types.ValRecord(fields), nil
 	case types.Variant:
 		t := typ.(types.Variant)
 		disc := iter.NextI32()
 		if int(disc) >= len(t.Cases) {
-			return component.Val{}, fmt.Errorf("invalid variant discriminant: %d", disc)
+			return types.Val{}, fmt.Errorf("invalid variant discriminant: %d", disc)
 		}
 		c := t.Cases[disc]
 
@@ -110,7 +110,7 @@ func LiftFlat(ctx *LiftContext, typ types.ValType, iter *FlatIter) (component.Va
 		// Per Canonical ABI spec lines 2962-2989, variant payloads use joined types
 		flatTypes := flattenVariantPayload(t)
 
-		var payload *component.Val
+		var payload *types.Val
 		if c.Type != nil {
 			// Get the actual case's flat types
 			caseFlat := flattenType(c.Type)
@@ -143,7 +143,7 @@ func LiftFlat(ctx *LiftContext, typ types.ValType, iter *FlatIter) (component.Va
 			coerceIter := NewFlatIter(coercedValues)
 			p, err := LiftFlat(ctx, c.Type, coerceIter)
 			if err != nil {
-				return component.Val{}, fmt.Errorf("lift variant payload: %w", err)
+				return types.Val{}, fmt.Errorf("lift variant payload: %w", err)
 			}
 			payload = &p
 		} else {
@@ -157,19 +157,19 @@ func LiftFlat(ctx *LiftContext, typ types.ValType, iter *FlatIter) (component.Va
 			}
 		}
 
-		return component.ValVariant(c.Name, payload), nil
+		return types.ValVariant(c.Name, payload), nil
 
 	case types.Tuple:
 		t := typ.(types.Tuple)
-		elems := make([]component.Val, len(t.Types))
+		elems := make([]types.Val, len(t.Types))
 		for i, elemType := range t.Types {
 			elemVal, err := LiftFlat(ctx, elemType, iter)
 			if err != nil {
-				return component.Val{}, fmt.Errorf("lift tuple element %d: %w", i, err)
+				return types.Val{}, fmt.Errorf("lift tuple element %d: %w", i, err)
 			}
 			elems[i] = elemVal
 		}
-		return component.ValTuple(elems), nil
+		return types.ValTuple(elems), nil
 
 	case types.Option:
 		t := typ.(types.Option)
@@ -183,19 +183,19 @@ func LiftFlat(ctx *LiftContext, typ types.ValType, iter *FlatIter) (component.Va
 			for i := 0; i < payloadFlat; i++ {
 				iter.NextI64()
 			}
-			return component.ValOption(nil), nil
+			return types.ValOption(nil), nil
 		}
 		// Some
 		if t.Some != nil {
 			payload, err := LiftFlat(ctx, t.Some, iter)
 			if err != nil {
-				return component.Val{}, fmt.Errorf("lift option payload: %w", err)
+				return types.Val{}, fmt.Errorf("lift option payload: %w", err)
 			}
-			return component.ValOption(&payload), nil
+			return types.ValOption(&payload), nil
 		}
 		// Unit option (Some with no payload type) - return empty Val as marker
-		emptyVal := component.Val{}
-		return component.ValOption(&emptyVal), nil
+		emptyVal := types.Val{}
+		return types.ValOption(&emptyVal), nil
 
 	case types.Result:
 		t := typ.(types.Result)
@@ -218,48 +218,48 @@ func LiftFlat(ctx *LiftContext, typ types.ValType, iter *FlatIter) (component.Va
 			if t.Ok != nil {
 				okVal, err := LiftFlat(ctx, t.Ok, iter)
 				if err != nil {
-					return component.Val{}, fmt.Errorf("lift result ok: %w", err)
+					return types.Val{}, fmt.Errorf("lift result ok: %w", err)
 				}
 				// Skip remaining padding
 				for i := okFlat; i < maxFlat; i++ {
 					iter.NextI64()
 				}
-				return component.ValResultOk(&okVal), nil
+				return types.ValResultOk(&okVal), nil
 			}
 			for i := 0; i < maxFlat; i++ {
 				iter.NextI64()
 			}
-			return component.ValResultOk(nil), nil
+			return types.ValResultOk(nil), nil
 		}
 		// Error
 		if t.Error != nil {
 			errVal, err := LiftFlat(ctx, t.Error, iter)
 			if err != nil {
-				return component.Val{}, fmt.Errorf("lift result error: %w", err)
+				return types.Val{}, fmt.Errorf("lift result error: %w", err)
 			}
 			for i := errFlat; i < maxFlat; i++ {
 				iter.NextI64()
 			}
-			return component.ValResultError(&errVal), nil
+			return types.ValResultError(&errVal), nil
 		}
 		for i := 0; i < maxFlat; i++ {
 			iter.NextI64()
 		}
-		return component.ValResultError(nil), nil
+		return types.ValResultError(nil), nil
 
 	case types.Enum:
 		t := typ.(types.Enum)
 		disc := iter.NextI32()
 		if int(disc) >= len(t.Cases) {
-			return component.Val{}, fmt.Errorf("invalid enum discriminant: %d", disc)
+			return types.Val{}, fmt.Errorf("invalid enum discriminant: %d", disc)
 		}
-		return component.ValEnum(t.Cases[disc]), nil
+		return types.ValEnum(t.Cases[disc]), nil
 
 	case types.Flags:
 		t := typ.(types.Flags)
 		flags := make(map[string]bool)
 		if len(t.Names) == 0 {
-			return component.ValFlags(flags), nil
+			return types.ValFlags(flags), nil
 		}
 		// Read the required number of i32s
 		numI32s := (len(t.Names) + 31) / 32
@@ -273,7 +273,7 @@ func LiftFlat(ctx *LiftContext, typ types.ValType, iter *FlatIter) (component.Va
 				flags[t.Names[flagIdx]] = (bits & (1 << bit)) != 0
 			}
 		}
-		return component.ValFlags(flags), nil
+		return types.ValFlags(flags), nil
 
 	case types.List:
 		t := typ.(types.List)
@@ -281,15 +281,15 @@ func LiftFlat(ctx *LiftContext, typ types.ValType, iter *FlatIter) (component.Va
 		if t.Length != nil {
 			// Fixed-length list: lift each element from flat values
 			length := *t.Length
-			elems := make([]component.Val, length)
+			elems := make([]types.Val, length)
 			for i := uint32(0); i < length; i++ {
 				elem, err := LiftFlat(ctx, t.Element, iter)
 				if err != nil {
-					return component.Val{}, fmt.Errorf("lift fixed list element %d: %w", i, err)
+					return types.Val{}, fmt.Errorf("lift fixed list element %d: %w", i, err)
 				}
 				elems[i] = elem
 			}
-			return component.ValList(elems), nil
+			return types.ValList(elems), nil
 		}
 
 		// Dynamic list: read ptr and length
@@ -298,37 +298,37 @@ func LiftFlat(ctx *LiftContext, typ types.ValType, iter *FlatIter) (component.Va
 
 		// Empty list case - no memory access needed
 		if length == 0 {
-			return component.ValList([]component.Val{}), nil
+			return types.ValList([]types.Val{}), nil
 		}
 
 		// Validate alignment per spec line 2153
 		elemAlign := t.Element.Align()
 		if ptr%elemAlign != 0 {
-			return component.Val{}, fmt.Errorf("list element pointer not aligned: ptr=%d, required alignment=%d", ptr, elemAlign)
+			return types.Val{}, fmt.Errorf("list element pointer not aligned: ptr=%d, required alignment=%d", ptr, elemAlign)
 		}
 
 		// Need memory context for non-empty lists
 		if ctx == nil || ctx.Memory == nil {
-			return component.Val{}, fmt.Errorf("lift list: memory context required for non-empty list")
+			return types.Val{}, fmt.Errorf("lift list: memory context required for non-empty list")
 		}
 
 		// Validate bounds
 		elemSize := t.Element.Size()
 		maxOffset := uint64(ptr) + uint64(length)*uint64(elemSize)
 		if maxOffset > uint64(ctx.Memory.Size()) {
-			return component.Val{}, fmt.Errorf("list data exceeds memory bounds: ptr=%d, len=%d, elemSize=%d", ptr, length, elemSize)
+			return types.Val{}, fmt.Errorf("list data exceeds memory bounds: ptr=%d, len=%d, elemSize=%d", ptr, length, elemSize)
 		}
 
 		// Lift each element from heap
-		elems := make([]component.Val, length)
+		elems := make([]types.Val, length)
 		for i := uint32(0); i < length; i++ {
 			elem, err := LiftHeap(ctx, t.Element, ptr+i*elemSize)
 			if err != nil {
-				return component.Val{}, fmt.Errorf("lift list element %d: %w", i, err)
+				return types.Val{}, fmt.Errorf("lift list element %d: %w", i, err)
 			}
 			elems[i] = elem
 		}
-		return component.ValList(elems), nil
+		return types.ValList(elems), nil
 
 	// Async value types: stream<T>, future<T>, error-context.
 	// The synchronous canonical ABI does not implement async; lift_flat
@@ -339,106 +339,106 @@ func LiftFlat(ctx *LiftContext, typ types.ValType, iter *FlatIter) (component.Va
 	// Spec: definitions.py:1794 (case StreamType(t)      : return lift_stream(...))
 	// Spec: definitions.py:1795 (case FutureType(t)      : return lift_future(...))
 	case types.Stream:
-		return component.Val{}, fmt.Errorf("stream<T> lift not yet supported (async not yet supported in synchronous canonical ABI; deferred to follow-up project)")
+		return types.Val{}, fmt.Errorf("stream<T> lift not yet supported (async not yet supported in synchronous canonical ABI; deferred to follow-up project)")
 	case types.Future:
-		return component.Val{}, fmt.Errorf("future<T> lift not yet supported (async not yet supported in synchronous canonical ABI; deferred to follow-up project)")
+		return types.Val{}, fmt.Errorf("future<T> lift not yet supported (async not yet supported in synchronous canonical ABI; deferred to follow-up project)")
 	case types.ErrorContext:
-		return component.Val{}, fmt.Errorf("error-context lift not yet supported (async not yet supported in synchronous canonical ABI; deferred to follow-up project)")
+		return types.Val{}, fmt.Errorf("error-context lift not yet supported (async not yet supported in synchronous canonical ABI; deferred to follow-up project)")
 
 	default:
-		return component.Val{}, fmt.Errorf("unsupported flat lift for type: %T", typ)
+		return types.Val{}, fmt.Errorf("unsupported flat lift for type: %T", typ)
 	}
 }
 
 // LiftHeap lifts a value from heap memory at the given offset.
-func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (component.Val, error) {
+func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (types.Val, error) {
 	switch t := typ.(type) {
 	// Primitives
 	case types.Bool:
 		v, err := ctx.ReadU8(offset)
 		if err != nil {
-			return component.Val{}, fmt.Errorf("lift bool: %w", err)
+			return types.Val{}, fmt.Errorf("lift bool: %w", err)
 		}
-		return component.ValBool(v != 0), nil
+		return types.ValBool(v != 0), nil
 	case types.U8:
 		v, err := ctx.ReadU8(offset)
 		if err != nil {
-			return component.Val{}, fmt.Errorf("lift u8: %w", err)
+			return types.Val{}, fmt.Errorf("lift u8: %w", err)
 		}
-		return component.ValU8(v), nil
+		return types.ValU8(v), nil
 	case types.S8:
 		v, err := ctx.ReadU8(offset)
 		if err != nil {
-			return component.Val{}, fmt.Errorf("lift s8: %w", err)
+			return types.Val{}, fmt.Errorf("lift s8: %w", err)
 		}
-		return component.ValS8(int8(v)), nil
+		return types.ValS8(int8(v)), nil
 	case types.U16:
 		v, err := ctx.ReadU16(offset)
 		if err != nil {
-			return component.Val{}, fmt.Errorf("lift u16: %w", err)
+			return types.Val{}, fmt.Errorf("lift u16: %w", err)
 		}
-		return component.ValU16(v), nil
+		return types.ValU16(v), nil
 	case types.S16:
 		v, err := ctx.ReadU16(offset)
 		if err != nil {
-			return component.Val{}, fmt.Errorf("lift s16: %w", err)
+			return types.Val{}, fmt.Errorf("lift s16: %w", err)
 		}
-		return component.ValS16(int16(v)), nil
+		return types.ValS16(int16(v)), nil
 	case types.U32:
 		v, err := ctx.ReadU32(offset)
 		if err != nil {
-			return component.Val{}, fmt.Errorf("lift u32: %w", err)
+			return types.Val{}, fmt.Errorf("lift u32: %w", err)
 		}
-		return component.ValU32(v), nil
+		return types.ValU32(v), nil
 	case types.S32:
 		v, err := ctx.ReadU32(offset)
 		if err != nil {
-			return component.Val{}, fmt.Errorf("lift s32: %w", err)
+			return types.Val{}, fmt.Errorf("lift s32: %w", err)
 		}
-		return component.ValS32(int32(v)), nil
+		return types.ValS32(int32(v)), nil
 	case types.U64:
 		v, err := ctx.ReadU64(offset)
 		if err != nil {
-			return component.Val{}, fmt.Errorf("lift u64: %w", err)
+			return types.Val{}, fmt.Errorf("lift u64: %w", err)
 		}
-		return component.ValU64(v), nil
+		return types.ValU64(v), nil
 	case types.S64:
 		v, err := ctx.ReadU64(offset)
 		if err != nil {
-			return component.Val{}, fmt.Errorf("lift s64: %w", err)
+			return types.Val{}, fmt.Errorf("lift s64: %w", err)
 		}
-		return component.ValS64(int64(v)), nil
+		return types.ValS64(int64(v)), nil
 	case types.F32:
 		v, err := ctx.ReadF32(offset)
 		if err != nil {
-			return component.Val{}, fmt.Errorf("lift f32: %w", err)
+			return types.Val{}, fmt.Errorf("lift f32: %w", err)
 		}
-		return component.ValF32(canonicalizeNaN32(v)), nil
+		return types.ValF32(canonicalizeNaN32(v)), nil
 	case types.F64:
 		v, err := ctx.ReadF64(offset)
 		if err != nil {
-			return component.Val{}, fmt.Errorf("lift f64: %w", err)
+			return types.Val{}, fmt.Errorf("lift f64: %w", err)
 		}
-		return component.ValF64(canonicalizeNaN64(v)), nil
+		return types.ValF64(canonicalizeNaN64(v)), nil
 	case types.Char:
 		c, err := ctx.ReadU32(offset)
 		if err != nil {
-			return component.Val{}, fmt.Errorf("lift char: %w", err)
+			return types.Val{}, fmt.Errorf("lift char: %w", err)
 		}
 		if !isValidUnicodeScalar(c) {
-			return component.Val{}, fmt.Errorf("invalid char value: U+%04X is not a valid Unicode scalar value", c)
+			return types.Val{}, fmt.Errorf("invalid char value: U+%04X is not a valid Unicode scalar value", c)
 		}
-		return component.ValChar(rune(c)), nil
+		return types.ValChar(rune(c)), nil
 	case types.String:
 		s, err := LiftString(ctx, offset)
 		if err != nil {
-			return component.Val{}, err
+			return types.Val{}, err
 		}
-		return component.ValString(s), nil
+		return types.ValString(s), nil
 
 	// Record
 	case types.Record:
-		fields := make(map[string]component.Val)
+		fields := make(map[string]types.Val)
 		fieldOffset := uint32(0)
 		for _, f := range t.Fields {
 			// Align field offset
@@ -448,16 +448,16 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (component.Val
 			}
 			fieldVal, err := LiftHeap(ctx, f.Type, offset+fieldOffset)
 			if err != nil {
-				return component.Val{}, fmt.Errorf("lift record field %s: %w", f.Name, err)
+				return types.Val{}, fmt.Errorf("lift record field %s: %w", f.Name, err)
 			}
 			fields[f.Name] = fieldVal
 			fieldOffset += f.Type.Size()
 		}
-		return component.ValRecord(fields), nil
+		return types.ValRecord(fields), nil
 
 	// Tuple
 	case types.Tuple:
-		elems := make([]component.Val, len(t.Types))
+		elems := make([]types.Val, len(t.Types))
 		elemOffset := uint32(0)
 		for i, elemType := range t.Types {
 			// Align
@@ -467,12 +467,12 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (component.Val
 			}
 			elem, err := LiftHeap(ctx, elemType, offset+elemOffset)
 			if err != nil {
-				return component.Val{}, fmt.Errorf("lift tuple element %d: %w", i, err)
+				return types.Val{}, fmt.Errorf("lift tuple element %d: %w", i, err)
 			}
 			elems[i] = elem
 			elemOffset += elemType.Size()
 		}
-		return component.ValTuple(elems), nil
+		return types.ValTuple(elems), nil
 
 	// Variant
 	case types.Variant:
@@ -491,34 +491,34 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (component.Val
 			disc, discErr = ctx.ReadU32(offset)
 		}
 		if discErr != nil {
-			return component.Val{}, fmt.Errorf("lift variant discriminant: %w", discErr)
+			return types.Val{}, fmt.Errorf("lift variant discriminant: %w", discErr)
 		}
 		if int(disc) >= len(t.Cases) {
-			return component.Val{}, fmt.Errorf("invalid variant discriminant: %d", disc)
+			return types.Val{}, fmt.Errorf("invalid variant discriminant: %d", disc)
 		}
 		c := t.Cases[disc]
 
 		// Calculate payload offset (aligned to max payload alignment)
 		payloadOffset := t.PayloadOffset()
 
-		var payload *component.Val
+		var payload *types.Val
 		if c.Type != nil {
 			p, err := LiftHeap(ctx, c.Type, offset+payloadOffset)
 			if err != nil {
-				return component.Val{}, fmt.Errorf("lift variant payload: %w", err)
+				return types.Val{}, fmt.Errorf("lift variant payload: %w", err)
 			}
 			payload = &p
 		}
-		return component.ValVariant(c.Name, payload), nil
+		return types.ValVariant(c.Name, payload), nil
 
 	// Option
 	case types.Option:
 		disc, err := ctx.ReadU8(offset)
 		if err != nil {
-			return component.Val{}, fmt.Errorf("lift option discriminant: %w", err)
+			return types.Val{}, fmt.Errorf("lift option discriminant: %w", err)
 		}
 		if disc == 0 {
-			return component.ValOption(nil), nil
+			return types.ValOption(nil), nil
 		}
 		// Calculate payload offset
 		payloadAlign := uint32(1)
@@ -533,18 +533,18 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (component.Val
 		if t.Some != nil {
 			p, err := LiftHeap(ctx, t.Some, offset+payloadOffset)
 			if err != nil {
-				return component.Val{}, fmt.Errorf("lift option payload: %w", err)
+				return types.Val{}, fmt.Errorf("lift option payload: %w", err)
 			}
-			return component.ValOption(&p), nil
+			return types.ValOption(&p), nil
 		}
-		emptyVal := component.Val{}
-		return component.ValOption(&emptyVal), nil
+		emptyVal := types.Val{}
+		return types.ValOption(&emptyVal), nil
 
 	// Result
 	case types.Result:
 		disc, err := ctx.ReadU8(offset)
 		if err != nil {
-			return component.Val{}, fmt.Errorf("lift result discriminant: %w", err)
+			return types.Val{}, fmt.Errorf("lift result discriminant: %w", err)
 		}
 		// Calculate max alignment for payload
 		payloadAlign := uint32(1)
@@ -563,21 +563,21 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (component.Val
 			if t.Ok != nil {
 				ok, err := LiftHeap(ctx, t.Ok, offset+payloadOffset)
 				if err != nil {
-					return component.Val{}, err
+					return types.Val{}, err
 				}
-				return component.ValResultOk(&ok), nil
+				return types.ValResultOk(&ok), nil
 			}
-			return component.ValResultOk(nil), nil
+			return types.ValResultOk(nil), nil
 		}
 		// Error
 		if t.Error != nil {
 			e, err := LiftHeap(ctx, t.Error, offset+payloadOffset)
 			if err != nil {
-				return component.Val{}, err
+				return types.Val{}, err
 			}
-			return component.ValResultError(&e), nil
+			return types.ValResultError(&e), nil
 		}
-		return component.ValResultError(nil), nil
+		return types.ValResultError(nil), nil
 
 	// Enum
 	case types.Enum:
@@ -595,25 +595,25 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (component.Val
 			disc, discErr = ctx.ReadU32(offset)
 		}
 		if discErr != nil {
-			return component.Val{}, fmt.Errorf("lift enum discriminant: %w", discErr)
+			return types.Val{}, fmt.Errorf("lift enum discriminant: %w", discErr)
 		}
 		if int(disc) >= len(t.Cases) {
-			return component.Val{}, fmt.Errorf("invalid enum discriminant: %d", disc)
+			return types.Val{}, fmt.Errorf("invalid enum discriminant: %d", disc)
 		}
-		return component.ValEnum(t.Cases[disc]), nil
+		return types.ValEnum(t.Cases[disc]), nil
 
 	// Flags
 	case types.Flags:
 		flags := make(map[string]bool)
 		if len(t.Names) == 0 {
-			return component.ValFlags(flags), nil
+			return types.ValFlags(flags), nil
 		}
 		// Determine storage size
 		n := len(t.Names)
 		if n <= 8 {
 			bits, err := ctx.ReadU8(offset)
 			if err != nil {
-				return component.Val{}, fmt.Errorf("lift flags: %w", err)
+				return types.Val{}, fmt.Errorf("lift flags: %w", err)
 			}
 			for i, name := range t.Names {
 				flags[name] = (bits & (1 << i)) != 0
@@ -621,7 +621,7 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (component.Val
 		} else if n <= 16 {
 			bits, err := ctx.ReadU16(offset)
 			if err != nil {
-				return component.Val{}, fmt.Errorf("lift flags: %w", err)
+				return types.Val{}, fmt.Errorf("lift flags: %w", err)
 			}
 			for i, name := range t.Names {
 				flags[name] = (bits & (1 << i)) != 0
@@ -629,7 +629,7 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (component.Val
 		} else if n <= 32 {
 			bits, err := ctx.ReadU32(offset)
 			if err != nil {
-				return component.Val{}, fmt.Errorf("lift flags: %w", err)
+				return types.Val{}, fmt.Errorf("lift flags: %w", err)
 			}
 			for i, name := range t.Names {
 				flags[name] = (bits & (1 << i)) != 0
@@ -641,39 +641,39 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (component.Val
 				bit := i % 32
 				word, err := ctx.ReadU32(offset + uint32(wordIdx*4))
 				if err != nil {
-					return component.Val{}, fmt.Errorf("lift flags word %d: %w", wordIdx, err)
+					return types.Val{}, fmt.Errorf("lift flags word %d: %w", wordIdx, err)
 				}
 				flags[name] = (word & (1 << bit)) != 0
 			}
 		}
-		return component.ValFlags(flags), nil
+		return types.ValFlags(flags), nil
 
 	// List
 	case types.List:
 		if t.Length != nil {
 			// Fixed-length list: elements are inline at offset
 			length := *t.Length
-			elems := make([]component.Val, length)
+			elems := make([]types.Val, length)
 			elemSize := t.Element.Size()
 			for i := uint32(0); i < length; i++ {
 				elemOffset := offset + i*elemSize
 				elem, err := LiftHeap(ctx, t.Element, elemOffset)
 				if err != nil {
-					return component.Val{}, fmt.Errorf("lift fixed list element %d: %w", i, err)
+					return types.Val{}, fmt.Errorf("lift fixed list element %d: %w", i, err)
 				}
 				elems[i] = elem
 			}
-			return component.ValList(elems), nil
+			return types.ValList(elems), nil
 		}
 
 		// Dynamic list: read ptr and length from memory
 		ptr, err := ctx.ReadU32(offset)
 		if err != nil {
-			return component.Val{}, fmt.Errorf("lift list ptr: %w", err)
+			return types.Val{}, fmt.Errorf("lift list ptr: %w", err)
 		}
 		length, err := ctx.ReadU32(offset + 4)
 		if err != nil {
-			return component.Val{}, fmt.Errorf("lift list length: %w", err)
+			return types.Val{}, fmt.Errorf("lift list length: %w", err)
 		}
 
 		// Compute element size once for validation and iteration
@@ -683,26 +683,26 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (component.Val
 			// Validate alignment per spec line 2153
 			elemAlign := t.Element.Align()
 			if ptr%elemAlign != 0 {
-				return component.Val{}, fmt.Errorf("list element pointer not aligned: ptr=%d, required alignment=%d", ptr, elemAlign)
+				return types.Val{}, fmt.Errorf("list element pointer not aligned: ptr=%d, required alignment=%d", ptr, elemAlign)
 			}
 
 			// Validate bounds to prevent overflow and excessive allocation
 			// Check for potential overflow in ptr + length * elemSize
 			maxOffset := uint64(ptr) + uint64(length)*uint64(elemSize)
 			if maxOffset > uint64(ctx.Memory.Size()) {
-				return component.Val{}, fmt.Errorf("list data exceeds memory bounds: ptr=%d, len=%d, elemSize=%d", ptr, length, elemSize)
+				return types.Val{}, fmt.Errorf("list data exceeds memory bounds: ptr=%d, len=%d, elemSize=%d", ptr, length, elemSize)
 			}
 		}
 
-		elems := make([]component.Val, length)
+		elems := make([]types.Val, length)
 		for i := uint32(0); i < length; i++ {
 			elem, err := LiftHeap(ctx, t.Element, ptr+i*elemSize)
 			if err != nil {
-				return component.Val{}, fmt.Errorf("lift list element %d: %w", i, err)
+				return types.Val{}, fmt.Errorf("lift list element %d: %w", i, err)
 			}
 			elems[i] = elem
 		}
-		return component.ValList(elems), nil
+		return types.ValList(elems), nil
 
 	// Async value types: stream<T>, future<T>, error-context.
 	// The synchronous canonical ABI does not implement async; load (heap
@@ -713,14 +713,14 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (component.Val
 	// Spec: definitions.py:1199 (case StreamType(t)      : return lift_stream(cx, load_int(...), t))
 	// Spec: definitions.py:1200 (case FutureType(t)      : return lift_future(cx, load_int(...), t))
 	case types.Stream:
-		return component.Val{}, fmt.Errorf("stream<T> lift not yet supported (async not yet supported in synchronous canonical ABI; deferred to follow-up project)")
+		return types.Val{}, fmt.Errorf("stream<T> lift not yet supported (async not yet supported in synchronous canonical ABI; deferred to follow-up project)")
 	case types.Future:
-		return component.Val{}, fmt.Errorf("future<T> lift not yet supported (async not yet supported in synchronous canonical ABI; deferred to follow-up project)")
+		return types.Val{}, fmt.Errorf("future<T> lift not yet supported (async not yet supported in synchronous canonical ABI; deferred to follow-up project)")
 	case types.ErrorContext:
-		return component.Val{}, fmt.Errorf("error-context lift not yet supported (async not yet supported in synchronous canonical ABI; deferred to follow-up project)")
+		return types.Val{}, fmt.Errorf("error-context lift not yet supported (async not yet supported in synchronous canonical ABI; deferred to follow-up project)")
 
 	default:
-		return component.Val{}, fmt.Errorf("unsupported heap lift for type: %T", typ)
+		return types.Val{}, fmt.Errorf("unsupported heap lift for type: %T", typ)
 	}
 }
 
@@ -769,7 +769,7 @@ func LiftOwn(ctx *LiftContext, handleIdx uint32) (any, error) {
 	// passes the correct index that was obtained from a prior New() call.
 
 	// First, verify the index is valid and get the entry
-	h := component.Handle(handleIdx) // Start with generation 0
+	h := runtime.Handle(handleIdx) // Start with generation 0
 
 	// Try to get with just the index - the table will validate
 	// Note: This is a limitation - the full handle should include generation
@@ -782,7 +782,7 @@ func LiftOwn(ctx *LiftContext, handleIdx uint32) (any, error) {
 		// Try to find the entry by scanning generations
 		// This is a workaround for the index-only interface
 		for gen := uint32(1); gen < 1000; gen++ {
-			h = component.MakeHandle(handleIdx, gen)
+			h = runtime.MakeHandle(handleIdx, gen)
 			entry, err = ctx.ResourceTable.Get(h)
 			if err == nil {
 				break
@@ -823,14 +823,14 @@ func LiftBorrow(ctx *LiftContext, handleIdx uint32) (any, error) {
 	}
 
 	// Construct handle from index - similar approach to LiftOwn
-	h := component.Handle(handleIdx)
+	h := runtime.Handle(handleIdx)
 
 	// Try to get the entry
 	entry, err := ctx.ResourceTable.Get(h)
 	if err != nil {
 		// Try to find the entry by scanning generations
 		for gen := uint32(1); gen < 1000; gen++ {
-			h = component.MakeHandle(handleIdx, gen)
+			h = runtime.MakeHandle(handleIdx, gen)
 			entry, err = ctx.ResourceTable.Get(h)
 			if err == nil {
 				break

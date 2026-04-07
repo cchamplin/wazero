@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
 )
 
 // Flat ABI limits as defined by the Component Model specification.
@@ -72,8 +72,8 @@ type Memory interface {
 type LiftContext struct {
 	Memory        Memory
 	Opts          *Options
-	ResourceTable *component.ResourceTable
-	BorrowScope   *component.BorrowScope
+	ResourceTable *runtime.ResourceTable
+	BorrowScope   *runtime.BorrowScope
 }
 
 // ReadU8 reads a u8 from memory at the given offset with bounds checking.
@@ -161,19 +161,19 @@ type LowerContext struct {
 	Memory        Memory
 	Opts          *Options
 	Realloc       func(oldPtr, oldSize, align, newSize uint32) (uint32, error)
-	ResourceTable *component.ResourceTable
-	CallContext   *component.CallContext
+	ResourceTable *runtime.ResourceTable
+	CallContext   *runtime.CallContext
 	// Instance is the component instance performing the lowering.
 	// TODO: Per spec lines 2679-2680, used for borrow optimization when lowering
 	// to the resource's implementing instance. Returns rep directly instead of handle.
 	Instance interface{} // TODO: Use proper ComponentInstance type when available
 	// Subtask is the subtask tracking this lowered call.
 	// Used for borrow tracking during the call.
-	Subtask *component.Subtask
+	Subtask *runtime.Subtask
 }
 
 // BorrowScope returns the borrow scope from the subtask, or nil if no subtask.
-func (c *LowerContext) BorrowScope() *component.BorrowScope {
+func (c *LowerContext) BorrowScope() *runtime.BorrowScope {
 	if c.Subtask == nil {
 		return nil
 	}

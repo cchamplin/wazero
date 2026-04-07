@@ -5,7 +5,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -331,8 +331,8 @@ func (m *mockMemory) Size() uint32 {
 
 func TestLowerContext_WithSubtask(t *testing.T) {
 	mem := &mockMemory{data: make([]byte, 1024)}
-	rt := component.NewResourceTable()
-	subtask := component.NewSubtask(rt)
+	rt := runtime.NewResourceTable()
+	subtask := runtime.NewSubtask(rt)
 
 	ctx := &LowerContext{
 		Memory:  mem,

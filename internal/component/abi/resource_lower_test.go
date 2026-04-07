@@ -3,16 +3,16 @@ package abi
 import (
 	"testing"
 
-	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
 func TestLowerBorrowWithType_SameInstance_ReturnsRep(t *testing.T) {
-	table := component.NewResourceTable()
-	callCtx := component.NewCallContext()
+	table := runtime.NewResourceTable()
+	callCtx := runtime.NewCallContext()
 
 	// Resource type defined in instance 100
-	resourceTypeInfo := component.NewResourceTypeInfo(1, 100)
+	resourceTypeInfo := runtime.NewResourceTypeInfo(1, 100)
 
 	// Lower borrow FROM instance 100 (same as defining instance)
 	currentInstanceID := uint32(100)
@@ -29,11 +29,11 @@ func TestLowerBorrowWithType_SameInstance_ReturnsRep(t *testing.T) {
 }
 
 func TestLowerBorrowWithType_DifferentInstance_CreatesHandle(t *testing.T) {
-	table := component.NewResourceTable()
-	callCtx := component.NewCallContext()
+	table := runtime.NewResourceTable()
+	callCtx := runtime.NewCallContext()
 
 	// Resource type defined in instance 100
-	resourceTypeInfo := component.NewResourceTypeInfo(1, 100)
+	resourceTypeInfo := runtime.NewResourceTypeInfo(1, 100)
 
 	// Lower borrow FROM instance 200 (different from defining instance)
 	currentInstanceID := uint32(200)
@@ -48,7 +48,7 @@ func TestLowerBorrowWithType_DifferentInstance_CreatesHandle(t *testing.T) {
 	require.Equal(t, 1, callCtx.NumBorrows())
 
 	// Handle should exist in the table
-	entry, err := table.Get(component.Handle(result))
+	entry, err := table.Get(runtime.Handle(result))
 	require.NoError(t, err)
 	require.False(t, entry.Own, "should be a borrow, not own")
 
@@ -59,10 +59,10 @@ func TestLowerBorrowWithType_DifferentInstance_CreatesHandle(t *testing.T) {
 }
 
 func TestLowerBorrowWithType_NilCallContext(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 
 	// Resource type defined in instance 100
-	resourceTypeInfo := component.NewResourceTypeInfo(1, 100)
+	resourceTypeInfo := runtime.NewResourceTypeInfo(1, 100)
 
 	// Lower borrow FROM instance 200 with nil CallContext
 	currentInstanceID := uint32(200)
@@ -71,17 +71,17 @@ func TestLowerBorrowWithType_NilCallContext(t *testing.T) {
 	require.NoError(t, err)
 
 	// Should still create handle even without call context
-	entry, err := table.Get(component.Handle(result))
+	entry, err := table.Get(runtime.Handle(result))
 	require.NoError(t, err)
 	require.False(t, entry.Own)
 }
 
 func TestLowerBorrowWithType_MultipleBorrowsSameInstance(t *testing.T) {
-	table := component.NewResourceTable()
-	callCtx := component.NewCallContext()
+	table := runtime.NewResourceTable()
+	callCtx := runtime.NewCallContext()
 
 	// Resource type defined in instance 100
-	resourceTypeInfo := component.NewResourceTypeInfo(1, 100)
+	resourceTypeInfo := runtime.NewResourceTypeInfo(1, 100)
 	currentInstanceID := uint32(100) // Same instance
 
 	// Lower multiple borrows - all should return rep directly
@@ -97,11 +97,11 @@ func TestLowerBorrowWithType_MultipleBorrowsSameInstance(t *testing.T) {
 }
 
 func TestLowerBorrowWithType_MultipleBorrowsDifferentInstance(t *testing.T) {
-	table := component.NewResourceTable()
-	callCtx := component.NewCallContext()
+	table := runtime.NewResourceTable()
+	callCtx := runtime.NewCallContext()
 
 	// Resource type defined in instance 100
-	resourceTypeInfo := component.NewResourceTypeInfo(1, 100)
+	resourceTypeInfo := runtime.NewResourceTypeInfo(1, 100)
 	currentInstanceID := uint32(200) // Different instance
 
 	// Lower multiple borrows - all should create handles
@@ -113,7 +113,7 @@ func TestLowerBorrowWithType_MultipleBorrowsDifferentInstance(t *testing.T) {
 		require.NotEqual(t, rep, result, "should not return rep directly")
 
 		// Verify the handle exists and has correct rep
-		entry, err := table.Get(component.Handle(result))
+		entry, err := table.Get(runtime.Handle(result))
 		require.NoError(t, err)
 		require.Equal(t, rep, entry.Rep.(uint32))
 	}
@@ -123,16 +123,16 @@ func TestLowerBorrowWithType_MultipleBorrowsDifferentInstance(t *testing.T) {
 }
 
 func TestLowerOwnWithType(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 
 	// Resource type defined in instance 100
-	resourceTypeInfo := component.NewResourceTypeInfo(1, 100)
+	resourceTypeInfo := runtime.NewResourceTypeInfo(1, 100)
 
 	result, err := LowerOwnWithType(table, 42, resourceTypeInfo)
 	require.NoError(t, err)
 
 	// Handle should exist in the table
-	entry, err := table.Get(component.Handle(result))
+	entry, err := table.Get(runtime.Handle(result))
 	require.NoError(t, err)
 	require.True(t, entry.Own, "should be owned")
 
@@ -146,8 +146,8 @@ func TestLowerOwnWithType(t *testing.T) {
 }
 
 func TestLowerOwnWithType_MultipleResources(t *testing.T) {
-	table := component.NewResourceTable()
-	resourceTypeInfo := component.NewResourceTypeInfo(1, 100)
+	table := runtime.NewResourceTable()
+	resourceTypeInfo := runtime.NewResourceTypeInfo(1, 100)
 
 	// Lower multiple resources
 	handles := make([]uint32, 3)
@@ -164,7 +164,7 @@ func TestLowerOwnWithType_MultipleResources(t *testing.T) {
 
 	// All should be retrievable with correct values
 	for i := uint32(0); i < 3; i++ {
-		entry, err := table.Get(component.Handle(handles[i]))
+		entry, err := table.Get(runtime.Handle(handles[i]))
 		require.NoError(t, err)
 		require.True(t, entry.Own)
 		rep, ok := entry.Rep.(uint32)
@@ -174,12 +174,12 @@ func TestLowerOwnWithType_MultipleResources(t *testing.T) {
 }
 
 func TestLowerBorrowWithType_DifferentResourceTypes(t *testing.T) {
-	table := component.NewResourceTable()
-	callCtx := component.NewCallContext()
+	table := runtime.NewResourceTable()
+	callCtx := runtime.NewCallContext()
 
 	// Two different resource types, both defined in instance 100
-	resourceType1 := component.NewResourceTypeInfo(1, 100)
-	resourceType2 := component.NewResourceTypeInfo(2, 100)
+	resourceType1 := runtime.NewResourceTypeInfo(1, 100)
+	resourceType2 := runtime.NewResourceTypeInfo(2, 100)
 
 	currentInstanceID := uint32(200) // Different instance
 
@@ -194,12 +194,12 @@ func TestLowerBorrowWithType_DifferentResourceTypes(t *testing.T) {
 	require.NotEqual(t, result1, result2)
 
 	// Both should be borrows
-	entry1, err := table.Get(component.Handle(result1))
+	entry1, err := table.Get(runtime.Handle(result1))
 	require.NoError(t, err)
 	require.False(t, entry1.Own)
 	require.Equal(t, resourceType1.TypeID(), entry1.RT)
 
-	entry2, err := table.Get(component.Handle(result2))
+	entry2, err := table.Get(runtime.Handle(result2))
 	require.NoError(t, err)
 	require.False(t, entry2.Own)
 	require.Equal(t, resourceType2.TypeID(), entry2.RT)
