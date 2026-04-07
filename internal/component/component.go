@@ -5,6 +5,7 @@ package component
 import (
 	"fmt"
 
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/wasm"
 )
 
@@ -23,9 +24,11 @@ type Component struct {
 	// CoreTypes contains core type definitions (section ID 0).
 	CoreTypes []CoreTypeDef
 
-	// Types contains component type definitions (section ID 7).
-	// This includes function types, component types, instance types, etc.
-	Types []TypeDef
+	// Types is the canonical bag of component-level type definitions
+	// (section ID 7 plus aliased types). One ComponentTypes instance is
+	// shared across the top-level component and all of its nested
+	// components; individual TypeDef entries reference into it.
+	Types *types.ComponentTypes
 
 	// Canonicals contains canonical function definitions (section ID 8).
 	// These define lift/lower wrappers around core functions.
@@ -35,14 +38,6 @@ type Component struct {
 	// This is needed because canon lift operations can create component functions
 	// at non-contiguous indices in the component function index space.
 	FuncIdxToCanonical map[uint32]uint32
-
-	// TypeIdxToStoredIdx maps component type index space indices to c.Types indices.
-	// This is needed because type aliases consume component type indices but don't
-	// add entries to c.Types. For example, if type sections define types at indices
-	// 0, 2, 4, 5, 6, 7 (with aliases at 1 and 3), c.Types will have 6 entries at
-	// indices 0-5, and this map allows looking up the stored index from the
-	// component type index.
-	TypeIdxToStoredIdx map[uint32]uint32
 
 	// Exports contains component exports (section ID 11).
 	// These expose functions and instances to the outside world.
@@ -125,149 +120,27 @@ type Component struct {
 	NextModuleIdx uint32
 }
 
-// ResolveTypeIdx resolves a component type index to its TypeDef.
-// It first checks TypeIdxToStoredIdx for types defined in the type section,
-// then walks aliases to resolve export type aliases that reference instance exports.
-// This handles the case where type aliases (from alias sections) consume component
-// type indices but don't add entries to the Types array.
-func (c *Component) ResolveTypeIdx(typeIdx uint32) *TypeDef {
-	// Check if this is a directly stored type
-	if c.TypeIdxToStoredIdx != nil {
-		if storedIdx, ok := c.TypeIdxToStoredIdx[typeIdx]; ok {
-			if int(storedIdx) < len(c.Types) {
-				return &c.Types[storedIdx]
-			}
-		}
-	}
-
-	// Not a direct type - check if it's an alias
-	for i := range c.Aliases {
-		alias := &c.Aliases[i]
-		if alias.Sort != SortType {
-			continue
-		}
-		if alias.Idx != typeIdx {
-			continue
-		}
-
-		// Found the alias for this type index
-		switch alias.Kind {
-		case AliasKindExport:
-			// Export alias: look up the exported type from the source instance's type definition.
-			// Find the instance type for the source instance.
-			instCount := uint32(0)
-			for j := range c.Imports {
-				imp := &c.Imports[j]
-				if imp.ExternDesc.Kind == ImportExternDescInstance {
-					if instCount == alias.InstanceIdx {
-						// Found the import - resolve its type
-						instTypeIdx := imp.ExternDesc.TypeIdx
-						instTypeDef := c.ResolveTypeIdx(instTypeIdx)
-						if instTypeDef != nil && instTypeDef.Instance != nil {
-							// Find the export within the instance type
-							localTypes := make(map[uint32]*TypeDef)
-							localTypeIdx := uint32(0)
-							for _, decl := range instTypeDef.Instance.Declarations {
-								switch decl.Kind {
-								case InstanceDeclKindType:
-									if decl.Type != nil {
-										localTypes[localTypeIdx] = decl.Type
-									}
-									localTypeIdx++
-								case InstanceDeclKindAlias:
-									if decl.Alias != nil && decl.Alias.Sort == SortType {
-										localTypeIdx++
-									}
-								case InstanceDeclKindExport:
-									if decl.Export != nil && decl.Export.Kind == ExportKindType {
-										if td, ok := localTypes[decl.Export.Idx]; ok {
-											localTypes[localTypeIdx] = td
-										}
-										if decl.Export.Name == alias.ExportName {
-											if td, ok := localTypes[decl.Export.Idx]; ok {
-												td.SourceLocalTypes = localTypes
-												return td
-											}
-										}
-										localTypeIdx++
-									}
-								}
-							}
-						}
-						break
-					}
-					instCount++
-				}
-			}
-		case AliasKindOuter:
-			// Outer aliases reference parent scope - not handled at component level
-		}
-		break
-	}
-
-	return nil
-}
-
-// TypeDef represents a component type definition.
-// This is a discriminated union of different type kinds.
+// TypeDef is a component-level type-section entry. The composite content
+// has been hoisted into the canonical ComponentTypes table; TypeDef now
+// carries only the kind discriminator plus references into that table.
 type TypeDef struct {
 	Kind TypeDefKind
 
-	// For FuncType
-	Func *FuncType
+	// Func is the function type when Kind == TypeDefKindFunc.
+	Func *types.TypeFunc
 
-	// For Defined types (record, variant, etc.)
-	// Record holds the decoded record type definition.
-	Record *RecordTypeDef
+	// Resource is the resource-table index when Kind == TypeDefKindResource.
+	// Refers into Component.Types.ResourceTables.
+	Resource types.ResourceTableIdx
 
-	// Option holds the decoded option type definition.
-	Option *OptionTypeDef
+	// ValType is the value-type reference when Kind == TypeDefKindDefined.
+	// Refers into Component.Types via the ValType.Index field.
+	ValType types.ValType
 
-	// List holds the decoded list type definition.
-	List *ListTypeDef
-
-	// Result holds the decoded result type definition.
-	Result *ResultTypeDef
-
-	// Resource holds the decoded resource type definition.
-	Resource interface{}
-
-	// Variant holds the decoded variant type definition.
-	Variant *VariantTypeDef
-
-	// Tuple holds the decoded tuple type definition.
-	Tuple *TupleTypeDef
-
-	// Flags holds the decoded flags type definition.
-	Flags *FlagsTypeDef
-
-	// Enum holds the decoded enum type definition.
-	Enum *EnumTypeDef
-
-	// Instance holds the decoded instance type definition (0x42).
-	Instance *InstanceTypeDef
-
-	// Component holds the decoded component type definition (0x41).
+	// Instance and Component remain as before (sub-component / sub-instance
+	// type declarations).
+	Instance  *InstanceTypeDef
 	Component *ComponentTypeDef
-
-	// Stream holds the decoded stream type definition (0x66).
-	Stream *StreamTypeDef
-
-	// Future holds the decoded future type definition (0x65).
-	Future *FutureTypeDef
-
-	// FixedSizeList holds the decoded fixed-size list type definition (0x67).
-	FixedSizeList *FixedSizeListTypeDef
-
-	// Handle holds a handle type (own<T> or borrow<T>) definition.
-	// The ValTypeRef will have IsOwn or IsBorrow set with TypeIdx pointing to the resource.
-	Handle *ValTypeRef
-
-	// SourceLocalTypes holds the local type context from the instance type where this TypeDef
-	// was originally defined. This is needed when the TypeDef's internal ValTypeRef indices
-	// reference types in a different scope than where the TypeDef is being used (e.g., when
-	// a record type is imported via outer alias from another instance type).
-	SourceLocalTypes map[uint32]*TypeDef
 }
 
 // TypeDefKind identifies the kind of type definition.
@@ -337,43 +210,6 @@ type InstanceExport struct {
 // InstanceTypeDef represents an instance type (0x42).
 type InstanceTypeDef struct {
 	Declarations []InstanceDecl
-}
-
-// FuncType represents a component function type.
-// Format: 0x40 paramlist resultlist
-type FuncType struct {
-	Params  []NamedValType // Named parameters
-	Results []NamedValType // Named results (may be unnamed for single result)
-}
-
-// NamedValType is a (name, type) pair used in function parameters/results.
-type NamedValType struct {
-	Name         string
-	ValType      ValTypeRef
-	ResolvedType *TypeDef            // Optional: resolved type definition when ValType is a type reference
-	LocalTypes   map[uint32]*TypeDef // Optional: local type context for resolving nested type references
-}
-
-// ValTypeRef is a reference to a value type.
-// Either a primitive type opcode, a type index, or a handle type.
-type ValTypeRef struct {
-	// IsPrimitive is true if this is a primitive type (0x73-0x7f).
-	IsPrimitive bool
-
-	// Primitive is the primitive type opcode (if IsPrimitive).
-	Primitive byte
-
-	// TypeIdx is the type index (if !IsPrimitive and !IsOwn and !IsBorrow).
-	// For own and borrow handles, this is the resource type index.
-	TypeIdx uint32
-
-	// IsOwn is true if this is an own<T> handle type.
-	// When true, TypeIdx contains the resource type index.
-	IsOwn bool
-
-	// IsBorrow is true if this is a borrow<T> handle type.
-	// When true, TypeIdx contains the resource type index.
-	IsBorrow bool
 }
 
 // CanonicalDef represents a canonical function definition.
@@ -603,8 +439,8 @@ type ImportExternDesc struct {
 	// For core module: core type index (after 0x11 prefix)
 	CoreTypeIdx uint32
 
-	// For value: value type reference
-	ValType *ValTypeRef
+	// For value: value type reference into Component.Types.
+	ValType types.ValType
 
 	// ValueBoundKind indicates the kind of value bound (for value imports)
 	ValueBoundKind byte
@@ -713,76 +549,6 @@ type ParsedComponentInstance struct {
 	InlineExports []ComponentInlineExport
 }
 
-// VariantTypeDef represents a variant (tagged union) type.
-type VariantTypeDef struct {
-	Cases []VariantCase
-}
-
-// VariantCase represents a single case in a variant type.
-type VariantCase struct {
-	Name    string
-	ValType *ValTypeRef // nil for cases without payload
-}
-
-// TupleTypeDef represents a tuple type with fixed elements.
-type TupleTypeDef struct {
-	Types []ValTypeRef
-}
-
-// FlagsTypeDef represents a flags (bitfield) type.
-type FlagsTypeDef struct {
-	Names []string
-}
-
-// EnumTypeDef represents an enumeration type.
-type EnumTypeDef struct {
-	Names []string
-}
-
-// RecordTypeDef represents a record (struct) type definition.
-type RecordTypeDef struct {
-	Fields []RecordField
-}
-
-// RecordField represents a field in a record type.
-type RecordField struct {
-	Name    string
-	ValType ValTypeRef
-}
-
-// ListTypeDef represents a list type definition.
-type ListTypeDef struct {
-	ElementType ValTypeRef
-}
-
-// OptionTypeDef represents an option type definition.
-type OptionTypeDef struct {
-	InnerType ValTypeRef
-}
-
-// ResultTypeDef represents a result type definition.
-type ResultTypeDef struct {
-	OkType  *ValTypeRef // nil for result<_, E>
-	ErrType *ValTypeRef // nil for result<T, _>
-}
-
-// StreamTypeDef represents a stream type (0x66).
-type StreamTypeDef struct {
-	ElementType *ValTypeRef // nil if no element type
-	EndType     *ValTypeRef // nil if no end type
-}
-
-// FutureTypeDef represents a future type (0x65).
-type FutureTypeDef struct {
-	PayloadType *ValTypeRef // nil if no payload
-}
-
-// FixedSizeListTypeDef represents a fixed-size list type (0x67).
-type FixedSizeListTypeDef struct {
-	ElementType ValTypeRef
-	Size        uint32
-}
-
 // CoreTypeDef represents a core type definition.
 type CoreTypeDef struct {
 	Kind     CoreTypeDefKind
@@ -869,7 +635,7 @@ type StartDef struct {
 
 // ValueDef represents a component value.
 type ValueDef struct {
-	Type ValTypeRef
+	Type types.ValType
 	Data []byte
 }
 
