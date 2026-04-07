@@ -1,4 +1,4 @@
-// internal/component/val_test.go
+// internal/component/types/val_test.go
 
 package types
 
