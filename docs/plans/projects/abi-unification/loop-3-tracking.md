@@ -42,7 +42,6 @@
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Wraps existing internal/component.ResourceTableFromContext. Used by 6 of 9 migration tests.
 
 **Files:**
@@ -97,7 +96,6 @@ alias depends on the existing `api/component/component.go` style.)
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Used by all 9 migration tests. Wraps existing internal/component.Linker (the basic one, NOT ComponentLinker).
 
 **Files:**
@@ -190,7 +188,6 @@ already exist; this item just exposes them via the public interface.
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Used by kv_store_test.go's TestResourceLifecycle_TableWithDestructor. Loop 2 item 7 deletes the silent variant; this item exposes the trap-emitting variant publicly.
 
 **Files:**
@@ -246,7 +243,6 @@ in wasm).
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** The existing runner is parse-only — its execution helpers in resources_test.go t.Skipf assert_trap/assert_return/invoke/register. Without this extension, Phase 3.A becomes a no-op (most upstream WAST files use these directives).
 
 **Files:**
@@ -321,7 +317,6 @@ legitimate exception.
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** -
 
 **Files:**
@@ -397,7 +392,6 @@ Write `loop-3-spectest-runner-decision.md`:
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Depends on item 1
 
 **Files:**
@@ -475,7 +469,6 @@ project rule is "no shell scripts, agent driven development").
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Depends on items 1 and 2. Async-touching files get documented `t.Skipf` per Loop 1's deferral.
 
 **Files:**
@@ -569,7 +562,6 @@ the test fixture (escalate to the user — do not silently skip).
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Pre-built binaries are committed; build instructions are documented per case
 
 **Files:**
@@ -654,7 +646,6 @@ wasm-tools component new \
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Depends on item 4
 
 **Files:**
@@ -731,7 +722,6 @@ item 6's test wiring.
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Depends on item 5. This is the canonical example of a public-API-only test.
 
 **Files:**
@@ -901,7 +891,6 @@ verifies this with `Grep`.
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** -
 
 **Files:**
@@ -963,7 +952,6 @@ import (
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Heaviest migration target (~750 lines, most internal symbols). Depends on Phase 3.0 items 0.1, 0.2, 0.4 (basic sub-linker, ResourceTableFromContext, FuncDynamic). Test names start with TestServiceMiddlewareComposition_*, NOT TestComposition.
 
 **Files:**
@@ -1009,7 +997,6 @@ heaviest internal-API user (~750 lines). Specific challenges:
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Depends on item 10.5 (pre-built WAT fixtures) and Phase 3.0. Audit found 5 BuildComponentFromWAT call sites in this file.
 
 **Files:**
@@ -1054,7 +1041,6 @@ Migration steps:
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Per wasmtime parity research: TestResourceLifecycle_LinkerDefinition is white-box wiring verification (asserts on *InstanceDef.Exports["store"].(*ResourceDef).Destructor(42)). It tests linker internals, not the API. It STAYS internal. The other tests in kv_store_test.go migrate.
 
 **Files:**
@@ -1111,7 +1097,6 @@ documents the named exception.
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Per user decision: pre-build all WAT to .wasm and commit binaries. testutil.BuildComponentFromWAT (which shells out to wasm-tools at runtime) cannot be used by public-API tests because it's an internal helper.
 
 **Files:**
@@ -1170,7 +1155,6 @@ Pre-build all WAT fixtures used by these tests:
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** -
 
 **Files:**
@@ -1199,7 +1183,6 @@ Same as item 7.
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** -
 
 **Files:**
@@ -1227,7 +1210,6 @@ Same as item 9.
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** -
 
 **Files:**
@@ -1255,7 +1237,6 @@ Same as item 7.
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** -
 
 **Files:**
@@ -1282,7 +1263,6 @@ Same as item 7.
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** -
 
 **Files:**
@@ -1320,7 +1300,6 @@ behavior.
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Allow-list is broader than the original plan. Many existing test packages legitimately import internal/component because they ARE the internal tests. The audit only verifies migration targets stay clean.
 
 **Files:**
@@ -1433,7 +1412,6 @@ Write `loop-3-public-api-audit.md`:
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** -
 
 **Files:**
@@ -1506,7 +1484,6 @@ The coverage targets (each must be exercised):
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** This is the final terminal item before Loop 3 closes
 
 **Files:**

@@ -56,9 +56,8 @@
 - **status:** done
 - **claimed_by:** 2026-04-07 session-loop1-open
 - **spec_review:** 2026-04-07 PASSED (re-review after gofmt+glyph fixes; cited definitions.py:122-125, 1082-1085, 1140-1143, 1721-1724)
-- **code_review:** 2026-04-07 PASSED (1 NIT-ONLY round resolved: gofmt struct alignment + 2 unicode ↔ glyphs replaced with ASCII "corresponds to")
-- **commit:** 1d406669
-- **notes:** Pre-decided: `definitions.py:122-125` `ListType(t, l=None)` matches wazero's existing `List{Element ValType, Length *uint32}` exactly. No new type needed. Pre-existing gofmt issues at composite_test.go:36, 323, 402-404 (doubled spaces before end-of-line comments) noted as out-of-scope follow-up — they predate this item and should be cleaned up separately.
+- **code_review:** 2026-04-07 PASSED (1 NIT-ONLY round resolved: gofmt struct alignment + 2 unicode glyphs replaced with ASCII "corresponds to")
+- **notes:** Pre-decided: `definitions.py:122-125` `ListType(t, l=None)` matches wazero's existing `List{Element ValType, Length *uint32}` exactly. No new type needed. Pre-existing gofmt issues at composite_test.go:36, 323, 402-404 (doubled spaces before end-of-line comments) noted as out-of-scope follow-up — they predate this item and should be cleaned up separately. (Find the commit via `git log --grep "Loop 1 item 1"`.)
 
 **Files:**
 - Read: `internal/component/types/composite.go` (existing `List` struct)
@@ -102,8 +101,7 @@ Loop 1 phase 1.D item 31 verifies the dispatch in `abi/lift.go` and
 - **claimed_by:** 2026-04-07 session-loop1-item2
 - **spec_review:** 2026-04-07 PASSED (round 2; cited definitions.py:120, 174-180, 1074, 1080, 1132, 1138, 1192, 1199, 1200, 1382, 1389, 1390, 1713, 1719, 1787, 1794, 1795, 1881, 1888, 1889 — all four ValType-dispatching functions confirmed; trap arms inside the same switch as other types; no fifth dispatch function missed)
 - **code_review:** 2026-04-07 PASSED (round 2; 1 NIT noted: error messages contain "not yet supported" twice — left as-is, polish-only)
-- **commit:** 63bc185d
-- **notes:** Async runtime is OUT OF SCOPE for this project; these types exist only so the parser can produce complete output and lift/lower can trap with a clear message. Round-1 BLOCKER (out-of-scope `ErrorContextTypeDef` addition to `internal/component/component.go` with no producer/consumer) reverted in bounce-back; the parity addition deferred to item 6 where it can be wired up with binary-parser producer and consumer in one coherent commit. Note in the original item description suggesting `component.go` parity was treated as informational context only — the Files list and Definition of Done do not include `component.go`, and universal rule 7 ("no helpers without consumers") prohibits adding the field without a producer.
+- **notes:** Async runtime is OUT OF SCOPE for this project; these types exist only so the parser can produce complete output and lift/lower can trap with a clear message. **Round-1 BLOCKER history:** the original item description contained a misleading "Note" that mentioned `component.ErrorContextTypeDef` and said it "must also be added in this item to complete parity." The implementing agent read this as an instruction and added the field to `component.go` without a producer or consumer, triggering a round-1 code-quality BLOCKER on universal rule 7 (no helpers without consumers). The misleading note has since been REMOVED from the item description (see commit log). **Going forward: there is no need to add `ErrorContextTypeDef` to `component.go` at all** — Loop 1 item 7 deletes the entire `component.*TypeDef` family, so adding to it now would create code that gets immediately deleted. Item 6 (the parser refactor) populates `types.ValType` directly via allocate-then-fill; ErrorContextType is recognised at the `types/` layer (already added in this item) and no `component.go` parity is required. (Find the commit via `git log --grep "Loop 1 item 2"`.)
 
 **Files:**
 - Modify: `internal/component/types/composite.go` — add `Stream`,
@@ -125,11 +123,16 @@ Loop 1 phase 1.D item 31 verifies the dispatch in `abi/lift.go` and
   `class ErrorContextType` (the runtime treats all three as i32
   handles, same shape as Own/Borrow)
 
-Note: `internal/component/component.go` already has
-`StreamTypeDef` and `FutureTypeDef`, but does NOT have
-`ErrorContextTypeDef` — that one must also be added in this item to
-complete parity. The parser refactor in item 6 will populate the
-`types` versions from the `component.*TypeDef` structs.
+**Scope note (this item touches ONLY `internal/component/types/` and
+`internal/component/abi/`):** Do NOT add anything to
+`internal/component/component.go`. The existing
+`component.StreamTypeDef`/`component.FutureTypeDef` will be deleted
+entirely by item 7 as part of the type-hierarchy unification, so
+adding `ErrorContextTypeDef` to `component.go` here would be dead
+code. The runtime form added in this item lives only in `types/`.
+Item 6's parser refactor populates `types.ValType` directly via
+allocate-then-fill, with no intermediate `component.*TypeDef`
+representation.
 
 **Description:**
 Add the three async-related value types to wazero's type representation
@@ -196,7 +199,6 @@ case types.ErrorContext:
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Removes the existing TODO comments at internal/component/types/resource.go lines 10-15 and 32-37
 
 **Files:**
@@ -246,13 +248,15 @@ Where `*ResourceType` is the existing struct in
 
 The `ResourceIdx uint32` field is removed. Every existing reference
 to it (use Grep) is migrated to use the `Resource *ResourceType`
-pointer directly. **Note:** `types.ResourceType` does NOT currently
-have an `Index` field (only `InstanceID`, `Destructor`, `DtorAsync`,
-`DtorCallback`). If a caller genuinely needs an index for
-serialization, that becomes a sub-decision in this item — either add
-`Index uint32` to `ResourceType` (matching the deleted `ResourceIdx`),
-or look up the index via the resource type table. Default: add
-`Index uint32` to `ResourceType` since the parser already produces it.
+pointer directly — the pointer IS the identity, no index lookup
+needed.
+
+**Do NOT add an `Index` field to `ResourceType` "in case a caller
+needs it."** That would be a helper without a consumer (universal
+rule 7). If a caller actually requires an index after migration,
+the agent must produce a concrete grep result showing the call site
+and explain why a pointer comparison wouldn't suffice — only then
+is adding the field justified. The default is to NOT add it.
 
 The TODO comments at lines 10-15 and 32-37 in `resource.go` are
 deleted (the work is done).
@@ -283,7 +287,6 @@ deleted (the work is done).
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Restored after verification. The binary format defines refines; .wast test fixtures use it; wazero's parser already reads it. Delete-from-runtime-form would silently drop information the binary spec chose to encode.
 
 **Files:**
@@ -369,7 +372,6 @@ it will read this field.
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Wasmtime precomputes these per spec definitions.py alignment/size/flatten functions
 
 **Files:**
@@ -447,7 +449,6 @@ demonstrates the optimization is real.
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** This is the largest single item in the project. Reference: go.bytecodealliance.org/wit/codec.go and internal/wasm/module.go.
 
 **Files:**
@@ -559,7 +560,6 @@ it is returned. Read this file in full before starting.
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Depends on items 6, 8, 9. This item completes the type unification by deleting the now-orphaned hierarchies.
 
 **Files:**
@@ -618,7 +618,6 @@ the caller if it was a test of the deleted struct.
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Depends on item 6. The three converters are mutually recursive within component_linker.go; only resolveToValType has external callers.
 
 **Files:**
@@ -677,7 +676,6 @@ Delete the three converter functions. Delete their tests.
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Depends on item 8. The 3 production callers in instance.go:198/301/440 call the public ResolveValType method (not the private resolveDefinedType directly).
 
 **Files:**
@@ -736,7 +734,6 @@ fields are a cache, an instance ref, and a localTypes ref. Once
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Resolves the name collision before item 26 adds the new abi.CanonLower. The existing CanonLower at canon_lower.go:98 returns *LoweredFunc which is the dead third lift/lower path.
 
 **Files:**
@@ -814,7 +811,6 @@ adds `abi.CanonLower` — different package, no collision.
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** **CRITICAL ARCHITECTURAL FIX.** Today abi/lift.go, abi/lower.go, abi/context.go, abi/resource_lower.go all import `internal/component`. Loop 2 must make `internal/component` import `abi/`. This creates a circular dependency. Must be resolved before Loop 2 starts.
 
 **Files:**
@@ -939,7 +935,6 @@ phase 1.D (new abi/ entry points) and Loop 2 (wiring) depends on it.
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Phase 1.A is intentionally disruptive; this item captures the broken state for Loop 2 to fix.
 
 **Files:**
@@ -1020,7 +1015,6 @@ bounced.
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Anti-bug-hiding check. The instance.go retptr synthesis hack at 335-338 may have been masking a parser bug where FlattenCount returned 1 for types that should return >1 (causing the retptr branch to never trigger). Loop 2 deletes the hack; this item verifies the parser produces correct flatten counts so the retptr branch DOES trigger when needed.
 
 **Files:**
@@ -1092,7 +1086,6 @@ need a follow-up commit).
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Independent verification of phase 1.A's correctness before phase 1.B starts
 
 **Files:**
@@ -1147,7 +1140,6 @@ Verdict must be `PASS` before phase 1.B starts.
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** -
 
 **Files:**
@@ -1240,7 +1232,6 @@ type SourceLine struct {
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Depends on item 12
 
 **Files:**
@@ -1343,7 +1334,6 @@ item 6 populates it). All helpers MUST use the post-item-9.7
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Cross-check against definitions.py before phase 1.C ports start
 
 **Files:**
@@ -1409,7 +1399,6 @@ they're deferred but document the value:
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Depends on item 13
 
 **Files:**
@@ -1475,7 +1464,6 @@ For Python's float → Go's float (use bit patterns where needed):
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** -
 
 **Files:**
@@ -1536,7 +1524,6 @@ public API after phase 1.A. Read the actual types before writing.)
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** -
 
 **Files:**
@@ -1582,7 +1569,6 @@ func TestHeapLayout(t *testing.T) {
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** -
 
 **Files:**
@@ -1628,7 +1614,6 @@ Same as items 15-17.
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** -
 
 **Files:**
@@ -1674,7 +1659,6 @@ func TestCanonicalNaN(t *testing.T) {
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Largest single test file by case count
 
 **Files:**
@@ -1739,7 +1723,6 @@ func TestStringEncodingMatrix(t *testing.T) {
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** -
 
 **Files:**
@@ -1785,7 +1768,6 @@ Same as items 15-20.
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Most complex single port
 
 **Files:**
@@ -1847,7 +1829,6 @@ func TestHandles(t *testing.T) {
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Pure boolean test on call_might_be_recursive
 
 **Files:**
@@ -1891,7 +1872,6 @@ Same as items 15-22.
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Depends on Loop 1 phase 1.A item 3 (Own carries *ResourceType) and item 9.7 (package boundary). Extends the EXISTING LiftOwn/LiftBorrow helpers to take *ResourceType, then folds them into the dispatch.
 
 **Files:**
@@ -2008,7 +1988,6 @@ item 3), most callers can pass `t.Resource`.
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Depends on item 9.7 (package boundary). NOT a full canon_lift wrapper — that lives in instance.go per the wasmtime layering. abi/ stays pure math.
 
 **Files:**
@@ -2123,7 +2102,6 @@ named `LiftValues`/`LowerValues` after `lift_flat_values`/
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Item 25 added LiftValues and LowerValues together. This item is the integration verification — confirms both functions correctly compose with existing LiftFlat/LiftHeap/LowerFlat/LowerHeap leaf operations and the FlatIter abstraction.
 
 **Files:**
@@ -2185,7 +2163,6 @@ If any test reveals a bug in the leaf operations or in the
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Per the wasmtime layering decision: post-return invocation is a lifecycle concern that lives in instance.go (Loop 2 item 5), NOT in abi/. abi/ stays pure math. This item only documents the contract.
 
 **Files:**
@@ -2250,7 +2227,6 @@ updated to include post-return as one of the lifecycle steps it owns.
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Lift side already has the check; lower side does not
 
 **Files:**
@@ -2300,7 +2276,6 @@ if totalSize > math.MaxUint32 {
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Restored after verification. The spec defines canonicalize_nan on lift and maybe_scramble_nan on lower, both called from lift_flat/lower_flat at definitions.py:1783-1784/1877-1878. Under DETERMINISTIC_PROFILE=true, maybe_scramble_nan is a no-op pass-through, but the call site is part of the spec.
 
 **Files:**
@@ -2426,7 +2401,6 @@ without re-finding every f32/f64 lower site.
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Spec definitions.py canonopt validation rules
 
 **Files:**
@@ -2475,7 +2449,6 @@ runs these checks. Call it at the start of `CanonLift` and
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Depends on item 1's decision (separate type vs Length pointer)
 
 **Files:**
@@ -2516,7 +2489,6 @@ type case to all four dispatch functions and tests.
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Each new case must cite the spec and not contradict any Python-ported case
 
 **Files:**
@@ -2574,7 +2546,6 @@ Each test in `supplemental_test.go` must:
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** -
 
 **Files:**
@@ -2613,7 +2584,6 @@ against the spec and confirms:
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** -
 
 **Files:**
@@ -2654,7 +2624,6 @@ bounced.
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** -
 
 **Files:**

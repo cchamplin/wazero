@@ -392,7 +392,6 @@ Each item is one Markdown row with explicit lifecycle state:
   - claimed_by: -
   - spec_review: -
   - code_review: -
-  - commit: -
   - notes: Spec authority: definitions.py:1197-1198, 1387-1388;
     wasmtime values.rs:115
 ```
@@ -405,9 +404,14 @@ Becomes when done:
   - claimed_by: 2026-04-08 session
   - spec_review: 2026-04-08 PASSED (cited definitions.py:1197 match)
   - code_review: 2026-04-08 PASSED (1 nit fixed)
-  - commit: abc1234
   - notes: ResourceType validation trap added per spec 2218-2219
 ```
+
+The commit hash is NOT tracked in the file — it cannot be (a commit's
+own hash cannot appear inside the commit). The link between the
+tracking entry and the commit is the trailer line `Loop N item M`
+in the commit message. To find the commit for an item, run
+`git log --grep "Loop 1 item 24"`.
 
 This is the source of truth for resumability across sessions.
 

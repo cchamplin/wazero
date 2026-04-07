@@ -31,7 +31,6 @@
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** -
 
 **Files:**
@@ -150,7 +149,6 @@ that will be deleted:
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Depends on Loop 1 items 9.5 (canon_lower.go cleanup), 9.7 (package boundary), 24 (Own/Borrow dispatch), 25 (LiftValues/LowerValues). The body becomes a may_leave-aware lifecycle wrapper, not a one-line shim.
 
 **Files:**
@@ -279,7 +277,6 @@ tested there. Delete those tests.
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Depends on item 2 (same wrapper pattern). createCanonLowerFunc is at component_linker.go:2430 (verified, NOT 3157). Same lifecycle responsibilities as item 2.
 
 **Files:**
@@ -396,7 +393,6 @@ above has zero callers. Delete each with `Grep` confirmation.
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Closes the Fix #11 cycle. Depends on item 3 (which removes the only callers). All function lines verified.
 
 **Files:**
@@ -493,7 +489,6 @@ and `conformance/canonical_abi/` (Loop 1 phase 1.C).
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Largest single-file change in Loop 2. Lifecycle (subtask, borrow scope, may_leave, post_return, reentrance, enter/exit, validateReturn) STAYS in instance.go per the wasmtime layering. abi/ stays pure math. Depends on items 4 and Loop 1 items 9.7, 24, 25.
 
 **Files:**
@@ -690,7 +685,6 @@ unnecessary. There is no toolchain-specific divergence.
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Loop 1 item 24 EXTENDED these helpers (added *ResourceType param) and made them callable from the integrated dispatch. They are no longer standalone entry points but are still the dispatch's implementation. This item un-exports them (lowercase) and confirms the only callers are inside abi/.
 
 **Files:**
@@ -762,7 +756,6 @@ entire repo. If any non-test reference outside `abi/` remains, items
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** -
 
 **Files:**
@@ -849,7 +842,6 @@ versions. Update or delete tests that asserted the silent behavior.
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Audit found ~28 sites (not 22 as originally claimed). Includes both `if err != nil` and `if table == nil` patterns. Confirm count via Grep before starting.
 
 **Files:**
@@ -917,7 +909,6 @@ For each site:
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Same trap rule as item 8. Audit found ~20 sites (not 14). udp_test.go does NOT exist today — must be CREATED.
 
 **Files:**
@@ -948,7 +939,6 @@ Same as item 8.
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Largest of the silent-default cleanups. Same trap rule as item 8. Audit found 31 `if err != nil` sites + ~7 `if table == nil` sites = ~38 total.
 
 **Files:**
@@ -983,7 +973,6 @@ type should map to its own most-specific error.
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** The audit only counted sockets/http; this item verifies the rest are clean or fixes them.
 
 **Files:**
@@ -1045,7 +1034,6 @@ After processing each subdirectory, write a paragraph in
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** Verifies items 2-11 left no orphans
 
 **Files:**
@@ -1121,7 +1109,6 @@ function name removed, with line counts:
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** -
 
 **Files:**
@@ -1191,7 +1178,6 @@ After items 2-12, verify the test surface is clean:
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** -
 
 **Files:**
@@ -1250,7 +1236,6 @@ Write `loop-2-test-report.md` recording:
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** This is run via the `verify-loop-complete.md` template's spec-specific path
 
 **Files:**
@@ -1290,7 +1275,6 @@ individually, but together they leak a borrow that neither caught").
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
-- **commit:** -
 - **notes:** -
 
 **Files:**

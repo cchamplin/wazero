@@ -149,10 +149,14 @@ When both reviewers are clean:
    - `claimed_by:` (already set in 3.a)
    - `spec_review:` `<date> PASSED` (or `PASSED with N nits resolved`)
    - `code_review:` `<date> PASSED` (or `PASSED with N nits resolved`)
-   - `commit:` (the commit hash you're about to make — use the format
-     described below)
    - `notes:` (anything material the reviewers raised; spec citations
      the implementer made)
+
+   **Do NOT fill in any `commit:` field.** The commit hash is not
+   tracked in the tracking file — it cannot be (a commit's own hash
+   cannot appear inside the commit because the hash is computed from
+   the commit's contents). To find the commit for any item later,
+   grep `git log` for `Loop N item M`.
 
 2. Stage all the code changes from the implementation subagent AND the
    tracking file update.
@@ -177,10 +181,15 @@ Where `{area}` is the conventional commit prefix (`feat`, `fix`, `refactor`,
 `test`, `docs`, etc.) and `{scope}` is the wazero package being changed
 (`component/abi`, `component/binary`, `wasip2/sockets`, etc.).
 
-Get the actual commit hash from `git rev-parse HEAD` and update the
-`commit:` field in the tracking file. Amend the commit if you forgot
-to fill in the hash before committing — but only this single time, only
-to add the hash, never for any other reason.
+The trailer line `Loop {N} item {ITEM_ID}` is the canonical link
+between the commit and the tracking-file entry. Do NOT use
+`git commit --amend` to add anything to the commit after the fact —
+amending changes the hash and serves no purpose since nothing depends
+on the hash.
+
+If the commit fails (pre-commit hook, test failure, etc.), the commit
+did NOT happen — fix the underlying issue, re-stage, and create a
+fresh commit. Do NOT amend a failed commit.
 
 ### 3.f — Loop back
 
