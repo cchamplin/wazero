@@ -1,4 +1,4 @@
-// internal/component/runtime/resource_table_test.go
+// internal/component/runtime/table_test.go
 
 package runtime
 
@@ -8,37 +8,41 @@ import (
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
-func TestResourceTable_NewAndGet(t *testing.T) {
-	table := NewResourceTable()
+func TestTable_NewAndGet(t *testing.T) {
+	table := NewTable()
 
-	// Create a resource
-	h := table.New("my-resource", true) // own=true
+	// Create a resource (no type tracking — pass nil)
+	h, err := table.NewResourceHandle("my-resource", true, nil) // own=true
+	require.NoError(t, err)
 
 	// Verify handle parts
 	require.Equal(t, uint32(0), h.Index())
 	require.Equal(t, uint32(0), h.Generation())
 
 	// Retrieve it
-	entry, err := table.Get(h)
+	entry, err := table.GetResourceHandle(h)
 	require.NoError(t, err)
 	require.Equal(t, "my-resource", entry.Rep)
 	require.True(t, entry.Own)
 }
 
-func TestResourceTable_MultipleResources(t *testing.T) {
-	table := NewResourceTable()
+func TestTable_MultipleResources(t *testing.T) {
+	table := NewTable()
 
-	h1 := table.New("first", true)
-	h2 := table.New("second", true)
-	h3 := table.New("third", true)
+	h1, err := table.NewResourceHandle("first", true, nil)
+	require.NoError(t, err)
+	h2, err := table.NewResourceHandle("second", true, nil)
+	require.NoError(t, err)
+	h3, err := table.NewResourceHandle("third", true, nil)
+	require.NoError(t, err)
 
 	require.Equal(t, uint32(0), h1.Index())
 	require.Equal(t, uint32(1), h2.Index())
 	require.Equal(t, uint32(2), h3.Index())
 
-	e1, _ := table.Get(h1)
-	e2, _ := table.Get(h2)
-	e3, _ := table.Get(h3)
+	e1, _ := table.GetResourceHandle(h1)
+	e2, _ := table.GetResourceHandle(h2)
+	e3, _ := table.GetResourceHandle(h3)
 
 	require.Equal(t, "first", e1.Rep)
 	require.Equal(t, "second", e2.Rep)
@@ -51,9 +55,10 @@ func TestHandle_MakeHandle(t *testing.T) {
 	require.Equal(t, uint32(7), h.Generation())
 }
 
-func TestResourceTable_Remove(t *testing.T) {
-	table := NewResourceTable()
-	h := table.New("my-resource", true)
+func TestTable_Remove(t *testing.T) {
+	table := NewTable()
+	h, err := table.NewResourceHandle("my-resource", true, nil)
+	require.NoError(t, err)
 
 	// Remove returns the entry
 	entry, err := table.Remove(h)
@@ -66,16 +71,18 @@ func TestResourceTable_Remove(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestResourceTable_UseAfterFree(t *testing.T) {
-	table := NewResourceTable()
+func TestTable_UseAfterFree(t *testing.T) {
+	table := NewTable()
 
 	// Create and remove a resource
-	h1 := table.New("first", true)
-	_, err := table.Remove(h1)
+	h1, err := table.NewResourceHandle("first", true, nil)
+	require.NoError(t, err)
+	_, err = table.Remove(h1)
 	require.NoError(t, err)
 
 	// Create another resource (reuses index 0)
-	h2 := table.New("second", true)
+	h2, err := table.NewResourceHandle("second", true, nil)
+	require.NoError(t, err)
 	require.Equal(t, uint32(0), h2.Index())
 	require.Equal(t, uint32(1), h2.Generation()) // Generation incremented
 
@@ -84,17 +91,18 @@ func TestResourceTable_UseAfterFree(t *testing.T) {
 	require.Error(t, err, "generation mismatch should prevent access")
 
 	// New handle works
-	entry, err := table.Get(h2)
+	entry, err := table.GetResourceHandle(h2)
 	require.NoError(t, err)
 	require.Equal(t, "second", entry.Rep)
 }
 
-func TestResourceTable_DoubleFree(t *testing.T) {
-	table := NewResourceTable()
-	h := table.New("resource", true)
+func TestTable_DoubleFree(t *testing.T) {
+	table := NewTable()
+	h, err := table.NewResourceHandle("resource", true, nil)
+	require.NoError(t, err)
 
 	// First remove succeeds
-	_, err := table.Remove(h)
+	_, err = table.Remove(h)
 	require.NoError(t, err)
 
 	// Second remove fails (already freed)
@@ -102,27 +110,29 @@ func TestResourceTable_DoubleFree(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestResourceTable_RemoveWithActiveBorrows(t *testing.T) {
-	table := NewResourceTable()
-	h := table.New("resource", true)
+func TestTable_RemoveWithActiveBorrows(t *testing.T) {
+	table := NewTable()
+	h, err := table.NewResourceHandle("resource", true, nil)
+	require.NoError(t, err)
 
 	// Manually set NumLends to simulate active borrow
-	entry, _ := table.Get(h)
+	entry, _ := table.GetResourceHandle(h)
 	entry.NumLends = 1
 
-	_, err := table.Remove(h)
+	_, err = table.Remove(h)
 	require.ErrorIs(t, err, ErrResourceInUse)
 }
 
-func TestResourceTable_BorrowTracking(t *testing.T) {
-	table := NewResourceTable()
-	h := table.New("resource", true)
-
-	// Increment lends (for lift_borrow)
-	err := table.IncrementLends(h)
+func TestTable_BorrowTracking(t *testing.T) {
+	table := NewTable()
+	h, err := table.NewResourceHandle("resource", true, nil)
 	require.NoError(t, err)
 
-	entry, _ := table.Get(h)
+	// Increment lends (for lift_borrow)
+	err = table.IncrementLends(h)
+	require.NoError(t, err)
+
+	entry, _ := table.GetResourceHandle(h)
 	require.Equal(t, uint32(1), entry.NumLends)
 
 	// Cannot remove while borrowed
@@ -133,7 +143,7 @@ func TestResourceTable_BorrowTracking(t *testing.T) {
 	err = table.DecrementLends(h)
 	require.NoError(t, err)
 
-	entry, _ = table.Get(h)
+	entry, _ = table.GetResourceHandle(h)
 	require.Equal(t, uint32(0), entry.NumLends)
 
 	// Now can remove
@@ -141,16 +151,17 @@ func TestResourceTable_BorrowTracking(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestResourceTable_MultipleBorrows(t *testing.T) {
-	table := NewResourceTable()
-	h := table.New("resource", true)
+func TestTable_MultipleBorrows(t *testing.T) {
+	table := NewTable()
+	h, err := table.NewResourceHandle("resource", true, nil)
+	require.NoError(t, err)
 
 	// Multiple concurrent borrows
 	require.NoError(t, table.IncrementLends(h))
 	require.NoError(t, table.IncrementLends(h))
 	require.NoError(t, table.IncrementLends(h))
 
-	entry, _ := table.Get(h)
+	entry, _ := table.GetResourceHandle(h)
 	require.Equal(t, uint32(3), entry.NumLends)
 
 	// Decrement all
@@ -158,45 +169,49 @@ func TestResourceTable_MultipleBorrows(t *testing.T) {
 	require.NoError(t, table.DecrementLends(h))
 	require.NoError(t, table.DecrementLends(h))
 
-	entry, _ = table.Get(h)
+	entry, _ = table.GetResourceHandle(h)
 	require.Equal(t, uint32(0), entry.NumLends)
 }
 
-func TestResourceTable_DecrementUnderflow(t *testing.T) {
-	table := NewResourceTable()
-	h := table.New("resource", true)
+func TestTable_DecrementUnderflow(t *testing.T) {
+	table := NewTable()
+	h, err := table.NewResourceHandle("resource", true, nil)
+	require.NoError(t, err)
 
 	// Decrement without increment should error
-	err := table.DecrementLends(h)
+	err = table.DecrementLends(h)
 	require.ErrorIs(t, err, ErrNoBorrowsToDecrement)
 }
 
-func TestResourceTable_BorrowedHandle(t *testing.T) {
-	table := NewResourceTable()
+func TestTable_BorrowedHandle(t *testing.T) {
+	table := NewTable()
 
 	// Create borrowed handle (own=false)
-	h := table.New("resource", false)
+	h, err := table.NewResourceHandle("resource", false, nil)
+	require.NoError(t, err)
 
-	entry, err := table.Get(h)
+	entry, err := table.GetResourceHandle(h)
 	require.NoError(t, err)
 	require.False(t, entry.Own)
 	require.Equal(t, "resource", entry.Rep)
 }
 
-func TestResourceTable_RemoveBorrowedMustNotCallDestructor(t *testing.T) {
-	table := NewResourceTable()
-	h := table.New("resource", false) // borrowed
+func TestTable_RemoveBorrowedMustNotCallDestructor(t *testing.T) {
+	table := NewTable()
+	h, err := table.NewResourceHandle("resource", false, nil) // borrowed
+	require.NoError(t, err)
 
 	entry, err := table.Remove(h)
 	require.NoError(t, err)
 	require.False(t, entry.Own) // Caller checks Own to decide on destructor
 }
 
-func TestResourceTable_Rep(t *testing.T) {
-	table := NewResourceTable()
+func TestTable_Rep(t *testing.T) {
+	table := NewTable()
 
 	// Create a new resource with rep=42
-	handle := table.New(uint32(42), true)
+	handle, err := table.NewResourceHandle(uint32(42), true, nil)
+	require.NoError(t, err)
 
 	// First handle has index 0 and generation 0
 	require.Equal(t, uint32(0), handle.Index())
@@ -208,8 +223,8 @@ func TestResourceTable_Rep(t *testing.T) {
 	require.Equal(t, uint32(42), rep)
 }
 
-func TestResourceTable_Rep_InvalidHandle(t *testing.T) {
-	table := NewResourceTable()
+func TestTable_Rep_InvalidHandle(t *testing.T) {
+	table := NewTable()
 
 	// Try to get rep of non-existent handle
 	invalidHandle := MakeHandle(999, 0)
@@ -218,11 +233,12 @@ func TestResourceTable_Rep_InvalidHandle(t *testing.T) {
 	require.ErrorIs(t, err, ErrInvalidHandle)
 }
 
-func TestResourceTable_Rep_IntConversion(t *testing.T) {
-	table := NewResourceTable()
+func TestTable_Rep_IntConversion(t *testing.T) {
+	table := NewTable()
 
 	// Create a resource with int rep (common in tests)
-	handle := table.New(42, true) // int, not uint32
+	handle, err := table.NewResourceHandle(42, true, nil) // int, not uint32
+	require.NoError(t, err)
 
 	// Rep should still work with int->uint32 conversion
 	rep, err := table.Rep(handle)
@@ -230,22 +246,24 @@ func TestResourceTable_Rep_IntConversion(t *testing.T) {
 	require.Equal(t, uint32(42), rep)
 }
 
-func TestResourceTable_Rep_NonNumeric(t *testing.T) {
-	table := NewResourceTable()
+func TestTable_Rep_NonNumeric(t *testing.T) {
+	table := NewTable()
 
 	// Create a resource with non-numeric rep
-	handle := table.New("string-rep", true)
+	handle, err := table.NewResourceHandle("string-rep", true, nil)
+	require.NoError(t, err)
 
 	// Rep should error for non-numeric rep
-	_, err := table.Rep(handle)
+	_, err = table.Rep(handle)
 	require.Error(t, err)
 }
 
-func TestResourceTable_CreateResourceNewFunc(t *testing.T) {
-	table := NewResourceTable()
+func TestTable_CreateResourceNewFunc(t *testing.T) {
+	table := NewTable()
+	rt := &ResourceType{}
 
 	// Create a resource.new function
-	newFunc := table.CreateResourceNewFunc(0)
+	newFunc := table.CreateResourceNewFunc(rt)
 
 	// Call it - first handle will be 0 (index 0, gen 0)
 	handle := newFunc(42)
@@ -261,12 +279,14 @@ func TestResourceTable_CreateResourceNewFunc(t *testing.T) {
 	require.Equal(t, uint32(42), rep)
 }
 
-func TestResourceTable_CreateResourceNewFunc_MultipleResources(t *testing.T) {
-	table := NewResourceTable()
+func TestTable_CreateResourceNewFunc_MultipleResources(t *testing.T) {
+	table := NewTable()
+	rt1 := &ResourceType{}
+	rt2 := &ResourceType{}
 
 	// Create resource.new functions for different resource types
-	newFunc1 := table.CreateResourceNewFunc(0)
-	newFunc2 := table.CreateResourceNewFunc(1)
+	newFunc1 := table.CreateResourceNewFunc(rt1)
+	newFunc2 := table.CreateResourceNewFunc(rt2)
 
 	// Create resources
 	h1 := newFunc1(100)
@@ -287,31 +307,34 @@ func TestResourceTable_CreateResourceNewFunc_MultipleResources(t *testing.T) {
 	require.Equal(t, uint32(300), rep3)
 }
 
-func TestResourceTable_CreateResourceNewFunc_CreatesOwnedResources(t *testing.T) {
-	table := NewResourceTable()
+func TestTable_CreateResourceNewFunc_CreatesOwnedResources(t *testing.T) {
+	table := NewTable()
+	rt := &ResourceType{}
 
-	newFunc := table.CreateResourceNewFunc(0)
+	newFunc := table.CreateResourceNewFunc(rt)
 	handle := Handle(newFunc(42))
 
 	// Verify the created resource is owned
-	entry, err := table.Get(handle)
+	entry, err := table.GetResourceHandle(handle)
 	require.NoError(t, err)
 	require.True(t, entry.Own)
 }
 
-func TestResourceTable_CreateResourceDropFunc(t *testing.T) {
-	table := NewResourceTable()
+func TestTable_CreateResourceDropFunc(t *testing.T) {
+	table := NewTable()
+	rt := &ResourceType{}
 
 	var destructorCalled bool
 	var droppedRep uint32
 
-	dropFunc := table.CreateResourceDropFunc(0, func(rep uint32) {
+	dropFunc := table.CreateResourceDropFunc(rt, func(rep uint32) {
 		destructorCalled = true
 		droppedRep = rep
 	})
 
-	// Create a resource
-	handle := table.New(uint32(42), true)
+	// Create a resource of the same type
+	handle, err := table.NewResourceHandle(uint32(42), true, rt)
+	require.NoError(t, err)
 
 	// Drop it
 	dropFunc(uint32(handle))
@@ -325,17 +348,18 @@ func TestResourceTable_CreateResourceDropFunc(t *testing.T) {
 	}
 
 	// Verify resource was removed
-	_, err := table.Get(handle)
+	_, err = table.Get(handle)
 	if err == nil {
 		t.Error("expected error getting dropped handle")
 	}
 }
 
-func TestResourceTable_CreateResourceDropFunc_InvalidHandle(t *testing.T) {
-	table := NewResourceTable()
+func TestTable_CreateResourceDropFunc_InvalidHandle(t *testing.T) {
+	table := NewTable()
+	rt := &ResourceType{}
 
 	var destructorCalled bool
-	dropFunc := table.CreateResourceDropFunc(0, func(rep uint32) {
+	dropFunc := table.CreateResourceDropFunc(rt, func(rep uint32) {
 		destructorCalled = true
 	})
 
@@ -347,29 +371,33 @@ func TestResourceTable_CreateResourceDropFunc_InvalidHandle(t *testing.T) {
 	}
 }
 
-func TestResourceTable_CreateResourceDropFunc_NilDestructor(t *testing.T) {
-	table := NewResourceTable()
+func TestTable_CreateResourceDropFunc_NilDestructor(t *testing.T) {
+	table := NewTable()
+	rt := &ResourceType{}
 
-	dropFunc := table.CreateResourceDropFunc(0, nil)
+	dropFunc := table.CreateResourceDropFunc(rt, nil)
 
 	// Create and drop - should work without destructor
-	handle := table.New(uint32(42), true)
+	handle, err := table.NewResourceHandle(uint32(42), true, rt)
+	require.NoError(t, err)
 	dropFunc(uint32(handle))
 
 	// Verify resource was removed
-	_, err := table.Get(handle)
+	_, err = table.Get(handle)
 	if err == nil {
 		t.Error("expected error getting dropped handle")
 	}
 }
 
-func TestResourceTable_CreateResourceRepFunc(t *testing.T) {
-	table := NewResourceTable()
+func TestTable_CreateResourceRepFunc(t *testing.T) {
+	table := NewTable()
+	rt := &ResourceType{}
 
-	repFunc := table.CreateResourceRepFunc(0)
+	repFunc := table.CreateResourceRepFunc(rt)
 
-	// Create a resource
-	handle := table.New(42, true)
+	// Create a resource of the same type
+	handle, err := table.NewResourceHandle(42, true, rt)
+	require.NoError(t, err)
 
 	// Get its rep
 	rep := repFunc(uint32(handle))
@@ -378,10 +406,11 @@ func TestResourceTable_CreateResourceRepFunc(t *testing.T) {
 	}
 }
 
-func TestResourceTable_CreateResourceRepFunc_InvalidHandle(t *testing.T) {
-	table := NewResourceTable()
+func TestTable_CreateResourceRepFunc_InvalidHandle(t *testing.T) {
+	table := NewTable()
+	rt := &ResourceType{}
 
-	repFunc := table.CreateResourceRepFunc(0)
+	repFunc := table.CreateResourceRepFunc(rt)
 
 	// Get rep for invalid handle - should return 0
 	rep := repFunc(999)
@@ -390,96 +419,93 @@ func TestResourceTable_CreateResourceRepFunc_InvalidHandle(t *testing.T) {
 	}
 }
 
-func TestHandleEntry_HasResourceTypeID(t *testing.T) {
-	table := NewResourceTable()
+func TestResourceHandleEntry_HasResourceType(t *testing.T) {
+	table := NewTable()
 
 	// Create a handle with a specific resource type
-	rtID := NewResourceTypeID(5)
-	h := table.NewWithType(uint32(100), true, rtID)
-
-	entry, err := table.Get(h)
+	rt := &ResourceType{}
+	h, err := table.NewResourceHandle(uint32(100), true, rt)
 	require.NoError(t, err)
-	require.Equal(t, rtID, entry.RT)
+
+	entry, err := table.GetResourceHandle(h)
+	require.NoError(t, err)
+	require.True(t, entry.RT == rt)
 	require.Equal(t, uint32(100), entry.Rep.(uint32))
 }
 
-func TestResourceTable_New_HasInvalidTypeByDefault(t *testing.T) {
-	table := NewResourceTable()
-
-	// Old API should still work, RT will be invalid
-	h := table.New("test-rep", true)
-
-	entry, err := table.Get(h)
+func TestTable_GetResourceType(t *testing.T) {
+	table := NewTable()
+	rt := &ResourceType{}
+	h, err := table.NewResourceHandle(uint32(100), true, rt)
 	require.NoError(t, err)
-	require.False(t, entry.RT.IsValid(), "legacy New() should have invalid RT")
+
+	// GetResourceType should return the resource type
+	gotType, err := table.GetResourceType(h)
+	require.NoError(t, err)
+	require.True(t, gotType == rt)
 }
 
-func TestCreateResourceNewFunc_StoresResourceType(t *testing.T) {
-	table := NewResourceTable()
-
-	// Create the resource.new function for type index 3
-	newFunc := table.CreateResourceNewFuncWithType(3)
-
-	// Call it to create a resource with rep=42
-	handleIdx := newFunc(42)
-
-	// Verify the handle has the correct type
-	entry, err := table.Get(Handle(handleIdx))
-	require.NoError(t, err)
-	require.True(t, entry.RT.IsValid())
-	require.Equal(t, uint32(3), entry.RT.Index())
-	require.Equal(t, uint32(42), entry.Rep.(uint32))
-}
-
-func TestResourceTable_GetType(t *testing.T) {
-	table := NewResourceTable()
-	rtID := NewResourceTypeID(7)
-	h := table.NewWithType(uint32(100), true, rtID)
-
-	// GetType should return the resource type
-	gotType, err := table.GetType(h)
-	require.NoError(t, err)
-	require.Equal(t, rtID, gotType)
-}
-
-func TestResourceTable_GetType_InvalidHandle(t *testing.T) {
-	table := NewResourceTable()
+func TestTable_GetResourceType_InvalidHandle(t *testing.T) {
+	table := NewTable()
 
 	invalidHandle := MakeHandle(999, 0)
-	_, err := table.GetType(invalidHandle)
+	_, err := table.GetResourceType(invalidHandle)
 	require.ErrorIs(t, err, ErrInvalidHandle)
 }
 
-func TestResourceTable_ValidateType(t *testing.T) {
-	table := NewResourceTable()
-	rtID := NewResourceTypeID(7)
-	wrongID := NewResourceTypeID(8)
-	h := table.NewWithType(uint32(100), true, rtID)
+func TestTable_ValidateType(t *testing.T) {
+	table := NewTable()
+	rt := &ResourceType{}
+	wrongRT := &ResourceType{}
+	h, err := table.NewResourceHandle(uint32(100), true, rt)
+	require.NoError(t, err)
 
 	// Correct type should pass
-	require.NoError(t, table.ValidateType(h, rtID))
+	require.NoError(t, table.ValidateType(h, rt))
 
 	// Wrong type should fail
-	err := table.ValidateType(h, wrongID)
+	err = table.ValidateType(h, wrongRT)
 	require.ErrorIs(t, err, ErrResourceTypeMismatch)
 }
 
-func TestResourceTable_ValidateType_InvalidHandle(t *testing.T) {
-	table := NewResourceTable()
+func TestTable_ValidateType_InvalidHandle(t *testing.T) {
+	table := NewTable()
 	invalidHandle := MakeHandle(999, 0)
-	rtID := NewResourceTypeID(7)
+	rt := &ResourceType{}
 
-	err := table.ValidateType(invalidHandle, rtID)
+	err := table.ValidateType(invalidHandle, rt)
 	require.ErrorIs(t, err, ErrInvalidHandle)
 }
 
-func TestCreateResourceDropFunc_TrapsOnInvalidHandle(t *testing.T) {
-	table := NewResourceTable()
+// TestTable_ValidateType_PointerIdentity is the regression test for the
+// bug fix that motivated Decision 5: two ResourceTypes with the same
+// conceptual type index must NOT validate against each other if their
+// pointers differ. Spec: definitions.py:1345 — `is` check, not value
+// equality.
+func TestTable_ValidateType_PointerIdentity(t *testing.T) {
+	tab := NewTable()
+	rtA := &ResourceType{}
+	rtB := &ResourceType{}
+	h, err := tab.NewResourceHandle("rep", true, rtA)
+	if err != nil {
+		t.Fatalf("NewResourceHandle: %v", err)
+	}
+	if err := tab.ValidateType(h, rtA); err != nil {
+		t.Errorf("ValidateType against same RT: %v, want nil", err)
+	}
+	if err := tab.ValidateType(h, rtB); err == nil {
+		t.Errorf("ValidateType against different RT: nil, want error")
+	}
+}
 
-	// Create drop function for type 1
+func TestCreateResourceDropFunc_TrapsOnInvalidHandle(t *testing.T) {
+	table := NewTable()
+	rt := &ResourceType{}
+
+	// Create drop function for type rt
 	var trapCalled bool
 	var trapErr error
-	dropFunc := table.CreateResourceDropFuncWithTrap(1, nil, func(err error) {
+	dropFunc := table.CreateResourceDropFuncWithTrap(rt, nil, func(err error) {
 		trapCalled = true
 		trapErr = err
 	})
@@ -492,15 +518,19 @@ func TestCreateResourceDropFunc_TrapsOnInvalidHandle(t *testing.T) {
 }
 
 func TestCreateResourceDropFunc_TrapsOnTypeMismatch(t *testing.T) {
-	table := NewResourceTable()
+	table := NewTable()
 
-	// Create a handle of type 1
-	h := table.NewWithType(uint32(42), true, NewResourceTypeID(1))
+	rt1 := &ResourceType{}
+	rt2 := &ResourceType{}
 
-	// Create drop function for type 2 (different type)
+	// Create a handle of type rt1
+	h, err := table.NewResourceHandle(uint32(42), true, rt1)
+	require.NoError(t, err)
+
+	// Create drop function for type rt2 (different type)
 	var trapCalled bool
 	var trapErr error
-	dropFunc := table.CreateResourceDropFuncWithTrap(2, nil, func(err error) {
+	dropFunc := table.CreateResourceDropFuncWithTrap(rt2, nil, func(err error) {
 		trapCalled = true
 		trapErr = err
 	})
@@ -513,10 +543,12 @@ func TestCreateResourceDropFunc_TrapsOnTypeMismatch(t *testing.T) {
 }
 
 func TestCreateResourceDropFuncWithTrap_SuccessfulDrop(t *testing.T) {
-	table := NewResourceTable()
+	table := NewTable()
+	rt := &ResourceType{}
 
-	// Create a handle with type 1
-	h := table.NewWithType(uint32(42), true, NewResourceTypeID(1))
+	// Create a handle with type rt
+	h, err := table.NewResourceHandle(uint32(42), true, rt)
+	require.NoError(t, err)
 
 	var destructorCalledWith uint32
 	destructor := func(rep uint32) {
@@ -524,7 +556,7 @@ func TestCreateResourceDropFuncWithTrap_SuccessfulDrop(t *testing.T) {
 	}
 
 	var trapCalled bool
-	dropFunc := table.CreateResourceDropFuncWithTrap(1, destructor, func(err error) {
+	dropFunc := table.CreateResourceDropFuncWithTrap(rt, destructor, func(err error) {
 		trapCalled = true
 	})
 
@@ -538,16 +570,17 @@ func TestCreateResourceDropFuncWithTrap_SuccessfulDrop(t *testing.T) {
 	require.Equal(t, uint32(42), destructorCalledWith)
 
 	// Verify handle is now invalid
-	_, err := table.Get(h)
+	_, err = table.Get(h)
 	require.ErrorIs(t, err, ErrInvalidHandle)
 }
 
 func TestCreateResourceRepFunc_TrapsOnInvalidHandle(t *testing.T) {
-	table := NewResourceTable()
+	table := NewTable()
+	rt := &ResourceType{}
 
 	var trapCalled bool
 	var trapErr error
-	repFunc := table.CreateResourceRepFuncWithTrap(1, func(err error) {
+	repFunc := table.CreateResourceRepFuncWithTrap(rt, func(err error) {
 		trapCalled = true
 		trapErr = err
 	})
@@ -560,15 +593,19 @@ func TestCreateResourceRepFunc_TrapsOnInvalidHandle(t *testing.T) {
 }
 
 func TestCreateResourceRepFunc_TrapsOnTypeMismatch(t *testing.T) {
-	table := NewResourceTable()
+	table := NewTable()
 
-	// Create a handle of type 1
-	h := table.NewWithType(uint32(42), true, NewResourceTypeID(1))
+	rt1 := &ResourceType{}
+	rt2 := &ResourceType{}
+
+	// Create a handle of type rt1
+	h, err := table.NewResourceHandle(uint32(42), true, rt1)
+	require.NoError(t, err)
 
 	var trapCalled bool
 	var trapErr error
-	// Create rep function for type 2 (different type)
-	repFunc := table.CreateResourceRepFuncWithTrap(2, func(err error) {
+	// Create rep function for type rt2 (different type)
+	repFunc := table.CreateResourceRepFuncWithTrap(rt2, func(err error) {
 		trapCalled = true
 		trapErr = err
 	})
@@ -581,12 +618,14 @@ func TestCreateResourceRepFunc_TrapsOnTypeMismatch(t *testing.T) {
 }
 
 func TestCreateResourceRepFuncWithTrap_ReturnsRepOnSuccess(t *testing.T) {
-	table := NewResourceTable()
+	table := NewTable()
+	rt := &ResourceType{}
 
-	h := table.NewWithType(uint32(42), true, NewResourceTypeID(1))
+	h, err := table.NewResourceHandle(uint32(42), true, rt)
+	require.NoError(t, err)
 
 	var trapCalled bool
-	repFunc := table.CreateResourceRepFuncWithTrap(1, func(err error) {
+	repFunc := table.CreateResourceRepFuncWithTrap(rt, func(err error) {
 		trapCalled = true
 	})
 
@@ -596,88 +635,97 @@ func TestCreateResourceRepFuncWithTrap_ReturnsRepOnSuccess(t *testing.T) {
 	require.Equal(t, uint32(42), rep)
 }
 
-func TestResourceTable_RemoveWithType_Success(t *testing.T) {
-	table := NewResourceTable()
-	rtID := NewResourceTypeID(5)
-	h := table.NewWithType(uint32(100), true, rtID)
+func TestTable_RemoveWithType_Success(t *testing.T) {
+	table := NewTable()
+	rt := &ResourceType{}
+	h, err := table.NewResourceHandle(uint32(100), true, rt)
+	require.NoError(t, err)
 
-	entry, err := table.RemoveWithType(h, rtID)
+	entry, err := table.RemoveWithType(h, rt)
 	require.NoError(t, err)
 	require.Equal(t, uint32(100), entry.Rep.(uint32))
 }
 
-func TestResourceTable_RemoveWithType_TypeMismatch(t *testing.T) {
-	table := NewResourceTable()
-	rtID := NewResourceTypeID(5)
-	wrongID := NewResourceTypeID(6)
-	h := table.NewWithType(uint32(100), true, rtID)
+func TestTable_RemoveWithType_TypeMismatch(t *testing.T) {
+	table := NewTable()
+	rt := &ResourceType{}
+	wrongRT := &ResourceType{}
+	h, err := table.NewResourceHandle(uint32(100), true, rt)
+	require.NoError(t, err)
 
-	_, err := table.RemoveWithType(h, wrongID)
+	_, err = table.RemoveWithType(h, wrongRT)
 	require.ErrorIs(t, err, ErrResourceTypeMismatch)
 
 	// Handle should still be valid (not removed on type error)
-	entry, err := table.Get(h)
+	entry, err := table.GetResourceHandle(h)
 	require.NoError(t, err)
 	require.Equal(t, uint32(100), entry.Rep.(uint32))
 }
 
-func TestResourceTable_GetWithType_Success(t *testing.T) {
-	table := NewResourceTable()
-	rtID := NewResourceTypeID(5)
-	h := table.NewWithType(uint32(100), true, rtID)
+func TestTable_GetWithType_Success(t *testing.T) {
+	table := NewTable()
+	rt := &ResourceType{}
+	h, err := table.NewResourceHandle(uint32(100), true, rt)
+	require.NoError(t, err)
 
-	entry, err := table.GetWithType(h, rtID)
+	entry, err := table.GetWithType(h, rt)
 	require.NoError(t, err)
 	require.Equal(t, uint32(100), entry.Rep.(uint32))
 }
 
-func TestResourceTable_GetWithType_TypeMismatch(t *testing.T) {
-	table := NewResourceTable()
-	rtID := NewResourceTypeID(5)
-	wrongID := NewResourceTypeID(6)
-	h := table.NewWithType(uint32(100), true, rtID)
+func TestTable_GetWithType_TypeMismatch(t *testing.T) {
+	table := NewTable()
+	rt := &ResourceType{}
+	wrongRT := &ResourceType{}
+	h, err := table.NewResourceHandle(uint32(100), true, rt)
+	require.NoError(t, err)
 
-	_, err := table.GetWithType(h, wrongID)
+	_, err = table.GetWithType(h, wrongRT)
 	require.ErrorIs(t, err, ErrResourceTypeMismatch)
 }
 
-func TestResourceTable_GetWithType_InvalidHandle(t *testing.T) {
-	table := NewResourceTable()
+func TestTable_GetWithType_InvalidHandle(t *testing.T) {
+	table := NewTable()
 	invalidH := MakeHandle(999, 0)
+	rt := &ResourceType{}
 
-	_, err := table.GetWithType(invalidH, NewResourceTypeID(1))
+	_, err := table.GetWithType(invalidH, rt)
 	require.ErrorIs(t, err, ErrInvalidHandle)
 }
 
-func TestResourceTable_RepWithType_Success(t *testing.T) {
-	table := NewResourceTable()
-	rtID := NewResourceTypeID(5)
-	h := table.NewWithType(uint32(100), true, rtID)
+func TestTable_RepWithType_Success(t *testing.T) {
+	table := NewTable()
+	rt := &ResourceType{}
+	h, err := table.NewResourceHandle(uint32(100), true, rt)
+	require.NoError(t, err)
 
-	rep, err := table.RepWithType(h, rtID)
+	rep, err := table.RepWithType(h, rt)
 	require.NoError(t, err)
 	require.Equal(t, uint32(100), rep)
 }
 
-func TestResourceTable_RepWithType_TypeMismatch(t *testing.T) {
-	table := NewResourceTable()
-	rtID := NewResourceTypeID(5)
-	wrongID := NewResourceTypeID(6)
-	h := table.NewWithType(uint32(100), true, rtID)
+func TestTable_RepWithType_TypeMismatch(t *testing.T) {
+	table := NewTable()
+	rt := &ResourceType{}
+	wrongRT := &ResourceType{}
+	h, err := table.NewResourceHandle(uint32(100), true, rt)
+	require.NoError(t, err)
 
-	_, err := table.RepWithType(h, wrongID)
+	_, err = table.RepWithType(h, wrongRT)
 	require.ErrorIs(t, err, ErrResourceTypeMismatch)
 }
 
-// TestResourceTable_RemoveBorrow_DecrementsBorrowCount documents the integration
+// TestTable_RemoveBorrow_DecrementsBorrowCount documents the integration
 // pattern for borrow count decrement. The actual decrement happens in calling
 // code (resource.drop), not in Remove itself.
-func TestResourceTable_RemoveBorrow_DecrementsBorrowCount(t *testing.T) {
-	table := NewResourceTable()
+func TestTable_RemoveBorrow_DecrementsBorrowCount(t *testing.T) {
+	table := NewTable()
 	callCtx := NewCallContext()
+	rt := &ResourceType{}
 
 	// Simulate lower_borrow: create borrow handle and increment borrow count
-	h := table.NewWithType(uint32(42), false, NewResourceTypeID(1)) // own=false
+	h, err := table.NewResourceHandle(uint32(42), false, rt) // own=false
+	require.NoError(t, err)
 	callCtx.IncrementBorrows()
 
 	require.Equal(t, 1, callCtx.NumBorrows())
@@ -697,35 +745,39 @@ func TestResourceTable_RemoveBorrow_DecrementsBorrowCount(t *testing.T) {
 
 // Tests for DropOwned - Task 4.3: Destructor Invocation
 
-func TestResourceTable_DropOwned_CallsDestructor(t *testing.T) {
-	table := NewResourceTable()
+func TestTable_DropOwned_CallsDestructor(t *testing.T) {
+	table := NewTable()
 	registry := NewDestructorRegistry()
+	rt := &ResourceType{}
 
 	var destructorCalledWith uint32
-	registry.Register(NewResourceTypeID(1), func(rep uint32) {
+	registry.Register(rt, func(rep uint32) {
 		destructorCalledWith = rep
 	})
 
 	// Create owned handle
-	h := table.NewWithType(uint32(42), true, NewResourceTypeID(1))
+	h, err := table.NewResourceHandle(uint32(42), true, rt)
+	require.NoError(t, err)
 
 	// Drop with destructor invocation
-	err := table.DropOwned(h, NewResourceTypeID(1), registry, 100, 100, nil)
+	err = table.DropOwned(h, rt, registry, 100, 100, nil)
 	require.NoError(t, err)
 
 	// Destructor should have been called with the rep
 	require.Equal(t, uint32(42), destructorCalledWith)
 }
 
-func TestResourceTable_DropOwned_NoDestructor(t *testing.T) {
-	table := NewResourceTable()
+func TestTable_DropOwned_NoDestructor(t *testing.T) {
+	table := NewTable()
 	registry := NewDestructorRegistry()
+	rt := &ResourceType{}
 	// No destructor registered
 
-	h := table.NewWithType(uint32(42), true, NewResourceTypeID(1))
+	h, err := table.NewResourceHandle(uint32(42), true, rt)
+	require.NoError(t, err)
 
 	// Should still succeed without destructor
-	err := table.DropOwned(h, NewResourceTypeID(1), registry, 100, 100, nil)
+	err = table.DropOwned(h, rt, registry, 100, 100, nil)
 	require.NoError(t, err)
 
 	// Handle should be removed
@@ -733,60 +785,67 @@ func TestResourceTable_DropOwned_NoDestructor(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestResourceTable_DropOwned_TypeMismatch(t *testing.T) {
-	table := NewResourceTable()
+func TestTable_DropOwned_TypeMismatch(t *testing.T) {
+	table := NewTable()
 	registry := NewDestructorRegistry()
+	rt1 := &ResourceType{}
+	rt2 := &ResourceType{}
 
-	// Create handle of type 1
-	h := table.NewWithType(uint32(42), true, NewResourceTypeID(1))
+	// Create handle of type rt1
+	h, err := table.NewResourceHandle(uint32(42), true, rt1)
+	require.NoError(t, err)
 
-	// Try to drop as type 2
-	err := table.DropOwned(h, NewResourceTypeID(2), registry, 100, 100, nil)
+	// Try to drop as type rt2
+	err = table.DropOwned(h, rt2, registry, 100, 100, nil)
 	require.ErrorIs(t, err, ErrResourceTypeMismatch)
 
 	// Handle should NOT be removed (error occurred before removal)
-	entry, err := table.Get(h)
+	entry, err := table.GetResourceHandle(h)
 	require.NoError(t, err)
 	require.Equal(t, uint32(42), entry.Rep.(uint32))
 }
 
-func TestResourceTable_DropOwned_CrossInstance(t *testing.T) {
-	table := NewResourceTable()
+func TestTable_DropOwned_CrossInstance(t *testing.T) {
+	table := NewTable()
 	registry := NewDestructorRegistry()
+	rt := &ResourceType{}
 
 	var crossInstanceCallCount int
 	crossInstanceDtor := func(rep uint32, definingInstance uint32) {
 		crossInstanceCallCount++
 	}
 
-	registry.Register(NewResourceTypeID(1), func(rep uint32) {
+	registry.Register(rt, func(rep uint32) {
 		// This is the same-instance destructor, should not be called
 		t.Fatal("same-instance destructor should not be called for cross-instance drop")
 	})
 
-	h := table.NewWithType(uint32(42), true, NewResourceTypeID(1))
+	h, err := table.NewResourceHandle(uint32(42), true, rt)
+	require.NoError(t, err)
 
 	// Drop from instance 200, but type defined in instance 100
-	err := table.DropOwned(h, NewResourceTypeID(1), registry, 200, 100, crossInstanceDtor)
+	err = table.DropOwned(h, rt, registry, 200, 100, crossInstanceDtor)
 	require.NoError(t, err)
 
 	require.Equal(t, 1, crossInstanceCallCount)
 }
 
-func TestResourceTable_DropOwned_BorrowHandle_NoDestructor(t *testing.T) {
-	table := NewResourceTable()
+func TestTable_DropOwned_BorrowHandle_NoDestructor(t *testing.T) {
+	table := NewTable()
 	registry := NewDestructorRegistry()
+	rt := &ResourceType{}
 
 	var destructorCalled bool
-	registry.Register(NewResourceTypeID(1), func(rep uint32) {
+	registry.Register(rt, func(rep uint32) {
 		destructorCalled = true
 	})
 
 	// Create borrow handle (Own=false)
-	h := table.NewWithType(uint32(42), false, NewResourceTypeID(1))
+	h, err := table.NewResourceHandle(uint32(42), false, rt)
+	require.NoError(t, err)
 
 	// Drop borrow handle - should NOT call destructor
-	err := table.DropOwned(h, NewResourceTypeID(1), registry, 100, 100, nil)
+	err = table.DropOwned(h, rt, registry, 100, 100, nil)
 	require.NoError(t, err)
 
 	// Destructor should NOT have been called for borrow handles
@@ -800,38 +859,42 @@ func TestResourceTable_DropOwned_BorrowHandle_NoDestructor(t *testing.T) {
 // Tests for CreateResourceDropFuncWithContext - Task 4.4
 
 func TestCreateResourceDropFuncWithContext_CallsDestructor(t *testing.T) {
-	table := NewResourceTable()
+	table := NewTable()
 	registry := NewDestructorRegistry()
 	callCtx := NewCallContext()
+	rt := &ResourceType{}
 
 	var destructorCalledWith uint32
-	registry.Register(NewResourceTypeID(1), func(rep uint32) {
+	registry.Register(rt, func(rep uint32) {
 		destructorCalledWith = rep
 	})
 
 	// Create the drop function
-	dropFunc := table.CreateResourceDropFuncWithContext(1, registry, 100, 100, callCtx, nil, func(err error) {
+	dropFunc := table.CreateResourceDropFuncWithContext(rt, registry, 100, 100, callCtx, nil, func(err error) {
 		t.Fatalf("unexpected trap: %v", err)
 	})
 
 	// Create and drop an owned handle
-	h := table.NewWithType(uint32(42), true, NewResourceTypeID(1))
+	h, err := table.NewResourceHandle(uint32(42), true, rt)
+	require.NoError(t, err)
 	dropFunc(uint32(h))
 
 	require.Equal(t, uint32(42), destructorCalledWith)
 }
 
 func TestCreateResourceDropFuncWithContext_DecrementsBorrowCount(t *testing.T) {
-	table := NewResourceTable()
+	table := NewTable()
 	registry := NewDestructorRegistry()
 	callCtx := NewCallContext()
+	rt := &ResourceType{}
 
-	dropFunc := table.CreateResourceDropFuncWithContext(1, registry, 100, 100, callCtx, nil, func(err error) {
+	dropFunc := table.CreateResourceDropFuncWithContext(rt, registry, 100, 100, callCtx, nil, func(err error) {
 		t.Fatalf("unexpected trap: %v", err)
 	})
 
 	// Create a borrow handle and increment borrow count
-	h := table.NewWithType(uint32(42), false, NewResourceTypeID(1)) // own=false
+	h, err := table.NewResourceHandle(uint32(42), false, rt) // own=false
+	require.NoError(t, err)
 	callCtx.IncrementBorrows()
 
 	require.Equal(t, 1, callCtx.NumBorrows())
@@ -844,12 +907,13 @@ func TestCreateResourceDropFuncWithContext_DecrementsBorrowCount(t *testing.T) {
 }
 
 func TestCreateResourceDropFuncWithContext_TrapsOnInvalidHandle(t *testing.T) {
-	table := NewResourceTable()
+	table := NewTable()
 	registry := NewDestructorRegistry()
 	callCtx := NewCallContext()
+	rt := &ResourceType{}
 
 	var trappedErr error
-	dropFunc := table.CreateResourceDropFuncWithContext(1, registry, 100, 100, callCtx, nil, func(err error) {
+	dropFunc := table.CreateResourceDropFuncWithContext(rt, registry, 100, 100, callCtx, nil, func(err error) {
 		trappedErr = err
 	})
 
@@ -860,18 +924,21 @@ func TestCreateResourceDropFuncWithContext_TrapsOnInvalidHandle(t *testing.T) {
 }
 
 func TestCreateResourceDropFuncWithContext_TrapsOnTypeMismatch(t *testing.T) {
-	table := NewResourceTable()
+	table := NewTable()
 	registry := NewDestructorRegistry()
 	callCtx := NewCallContext()
+	rt1 := &ResourceType{}
+	rt2 := &ResourceType{}
 
 	var trappedErr error
-	// Create drop function for type 1
-	dropFunc := table.CreateResourceDropFuncWithContext(1, registry, 100, 100, callCtx, nil, func(err error) {
+	// Create drop function for type rt1
+	dropFunc := table.CreateResourceDropFuncWithContext(rt1, registry, 100, 100, callCtx, nil, func(err error) {
 		trappedErr = err
 	})
 
-	// Create handle of type 2
-	h := table.NewWithType(uint32(42), true, NewResourceTypeID(2))
+	// Create handle of type rt2
+	h, err := table.NewResourceHandle(uint32(42), true, rt2)
+	require.NoError(t, err)
 
 	// Try to drop with wrong type
 	dropFunc(uint32(h))
@@ -879,72 +946,77 @@ func TestCreateResourceDropFuncWithContext_TrapsOnTypeMismatch(t *testing.T) {
 	require.ErrorIs(t, trappedErr, ErrResourceTypeMismatch)
 }
 
-func TestResourceTable_NewWithMayLeaveCheck(t *testing.T) {
-	table := NewResourceTable()
-	state := NewInstanceState(1)
+func TestTable_NewWithMayLeaveCheck(t *testing.T) {
+	table := NewTable()
+	inst := NewComponentInstance(1, nil)
+	rt := &ResourceType{}
 
 	// When may_leave is true, New succeeds
-	h, err := table.NewWithMayLeaveCheck(uint32(42), true, NewResourceTypeID(1), state)
+	h, err := table.NewWithMayLeaveCheck(uint32(42), true, rt, inst)
 	require.NoError(t, err)
 	// Verify the handle is valid by retrieving its entry
-	entry, err := table.Get(h)
+	entry, err := table.GetResourceHandle(h)
 	require.NoError(t, err)
 	require.Equal(t, uint32(42), entry.Rep.(uint32))
 
 	// When may_leave is false, New fails
-	state.Enter()
-	_, err = table.NewWithMayLeaveCheck(uint32(43), true, NewResourceTypeID(1), state)
+	inst.Enter()
+	_, err = table.NewWithMayLeaveCheck(uint32(43), true, rt, inst)
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrMayNotLeave)
 }
 
 // Tests for Task 5.4: Reentrance Trap in DropOwned
 
-func TestResourceTable_DropOwned_TrapsOnReentrance(t *testing.T) {
-	table := NewResourceTable()
+func TestTable_DropOwned_TrapsOnReentrance(t *testing.T) {
+	table := NewTable()
 	registry := NewDestructorRegistry()
 	tracker := NewReentranceTracker()
+	rt := &ResourceType{}
 
 	// No destructor registered for this type
 	// (reentrance check only applies when no destructor)
 
-	h := table.NewWithType(uint32(42), true, NewResourceTypeID(1))
+	h, err := table.NewResourceHandle(uint32(42), true, rt)
+	require.NoError(t, err)
 
 	// Instance 100 is currently on the call stack
 	tracker.EnterInstance(100)
 
 	// Dropping a resource defined in instance 100 from instance 200
 	// should trap because of potential reentrance
-	err := table.DropOwnedWithReentranceCheck(
+	err = table.DropOwnedWithReentranceCheck(
 		h,
-		NewResourceTypeID(1),
+		rt,
 		registry,
-		200,  // current instance
-		100,  // defining instance (on call stack!)
+		200, // current instance
+		100, // defining instance (on call stack!)
 		nil,
 		tracker,
 	)
 	require.ErrorIs(t, err, ErrReentrance)
 }
 
-func TestResourceTable_DropOwned_NoReentranceWithDestructor(t *testing.T) {
-	table := NewResourceTable()
+func TestTable_DropOwned_NoReentranceWithDestructor(t *testing.T) {
+	table := NewTable()
 	registry := NewDestructorRegistry()
 	tracker := NewReentranceTracker()
+	rt := &ResourceType{}
 
 	// Register a destructor
-	registry.Register(NewResourceTypeID(1), func(rep uint32) {})
+	registry.Register(rt, func(rep uint32) {})
 
-	h := table.NewWithType(uint32(42), true, NewResourceTypeID(1))
+	h, err := table.NewResourceHandle(uint32(42), true, rt)
+	require.NoError(t, err)
 
 	// Instance 100 is on the call stack
 	tracker.EnterInstance(100)
 
 	// But since there's a destructor, reentrance check is skipped
 	// (the destructor will be called via canon_lift/canon_lower which handles reentrance)
-	err := table.DropOwnedWithReentranceCheck(
+	err = table.DropOwnedWithReentranceCheck(
 		h,
-		NewResourceTypeID(1),
+		rt,
 		registry,
 		200,
 		100,
@@ -954,22 +1026,24 @@ func TestResourceTable_DropOwned_NoReentranceWithDestructor(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestResourceTable_DropOwned_SameInstanceNoReentranceCheck(t *testing.T) {
-	table := NewResourceTable()
+func TestTable_DropOwned_SameInstanceNoReentranceCheck(t *testing.T) {
+	table := NewTable()
 	registry := NewDestructorRegistry()
 	tracker := NewReentranceTracker()
+	rt := &ResourceType{}
 
 	// No destructor registered
 
-	h := table.NewWithType(uint32(42), true, NewResourceTypeID(1))
+	h, err := table.NewResourceHandle(uint32(42), true, rt)
+	require.NoError(t, err)
 
 	// Instance 100 is on the call stack
 	tracker.EnterInstance(100)
 
 	// Same-instance drop (current=100, defining=100) should NOT check reentrance
-	err := table.DropOwnedWithReentranceCheck(
+	err = table.DropOwnedWithReentranceCheck(
 		h,
-		NewResourceTypeID(1),
+		rt,
 		registry,
 		100, // current instance
 		100, // defining instance (same!)
@@ -981,13 +1055,13 @@ func TestResourceTable_DropOwned_SameInstanceNoReentranceCheck(t *testing.T) {
 
 // Tests for Task 5.5: MaxTableLength and ErrTableFull
 
-func TestResourceTable_MaxLength(t *testing.T) {
+func TestTable_MaxLength(t *testing.T) {
 	// This is a documentation/constant test, not a real allocation test
 	// (we don't want to allocate 2^28 entries in a test)
 	require.Equal(t, uint32(1<<28-1), MaxTableLength)
 }
 
-func TestResourceTable_ReturnsErrorOnOverflow(t *testing.T) {
+func TestTable_ReturnsErrorOnOverflow(t *testing.T) {
 	// This tests the error path, not actual overflow
 	// We mock this by checking the error type exists
 	err := ErrTableFull
@@ -995,34 +1069,22 @@ func TestResourceTable_ReturnsErrorOnOverflow(t *testing.T) {
 	require.Contains(t, err.Error(), "table full")
 }
 
-func TestResourceTable_NewWithLimit(t *testing.T) {
-	table := NewResourceTable()
-
-	// Normal creation should work
-	h, err := table.NewWithLimit(uint32(42), true, NewResourceTypeID(1))
-	require.NoError(t, err)
-
-	// Verify the handle is valid
-	entry, err := table.Get(h)
-	require.NoError(t, err)
-	require.Equal(t, uint32(42), entry.Rep.(uint32))
-	require.True(t, entry.Own)
-}
-
 // Phase 5: Resource System Integration Tests
 
-func TestResourceTable_CompleteLifecycle(t *testing.T) {
-	table := NewResourceTable()
+func TestTable_CompleteLifecycle(t *testing.T) {
+	table := NewTable()
+	rt := &ResourceType{}
 
 	var dtorCalls []uint32
 	dtor := func(rep uint32) {
 		dtorCalls = append(dtorCalls, rep)
 	}
 	registry := NewDestructorRegistry()
-	registry.Register(NewResourceTypeID(1), dtor)
+	registry.Register(rt, dtor)
 
 	// Create resource
-	h := table.NewWithType(uint32(100), true, NewResourceTypeID(1))
+	h, err := table.NewResourceHandle(uint32(100), true, rt)
+	require.NoError(t, err)
 	require.Equal(t, uint32(0), h.Index())
 
 	// Get rep
@@ -1034,14 +1096,14 @@ func TestResourceTable_CompleteLifecycle(t *testing.T) {
 	require.NoError(t, table.IncrementLends(h))
 
 	// Cannot drop while borrowed
-	err = table.DropOwned(h, NewResourceTypeID(1), registry, 1, 1, nil)
+	err = table.DropOwned(h, rt, registry, 1, 1, nil)
 	require.ErrorIs(t, err, ErrResourceInUse)
 
 	// Return borrow
 	require.NoError(t, table.DecrementLends(h))
 
 	// Now can drop
-	err = table.DropOwned(h, NewResourceTypeID(1), registry, 1, 1, nil)
+	err = table.DropOwned(h, rt, registry, 1, 1, nil)
 	require.NoError(t, err)
 
 	// Destructor was called
@@ -1052,25 +1114,28 @@ func TestResourceTable_CompleteLifecycle(t *testing.T) {
 	require.ErrorIs(t, err, ErrInvalidHandle)
 }
 
-func TestResourceTable_MultipleResourceTypes(t *testing.T) {
-	table := NewResourceTable()
+func TestTable_MultipleResourceTypes(t *testing.T) {
+	table := NewTable()
 
-	type1 := NewResourceTypeID(1)
-	type2 := NewResourceTypeID(2)
+	type1 := &ResourceType{}
+	type2 := &ResourceType{}
 
 	// Create resources of different types
-	h1 := table.NewWithType(uint32(100), true, type1)
-	h2 := table.NewWithType(uint32(200), true, type2)
-	h3 := table.NewWithType(uint32(300), true, type1)
+	h1, err := table.NewResourceHandle(uint32(100), true, type1)
+	require.NoError(t, err)
+	h2, err := table.NewResourceHandle(uint32(200), true, type2)
+	require.NoError(t, err)
+	h3, err := table.NewResourceHandle(uint32(300), true, type1)
+	require.NoError(t, err)
 
 	// Verify types
-	entry1, _ := table.Get(h1)
-	entry2, _ := table.Get(h2)
-	entry3, _ := table.Get(h3)
+	entry1, _ := table.GetResourceHandle(h1)
+	entry2, _ := table.GetResourceHandle(h2)
+	entry3, _ := table.GetResourceHandle(h3)
 
-	require.Equal(t, type1, entry1.RT)
-	require.Equal(t, type2, entry2.RT)
-	require.Equal(t, type1, entry3.RT)
+	require.True(t, entry1.RT == type1)
+	require.True(t, entry2.RT == type2)
+	require.True(t, entry3.RT == type1)
 
 	// Type validation
 	require.NoError(t, table.ValidateType(h1, type1))
@@ -1078,20 +1143,22 @@ func TestResourceTable_MultipleResourceTypes(t *testing.T) {
 	require.NoError(t, table.ValidateType(h2, type2))
 }
 
-func TestResourceTable_ConcurrentBorrowsMultipleResources(t *testing.T) {
-	table := NewResourceTable()
+func TestTable_ConcurrentBorrowsMultipleResources(t *testing.T) {
+	table := NewTable()
 
 	// Create multiple resources
-	h1 := table.New("res1", true)
-	h2 := table.New("res2", true)
+	h1, err := table.NewResourceHandle("res1", true, nil)
+	require.NoError(t, err)
+	h2, err := table.NewResourceHandle("res2", true, nil)
+	require.NoError(t, err)
 
 	// Borrow both
 	require.NoError(t, table.IncrementLends(h1))
 	require.NoError(t, table.IncrementLends(h2))
 
 	// Check both have active borrows
-	e1, _ := table.Get(h1)
-	e2, _ := table.Get(h2)
+	e1, _ := table.GetResourceHandle(h1)
+	e2, _ := table.GetResourceHandle(h2)
 	require.Equal(t, uint32(1), e1.NumLends)
 	require.Equal(t, uint32(1), e2.NumLends)
 
@@ -1099,7 +1166,7 @@ func TestResourceTable_ConcurrentBorrowsMultipleResources(t *testing.T) {
 	require.NoError(t, table.DecrementLends(h1))
 
 	// h1 can be removed, h2 cannot
-	_, err := table.Remove(h1)
+	_, err = table.Remove(h1)
 	require.NoError(t, err)
 
 	_, err = table.Remove(h2)
@@ -1124,50 +1191,53 @@ func (m *mockDestroyable) Destroy() {
 	m.destroyed = true
 }
 
-func TestResourceTable_DestructorCalled(t *testing.T) {
-	table := NewResourceTable()
+func TestTable_DestructorCalled(t *testing.T) {
+	table := NewTable()
 
 	// Create a destroyable resource as owned
 	resource := &mockDestroyable{}
-	h := table.New(resource, true) // own=true
+	h, err := table.NewResourceHandle(resource, true, nil) // own=true
+	require.NoError(t, err)
 
 	// Verify it's not destroyed yet
 	require.False(t, resource.destroyed, "resource should not be destroyed yet")
 
 	// Delete the resource
-	err := table.Delete(h)
+	err = table.Delete(h)
 	require.NoError(t, err)
 
 	// Verify Destroy() was called
 	require.True(t, resource.destroyed, "resource.Destroy() should have been called")
 }
 
-func TestResourceTable_DestructorNotCalledForBorrow(t *testing.T) {
-	table := NewResourceTable()
+func TestTable_DestructorNotCalledForBorrow(t *testing.T) {
+	table := NewTable()
 
 	// Create a destroyable resource as borrowed (not owned)
 	resource := &mockDestroyable{}
-	h := table.New(resource, false) // own=false (borrow)
+	h, err := table.NewResourceHandle(resource, false, nil) // own=false (borrow)
+	require.NoError(t, err)
 
 	// Verify it's not destroyed yet
 	require.False(t, resource.destroyed, "resource should not be destroyed yet")
 
 	// Delete the resource (as borrow)
-	err := table.Delete(h)
+	err = table.Delete(h)
 	require.NoError(t, err)
 
 	// Verify Destroy() was NOT called for borrows
 	require.False(t, resource.destroyed, "resource.Destroy() should NOT be called for borrowed handles")
 }
 
-func TestResourceTable_DestructorNotCalledForNonDestroyable(t *testing.T) {
-	table := NewResourceTable()
+func TestTable_DestructorNotCalledForNonDestroyable(t *testing.T) {
+	table := NewTable()
 
 	// Create a non-destroyable resource (string)
-	h := table.New("plain-resource", true) // own=true
+	h, err := table.NewResourceHandle("plain-resource", true, nil) // own=true
+	require.NoError(t, err)
 
 	// Delete should work without panicking (no Destroy method)
-	err := table.Delete(h)
+	err = table.Delete(h)
 	require.NoError(t, err)
 
 	// Verify handle is invalid after delete
@@ -1184,18 +1254,19 @@ func (c *countingDestroyable) Destroy() {
 	*c.count++
 }
 
-func TestResourceTable_DestructorIdempotent(t *testing.T) {
-	table := NewResourceTable()
+func TestTable_DestructorIdempotent(t *testing.T) {
+	table := NewTable()
 
 	// Create a destroyable resource that tracks call count
 	callCount := 0
 	cd := &countingDestroyable{count: &callCount}
 
 	// Use a wrapper type that implements Destroyable
-	h := table.New(cd, true)
+	h, err := table.NewResourceHandle(cd, true, nil)
+	require.NoError(t, err)
 
 	// First delete
-	err := table.Delete(h)
+	err = table.Delete(h)
 	require.NoError(t, err)
 
 	// Verify Destroy was called exactly once
@@ -1209,15 +1280,16 @@ func TestResourceTable_DestructorIdempotent(t *testing.T) {
 	require.Equal(t, 1, callCount)
 }
 
-func TestResourceTable_DeleteWithActiveBorrows(t *testing.T) {
-	table := NewResourceTable()
+func TestTable_DeleteWithActiveBorrows(t *testing.T) {
+	table := NewTable()
 
 	// Create owned resource
 	resource := &mockDestroyable{}
-	h := table.New(resource, true)
+	h, err := table.NewResourceHandle(resource, true, nil)
+	require.NoError(t, err)
 
 	// Increment borrow count
-	err := table.IncrementLends(h)
+	err = table.IncrementLends(h)
 	require.NoError(t, err)
 
 	// Delete should fail because resource is in use

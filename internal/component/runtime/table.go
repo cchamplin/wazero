@@ -1,4 +1,4 @@
-// internal/component/runtime/resource_table.go
+// internal/component/runtime/table.go
 
 package runtime
 
@@ -26,7 +26,7 @@ var (
 const MaxTableLength = uint32(1<<28 - 1)
 
 // Destroyable is implemented by resources that need cleanup when deleted.
-// When a resource implementing this interface is deleted from the ResourceTable
+// When a resource implementing this interface is deleted from the Table
 // via Delete(), its Destroy() method will be called automatically if the
 // handle was owned (not borrowed).
 type Destroyable interface {
@@ -48,14 +48,29 @@ func MakeHandle(idx, gen uint32) Handle {
 	return Handle(uint64(gen)<<32 | uint64(idx))
 }
 
-// HandleEntry represents an active resource in the table.
-type HandleEntry struct {
-	RT          ResourceTypeID // Resource type this handle belongs to
-	Rep         any            // The resource representation value
-	Own         bool           // True if this is an owning handle
-	NumLends    uint32         // Number of active borrows from this handle
-	BorrowScope any            // The scope that created this borrow (for borrowed handles)
+// TableEntry is the interface implemented by everything stored in a
+// Table. The dynamic type is checked via type assertion at retrieval.
+//
+// Spec: definitions.py:303-315 (class Table). The unified table holds
+// heterogeneous handle kinds — resources today; subtasks/streams/futures/
+// error-contexts when async lands.
+type TableEntry interface {
+	tableEntry()
 }
+
+// ResourceHandleEntry is the Table entry type for resource handles.
+// Replaces the old HandleEntry{RT ResourceTypeID, ...} struct. RT is
+// now a *ResourceType with pointer identity, fixing the cross-instance
+// type-index collision bug in the deleted ValidateType.
+type ResourceHandleEntry struct {
+	RT          *ResourceType // Resource type this handle belongs to (pointer identity)
+	Rep         any           // The resource representation value
+	Own         bool          // True if this is an owning handle
+	NumLends    uint32        // Number of active borrows from this handle
+	BorrowScope any           // The scope that created this borrow (for borrowed handles)
+}
+
+func (*ResourceHandleEntry) tableEntry() {}
 
 type entryState uint8
 
@@ -64,62 +79,80 @@ const (
 	entryOccupied
 )
 
-type tableEntry struct {
+// tableSlot is a single slot in the Table's entries array. It owns the
+// generation counter, the free-list link, and the type-erased entry
+// payload. The payload is non-nil iff state == entryOccupied.
+type tableSlot struct {
 	state      entryState
 	generation uint32
-	entry      HandleEntry
+	entry      TableEntry
 	nextFree   int32
 }
 
-// ResourceTable manages resource handles with generation counting.
-// Implements the Component Model's handle table semantics.
-type ResourceTable struct {
-	entries  []tableEntry
+// Table manages handles with generation counting. Implements the
+// Component Model's handle table semantics. The unified table holds
+// heterogeneous handle kinds — resource handles today, subtasks /
+// streams / futures / error-contexts when async lands.
+//
+// Spec: definitions.py:303-315 (class Table).
+type Table struct {
+	entries  []tableSlot
 	freeHead int32 // Head of free list, -1 if empty
 }
 
-// NewResourceTable creates an empty resource table.
-func NewResourceTable() *ResourceTable {
-	return &ResourceTable{
+// NewTable creates an empty Table.
+func NewTable() *Table {
+	return &Table{
 		freeHead: -1,
 	}
 }
 
-// New creates a new resource handle and returns it.
-// Note: This creates a handle with an invalid ResourceTypeID.
-// Use NewWithType for type-tracked handles.
-func (t *ResourceTable) New(rep any, own bool) Handle {
-	return t.NewWithType(rep, own, InvalidResourceTypeID())
+// Add inserts an entry into the table and returns its handle. This is
+// the public unified-entry add path; symmetric with Get.
+func (t *Table) Add(entry TableEntry) (Handle, error) {
+	return t.add(entry)
 }
 
-// NewWithType creates a new resource handle with a specific resource type.
-func (t *ResourceTable) NewWithType(rep any, own bool, rtID ResourceTypeID) Handle {
+// add is the internal append helper used by all New* paths. It reuses
+// a free slot if available, otherwise grows the entries slice.
+func (t *Table) add(entry TableEntry) (Handle, error) {
 	var idx uint32
 	var gen uint32
 
 	if t.freeHead >= 0 {
 		// Reuse a free slot
 		idx = uint32(t.freeHead)
-		entry := &t.entries[idx]
-		t.freeHead = entry.nextFree
-		gen = entry.generation + 1
-		entry.state = entryOccupied
-		entry.generation = gen
-		entry.entry = HandleEntry{RT: rtID, Rep: rep, Own: own}
-		entry.nextFree = -1
+		slot := &t.entries[idx]
+		t.freeHead = slot.nextFree
+		gen = slot.generation + 1
+		slot.state = entryOccupied
+		slot.generation = gen
+		slot.entry = entry
+		slot.nextFree = -1
 	} else {
 		// Allocate new slot
+		if uint32(len(t.entries)) >= MaxTableLength {
+			return 0, ErrTableFull
+		}
 		idx = uint32(len(t.entries))
 		gen = 0
-		t.entries = append(t.entries, tableEntry{
+		t.entries = append(t.entries, tableSlot{
 			state:      entryOccupied,
 			generation: gen,
-			entry:      HandleEntry{RT: rtID, Rep: rep, Own: own},
+			entry:      entry,
 			nextFree:   -1,
 		})
 	}
 
-	return MakeHandle(idx, gen)
+	return MakeHandle(idx, gen), nil
+}
+
+// NewResourceHandle inserts a resource handle into the table and returns
+// its index. The RT is a *ResourceType pointer for spec-correct identity
+// comparisons.
+func (t *Table) NewResourceHandle(rep any, own bool, rt *ResourceType) (Handle, error) {
+	entry := &ResourceHandleEntry{RT: rt, Rep: rep, Own: own}
+	return t.add(entry)
 }
 
 // NewWithMayLeaveCheck creates a new resource handle with may_leave validation.
@@ -130,42 +163,51 @@ func (t *ResourceTable) NewWithType(rep any, own bool, rtID ResourceTypeID) Hand
 //	def canon_resource_new(rt, thread, rep):
 //	  trap_if(not thread.task.inst.may_leave)
 //	  ...
-func (t *ResourceTable) NewWithMayLeaveCheck(rep any, own bool, rtID ResourceTypeID, state *InstanceState) (Handle, error) {
-	if state != nil && !state.MayLeave() {
+func (t *Table) NewWithMayLeaveCheck(rep any, own bool, rt *ResourceType, inst *ComponentInstance) (Handle, error) {
+	if inst != nil && !inst.IsMayLeave() {
 		return 0, ErrMayNotLeave
 	}
-	return t.NewWithType(rep, own, rtID), nil
+	return t.NewResourceHandle(rep, own, rt)
 }
 
-// NewWithLimit creates a new resource handle, returning an error if the table is full.
-func (t *ResourceTable) NewWithLimit(rep any, own bool, rtID ResourceTypeID) (Handle, error) {
-	if uint32(len(t.entries)) >= MaxTableLength && t.freeHead < 0 {
-		return 0, ErrTableFull
-	}
-	return t.NewWithType(rep, own, rtID), nil
-}
-
-// Get retrieves the entry for a handle without removing it.
-func (t *ResourceTable) Get(h Handle) (*HandleEntry, error) {
+// Get retrieves the entry for a handle without removing it. The returned
+// TableEntry must be type-asserted to the concrete handle kind (e.g.
+// *ResourceHandleEntry) by the caller.
+func (t *Table) Get(h Handle) (TableEntry, error) {
 	idx := h.Index()
 	if idx >= uint32(len(t.entries)) {
 		return nil, ErrInvalidHandle
 	}
 
-	entry := &t.entries[idx]
-	if entry.generation != h.Generation() {
+	slot := &t.entries[idx]
+	if slot.generation != h.Generation() {
 		return nil, fmt.Errorf("%w: generation mismatch", ErrInvalidHandle)
 	}
-	if entry.state == entryFree {
+	if slot.state == entryFree {
 		return nil, ErrInvalidHandle
 	}
 
-	return &entry.entry, nil
+	return slot.entry, nil
 }
 
-// Remove removes a handle from the table and returns its entry.
-// Used for lift_own to transfer ownership out of the component.
-// Traps if the handle has active borrows (NumLends > 0).
+// GetResourceHandle is a convenience wrapper around Get that asserts the
+// stored entry is a *ResourceHandleEntry. Returns ErrInvalidHandle if
+// the entry is some other handle kind.
+func (t *Table) GetResourceHandle(h Handle) (*ResourceHandleEntry, error) {
+	entry, err := t.Get(h)
+	if err != nil {
+		return nil, err
+	}
+	resEntry, ok := entry.(*ResourceHandleEntry)
+	if !ok {
+		return nil, ErrInvalidHandle
+	}
+	return resEntry, nil
+}
+
+// Remove removes a handle from the table and returns its entry as a
+// *ResourceHandleEntry. Used for lift_own to transfer ownership out of
+// the component. Traps if the handle has active borrows (NumLends > 0).
 //
 // For borrow handles (Own == false), the caller (resource.drop implementation)
 // is responsible for decrementing the borrow count in the call context:
@@ -175,33 +217,35 @@ func (t *ResourceTable) Get(h Handle) (*HandleEntry, error) {
 //	if !entry.Own {
 //	    callCtx.DecrementBorrows()  // Caller must do this!
 //	}
-func (t *ResourceTable) Remove(h Handle) (*HandleEntry, error) {
+func (t *Table) Remove(h Handle) (*ResourceHandleEntry, error) {
 	idx := h.Index()
 	if idx >= uint32(len(t.entries)) {
 		return nil, ErrInvalidHandle
 	}
 
-	entry := &t.entries[idx]
-	if entry.generation != h.Generation() {
+	slot := &t.entries[idx]
+	if slot.generation != h.Generation() {
 		return nil, fmt.Errorf("%w: generation mismatch", ErrInvalidHandle)
 	}
-	if entry.state == entryFree {
+	if slot.state == entryFree {
 		return nil, ErrInvalidHandle
 	}
-	if entry.entry.NumLends > 0 {
+
+	resEntry, ok := slot.entry.(*ResourceHandleEntry)
+	if !ok {
+		return nil, ErrInvalidHandle
+	}
+	if resEntry.NumLends > 0 {
 		return nil, ErrResourceInUse
 	}
 
-	// Copy the entry before clearing
-	result := entry.entry
-
 	// Mark as free and add to free list
-	entry.state = entryFree
-	entry.entry = HandleEntry{}
-	entry.nextFree = t.freeHead
+	slot.state = entryFree
+	slot.entry = nil
+	slot.nextFree = t.freeHead
 	t.freeHead = int32(idx)
 
-	return &result, nil
+	return resEntry, nil
 }
 
 // Delete removes a handle from the table and calls Destroy() if applicable.
@@ -216,7 +260,7 @@ func (t *ResourceTable) Remove(h Handle) (*HandleEntry, error) {
 //   - Does NOT call Destroy() (borrows don't own the resource)
 //
 // Returns ErrResourceInUse if the handle has active borrows (NumLends > 0).
-func (t *ResourceTable) Delete(h Handle) error {
+func (t *Table) Delete(h Handle) error {
 	entry, err := t.Remove(h)
 	if err != nil {
 		return err
@@ -234,52 +278,34 @@ func (t *ResourceTable) Delete(h Handle) error {
 
 // IncrementLends increments the borrow count for a handle.
 // Called during lift_borrow to track active borrows.
-func (t *ResourceTable) IncrementLends(h Handle) error {
-	idx := h.Index()
-	if idx >= uint32(len(t.entries)) {
-		return ErrInvalidHandle
+func (t *Table) IncrementLends(h Handle) error {
+	resEntry, err := t.GetResourceHandle(h)
+	if err != nil {
+		return err
 	}
-
-	entry := &t.entries[idx]
-	if entry.generation != h.Generation() {
-		return fmt.Errorf("%w: generation mismatch", ErrInvalidHandle)
-	}
-	if entry.state == entryFree {
-		return ErrInvalidHandle
-	}
-
-	entry.entry.NumLends++
+	resEntry.NumLends++
 	return nil
 }
 
 // DecrementLends decrements the borrow count for a handle.
 // Called when a borrow scope completes.
-func (t *ResourceTable) DecrementLends(h Handle) error {
-	idx := h.Index()
-	if idx >= uint32(len(t.entries)) {
-		return ErrInvalidHandle
+func (t *Table) DecrementLends(h Handle) error {
+	resEntry, err := t.GetResourceHandle(h)
+	if err != nil {
+		return err
 	}
-
-	entry := &t.entries[idx]
-	if entry.generation != h.Generation() {
-		return fmt.Errorf("%w: generation mismatch", ErrInvalidHandle)
-	}
-	if entry.state == entryFree {
-		return ErrInvalidHandle
-	}
-	if entry.entry.NumLends == 0 {
+	if resEntry.NumLends == 0 {
 		return ErrNoBorrowsToDecrement
 	}
-
-	entry.entry.NumLends--
+	resEntry.NumLends--
 	return nil
 }
 
 // Rep returns the representation value for a handle.
 // This is the underlying uint32 value that identifies the resource.
 // Returns an error if the handle is invalid.
-func (t *ResourceTable) Rep(h Handle) (uint32, error) {
-	entry, err := t.Get(h)
+func (t *Table) Rep(h Handle) (uint32, error) {
+	entry, err := t.GetResourceHandle(h)
 	if err != nil {
 		return 0, err
 	}
@@ -295,24 +321,17 @@ func (t *ResourceTable) Rep(h Handle) (uint32, error) {
 	}
 }
 
-// CreateResourceNewFunc creates a core function for resource.new
-// that can be called from core modules to create new resource handles.
-// The returned function accepts a rep (representation) value and returns
-// a handle index that can be used to access the resource.
-func (t *ResourceTable) CreateResourceNewFunc(resourceTypeIdx uint32) func(rep uint32) uint32 {
+// CreateResourceNewFunc creates a core function for resource.new that
+// can be called from core modules to create new resource handles of
+// the given nominal *ResourceType. The returned function accepts a rep
+// (representation) value and returns a handle index that can be used to
+// access the resource.
+func (t *Table) CreateResourceNewFunc(rt *ResourceType) func(rep uint32) uint32 {
 	return func(rep uint32) uint32 {
-		handle := t.New(rep, true) // own=true for newly created resources
-		return uint32(handle)
-	}
-}
-
-// CreateResourceNewFuncWithType creates a core function for resource.new
-// that stores the resource type ID with each created handle.
-// The resourceTypeIdx is the index from the component's type section.
-func (t *ResourceTable) CreateResourceNewFuncWithType(resourceTypeIdx uint32) func(rep uint32) uint32 {
-	rtID := NewResourceTypeID(resourceTypeIdx)
-	return func(rep uint32) uint32 {
-		handle := t.NewWithType(rep, true, rtID)
+		handle, err := t.NewResourceHandle(rep, true, rt) // own=true for newly created resources
+		if err != nil {
+			return 0
+		}
 		return uint32(handle)
 	}
 }
@@ -320,9 +339,16 @@ func (t *ResourceTable) CreateResourceNewFuncWithType(resourceTypeIdx uint32) fu
 // CreateResourceDropFunc creates a core function for resource.drop
 // that can be called from core modules to drop resource handles.
 // The destructor is called when the resource is dropped (if provided).
-func (t *ResourceTable) CreateResourceDropFunc(resourceTypeIdx uint32, destructor func(rep uint32)) func(handle uint32) {
+func (t *Table) CreateResourceDropFunc(rt *ResourceType, destructor func(rep uint32)) func(handle uint32) {
 	return func(handle uint32) {
-		entry, err := t.Remove(Handle(handle))
+		h := Handle(handle)
+		// Validate type before removal (spec: trap_if(h.rt is not rt))
+		if rt != nil {
+			if err := t.ValidateType(h, rt); err != nil {
+				return // Silently ignore invalid handles per spec
+			}
+		}
+		entry, err := t.Remove(h)
 		if err != nil {
 			return // Silently ignore invalid handles per spec
 		}
@@ -341,9 +367,15 @@ func (t *ResourceTable) CreateResourceDropFunc(resourceTypeIdx uint32, destructo
 // CreateResourceRepFunc creates a core function for resource.rep
 // that can be called from core modules to get the representation
 // value of a resource handle.
-func (t *ResourceTable) CreateResourceRepFunc(resourceTypeIdx uint32) func(handle uint32) uint32 {
+func (t *Table) CreateResourceRepFunc(rt *ResourceType) func(handle uint32) uint32 {
 	return func(handle uint32) uint32 {
-		rep, err := t.Rep(Handle(handle))
+		h := Handle(handle)
+		if rt != nil {
+			if err := t.ValidateType(h, rt); err != nil {
+				return 0
+			}
+		}
+		rep, err := t.Rep(h)
 		if err != nil {
 			return 0 // Return 0 for invalid handles
 		}
@@ -354,14 +386,13 @@ func (t *ResourceTable) CreateResourceRepFunc(resourceTypeIdx uint32) func(handl
 // CreateResourceRepFuncWithTrap creates a core function for resource.rep
 // that calls the trap handler on errors instead of returning 0.
 // This is the spec-compliant version that properly validates types.
-func (t *ResourceTable) CreateResourceRepFuncWithTrap(resourceTypeIdx uint32, trap TrapHandler) func(handle uint32) uint32 {
-	expectedRT := NewResourceTypeID(resourceTypeIdx)
+func (t *Table) CreateResourceRepFuncWithTrap(rt *ResourceType, trap TrapHandler) func(handle uint32) uint32 {
 	return func(handle uint32) uint32 {
 		h := Handle(handle)
 
 		// Validate type (spec: trap_if(h.rt is not rt))
-		if expectedRT.IsValid() {
-			if err := t.ValidateType(h, expectedRT); err != nil {
+		if rt != nil {
+			if err := t.ValidateType(h, rt); err != nil {
 				trap(err)
 				return 0
 			}
@@ -377,46 +408,61 @@ func (t *ResourceTable) CreateResourceRepFuncWithTrap(resourceTypeIdx uint32, tr
 	}
 }
 
-// GetType returns the ResourceTypeID for a handle.
-func (t *ResourceTable) GetType(h Handle) (ResourceTypeID, error) {
+// GetResourceType returns the nominal type of the resource handle h.
+// Returns an error if h is not a resource handle.
+func (t *Table) GetResourceType(h Handle) (*ResourceType, error) {
 	entry, err := t.Get(h)
 	if err != nil {
-		return InvalidResourceTypeID(), err
+		return nil, err
 	}
-	return entry.RT, nil
+	resEntry, ok := entry.(*ResourceHandleEntry)
+	if !ok {
+		return nil, ErrInvalidHandle
+	}
+	return resEntry.RT, nil
 }
 
-// ValidateType checks that a handle has the expected resource type.
-// Returns ErrResourceTypeMismatch if types don't match.
-func (t *ResourceTable) ValidateType(h Handle, expected ResourceTypeID) error {
-	actual, err := t.GetType(h)
+// ValidateType verifies that the handle h refers to a resource entry
+// whose runtime type is the same nominal type as expected. Comparison
+// is POINTER equality on *ResourceType — the spec's `is` check at
+// definitions.py:1345.
+//
+// Bug fix: the old ValidateType compared only ResourceTypeID, ignoring
+// instance identity. This silently accepted cross-instance handles
+// when both happened to share a type-section index.
+func (t *Table) ValidateType(h Handle, expected *ResourceType) error {
+	entry, err := t.Get(h)
 	if err != nil {
 		return err
 	}
-	if actual != expected {
-		return fmt.Errorf("%w: expected type %d, got %d", ErrResourceTypeMismatch, expected.Index(), actual.Index())
+	resEntry, ok := entry.(*ResourceHandleEntry)
+	if !ok {
+		return ErrInvalidHandle
+	}
+	if resEntry.RT != expected {
+		return fmt.Errorf("%w: wrong resource type", ErrResourceTypeMismatch)
 	}
 	return nil
 }
 
 // GetWithType retrieves an entry after validating its type.
 // Returns ErrResourceTypeMismatch if types don't match.
-func (t *ResourceTable) GetWithType(h Handle, expectedRT ResourceTypeID) (*HandleEntry, error) {
-	entry, err := t.Get(h)
+func (t *Table) GetWithType(h Handle, expectedRT *ResourceType) (*ResourceHandleEntry, error) {
+	resEntry, err := t.GetResourceHandle(h)
 	if err != nil {
 		return nil, err
 	}
 
-	if expectedRT.IsValid() && entry.RT != expectedRT {
-		return nil, fmt.Errorf("%w: expected type %d, got %d", ErrResourceTypeMismatch, expectedRT.Index(), entry.RT.Index())
+	if expectedRT != nil && resEntry.RT != expectedRT {
+		return nil, fmt.Errorf("%w: wrong resource type", ErrResourceTypeMismatch)
 	}
 
-	return entry, nil
+	return resEntry, nil
 }
 
 // RepWithType returns the representation value after validating the handle's type.
 // Returns ErrResourceTypeMismatch if types don't match.
-func (t *ResourceTable) RepWithType(h Handle, expectedRT ResourceTypeID) (uint32, error) {
+func (t *Table) RepWithType(h Handle, expectedRT *ResourceType) (uint32, error) {
 	entry, err := t.GetWithType(h, expectedRT)
 	if err != nil {
 		return 0, err
@@ -435,9 +481,9 @@ func (t *ResourceTable) RepWithType(h Handle, expectedRT ResourceTypeID) (uint32
 // RemoveWithType removes a handle from the table after validating its type.
 // Returns ErrResourceTypeMismatch if types don't match.
 // The handle is NOT removed if type validation fails.
-func (t *ResourceTable) RemoveWithType(h Handle, expectedRT ResourceTypeID) (*HandleEntry, error) {
+func (t *Table) RemoveWithType(h Handle, expectedRT *ResourceType) (*ResourceHandleEntry, error) {
 	// Validate type first (before removal)
-	if expectedRT.IsValid() {
+	if expectedRT != nil {
 		if err := t.ValidateType(h, expectedRT); err != nil {
 			return nil, err
 		}
@@ -453,14 +499,13 @@ type TrapHandler func(err error)
 // CreateResourceDropFuncWithTrap creates a core function for resource.drop
 // that calls the trap handler on errors instead of silently ignoring them.
 // This is the spec-compliant version that properly validates types.
-func (t *ResourceTable) CreateResourceDropFuncWithTrap(resourceTypeIdx uint32, destructor func(rep uint32), trap TrapHandler) func(handle uint32) {
-	expectedRT := NewResourceTypeID(resourceTypeIdx)
+func (t *Table) CreateResourceDropFuncWithTrap(rt *ResourceType, destructor func(rep uint32), trap TrapHandler) func(handle uint32) {
 	return func(handle uint32) {
 		h := Handle(handle)
 
 		// Validate type before removal (spec: trap_if(h.rt is not rt))
-		if expectedRT.IsValid() {
-			if err := t.ValidateType(h, expectedRT); err != nil {
+		if rt != nil {
+			if err := t.ValidateType(h, rt); err != nil {
 				trap(err)
 				return
 			}
@@ -495,20 +540,20 @@ type CrossInstanceDestructor func(rep uint32, definingInstanceID uint32)
 // that handles destructor invocation, borrow count tracking, and type validation.
 //
 // This is the spec-compliant implementation that:
-//   - Validates the handle type matches expectedRT
+//   - Validates the handle type matches rt (pointer identity)
 //   - For owned handles: uses DropOwned for destructor handling
 //   - For borrowed handles: removes and decrements borrow count in callCtx
 //
 // Parameters:
-//   - resourceTypeIdx: the resource type index from the component's type section
+//   - rt: the nominal *ResourceType to validate the handle against
 //   - dtorRegistry: registry to look up same-instance destructors
 //   - currentInstanceID: the instance performing the drop
 //   - definingInstanceID: the instance that defined the resource type
 //   - callCtx: the call context for borrow tracking (may be nil if no borrow tracking needed)
 //   - crossInstanceDtor: callback for cross-instance destructor invocation
 //   - trap: handler called when an error occurs
-func (t *ResourceTable) CreateResourceDropFuncWithContext(
-	resourceTypeIdx uint32,
+func (t *Table) CreateResourceDropFuncWithContext(
+	rt *ResourceType,
 	dtorRegistry *DestructorRegistry,
 	currentInstanceID uint32,
 	definingInstanceID uint32,
@@ -516,13 +561,11 @@ func (t *ResourceTable) CreateResourceDropFuncWithContext(
 	crossInstanceDtor CrossInstanceDestructor,
 	trap TrapHandler,
 ) func(handle uint32) {
-	expectedRT := NewResourceTypeID(resourceTypeIdx)
-
 	return func(handle uint32) {
 		h := Handle(handle)
 
 		// Get entry first to check if it's a borrow
-		entry, err := t.GetWithType(h, expectedRT)
+		entry, err := t.GetWithType(h, rt)
 		if err != nil {
 			trap(err)
 			return
@@ -530,7 +573,7 @@ func (t *ResourceTable) CreateResourceDropFuncWithContext(
 
 		if entry.Own {
 			// Owned handle: use DropOwned for destructor handling
-			err = t.DropOwned(h, expectedRT, dtorRegistry, currentInstanceID, definingInstanceID, crossInstanceDtor)
+			err = t.DropOwned(h, rt, dtorRegistry, currentInstanceID, definingInstanceID, crossInstanceDtor)
 			if err != nil {
 				trap(err)
 			}
@@ -554,7 +597,7 @@ func (t *ResourceTable) CreateResourceDropFuncWithContext(
 //
 // Parameters:
 //   - h: the handle to drop
-//   - expectedRT: the expected resource type (for validation)
+//   - expectedRT: the expected nominal *ResourceType (for validation)
 //   - dtorRegistry: registry to look up same-instance destructors
 //   - currentInstanceID: the instance performing the drop
 //   - definingInstanceID: the instance that defined the resource type
@@ -567,16 +610,16 @@ func (t *ResourceTable) CreateResourceDropFuncWithContext(
 //	    if rt.dtor: rt.dtor(h.rep)
 //	  else:
 //	    if rt.dtor: [route through canon_lift/canon_lower]
-func (t *ResourceTable) DropOwned(
+func (t *Table) DropOwned(
 	h Handle,
-	expectedRT ResourceTypeID,
+	expectedRT *ResourceType,
 	dtorRegistry *DestructorRegistry,
 	currentInstanceID uint32,
 	definingInstanceID uint32,
 	crossInstanceDtor CrossInstanceDestructor,
 ) error {
 	// Validate type first
-	if expectedRT.IsValid() {
+	if expectedRT != nil {
 		if err := t.ValidateType(h, expectedRT); err != nil {
 			return err
 		}
@@ -630,9 +673,9 @@ func (t *ResourceTable) DropOwned(
 //	  trap_if(call_might_be_recursive(thread.task, rt.impl))
 //
 // The reentrance check only applies when there's no destructor.
-func (t *ResourceTable) DropOwnedWithReentranceCheck(
+func (t *Table) DropOwnedWithReentranceCheck(
 	h Handle,
-	expectedRT ResourceTypeID,
+	expectedRT *ResourceType,
 	dtorRegistry *DestructorRegistry,
 	currentInstanceID uint32,
 	definingInstanceID uint32,
@@ -640,7 +683,7 @@ func (t *ResourceTable) DropOwnedWithReentranceCheck(
 	tracker *ReentranceTracker,
 ) error {
 	// Validate type first
-	if expectedRT.IsValid() {
+	if expectedRT != nil {
 		if err := t.ValidateType(h, expectedRT); err != nil {
 			return err
 		}
