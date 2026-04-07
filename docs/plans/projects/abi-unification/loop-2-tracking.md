@@ -2,13 +2,18 @@
 
 > **Status:** blocked on Loop 1
 >
-> **Goal:** Production runtime calls `abi.CanonLift`/`abi.CanonLower` for
-> every lift/lower operation. The three parallel implementations are
-> deleted along with their tests. The 67 silent-default sites in wasip2
-> sockets/http trap or return `result.err(...)` correctly. After this
-> loop, `internal/component/{instance.go,component_linker.go,canon_lower.go,
-> linker.go}` contain only orchestration; lift/lower live exclusively in
-> `abi/`.
+> **Goal:** Production runtime calls `abi.LiftValues`/`abi.LowerValues`
+> (Loop 1 item 25) for every lift/lower operation. The three parallel
+> implementations are deleted along with their tests. The ~85 silent-
+> default sites in wasip2 sockets/http trap or return
+> `result.err(...)` correctly. After this loop,
+> `internal/component/{instance.go,component_linker.go,canon_lower.go,
+> linker.go}` contain only ORCHESTRATION (subtask, borrow scope,
+> may_leave, post_return, reentrance, enter_call/exit_call); the
+> lift/lower MATH lives exclusively in `abi/`. This matches wasmtime's
+> three-layer separation: `vm/component/resources.rs` (low-level state)
+> + `runtime/component/values.rs` (Val + lift/lower math, no lifecycle)
+> + `runtime/component/func.rs` (orchestration wrapper).
 >
 > **Total items:** 16 across 6 phases
 >
@@ -50,13 +55,56 @@ each replace one or more of these call sites) and item 12 (which uses
 the test-file list to know which tests must be deleted along with their
 subjects).
 
-The map must be a Markdown table with one row per call site:
+**Pre-verified function list (all line numbers verified by Grep):**
+
+| File | Line | Function | Operation |
+|---|---|---|---|
+| component_linker.go | 2430 | `(l *ComponentLinker) createCanonLowerFunc` | host import lower closure |
+| component_linker.go | 2547 | `liftFromStack` | core stack → Val for record/option/variant |
+| component_linker.go | 2681 | `liftRecordFromStack` | recursive helper |
+| component_linker.go | 2694 | `liftOptionFromStack` | recursive helper |
+| component_linker.go | 2709 | `liftVariantFromStack` | recursive helper |
+| component_linker.go | 2726 | `liftValFromMemory` | heap lift helper |
+| component_linker.go | 2797 | `liftRecordFromMemory` | recursive heap helper |
+| component_linker.go | 2815 | `liftOptionFromMemory` | recursive heap helper |
+| component_linker.go | 2991 | `liftListFromMemory` | recursive heap helper |
+| component_linker.go | 3020 | `flatSlotCount` | layout helper |
+| component_linker.go | 3074 | `lowerToStack` | Val → core stack for non-retptr results |
+| component_linker.go | 3157 | `writeResultsToMemory` | retptr result writer (recursive) |
+| component_linker.go | 3369 | `writeRecordToMemory` | recursive heap writer |
+| component_linker.go | 3387 | `writeValToMemory` | recursive heap writer |
+| component_linker.go | 3625-3797 | `flattenValType`, `flattenRecordType`, `flattenTupleType`, `flattenOptionType`, `flattenResultType`, `flattenFlagsType`, `flattenVariantType`, `valueTypeWidth`, `isWiderValueType`, `componentTypeToCoreTypes` | flatten family |
+| canon_lower.go | LoweredFunc.CallWithStack | dead host import path |
+| canon_lower.go | various | private helpers (already deleted in Loop 1 item 9.5) |
+| instance.go | 305-322 | retptr-as-PARAM detection block in ExportedFunc.Call |
+| instance.go | 335-338 | retptr-as-RESULT synthesis (separate from 305-322 — DO NOT delete in Loop 2; this is part of the orchestration that stays) |
+| instance.go | 442 | `f.liftResolvedType(typeRef, ...)` call site in ExportedFunc.Call |
+| instance.go | 501 | `rec := f.liftRecord(...)` call site in legacy fallback |
+| instance.go | 757 | `liftRecord` (alphabetical sort at 765) |
+| instance.go | 794 | `liftResolvedType` |
+
+**Pre-verified test files that test the deleted functions** (item 12
+will delete these along with their subjects):
+
+| Test file | Tests |
+|---|---|
+| instance_test.go | `TestLiftResolvedType_RecordRetptr` (2149), `TestLiftResolvedType_RecordFlat` (2177), `TestLiftResolvedType_LargeRecordRetptr` (2198), and any `TestLiftRecord*` |
+| component_linker_test.go | every test referencing `liftFromStack`, `lowerToStack`, `writeResultsToMemory`, `writeValToMemory`, `writeRecordToMemory`, `flattenVariantType`, `componentTypeToCoreTypes` |
+| canon_lower_test.go | already deleted in Loop 1 item 9.5 |
+| resource_table_test.go | `TestResourceTable_CreateResourceDropFunc`, `TestResourceTable_CreateResourceDropFunc_InvalidHandle`, `TestResourceTable_CreateResourceDropFunc_NilDestructor`, `TestResourceTable_CreateResourceRepFunc`, `TestResourceTable_CreateResourceRepFunc_InvalidHandle` |
+| wasip2test/kv_store_test.go | line 208 calls `CreateResourceDropFunc` (silent variant) — must be migrated, not deleted |
+
+This item's role is to **verify the above tables match current source**
+(line numbers shift as commits land) and produce a final
+`loop-2-call-site-map.md` that items 2-12 consume.
+
+The map format is:
 
 ```markdown
 | File | Line | Function | Operation | To be replaced by |
 |---|---|---|---|---|
-| component_linker.go | 2547 | liftFromStack | lift core stack values to Val | abi.CanonLift |
-| component_linker.go | 3157 | createCanonLowerFunc body | host import lower | abi.CanonLower |
+| component_linker.go | 2430 | createCanonLowerFunc body | host import lower | abi.LiftValues + abi.LowerValues |
+| component_linker.go | 2547 | liftFromStack | lift core stack | abi.LiftValues |
 | ... |
 ```
 
@@ -96,58 +144,104 @@ that will be deleted:
 
 ## Phase 2.B — Wire host-import path (3 items)
 
-### Item 2: Replace `LoweredFunc.CallWithStack` body with thin shim to abi.CanonLift/CanonLower
+### Item 2: Rewrite `LoweredFunc.CallWithStack` body as a lifecycle wrapper around abi.LiftValues / abi.LowerValues
 
 - **status:** pending
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
 - **commit:** -
-- **notes:** Depends on Loop 1 items 25-26 (canon_lift/canon_lower entry points)
+- **notes:** Depends on Loop 1 items 9.5 (canon_lower.go cleanup), 9.7 (package boundary), 24 (Own/Borrow dispatch), 25 (LiftValues/LowerValues). The body becomes a may_leave-aware lifecycle wrapper, not a one-line shim.
 
 **Files:**
-- Modify: `internal/component/canon_lower.go` — replace
-  `LoweredFunc.CallWithStack` body
+- Modify: `internal/component/canon_lower.go` — replace the body of
+  `(f *LoweredFunc) CallWithStack(ctx context.Context, stack []uint64) ([]uint64, error)`
+  (note the actual signature returns `([]uint64, error)`, not `error`)
 - Modify: `internal/component/canon_lower_test.go` — adjust tests to
   exercise the new shim path; delete tests that asserted intermediate
   helpers' behavior
-- Delete: any private helper functions in `canon_lower.go` that have no
-  callers after the body replacement
 
 **Spec authorities:**
-- `definitions.py:3453` `canon_lower` definition
-- `definitions.py:3237` `canon_lift` definition (used for the host's
-  return values)
-- `crates/wasmtime/src/runtime/component/func/typed.rs` `Lower::lower`
-  trait — wasmtime's equivalent dispatch shape
+- `definitions.py:1978-2063` — `canon_lift` (for the host's
+  return-value lifting)
+- `definitions.py:2064-...` — `canon_lower` (for the host's
+  parameter lowering)
+- `crates/wasmtime/src/runtime/component/func/host.rs` — wasmtime's
+  host import wrapper (`HostFn::cabi_entrypoint`, `call_sync_lower`,
+  `lower_result_and_exit_call`). This is the architectural model.
 
 **Description:**
-`LoweredFunc.CallWithStack` is one of the three production lift/lower
-paths. It currently contains per-type case logic for converting host
-return values into the wasm core stack. Replace the entire body with:
+`LoweredFunc.CallWithStack` is the dead host-import path. The
+existing body has per-type case logic for lift/lower. The new body is
+a **lifecycle wrapper** around `abi.LiftValues` (for params) and
+`abi.LowerValues` (for results), matching wasmtime's
+`call_sync_lower` shape.
 
 ```go
-func (l *LoweredFunc) CallWithStack(ctx context.Context, mod api.Module, stack []uint64) error {
-    // Lift the wasm-side parameters into host Vals
-    args, err := abi.CanonLift(l.options, l.funcType, stack, l.callee)
-    if err != nil {
-        return err
+// LoweredFunc.CallWithStack matches the actual current signature:
+//   (f *LoweredFunc) CallWithStack(ctx context.Context, stack []uint64) ([]uint64, error)
+//
+// This is the host-import side of the canonical ABI: a guest is
+// invoking a host function. The wasm core stack contains the params
+// (already in flat form). We lift them, call the host, then lower
+// the host's results back.
+func (f *LoweredFunc) CallWithStack(ctx context.Context, stack []uint64) ([]uint64, error) {
+    // Lifecycle: check may_leave (the spec requires that host imports
+    // may not be invoked while the guest is in post-return etc.).
+    // This is the wasmtime func/host.rs:292 may_leave check.
+    if !f.callerInstance.MayLeave() {
+        return nil, fmt.Errorf("cannot leave component during post-return")
     }
 
-    // Invoke the host function
-    results, err := l.host(ctx, mod, args)
+    // Build the LiftContext (memory, options, resource tables — no
+    // lifecycle).
+    lcx := abi.NewLiftContext(f.memory, f.options, f.resourceTable)
+
+    // Push a borrow scope before lifting params (wasmtime
+    // host.rs:464). The scope ensures borrows are tracked across
+    // the host call.
+    lcx.EnterCall()
+
+    // Lift params via the pure-math entry point (Loop 1 item 25).
+    args, err := abi.LiftValues(lcx, abi.MaxFlatParams, stack, f.funcType.Params)
     if err != nil {
-        return err
+        lcx.ExitCall()
+        return nil, err
     }
 
-    // Lower the host results back into the wasm core stack
-    return abi.CanonLower(l.options, l.funcType, results, stack)
+    // Toggle may_leave to false while invoking the host (the host can
+    // call back into the runtime, but not into the same guest
+    // instance — wasmtime func.rs:957).
+    f.callerInstance.SetMayLeave(false)
+    results, err := f.host(ctx, args)
+    f.callerInstance.SetMayLeave(true)
+    if err != nil {
+        lcx.ExitCall()
+        return nil, err
+    }
+
+    // Lower the host's results into the result-side of the stack.
+    lwx := abi.NewLowerContext(f.memory, f.options, f.realloc, f.resourceTable)
+    outStack, err := abi.LowerValues(lwx, abi.MaxFlatResults, results, f.funcType.Results, nil)
+    if err != nil {
+        lcx.ExitCall()
+        return nil, err
+    }
+
+    // Pop the borrow scope (wasmtime host.rs:505 lower.exit_call()).
+    if err := lcx.ExitCall(); err != nil {
+        return nil, err
+    }
+    return outStack, nil
 }
 ```
 
-(Exact signature: read the actual `LoweredFunc` struct in the current
-file to get the field names right. Read `abi.CanonLift` and
-`abi.CanonLower` signatures from Loop 1 items 25-26.)
+(The exact field names on `LoweredFunc` — `callerInstance`, `memory`,
+`options`, `realloc`, `resourceTable`, `host`, `funcType` — must be
+read from the actual struct before writing. The body above is the
+shape; the field accesses are illustrative. The lifecycle methods
+`MayLeave`/`SetMayLeave`/`EnterCall`/`ExitCall` must exist on the
+relevant types post-item-9.7. If they don't, escalate.)
 
 After the replacement, every helper function in `canon_lower.go` that
 was only called by the old body has zero callers. Delete each of them in
@@ -179,42 +273,107 @@ tested there. Delete those tests.
 
 ---
 
-### Item 3: Replace `createCanonLowerFunc` body with thin shim to abi.CanonLower
+### Item 3: Rewrite `createCanonLowerFunc` body as a lifecycle wrapper
 
 - **status:** pending
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
 - **commit:** -
-- **notes:** Depends on item 2 (same shim pattern)
+- **notes:** Depends on item 2 (same wrapper pattern). createCanonLowerFunc is at component_linker.go:2430 (verified, NOT 3157). Same lifecycle responsibilities as item 2.
 
 **Files:**
-- Modify: `internal/component/component_linker.go` — replace
-  `createCanonLowerFunc` body (currently around line 3157; verify with
-  `Grep` since line numbers shift)
+- Modify: `internal/component/component_linker.go` — replace the body
+  of `(l *ComponentLinker) createCanonLowerFunc(...)` at line 2430
+  (verified)
 - Modify: `internal/component/component_linker_test.go` — adjust tests;
   delete tests of intermediate helpers
-- Delete: any private helper functions only used by the old body
+- Delete: the inner helpers `liftFromStack` (2547),
+  `liftRecordFromStack` (2681), `liftOptionFromStack` (2694),
+  `liftVariantFromStack` (2709), `liftValFromMemory` (2726),
+  `liftRecordFromMemory` (2797), `liftOptionFromMemory` (2815),
+  `liftListFromMemory` (2991), `flatSlotCount` (3020), `lowerToStack`
+  (3074) — all become orphans after the body rewrite (verified by
+  the Loop 1 audit)
 
 **Spec authorities:**
-- `definitions.py:3453` `canon_lower`
-- `definitions.py:3132` `lower_flat_values`
+- `definitions.py:1978-2063` — `canon_lift` (verified)
+- `definitions.py:2064` — `canon_lower` (verified)
+- `definitions.py:1943` — `lift_flat_values`
+- `definitions.py:1954` — `lower_flat_values`
+- `crates/wasmtime/src/runtime/component/func/host.rs::HostFn::call_sync_lower`
+  — wasmtime's host import wrapper
 
 **Description:**
-`createCanonLowerFunc` builds a closure that performs canon-lowering for
-host imports inside inline component instances. Replace the closure body
-with a single call to `abi.CanonLower`. The closure's captured variables
-(options, function type, host callable) become parameters to the
-`abi.CanonLower` call.
+`createCanonLowerFunc` (component_linker.go:2430) builds a closure
+that performs canon-lowering for host imports inside inline component
+instances. The closure's body currently:
+1. Resolves memory from canonical options + memory index (lines 2442-2465)
+2. Resolves realloc from canonical options + func index (lines 2466-2480)
+3. Reads retptr from end of stack if `needsRetptr` (lines 2487-2492)
+4. Lifts core args via `liftFromStack` (line 2502)
+5. Calls host with panic on error (lines 2509-2519)
+6. If `needsRetptr`: writes results via `writeResultsToMemory` (2522-2529)
+7. Else: writes results via `lowerToStack` for each result (2532-2541)
 
-After the replacement, the helper functions referenced in
-`loop-2-call-site-map.md` for this code path lose their callers. Delete
-each that has zero references repo-wide (use `Grep`). This may include:
-- Inner functions building the per-type lowering case logic
-- Helpers for retptr handling that duplicated abi/ behavior
+The new body does the same orchestration but delegates the lift/lower
+math to `abi.LiftValues`/`abi.LowerValues` (Loop 1 item 25):
 
-Test files that asserted intermediate behavior get the same treatment
-as item 2: migrate or delete.
+```go
+func (l *ComponentLinker) createCanonLowerFunc(
+    ctx context.Context, inst *ComponentInstance, c *CanonicalOptions,
+    info *FuncInfo, compFunc *NamedValType, needsRetptr bool,
+) GoFunc {
+    return func(ctx context.Context, stack []uint64) ([]uint64, error) {
+        // Resolve memory and realloc as before (steps 1-2 above stay)
+        memory := /* lookup via c.MemoryIdx */
+        realloc := /* lookup via c.ReallocIdx */
+
+        // Lifecycle: may_leave check (wasmtime host.rs:292)
+        if !inst.MayLeave() {
+            return nil, fmt.Errorf("cannot leave component during post-return")
+        }
+
+        // Build contexts and push borrow scope
+        lcx := abi.NewLiftContext(memory, c, inst.ResourceTable())
+        lwx := abi.NewLowerContext(memory, c, realloc, inst.ResourceTable())
+        lcx.EnterCall()
+
+        // Lift params via abi (replaces liftFromStack and family)
+        args, err := abi.LiftValues(lcx, abi.MaxFlatParams, stack, compFunc.FuncType.Params)
+        if err != nil {
+            lcx.ExitCall()
+            return nil, err
+        }
+
+        // Invoke host with may_leave toggle
+        inst.SetMayLeave(false)
+        results, err := info.HostCallable(ctx, args)
+        inst.SetMayLeave(true)
+        if err != nil {
+            lcx.ExitCall()
+            return nil, err
+        }
+
+        // Lower results via abi (replaces writeResultsToMemory and lowerToStack)
+        outStack, err := abi.LowerValues(lwx, abi.MaxFlatResults, results, compFunc.FuncType.Results, nil)
+        if err != nil {
+            lcx.ExitCall()
+            return nil, err
+        }
+        if err := lcx.ExitCall(); err != nil {
+            return nil, err
+        }
+        return outStack, nil
+    }
+}
+```
+
+(Field names like `info.HostCallable`, `compFunc.FuncType` are
+illustrative; read the actual structs first.)
+
+After the rewrite, every helper function listed in **Files: Delete**
+above has zero callers. Delete each with `Grep` confirmation.
 
 **Definition of done:**
 - `createCanonLowerFunc` body is a single call to `abi.CanonLower`
@@ -231,70 +390,87 @@ as item 2: migrate or delete.
 
 ---
 
-### Item 4: Replace `writeResultsToMemory` and its bug sites with abi.CanonLift heap writes
+### Item 4: Delete `writeResultsToMemory`, `writeRecordToMemory`, `writeValToMemory` and the flatten family
 
 - **status:** pending
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
 - **commit:** -
-- **notes:** Closes the Fix #11 cycle. Depends on item 3.
+- **notes:** Closes the Fix #11 cycle. Depends on item 3 (which removes the only callers). All function lines verified.
 
 **Files:**
-- Modify: `internal/component/component_linker.go` — replace
-  `writeResultsToMemory`, delete `writeValToMemory`, delete
-  `writeRecordToMemory`. Verify line numbers with Grep — current cited
-  bug sites are at 3292 (variant disc), 3402 (s16/u16 4-byte/2-byte
-  bug), 3369 (record alignment), 3443 (innerSize fallback).
-- Modify: `internal/component/component_linker_test.go` — delete tests
-  of `writeValToMemory`, `writeRecordToMemory`, `writeResultsToMemory`
-  internal behavior
+- Modify: `internal/component/component_linker.go` — delete:
+  - `writeResultsToMemory` (line 3157, verified)
+  - `writeRecordToMemory` (line 3369, verified) — has the missing
+    `alignTo` between fields bug
+  - `writeValToMemory` (line 3387, verified) — has the s16/u16 4-byte
+    write / 2-byte advance bug at the case label around 3402, plus the
+    innerSize fallback at 3443
+  - The flatten family (lines 3625-3797): `flattenValType`,
+    `flattenRecordType`, `flattenTupleType`, `flattenOptionType`,
+    `flattenResultType`, `flattenFlagsType`, `flattenVariantType`,
+    `valueTypeWidth`, `isWiderValueType`, `componentTypeToCoreTypes`
+    (the duplicate flatten implementation; abi/flatten.go is the
+    canonical one used by Loop 1 item 25)
+- Modify: `internal/component/component_linker_test.go` — delete every
+  test referencing the deleted functions
 
 **Spec authorities:**
-- `definitions.py:1365` `store(cx, v, t, ptr)` — the unified store
-  dispatcher
-- `definitions.py:1607` `store_record` — confirms iterate-declared-order
-  with alignment between fields
-- `definitions.py:1613` `store_variant` — confirms discriminant size
-  via `discriminant_type`
-- `CanonicalABI.md` "Storing" section
-- `crates/wasmtime/src/runtime/component/func/typed.rs` `Lower::store`
-  trait
+- `definitions.py:1365` — `store(cx, v, t, ptr)` (the unified store
+  dispatcher)
+- `definitions.py:1607` — `store_record` (confirms iterate-declared-order
+  with alignment between fields, the bug at writeRecordToMemory)
+- `definitions.py:1613` — `store_variant` (confirms discriminant size
+  via `discriminant_type`, the bug at writeResultsToMemory:3292)
+- `crates/wasmtime/src/runtime/component/values.rs::Val::store`
+  — wasmtime equivalent
+- `crates/wasmtime/src/runtime/component/func/typed.rs` `Lower` trait
 
 **Description:**
-`writeResultsToMemory` is the heap-write counterpart to `lowerByKind`.
-It currently has multiple confirmed bugs:
-- `component_linker.go:3292`: hard-coded `0` discriminant for variants
-- `component_linker.go:3402`: s16/u16 case writes 4 bytes, advances 2
-- `component_linker.go:3369`: record fields written without alignment
-- `component_linker.go:3443`: innerSize fallback to empty `ValTypeRef{}`
+The flatten and write families in `component_linker.go` have multiple
+confirmed bugs:
+- Line 3292 (in `writeResultsToMemory`): hard-coded `0` discriminant
+  for variants (`memory.WriteUint32Le(offset, 0) // Placeholder discriminant`)
+- Line 3402-3407 (in `writeValToMemory` s16/u16 case): writes 4 bytes
+  via `WriteUint32Le`, then advances offset by only 2
+- Line 3370-3382 (in `writeRecordToMemory`): iterates `recordDef.Fields`
+  in declared order but never calls `alignTo` between fields
+- Line 3443 (in `writeValToMemory`): `innerSize := fieldSizeForType(ValTypeRef{}, localTypes)`
+  — empty `ValTypeRef{}` fallback that misreads union types as i32
+- Lines 3747-3797 (`flattenVariantType` + `isWiderValueType`):
+  variant flat join produces `f32` where spec says `i32`
 
-All of these get deleted. The replacement is a single call to the
-heap-store path provided by `abi/` (the agent reads `abi/lower.go`'s
-`LowerHeap` and confirms its signature; if it needs an entry-point
-wrapper for the "write a slice of results to a retptr" use case, that
-wrapper goes in `abi/lower.go` as part of this item — NOT in
-`component_linker.go`).
+All of these are buggy duplicates of logic that already exists,
+correctly, in `internal/component/abi/`. This item DELETES them
+entirely. The correct replacements are:
+- `abi.LowerValues` (Loop 1 item 25) for the multi-value write path
+- `abi.LowerHeap` (already in `abi/lower.go`) for individual values
+- `abi.FlattenParams`/`abi.FlattenResults`/`abi.CoreSignature`
+  (already in `abi/flatten.go`) for signature flattening
 
-After this item, `writeResultsToMemory`, `writeValToMemory`,
-`writeRecordToMemory` are deleted. Tests in `component_linker_test.go`
-that asserted these functions' behavior are deleted (the same coverage
-exists in `abi/lower_test.go` and `conformance/canonical_abi/`).
+Item 3's rewrite of `createCanonLowerFunc` is the only caller of these
+functions; after item 3 lands, every function in the **Files: Delete**
+list above is dead. This item just confirms they have zero callers and
+deletes them.
+
+Tests in `component_linker_test.go` that asserted these functions'
+behavior are deleted. The same coverage exists in `abi/lower_test.go`
+and `conformance/canonical_abi/` (Loop 1 phase 1.C).
 
 **Definition of done:**
-- `writeResultsToMemory` is either replaced with a thin wrapper around
-  `abi/` heap-store, or deleted entirely if its callers can call
-  `abi.CanonLift`/`abi.CanonLower` directly
-- `writeValToMemory` deleted
-- `writeRecordToMemory` deleted
-- Bug sites at lines 3292, 3402, 3369, 3443 all gone (verify with Grep
-  for the comment text or function name)
+- `writeResultsToMemory`, `writeValToMemory`, `writeRecordToMemory`
+  deleted from `component_linker.go`
+- Entire flatten family deleted: `flattenValType`, `flattenRecordType`,
+  `flattenTupleType`, `flattenOptionType`, `flattenResultType`,
+  `flattenFlagsType`, `flattenVariantType`, `valueTypeWidth`,
+  `isWiderValueType`, `componentTypeToCoreTypes`
+- Bug sites at lines 3292, 3402, 3370-3382, 3443 (and 3747-3797 for
+  variant flatten) all demonstrably gone (Grep for the comment text
+  `Placeholder discriminant` or function names returns zero)
 - All tests of the deleted helpers are deleted
 - `go test ./internal/component/abi/...` and
-  `go test ./internal/component/conformance/canonical_abi/...` pass —
-  the abi/ heap-store path now carries the load that
-  `writeResultsToMemory` used to carry, so its tests must cover the
-  same cases
+  `go test ./internal/component/conformance/canonical_abi/...` pass
 - `go test ./internal/component/...` passes (or shows expected
   pre-existing failures only)
 
@@ -311,61 +487,147 @@ exists in `abi/lower_test.go` and `conformance/canonical_abi/`).
 
 ## Phase 2.C — Wire guest-export path (1 item)
 
-### Item 5: Replace `instance.go` `ExportedFunc.Call` family lift/lower with abi.CanonLift/abi.CanonLower
+### Item 5: Rewrite `instance.go::ExportedFunc.Call` as a lifecycle shim around abi.LiftValues / abi.LowerValues
 
 - **status:** pending
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
 - **commit:** -
-- **notes:** Largest deletion in Loop 2. Depends on item 4 (so all the host-side helpers are gone first).
+- **notes:** Largest single-file change in Loop 2. Lifecycle (subtask, borrow scope, may_leave, post_return, reentrance, enter/exit, validateReturn) STAYS in instance.go per the wasmtime layering. abi/ stays pure math. Depends on items 4 and Loop 1 items 9.7, 24, 25.
 
 **Files:**
-- Modify: `internal/component/instance.go` — replace `ExportedFunc.Call`
-  body, delete `liftRecord` (around line 757), delete `liftResolvedType`
-  (around 794), delete the retptr-as-return-value heuristic at
-  instance.go:305-322
-- Modify: `internal/component/instance_test.go` — delete tests of
-  `liftRecord` (the alphabetical-sort tests confirm wrong behavior),
-  `liftResolvedType`, and the retptr heuristic
+- Modify: `internal/component/instance.go` —
+  - Rewrite `ExportedFunc.Call` body to keep the lifecycle steps and
+    delegate lift/lower math to `abi.LiftValues` / `abi.LowerValues`
+  - Delete `liftRecord` (line 757, alphabetical sort at 765)
+  - Delete `liftResolvedType` (line 794)
+  - Delete the retptr-as-PARAM detection block at instance.go:305-322
+    AND replace with `abi.LowerValues`'s built-in spill handling
+  - **KEEP** the retptr-as-RESULT synthesis at instance.go:335-338
+    (this is a wazero-specific workaround for Go/TinyGo cores that
+    return the retptr as a result rather than a param; it's a
+    toolchain detection, not a canonical ABI bug)
+  - **KEEP** the legacy fallback at instance.go:450+ (which calls
+    `liftRecord` at 501) — rewrite it to call `abi.LiftValues`
+- Modify: `internal/component/instance_test.go` — delete the three
+  `TestLiftResolvedType_*` tests at lines 2149, 2177, 2198 (verified
+  by audit). Delete any `TestLiftRecord*` tests. Keep tests of the
+  orchestration (subtask, borrow scope, may_leave, post_return) —
+  those still apply.
 
 **Spec authorities:**
-- `definitions.py:3237` `canon_lift`
-- `definitions.py:3113` `lift_flat_values`
-- `definitions.py:1175` `load(cx, ptr, t)` (used for retptr result
-  reading)
-- `definitions.py:1303` `load_record` — confirms iterate-declared-order
+- `definitions.py:1978-2063` — `canon_lift` (verified line). Note:
+  Python's `canon_lift` combines lift+invoke+post_return+exit; wazero
+  splits per the wasmtime layering — math goes to abi/, lifecycle
+  stays in instance.go.
+- `definitions.py:1303` — `load_record`, confirms iterate-declared-order
   (NOT alphabetical, contra `instance.go:765`)
-- `crates/wasmtime/src/runtime/component/func/typed.rs::call_raw` —
-  retptr handling reference
+- `crates/wasmtime/src/runtime/component/func.rs::Func::call_raw`
+  (lines 603-707) — wasmtime's lifecycle wrapper. The model wazero
+  follows.
+- `crates/wasmtime/src/runtime/component/func.rs::Func::post_return_impl`
+  (lines 765-837) — wasmtime's post-return path. The model for the
+  post-return invocation that lives in instance.go (NOT abi/).
 
 **Description:**
-`ExportedFunc.Call` is the third production lift/lower path. It calls a
-guest export function: parameters are lowered into the wasm core stack,
-the export is invoked, and results are lifted from the stack (or from a
-caller-supplied retptr if results overflow flat-results).
+`ExportedFunc.Call` is the guest-export path. It's also the wazero
+analogue of wasmtime's `Func::call_raw`. Per the wasmtime layering
+research, it owns the **lifecycle**:
 
-Replace the body with a thin wrapper that calls `abi.CanonLower` for
-parameters and `abi.CanonLift` for results. Both calls use the new
-canonical entry points from Loop 1 items 25-26 which handle the retptr
-spill logic correctly.
+1. Reentrance check (`may_enter`) — line ~168 in current code
+2. Subtask creation — lines 134-157
+3. Borrow scope creation from subtask — line 146
+4. Set instance.callContext — line 161
+5. EnterCall/ExitCall tracking — lines 174-175
+6. Toggle `mayLeave` around lowering — lines 207-281
+7. Allocate retptr via realloc — lines 312-322 (the part that stays)
+8. Call core function — line 329
+9. (Workaround) Synthesize coreResults from retptr for Go/TinyGo —
+   lines 335-338 (KEEP)
+10. Call post-return function — lines 345-356
+11. Call lift_own/lift_borrow for own/borrow results — lines 363+
+12. Validate `callCtx.ValidateReturn()` — line 371
+13. Resolve subtask — lines 379-385
 
-`liftRecord` (lines 757-790) sorts field names alphabetically before
-reading — `sort.Strings(fieldNames)` at line 765 with the comment "the
-component model spec requires alphabetical order". This is wrong: the
-spec at `definitions.py:1303` `load_record` iterates `fields` (the
-declared list). Delete `liftRecord` entirely.
+**ALL of these stay in instance.go.** What changes is the per-value
+lift/lower logic in the middle, which gets delegated to abi/.
 
-`liftResolvedType` (around 794) is a separate dispatcher used by
-`liftRecord`. Once `liftRecord` is gone, check `liftResolvedType` for
-other callers. If none, delete it. If it has other callers, migrate
-them to `abi.CanonLift`-style calls and then delete.
+```go
+func (f *ExportedFunc) Call(ctx context.Context, args ...runtime.Val) ([]runtime.Val, error) {
+    // Steps 1-5 (orchestration setup) stay unchanged
+    callCtx := newCallContext(...)
+    subtask := newSubtask(...)
+    scope := newBorrowScope(subtask)
+    f.instance.callContext = callCtx
+    if err := f.instance.reentrance.ValidateNotRecursive(...); err != nil { return nil, err }
+    f.instance.EnterCall()
+    defer f.instance.ExitCall()
 
-The retptr-as-return-value heuristic at instance.go:305-322 is a custom
-wazero invention. Delete it. The replacement is the spec-correct retptr
-handling that `abi.CanonLift` already implements (it reads the retptr
-out of the wasm stack, then calls `LiftHeap` for each result via the
-retptr).
+    // Step 6: lower params via abi (replaces ~75 lines of per-type
+    // lowering at instance.go:207-281)
+    f.instance.SetMayLeave(false)
+    lwx := abi.NewLowerContext(f.memory, f.options, f.realloc, f.instance.ResourceTable())
+    coreArgs, err := abi.LowerValues(lwx, abi.MaxFlatParams, args, f.funcType.Params, nil)
+    if err != nil {
+        f.instance.SetMayLeave(true)
+        return nil, err
+    }
+    f.instance.SetMayLeave(true)
+
+    // Step 7: Allocate retptr if results need it (KEEP — wazero-specific
+    // realloc plumbing). The actual logic moves into abi.LowerValues
+    // for the "params spill" case; for the "results spill" case the
+    // retptr is part of coreArgs already.
+    needsResultRetptr := /* ... */
+    if needsResultRetptr {
+        retptr, err := f.realloc(0, 0, abi.AlignmentForResults(f.funcType.Results), abi.SizeForResults(f.funcType.Results))
+        if err != nil { return nil, err }
+        coreArgs = append(coreArgs, uint64(retptr))
+    }
+
+    // Step 8: Invoke core
+    coreResults, err := f.coreFunc.Call(ctx, coreArgs...)
+    if err != nil { return nil, err }
+
+    // Step 9: Workaround for Go/TinyGo retptr-as-result (KEEP)
+    if needsResultRetptr && len(coreResults) == 0 {
+        coreResults = []uint64{coreArgs[len(coreArgs)-1]}
+    }
+
+    // Step 10: Lift results via abi (replaces liftRecord/liftResolvedType
+    // and the legacy fallback at instance.go:450+)
+    lcx := abi.NewLiftContext(f.memory, f.options, f.instance.ResourceTable())
+    results, err := abi.LiftValues(lcx, abi.MaxFlatResults, coreResults, f.funcType.Results)
+    if err != nil { return nil, err }
+
+    // Step 11-12: post-return invocation (lifecycle, stays here)
+    if f.options.PostReturnIdx != nil {
+        if err := f.invokePostReturn(ctx, coreResults); err != nil { return nil, err }
+    }
+
+    // Step 13: validate return
+    if err := callCtx.ValidateReturn(); err != nil { return nil, err }
+
+    // Resolve subtask
+    subtask.Resolve()
+
+    return results, nil
+}
+```
+
+(Field accesses are illustrative. Read the actual structs first.
+The key point: every numbered step above is preserved; only the
+per-type lift/lower internals are replaced with `abi.LiftValues`/
+`abi.LowerValues`.)
+
+`liftRecord` (instance.go:757-790) sorts field names alphabetically
+at line 765. This is the spec violation. After this item, the lift
+goes through `abi/` which does NOT sort — `definitions.py:1303`
+`load_record` iterates fields in declared order. Delete `liftRecord`.
+Delete `liftResolvedType` (line 794) — it was only called by
+`liftRecord` and its 3 production callers in
+`TestLiftResolvedType_*`.
 
 **Definition of done:**
 - `ExportedFunc.Call` body is a thin shim calling `abi.CanonLower` /
@@ -393,14 +655,14 @@ retptr).
 
 ## Phase 2.D — Resource handle cleanup (2 items)
 
-### Item 6: Delete standalone `LiftOwn`/`LiftBorrow`/`LowerOwn`/`LowerBorrow` helpers from abi/
+### Item 6: Un-export the standalone `LiftOwn`/`LiftBorrow`/`LowerOwn`/`LowerBorrow` helpers (they remain as internal dispatch implementations)
 
 - **status:** pending
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
 - **commit:** -
-- **notes:** Depends on Loop 1 item 24 (integrated dispatch). Depends on items 2, 3, 4, 5 (so production paths use integrated dispatch).
+- **notes:** Loop 1 item 24 EXTENDED these helpers (added *ResourceType param) and made them callable from the integrated dispatch. They are no longer standalone entry points but are still the dispatch's implementation. This item un-exports them (lowercase) and confirms the only callers are inside abi/.
 
 **Files:**
 - Modify: `internal/component/abi/lift.go` — delete `LiftOwn`,
@@ -427,37 +689,41 @@ retptr).
   unified `lift` function
 
 **Description:**
-The standalone `LiftOwn`/`LiftBorrow`/`LowerOwn`/`LowerBorrow` exports
-in `abi/` are non-canonical. The spec dispatches own/borrow inside the
-unified `load`/`store`/`lift_flat`/`lower_flat` functions, NOT through
-separate entry points. Wasmtime confirms this pattern.
+Loop 1 item 24 extended the existing `LiftOwn`/`LiftBorrow`/`LowerOwn`/
+`LowerBorrow` helpers in `abi/` to take `*ResourceType` and folded
+them into the four dispatch functions. After Loop 2 items 2-5 wired
+production code through `abi.LiftValues`/`abi.LowerValues`, the only
+callers of `LiftOwn` etc. are inside `abi/` itself (the dispatch
+cases call them as the implementation).
 
-Loop 1 item 24 added the integrated dispatch. After items 2-5, all
-production code uses `abi.CanonLift`/`abi.CanonLower`, which dispatches
-own/borrow internally. The standalone helpers now have:
-- Zero production callers
-- Tests in abi/lift_test.go, abi/lower_test.go, abi/resource_lower_test.go
+Per spec authority (`definitions.py:1197/1792`) and wasmtime
+(`values.rs:115`), there is no need to expose these as separate
+public entry points. **Un-export them** (lowercase first letter).
+This guarantees no external code re-introduces a parallel handle
+path in the future. Their tests can remain since they're internal
+unit tests.
 
-Delete the standalones AND their tests in this commit.
-
-Before deleting, run Grep for each function name across the entire
-repo. If any non-test reference remains, escalate — items 2-5 missed
-something.
+Before un-exporting, run Grep for each function name across the
+entire repo. If any non-test reference outside `abi/` remains, items
+2-5 missed something — escalate.
 
 **Definition of done:**
-- `LiftOwn`, `LiftBorrow`, `LowerOwn`, `LowerBorrow` (and any
-  `*WithType` variants only used by tests) are deleted from `abi/`
-- All tests of the deleted standalones are deleted
-- Grep across the entire repo for each deleted name returns zero
-- `go test ./internal/component/abi/...` passes (the integrated
-  dispatch tests added in Loop 1 item 24 carry the coverage)
+- `LiftOwn`, `LiftBorrow`, `LowerOwn`, `LowerBorrow` are renamed to
+  `liftOwn`, `liftBorrow`, `lowerOwn`, `lowerBorrow` (un-exported)
+- `LowerOwnWithType`, `LowerBorrowWithType` (in
+  `abi/resource_lower.go:21,52`) are also un-exported if they have no
+  external callers; OR deleted if Loop 1 item 24 inlined their logic
+- All callers (only inside `abi/`) updated to use the un-exported names
+- Grep for `\babi\.LiftOwn\b|\babi\.LiftBorrow\b|\babi\.LowerOwn\b|\babi\.LowerBorrow\b`
+  across the entire repo returns zero
+- `go test ./internal/component/abi/...` passes
 
 **Reviewer focus areas:**
-- Spec compliance: confirm the integrated dispatch correctly handles
-  every case the standalones handled (resource type validation, borrow
-  scope tracking, generation matching)
-- Code quality: confirm no test was left calling a deleted name;
-  confirm no production code was missed by items 2-5
+- Spec compliance: confirm the integrated dispatch (Loop 1 item 24)
+  correctly handles every case the standalones handled
+- Code quality: confirm un-exporting (not deletion) if the helpers
+  are still the dispatch's implementation; confirm no external code
+  uses the exported names
 
 ---
 
@@ -472,12 +738,24 @@ something.
 
 **Files:**
 - Modify: `internal/component/resource_table.go` — delete the silent
-  variants; keep the trap-emitting variants (the audit cited both
-  variants existing in parallel)
-- Modify: `internal/component/resource_table_test.go` — delete tests of
-  the silent behavior; replace with tests of trap behavior if missing
-- Modify: any caller of the silent variants — migrate to the
-  trap-emitting versions
+  variants `CreateResourceDropFunc` and `CreateResourceRepFunc`; keep
+  the trap-emitting variants
+- Modify: `internal/component/resource_table_test.go` — delete the
+  following tests (verified by audit):
+  `TestResourceTable_CreateResourceDropFunc` (line 302),
+  `TestResourceTable_CreateResourceDropFunc_InvalidHandle` (334),
+  `TestResourceTable_CreateResourceDropFunc_NilDestructor` (350),
+  `TestResourceTable_CreateResourceRepFunc` (366),
+  `TestResourceTable_CreateResourceRepFunc_InvalidHandle` (381).
+  Add equivalent tests for the trap-emitting variants if not already
+  present.
+- Modify: `internal/component/wasip2test/kv_store_test.go:208` — this
+  caller uses `CreateResourceDropFunc` (the silent variant). Migrate
+  to the trap-emitting variant. Note: kv_store_test.go's
+  `TestResourceLifecycle_LinkerDefinition` is the white-box test that
+  Loop 3 explicitly leaves in the allow-list — this fix happens here
+  in Loop 2 because it's a sockets-style trap-rule fix, not a public-
+  API migration.
 
 **Spec authorities:**
 - `definitions.py:1641` `lower_own(cx, rep, t)` — confirms drop is a
@@ -514,39 +792,47 @@ versions. Update or delete tests that asserted the silent behavior.
 > **Trap rule (universal for items 8-11):**
 >
 > For each silent-default site, the agent must read the WIT method
-> definition (vendored under `internal/component/wasip2test/.../wit/deps/`
-> or `debug-vendored/WASI/proposals/`) and consult the spec. Then:
+> definition vendored under `debug-vendored/WASI/proposals/<area>/wit/`
+> (note the `/wit/` segment — verified path; the original plan
+> incorrectly omitted it). Then:
 >
 > 1. If the WIT method's return type is `result<_, error-code>`,
 >    replace the silent-default with `result.err(<correct error-code
->    per the WIT enum>)`. The error-code must be the most accurate one
->    for the failure (e.g., `invalid-state` for a wrong handle type,
->    `not-permitted` for an authorization failure, `bad-descriptor` for
->    an invalid descriptor handle).
+>    per the WIT enum>)`. The `error-code` enum is in the same `wit/`
+>    directory: `network.wit` for sockets, `types.wit` for HTTP,
+>    `types.wit` for filesystem. The error-code must be the most
+>    accurate one for the failure (e.g., `invalid-state` for a wrong
+>    handle type, `not-permitted` for an authorization failure,
+>    `bad-descriptor` for an invalid descriptor handle).
 > 2. If the WIT method's return type does NOT have an error union,
 >    replace the silent-default with a trap (return an error from the
 >    Go function; the wazero machinery turns errors into traps).
 > 3. **Never preserve the placeholder success.**
+> 4. **Delete the misleading `// Fallback for tests without resource
+>    table` comment** in the same change.
+> 5. The pattern includes both `if err != nil { return placeholder }`
+>    and `if table == nil { return placeholder }` — both are silent
+>    defaults; both must be fixed.
 
-### Item 8: Fix `imports/wasip2/sockets/tcp.go` silent-default sites (22 sites)
+### Item 8: Fix `imports/wasip2/sockets/tcp.go` silent-default sites (~28 sites)
 
 - **status:** pending
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
 - **commit:** -
-- **notes:** -
+- **notes:** Audit found ~28 sites (not 22 as originally claimed). Includes both `if err != nil` and `if table == nil` patterns. Confirm count via Grep before starting.
 
 **Files:**
-- Modify: `imports/wasip2/sockets/tcp.go` — convert all 22 silent-default
-  sites per the trap rule above
-- Modify: `imports/wasip2/sockets/tcp_test.go` (if it exists; if it
-  doesn't, create it) — add tests for each error path that asserts the
-  spec-correct trap or `result.err`
+- Modify: `imports/wasip2/sockets/tcp.go` — convert all silent-default
+  sites per the trap rule above (~28 sites; verify count via Grep)
+- Modify: `imports/wasip2/sockets/tcp_test.go` — add tests for each
+  error path that asserts the spec-correct trap or `result.err`
 
 **Spec authorities:**
-- `debug-vendored/WASI/proposals/sockets/tcp.wit` — the WIT definitions
-- `debug-vendored/WASI/proposals/sockets/network.wit` — for the
+- `debug-vendored/WASI/proposals/sockets/wit/tcp.wit` — the WIT
+  definitions (verified path with `wit/` segment)
+- `debug-vendored/WASI/proposals/sockets/wit/network.wit` — for the
   `error-code` enum
 - `debug-vendored/wasmtime/crates/wasi/src/p2/host/tcp.rs` — wasmtime's
   implementation, for ambiguity resolution
@@ -596,23 +882,24 @@ For each site:
 
 ---
 
-### Item 9: Fix `imports/wasip2/sockets/udp.go` silent-default sites (14 sites)
+### Item 9: Fix `imports/wasip2/sockets/udp.go` silent-default sites (~20 sites)
 
 - **status:** pending
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
 - **commit:** -
-- **notes:** Same trap rule as item 8
+- **notes:** Same trap rule as item 8. Audit found ~20 sites (not 14). udp_test.go does NOT exist today — must be CREATED.
 
 **Files:**
-- Modify: `imports/wasip2/sockets/udp.go` — convert all 14 silent-default
-  sites
-- Modify: `imports/wasip2/sockets/udp_test.go` — add tests
+- Modify: `imports/wasip2/sockets/udp.go` — convert all silent-default
+  sites (~20; verify count via Grep)
+- **Create:** `imports/wasip2/sockets/udp_test.go` (does not exist
+  today — verified by audit) — add tests for each error path
 
 **Spec authorities:**
-- `debug-vendored/WASI/proposals/sockets/udp.wit`
-- `debug-vendored/WASI/proposals/sockets/network.wit`
+- `debug-vendored/WASI/proposals/sockets/wit/udp.wit` (verified path)
+- `debug-vendored/WASI/proposals/sockets/wit/network.wit`
 - `debug-vendored/wasmtime/crates/wasi/src/p2/host/udp.rs`
 
 **Description:**
@@ -626,23 +913,23 @@ Same as item 8.
 
 ---
 
-### Item 10: Fix `imports/wasip2/http/http.go` silent-default sites (31 sites)
+### Item 10: Fix `imports/wasip2/http/http.go` silent-default sites (~38 sites)
 
 - **status:** pending
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
 - **commit:** -
-- **notes:** Largest of the silent-default cleanups. Same trap rule as item 8.
+- **notes:** Largest of the silent-default cleanups. Same trap rule as item 8. Audit found 31 `if err != nil` sites + ~7 `if table == nil` sites = ~38 total.
 
 **Files:**
-- Modify: `imports/wasip2/http/http.go` — convert all 31 silent-default
-  sites
+- Modify: `imports/wasip2/http/http.go` — convert all silent-default
+  sites (~38; verify count via Grep)
 - Modify: `imports/wasip2/http/http_test.go` — add tests
 
 **Spec authorities:**
-- `debug-vendored/WASI/proposals/http/types.wit`
-- `debug-vendored/WASI/proposals/http/handler.wit`
+- `debug-vendored/WASI/proposals/http/wit/types.wit` (verified path)
+- `debug-vendored/WASI/proposals/http/wit/handler.wit`
 - `debug-vendored/wasmtime/crates/wasi-http/src/`
 
 **Description:**
@@ -837,10 +1124,21 @@ After items 2-12, verify the test surface is clean:
    caller (their own test). Expected: zero — single-use test helpers
    should be inlined.
 
-5. Read `integration_public_api_test.go::TestPublicAPIAddS32`. Confirm
-   it currently has a `t.Skipf("not fully wired yet")` (or similar).
-   Remove the skip. Run the test. It should pass now that items 2-5
-   wired the public API path.
+5. Read `integration_public_api_test.go::TestPublicAPIAddS32`.
+   It contains FOUR `t.Skipf` calls (verified by audit at lines 70,
+   89, 110, 121):
+   - Line 70: `t.Skipf("test component not available: %v", err)` —
+     legitimate guard for missing fixture; KEEP unless the fixture is
+     committed in this item
+   - Line 89: `t.Skipf("instantiation not fully wired yet: %v", err)` —
+     REMOVE (item 5 wired this)
+   - Line 110: `t.Skipf("function call not wired yet (recovered from
+     panic): %v", r)` — REMOVE
+   - Line 121: `t.Skipf("function call not wired yet: %v", err)` —
+     REMOVE
+   Also remove the `defer recover()` panic guard at lines 105-115
+   that catches the broken-call panic. After removal, run the test.
+   It should pass through `add_s32.wasm` end-to-end.
 
 **Definition of done:**
 - Zero new `t.Skip` introduced by Loop 2

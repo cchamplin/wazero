@@ -82,18 +82,39 @@ own test file. List any orphans.
 
 ### Loop 1 specific checks
 
-**Check L1-1: Type representation is unified.**
+**Check L1-1: Type representation is unified (three hierarchies → one).**
 - `internal/component/binary/types.go` no longer defines `TypeDef`,
   `RecordTypeDef`, `VariantTypeDef`, `ListTypeDef`, `OptionTypeDef`,
-  `ResultTypeDef`, `TupleTypeDef`, `FlagsTypeDef`, `EnumTypeDef`. Run
-  Grep for each name and confirm zero matches in production source.
+  `ResultTypeDef`, `TupleTypeDef`, `FlagsTypeDef`, `EnumTypeDef`,
+  `VariantCase`. Run Grep for each name in production source.
+- `internal/component/component.go` no longer defines `TypeDef`,
+  `RecordTypeDef`, `VariantTypeDef`, `ListTypeDef`, `OptionTypeDef`,
+  `ResultTypeDef`, `TupleTypeDef`, `FlagsTypeDef`, `EnumTypeDef`,
+  `StreamTypeDef`, `FutureTypeDef`, `FixedSizeListTypeDef`,
+  `NamedValType` (or those have moved to `types/`).
+- `internal/component/canon_lower.go` no longer defines `EnumType`,
+  `FlagsType`, `VariantType`, `VariantCaseForLower`, `PrimitiveType`,
+  `PayloadType` interface (the third hierarchy).
 
-**Check L1-2: The four converters are gone.**
+**Check L1-2: The four type converters are gone.**
 Run Grep for `resolveToValType`, `typeDefToValType`,
-`valTypeRefToValType`, `(*TypeResolver).resolveDefinedType`. Expected:
-zero matches in production source. (The reduced TypeResolver may still
-exist as a lookup helper; if so, confirm it has no Defined-type
-conversion logic.)
+`valTypeRefToValType`, `(*TypeResolver).resolveDefinedType`,
+`(*TypeResolver).ResolveValType`. Expected: zero matches in production
+source. The `TypeResolver` struct itself should be entirely deleted
+(per Loop 1 item 9 pre-decision).
+
+**Check L1-2.5: Package boundary fix is in place (no circular import).**
+Run Grep for `\"github.com/tetratelabs/wazero/internal/component\"`
+in `internal/component/abi/*.go` (excluding `_test.go`). Expected:
+zero matches. The abi/ package must import `internal/component/runtime`
+(post-item-9.7), not the parent component package.
+
+**Check L1-2.6: Existing CanonLower constructor is gone.**
+Run Grep for `func CanonLower\b` in `internal/component/canon_lower.go`.
+Expected: zero matches. Loop 1 item 9.5 deleted the existing
+`CanonLower(callback HostFunc, ...)` constructor; the only `CanonLower`
+that should exist after Loop 1 is `abi.LiftValues`/`abi.LowerValues`
+(named differently to avoid the collision).
 
 **Check L1-3: Own/Borrow carry `*ResourceType`.**
 Read `internal/component/types/resource.go` and confirm
@@ -108,8 +129,10 @@ must trap on lift/lower with a clear "async not yet supported" message.
 
 **Check L1-5: Python tests are ported and green.**
 Run `go test ./internal/component/conformance/canonical_abi/...`.
-Expected: PASS. Confirm the test count is at least 272 subtests
-(matching the design's count).
+Expected: PASS. Confirm the test count is at least 285 subtests
+(58 + 20 + 31 + 8 + 14 + 135 + 6 + 36 + 13 = 321 ports, plus
+wazero supplemental tests from Loop 1 item 32; the 285 floor catches
+under-implementation).
 
 **Check L1-6: Spec coverage report exists.**
 `docs/plans/projects/abi-unification/loop-1-spec-coverage-report.md`
@@ -119,18 +142,29 @@ exists. Read it. Confirm every CanonicalABI.md section is marked
 ### Loop 2 specific checks
 
 **Check L2-1: abi/ is the only lift/lower implementation.**
-Run Grep for `liftRecord`, `liftResolvedType`, `liftFromStack`,
-`flattenVariantType`, `isWiderValueType`, `writeValToMemory`,
-`writeRecordToMemory`, `writeResultsToMemory`, `createCanonLowerFunc`,
-`LoweredFunc.CallWithStack` body. Expected: zero matches in production
-source. (The functions may be replaced by thin shims that call
-`abi.CanonLift`/`abi.CanonLower`; the helpers themselves are gone.)
+Run Grep for each of these names in production source (not test files):
+`liftRecord`, `liftResolvedType`, `liftFromStack`, `liftRecordFromStack`,
+`liftOptionFromStack`, `liftVariantFromStack`, `liftValFromMemory`,
+`liftRecordFromMemory`, `liftOptionFromMemory`, `liftListFromMemory`,
+`flatSlotCount`, `lowerToStack`, `flattenValType`, `flattenRecordType`,
+`flattenTupleType`, `flattenOptionType`, `flattenResultType`,
+`flattenFlagsType`, `flattenVariantType`, `valueTypeWidth`,
+`isWiderValueType`, `componentTypeToCoreTypes`, `writeValToMemory`,
+`writeRecordToMemory`, `writeResultsToMemory`, `createCanonLowerFunc`.
+Expected: zero matches except `createCanonLowerFunc` (which is
+rewritten as a lifecycle wrapper but keeps its name).
+**Exception:** `LoweredFunc.CallWithStack` is REWRITTEN, not deleted —
+it remains as a lifecycle wrapper around `abi.LiftValues`/`abi.LowerValues`
+(Loop 2 item 2). Verify by reading the function body and confirming
+it does not contain per-type case logic.
 
-**Check L2-2: Standalone resource helpers are gone.**
-Run Grep for `LiftOwn`, `LiftBorrow`, `LowerOwn`, `LowerBorrow` as
-exported function names in `internal/component/abi/`. Expected: zero
-matches as standalone functions (they exist only as inner cases of the
-unified dispatch).
+**Check L2-2: Standalone resource helpers are un-exported.**
+Run Grep for `\babi\.LiftOwn\b|\babi\.LiftBorrow\b|\babi\.LowerOwn\b|\babi\.LowerBorrow\b`
+across the entire repo. Expected: zero matches (the helpers are
+now lowercase and only called from within `abi/`'s dispatch).
+The lowercase forms (`liftOwn`, `liftBorrow`, `lowerOwn`, `lowerBorrow`)
+may still exist inside `abi/` as the integrated dispatch's
+implementation — that's correct per Loop 2 item 6.
 
 **Check L2-3: Silent-default error suppression is gone.**
 Read `imports/wasip2/sockets/tcp.go`, `udp.go`,
@@ -153,11 +187,30 @@ and lists every removed file/function with line counts.
 
 ### Loop 3 specific checks
 
-**Check L3-1: No `internal/component` imports in test files outside
-the allow-list.**
-Run Grep for `internal/component` in `**/*_test.go`. Expected: matches
-only in `internal/component/abi/`, `internal/component/conformance/`,
-and `internal/component/spectest/`. Any other match is a violation.
+**Check L3-1: No `internal/component` imports in migration-target test files outside the allow-list.**
+
+Use a content-based grep that walks ONLY the import block of each
+`_test.go` file (NOT a path-based grep — file paths under
+`internal/component/` legitimately contain "internal/component" in the
+path, which would produce false positives).
+
+Allow-list (legitimately import internal/component):
+- `internal/component/*_test.go` (the package's own tests)
+- `internal/component/abi/*_test.go`
+- `internal/component/binary/*_test.go`
+- `internal/component/conformance/*_test.go`
+- `internal/component/spectest/*_test.go`
+- `internal/component/types/*_test.go`
+- `internal/component/runtime/*_test.go` (post-Loop-1-item-9.7)
+
+Migration-target list (must NOT import internal/component except for
+documented named exceptions):
+- All `internal/component/wasip2test/*_test.go` files
+- The named exception: `kv_store_test.go::TestResourceLifecycle_LinkerDefinition`
+  (white-box test, kept internal per Loop 3 item 16's documented allow-list)
+
+Any violation outside the allow-list and not on the named exception
+list is a verifier failure.
 
 **Check L3-2: Spec WAST suite is wired.**
 `internal/component/spectest/testdata/upstream/` exists with at least
@@ -166,17 +219,33 @@ and `internal/component/spectest/`. Any other match is a violation.
 either matches or documented skips.
 
 **Check L3-3: wit-bindgen runtime suite is wired.**
-`internal/component/wasip2test/upstream/wit-bindgen/` exists with at
-least 30 case directories. `upstream_wit_bindgen_test.go` exists.
+`internal/component/wasip2test/upstream/wit-bindgen/` exists with 32
+case directories (verified count by `find ... -mindepth 1 -maxdepth 1 -type d`).
+`upstream_wit_bindgen_test.go` exists.
 Run `go test -run TestUpstreamWitBindgen ./internal/component/wasip2test/...`.
 Expected: PASS.
 
-**Check L3-4: Existing wasip2test files use only public API.**
-Read `calculator_test.go`, `composition_test.go`, `converter_test.go`,
-`kv_store_test.go`, `large_record_test.go`, `linking_test.go`,
-`nested_types_test.go`, `variant_types_test.go`, `wasi_exercise_test.go`.
-Run Grep on each for `internal/component`. Expected: zero matches.
-(`internal/component/testutil` is also banned.)
+**Check L3-4: Migration target wasip2test files use only public API.**
+Read each migrated file and run a content-based Grep on its imports
+for `internal/component` or `internal/component/testutil`:
+- `calculator_test.go` — must have ZERO internal imports
+- `composition_test.go` — must have ZERO internal imports
+- `converter_test.go` — must have ZERO internal imports
+- `large_record_test.go` — must have ZERO internal imports
+- `linking_test.go` — must have ZERO internal imports
+- `nested_types_test.go` — must have ZERO internal imports
+- `variant_types_test.go` — must have ZERO internal imports
+- `wasi_exercise_test.go` — must have ZERO internal imports
+- `upstream_wit_bindgen_test.go` (new in Loop 3 item 6) — must have
+  ZERO internal imports
+- `kv_store_test.go` — partial: only the named exception
+  `TestResourceLifecycle_LinkerDefinition` (and any other documented
+  white-box test) may import internal types; the rest of the file
+  must be public-API only
+- `bench_test.go` — already public per audit; verify
+- `repro_test.go` — already public per audit; verify
+- `loader_test.go` — package-internal loader test; uses no
+  `internal/component` types directly per audit; verify
 
 **Check L3-5: Coverage matrix exists and is complete.**
 `docs/plans/projects/abi-unification/loop-3-coverage-matrix.md` exists.

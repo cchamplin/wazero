@@ -23,76 +23,76 @@
 
 ## Phase 1.A — Type unification (~11 items)
 
-> Phase 1.A collapses two parallel type hierarchies into one. Read the
-> design's "Architectural decisions" section before starting any item
-> in this phase. The reference architecture is wasmtime's
+> Phase 1.A collapses **three** parallel type hierarchies into one. Read
+> the design's "Architectural decisions" section before starting any
+> item in this phase. The reference architecture is wasmtime's
 > `ComponentTypes` and `go.bytecodealliance.org/wit`'s allocate-then-fill
 > decoder.
+>
+> The three hierarchies are:
+> 1. `internal/component/binary/types.go` — `binary.TypeDef`,
+>    `RecordTypeDef`, `VariantTypeDef`, etc. Used only inside
+>    `internal/component/binary/` as a parser scratchpad.
+> 2. `internal/component/component.go` — `component.TypeDef`,
+>    `component.RecordTypeDef`, `component.VariantTypeDef`,
+>    `component.StreamTypeDef`, `component.FutureTypeDef`,
+>    `component.FixedSizeListTypeDef`. The actual decoder output used
+>    by `instance.go`, `TypeResolver`, and the four converters in
+>    `component_linker.go`. (Note: there is no `ErrorContextTypeDef`
+>    yet — it must be added.)
+> 3. `internal/component/canon_lower.go` — `EnumType`, `FlagsType`,
+>    `VariantType`, `VariantCaseForLower`, `PrimitiveType`, plus the
+>    `PayloadType` interface (`canon_lower.go:15-62`). A third
+>    representation used only by the dead `LoweredFunc.CallWithStack`
+>    family.
+>
+> All three are deleted and replaced with `internal/component/types.ValType`.
+> Phase 1.A also deletes the existing `CanonLower` constructor in
+> `canon_lower.go` (item 9.5) because it returns the dead `*LoweredFunc`
+> and would collide with the new `abi.CanonLower` from item 26.
 
-### Item 1: Add `FixedSizeList` to `types.ValType` (or confirm existing `List{Length *uint32}` is sufficient)
+### Item 1: Verify `types.List{Length *uint32}` covers fixed-size lists; add tests for both shapes
 
 - **status:** pending
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
 - **commit:** -
-- **notes:** -
+- **notes:** Pre-decided: `definitions.py:122-125` `ListType(t, l=None)` matches wazero's existing `List{Element ValType, Length *uint32}` exactly. No new type needed.
 
 **Files:**
-- Read: `internal/component/types/composite.go`,
-  `internal/component/types/types.go`
-- Read: `debug-vendored/component-model/design/mvp/canonical-abi/definitions.py`
-  lines 351-361 (`ListType` definition)
-- Read: `debug-vendored/wasmtime/crates/environ/src/component/types.rs`
-  `TypeList` definition
-- Modify: `internal/component/types/composite.go` (add `FixedSizeList`
-  case if needed, OR document that `List{Length *uint32}` already
-  covers it)
-- Modify: `internal/component/types/composite_test.go` — add tests for
-  the chosen shape
+- Read: `internal/component/types/composite.go` (existing `List` struct)
+- Read: `debug-vendored/component-model/design/mvp/canonical-abi/definitions.py:122-125`
+- Modify: `internal/component/types/composite.go` — add a doc comment
+  on `List` documenting that `Length != nil` represents the spec's
+  `ListType(t, l=N)` fixed-length form
+- Modify: `internal/component/types/composite_test.go` — add tests
+  exercising both `Length == nil` (dynamic) and `Length != nil` (fixed)
+  cases; assert `Size`/`Align`/`FlattenCount` values for each
 
 **Spec authorities:**
-- `definitions.py:351-361` — `ListType(t, l=None)` where `l` is the
-  optional fixed length
+- `definitions.py:122-125` — `ListType(t, l=None)` (the canonical form)
 - `crates/wasmtime/src/runtime/component/values.rs` — wasmtime's
-  treatment of fixed-length lists in lift/lower
+  `InterfaceType::List` dispatch, for cross-reference
 
 **Description:**
-The Python spec represents fixed-length lists as `ListType(t, l=N)`
-with the fixed length as a constructor argument. Wazero already has
-`types.List{Element ValType, Length *uint32}` which is structurally
-equivalent.
+Wazero already has `types.List{Element ValType, Length *uint32}` which
+is structurally identical to the spec's `ListType(t, l=None)`. No new
+type case is needed. This item just adds the documentation comment
+and the tests that demonstrate both shapes work.
 
-Decide:
-- **Option A:** Confirm `List{Length *uint32}` is sufficient. Document
-  the decision in code comments. Update `composite_test.go` to
-  exercise both `Length == nil` (dynamic) and `Length != nil` (fixed)
-  cases.
-- **Option B:** If wasmtime uses a separate `FixedLengthList` type
-  in its dispatch (not just an optional length on `List`), add
-  `types.FixedSizeList` as a distinct case for parity. Update lift/lower
-  dispatch in Loop 1.D to handle it.
-
-Read both spec sources before deciding. Cite the spec line in the
-commit message.
+Loop 1 phase 1.D item 31 verifies the dispatch in `abi/lift.go` and
+`abi/lower.go` handles both `Length == nil` and `Length != nil` correctly.
 
 **Definition of done:**
-- The decision is documented in code comments and in the commit
-  message
-- If Option A: tests cover both nil and non-nil `Length` cases; this
-  item is essentially a no-code change that just verifies and
-  documents the existing shape
-- If Option B: the new type case is added with tests
-- The decision is consistent with how `definitions.py` and wasmtime
-  represent the type
+- `types.List` has a doc comment citing `definitions.py:122-125` and
+  explaining that `Length != nil` is the fixed-length form
+- `composite_test.go` has tests for both shapes
 - `go test ./internal/component/types/...` passes
 
 **Reviewer focus areas:**
-- Spec compliance: confirm the chosen shape matches at least one of
-  the spec sources (cite line); confirm the decision is justified
-  (not just "looks similar")
-- Code quality: confirm the decision is documented in code, not just
-  in the commit; confirm tests cover both shapes
+- Spec compliance: confirm the doc comment cites the right spec line
+- Code quality: confirm the test covers both shapes
 
 ---
 
@@ -109,9 +109,9 @@ commit message.
 - Modify: `internal/component/types/composite.go` — add `Stream`,
   `Future`, `ErrorContext` as new `ValType` cases
 - Modify: `internal/component/types/types_test.go` — add tests
-  asserting the new types exist and have correct `Align`/`Size`/
-  `FlattenCount` per spec
-- Modify: `internal/component/abi/lift.go` — add a `case types.Stream`,
+  asserting the new types exist and have `Align`/`Size`/`FlattenCount`
+  of 4/4/1 (all three are i32 handles, same shape as Own/Borrow)
+- Modify: `internal/component/abi/lift.go` — add `case types.Stream`,
   `case types.Future`, `case types.ErrorContext` in each of the four
   dispatch functions (`LiftFlat`, `LiftHeap`, `LowerFlat`, `LowerHeap`)
   that returns an error like `fmt.Errorf("async type %T not yet
@@ -121,11 +121,15 @@ commit message.
   trap
 
 **Spec authorities:**
-- `definitions.py` — `StreamType`, `FutureType`, `ErrorContextType`
-  definitions (search the file)
-- `definitions.py` — `lift_flat`/`lower_flat` cases for these types
-  (the spec Python implements them; we document them as deferred)
-- `CanonicalABI.md` "Streams and Futures" section (if it exists)
+- `definitions.py` — search for `class StreamType`, `class FutureType`,
+  `class ErrorContextType` (the runtime treats all three as i32
+  handles, same shape as Own/Borrow)
+
+Note: `internal/component/component.go` already has
+`StreamTypeDef` and `FutureTypeDef`, but does NOT have
+`ErrorContextTypeDef` — that one must also be added in this item to
+complete parity. The parser refactor in item 6 will populate the
+`types` versions from the `component.*TypeDef` structs.
 
 **Description:**
 Add the three async-related value types to wazero's type representation
@@ -145,13 +149,14 @@ type Stream struct {
 }
 
 func (Stream) valType() {}
-func (Stream) Align() uint32       { return 4 }  // per spec definitions.py:XXX
-func (Stream) Size() uint32        { return 4 }  // 32-bit handle
+func (Stream) Align() uint32       { return 4 }  // i32 handle
+func (Stream) Size() uint32        { return 4 }
 func (Stream) FlattenCount() int   { return 1 }
 ```
 
-(Same shape for `Future` and `ErrorContext`. Read `definitions.py` for
-the exact `Align`/`Size`/`FlattenCount` values — do not invent them.)
+(Same shape for `Future{Element ValType}` and `ErrorContext{}`. The
+4/4/1 values are correct because all three flatten to a single i32
+handle per spec.)
 
 In `abi/lift.go` and `abi/lower.go`, add the trap cases:
 
@@ -192,25 +197,26 @@ case types.ErrorContext:
 - **spec_review:** -
 - **code_review:** -
 - **commit:** -
-- **notes:** Removes the existing TODO comments at internal/component/types/resource.go lines 14-16 and 35-38
+- **notes:** Removes the existing TODO comments at internal/component/types/resource.go lines 10-15 and 32-37
 
 **Files:**
 - Modify: `internal/component/types/resource.go` — change `Own` and
-  `Borrow` struct field; remove the TODO comments
+  `Borrow` struct field; remove the TODO comments at lines 10-15 and
+  32-37 (verified line numbers)
 - Modify: every existing reference to `types.Own{ResourceIdx: ...}`
   and `types.Borrow{ResourceIdx: ...}` in the codebase — migrate to
   `types.Own{Resource: ...}` (use Grep first to find them all)
 - Modify: tests
 
 **Spec authorities:**
-- `definitions.py:1641` — `lower_own(cx, rep, t)` where `t` carries
-  the full `OwnType(rt)` with `rt: ResourceType`
+- `definitions.py:1333-1339` — `lift_own(cx, i, t)` (verified line);
+  `t.rt` is the `ResourceType`
+- `definitions.py:1341-1347` — `lift_borrow(cx, i, t)`
+- `definitions.py:1641` — `lower_own(cx, rep, t)`
+- `definitions.py:1645` — `lower_borrow(cx, rep, t)`
 - `crates/wasmtime/src/runtime/component/values.rs:115` — wasmtime
   takes `InterfaceType::Own(idx)` where `idx` resolves to a real
   `TypeResourceTable` joined to `ResourceType`
-- `crates/wasmtime/src/runtime/component/types.rs` (the runtime type
-  module, not environ) — `Handle<T>` API exposes resource types as
-  pointers
 
 **Description:**
 Currently `types.Own{ResourceIdx uint32}` and `types.Borrow{ResourceIdx
@@ -239,11 +245,16 @@ Where `*ResourceType` is the existing struct in
 `internal/component/types/resource.go`.
 
 The `ResourceIdx uint32` field is removed. Every existing reference
-to it (use Grep) is migrated to use `Resource.Index` if the index is
-genuinely needed (e.g. for serialization), or replaced with a direct
-`Resource` pointer if the consumer just needs the type metadata.
+to it (use Grep) is migrated to use the `Resource *ResourceType`
+pointer directly. **Note:** `types.ResourceType` does NOT currently
+have an `Index` field (only `InstanceID`, `Destructor`, `DtorAsync`,
+`DtorCallback`). If a caller genuinely needs an index for
+serialization, that becomes a sub-decision in this item — either add
+`Index uint32` to `ResourceType` (matching the deleted `ResourceIdx`),
+or look up the index via the resource type table. Default: add
+`Index uint32` to `ResourceType` since the parser already produces it.
 
-The TODO comments at lines 14-16 and 35-38 in `resource.go` are
+The TODO comments at lines 10-15 and 32-37 in `resource.go` are
 deleted (the work is done).
 
 **Definition of done:**
@@ -273,43 +284,50 @@ deleted (the work is done).
 - **spec_review:** -
 - **code_review:** -
 - **commit:** -
-- **notes:** The binary parser already reads this field; the runtime form drops it
+- **notes:** Binary parser already reads `*uint32`; runtime form drops it
 
 **Files:**
-- Read: `internal/component/binary/types.go` — confirm
-  `VariantCase.Refines` exists at the binary layer
+- Read: `internal/component/binary/types.go:90` — confirm
+  `VariantCase.Refines *uint32` exists at the binary layer (verified)
 - Modify: `internal/component/types/composite.go` — add
-  `Refines *string` (or whatever the spec shape is) to `types.Case`
+  `Refines *uint32` to `types.Case` (matching the binary form: an
+  index into the variant's case list, NOT a label string)
 - Modify: every caller that constructs a `types.Case` to thread the
   refines value through
 
 **Spec authorities:**
-- `definitions.py` — `CaseType` definition (search for `class CaseType`)
-- `CanonicalABI.md` — variant section discussing refinement
-- `internal/component/binary/types.go` — the existing
-  `VariantCase.Refines` field shape
+- `internal/component/binary/types.go:90` — `VariantCase.Refines *uint32`
+  (the binary parser shape; the runtime form must match)
+- `debug-vendored/component-model/design/mvp/Binary.md` "variant" section
+  — refinement is a binary-format field. Note: `definitions.py:141-143`
+  `CaseType` does NOT have a refines field (the canonical ABI runtime
+  ignores refinement; it's a static-typing concern). Keeping it in
+  `types.Case` is purely so the runtime form does not lose information
+  the binary parser captured.
 
 **Description:**
-The audit found that `internal/component/binary/types.go` has a
-`VariantCase.Refines` field that the binary parser populates, but
-`types.Case` (in the runtime form) drops it. This is information loss
-during the converter step that's being eliminated.
+The audit found that `internal/component/binary/types.go:90` has a
+`VariantCase.Refines *uint32` field that the binary parser populates,
+but `types.Case` (in the runtime form) drops it. This is information
+loss during the converter step that's being eliminated.
 
-Add `Refines` to `types.Case`. Check the spec for the type — it's
-either `*string` (case label) or an index. Use whatever the binary
-parser produces.
+Add `Refines *uint32` to `types.Case`. Match the binary parser shape
+exactly — it's an index into the variant's case list, not a label
+string. The canonical ABI runtime ignores refinement (per
+`definitions.py`); we preserve it only so the runtime form doesn't
+lose information.
 
 **Definition of done:**
-- `types.Case` has a `Refines` field
-- The shape matches `definitions.py` `CaseType`
+- `types.Case` has a `Refines *uint32` field
+- The shape matches `internal/component/binary/types.go:90`
 - Existing `Variant` lift/lower in `abi/` does not use `Refines` (it
   doesn't need to; refinement is for static type-checking, not
   runtime lift/lower) but the field is preserved
 - `go test ./internal/component/types/...` passes
 
 **Reviewer focus areas:**
-- Spec compliance: cite `definitions.py` for the field shape; confirm
-  this matches what the binary parser reads
+- Spec compliance: confirm the field type is `*uint32` matching the
+  binary parser; cite `binary/types.go:90`
 - Code quality: confirm the field is exported (public) consistent
   with other `types.Case` fields; confirm doc comment
 
@@ -351,29 +369,30 @@ Add the cache:
 ```go
 // CanonicalAbiInfo holds precomputed canonical ABI metadata for a
 // composite type. It is computed once when the type is constructed
-// (in the binary parser) and consulted by every subsequent lift/lower
-// operation. Spec authority: definitions.py alignment(t), elem_size(t),
-// flatten_type(t).
+// (in the binary parser, item 6) and consulted by every subsequent
+// lift/lower operation. Spec authority: definitions.py alignment(t),
+// elem_size(t), flatten_type(t). Wasmtime: TypeRecord.abi etc.
+//
+// Memory64 fields are intentionally omitted — wazero does not support
+// memory64 in component-model contexts at this time.
 type CanonicalAbiInfo struct {
-    Size32     uint32
-    Align32    uint32
-    Size64     uint32  // for memory64; can be deferred or set equal to Size32 if memory64 is not in scope
-    Align64    uint32
-    FlatCount  int     // number of core values in the flat representation
+    Size       uint32 // 32-bit memory size
+    Align      uint32 // 32-bit alignment
+    FlatCount  int    // number of core values in the flat representation
 }
 ```
 
-Add this as a field on each composite struct. Compute it in the
-binary parser (Item 6) — for now, add a constructor or `init()` style
-method that populates the cache from the existing `Align`/`Size`/
-`FlattenCount` methods.
-
-(Memory64 is out of scope for this project per the design; either
-defer the `Size64`/`Align64` fields and document why, or set them
-equal to `Size32`/`Align32` and document.)
+Add this as a field on each composite struct. **Item 6's parser
+refactor MUST populate this cache when constructing each composite.**
+Item 6 is updated to reference this requirement explicitly.
 
 The existing `Align()`, `Size()`, `FlattenCount()` methods become thin
 accessors that read from the cache.
+
+**Demonstrated consumer (required to avoid dead code):** Update
+`internal/component/abi/flatten.go` to read `FlatCount` from the
+cache instead of recomputing via `flattenType` recursion. This
+demonstrates the optimization is real.
 
 **Definition of done:**
 - Every composite has a `CanonicalAbiInfo` field (or equivalent)
@@ -406,12 +425,18 @@ accessors that read from the cache.
   allocate-then-fill pattern)
 - Read: `internal/wasm/module.go` (wazero's own one-representation
   precedent for core wasm)
-- Read: `internal/component/binary/decoder.go` and other binary parser
-  files
-- Modify: `internal/component/binary/decoder.go` (and any companion
-  parser files) to populate `types.ValType` directly during decode
-- Modify: `internal/component/binary/decoder_test.go` — adjust tests
-  to expect `types.ValType` output instead of `binary.TypeDef`
+- Read: every file under `internal/component/binary/` that constructs
+  type values. Specifically: `internal/component/binary/decoder.go`,
+  `internal/component/binary/binary.go`, `internal/component/binary/types.go`,
+  `internal/component/binary/valtype.go`, `internal/component/binary/component_type.go`,
+  `internal/component/binary/instance_type.go`, `internal/component/binary/core_type.go`.
+  (Use `Grep` for `TypeDef{` and `RecordTypeDef{` etc. inside `binary/`
+  to find every construction site.)
+- Modify: every file in the above list to populate `types.ValType` 
+  directly during decode (see specific guidance below)
+- Modify: `internal/component/binary/decoder_test.go` and any
+  companion `*_test.go` files in `binary/` — adjust to expect
+  `types.ValType` output
 
 **Spec authorities:**
 - `debug-vendored/go-modules/wit/codec.go` lines around `getTypeDef`
@@ -423,39 +448,51 @@ accessors that read from the cache.
   exists; otherwise the relevant section of the WebAssembly spec)
 
 **Description:**
-Currently the binary parser produces `binary.TypeDef` (a wide tagged
-struct with `*RecordTypeDef`, `*VariantTypeDef`, ...). Then a
-converter step (the four functions deleted in items 8-9) translates
-`binary.TypeDef` into `types.ValType`.
+Wazero currently has THREE parallel type hierarchies (see phase 1.A
+preamble): `binary.*TypeDef` (parser scratchpad inside `binary/`),
+`component.*TypeDef` (decoder output used by `instance.go`,
+`TypeResolver`, and the four converters), and `canon_lower.*` types
+(the dead `LoweredFunc` family). The converters in `component_linker.go`
+(items 8-9) translate `component.TypeDef` into `types.ValType`. Items
+6-9 collapse all three hierarchies into `types.ValType`.
 
-Eliminate the intermediate form. The parser produces `types.ValType`
-directly via allocate-then-fill:
+This item refactors the parser to produce `types.ValType` directly via
+allocate-then-fill. After this item lands, the parser still produces
+`component.TypeDef` for compatibility (callers of `instance.go`, etc.,
+still use it), but the `component.TypeDef` will ALSO carry a populated
+`*types.ValType` field. Items 8-9 then migrate the consumers to read
+from the `*types.ValType` directly, after which `component.TypeDef`
+itself can be deleted.
+
+(The cleaner alternative — replace `component.TypeDef` entirely in
+this item — is too disruptive for one commit. Two-phase migration
+keeps the build green between items 6 and 9.)
+
+**Algorithm (allocate-then-fill):**
 
 1. **First pass:** walk the binary type section. For each type, allocate
    a `*types.ValType` slot in a slice indexed by type-section index.
-   Do not fill it yet — the slots are zero-value.
+   Slots are zero-value pointers.
 
 2. **Second pass:** walk the type section again. For each type, read
-   its tag and contents from the binary, then fill the corresponding
-   slot. References to other types (e.g. record field type indices)
-   become pointers into the slice.
+   its tag and contents from the binary, then construct the appropriate
+   `types.ValType` (e.g., `types.Record{Fields: ...}`) and assign it to
+   the slot. References to other types (e.g. record field type indices)
+   become pointers into the slice. **Compute and populate
+   `CanonicalAbiInfo` (from item 5) at the same time** so lift/lower
+   never recomputes layout.
 
 3. **Validation:** after filling, walk the slice and confirm every
-   slot is non-zero and structurally valid.
+   slot is non-nil and structurally valid.
 
 This pattern handles recursion naturally: `record { foo: list<self> }`
 fills the list's element pointer with a pointer to the record's own
 slot, which is allocated but not yet filled at the time the inner
 list is parsed.
 
-The reference is `wit/codec.go::getTypeDef` which returns a `*TypeDef`
-that may be partially filled at the time it is returned. Read this
-file in full before starting.
-
-When this item is complete, `binary.TypeDef` and the parallel
-`binary.{Record,Variant,List,...}TypeDef` structs are still in place
-(for now) — they're deleted in item 7. This item is just the parser
-refactor.
+The reference is `debug-vendored/go-modules/wit/codec.go::getTypeDef`
+which returns a `*TypeDef` that may be partially filled at the time
+it is returned. Read this file in full before starting.
 
 **Definition of done:**
 - The binary parser produces `[]types.ValType` (or equivalent
@@ -478,45 +515,62 @@ refactor.
 
 ---
 
-### Item 7: Delete `binary.TypeDef` and the parallel `binary.{Record,Variant,List,Option,Result,Tuple,Flags,Enum}TypeDef` structs
+### Item 7: Delete the three parallel type hierarchies (binary, component, canon_lower)
 
 - **status:** pending
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
 - **commit:** -
-- **notes:** Depends on item 6
+- **notes:** Depends on items 6, 8, 9. This item completes the type unification by deleting the now-orphaned hierarchies.
 
 **Files:**
-- Modify: `internal/component/binary/types.go` — delete the structs
-- Modify: any caller that referenced the deleted structs (use Grep
-  first)
-- Modify: `internal/component/binary/types_test.go` — delete tests of
-  the deleted structs
+- Modify: `internal/component/binary/types.go` — delete `TypeDef`,
+  `RecordTypeDef`, `VariantTypeDef`, `ListTypeDef`, `OptionTypeDef`,
+  `ResultTypeDef`, `TupleTypeDef`, `FlagsTypeDef`, `EnumTypeDef`,
+  `VariantCase` (the binary scratchpads)
+- Modify: `internal/component/component.go` — delete `TypeDef`,
+  `RecordTypeDef`, `VariantTypeDef`, `ListTypeDef`, `OptionTypeDef`,
+  `ResultTypeDef`, `TupleTypeDef`, `FlagsTypeDef`, `EnumTypeDef`,
+  `StreamTypeDef`, `FutureTypeDef`, `FixedSizeListTypeDef`,
+  `NamedValType`, `ValTypeRef` (or whatever the local names are; use
+  Grep to verify)
+- Modify: `internal/component/canon_lower.go` — delete the local
+  `EnumType`, `FlagsType`, `VariantType`, `VariantCaseForLower`,
+  `PrimitiveType`, `PayloadType` interface (lines 15-62 verified by
+  audit)
+- Modify: any caller that referenced any deleted struct (Grep first)
+- Modify: `internal/component/binary/types_test.go`,
+  `internal/component/component_test.go` — delete tests of deleted structs
 
 **Spec authorities:**
 - N/A — this is a deletion item
 
 **Description:**
-After item 6 the parser produces `types.ValType` directly. The
-intermediate `binary.TypeDef` and its `*RecordTypeDef`,
-`*VariantTypeDef`, `*ListTypeDef`, `*OptionTypeDef`, `*ResultTypeDef`,
-`*TupleTypeDef`, `*FlagsTypeDef`, `*EnumTypeDef` structs have no
-remaining production callers. Delete them.
+After items 6, 8, and 9 the parser produces `types.ValType` directly
+and all production consumers (instance.go, component_linker.go) read
+from it. The three intermediate hierarchies have no production
+callers. Delete them all in this item.
 
-Use Grep to find every reference. Migrate each to the new
-`types.ValType` shape if the caller is in production code; delete if
-the caller was a test of the deleted struct.
+Use Grep to find every reference to each deleted name. Migrate any
+remaining caller to `types.ValType` if it's production code; delete
+the caller if it was a test of the deleted struct.
 
 **Definition of done:**
-- `binary.TypeDef` and the parallel structs are deleted
+- All three hierarchies are deleted (binary scratchpads, component
+  decoder output, canon_lower locals)
 - Grep returns zero for each deleted name
 - `go test ./internal/component/binary/...` passes
+- `go test ./internal/component/...` may have other failures from the
+  lift/lower paths still being broken — that's expected and tracked
+  in item 10
 
 **Reviewer focus areas:**
 - Spec compliance: N/A
-- Code quality: confirm zero references remain; confirm no caller was
-  missed
+- Code quality: confirm zero references remain for every deleted
+  name; confirm no caller was missed; confirm the canon_lower.go
+  local types were also deleted (audit found this hierarchy was
+  forgotten in the original plan)
 
 ---
 
@@ -527,15 +581,15 @@ the caller was a test of the deleted struct.
 - **spec_review:** -
 - **code_review:** -
 - **commit:** -
-- **notes:** Depends on items 6 and 7. Confirmed by audit research that these have zero external production callers.
+- **notes:** Depends on item 6. The three converters are mutually recursive within component_linker.go; only resolveToValType has external callers.
 
 **Files:**
 - Modify: `internal/component/component_linker.go` — delete
-  `resolveToValType` (around line 722), `typeDefToValType` (around
-  748), `valTypeRefToValType` (around 833)
-- Modify: any caller (the audit found 4 callers in
-  `component_linker.go` itself at lines 2120, 2125, 2308, 2313 — Grep
-  to confirm)
+  `resolveToValType` (line 722, verified), `typeDefToValType` (line
+  748, verified), `valTypeRefToValType` (line 833, verified)
+- Modify: the 4 callers of `resolveToValType` inside the same file
+  (verified at lines 2120, 2125, 2308, 2313 by audit) — migrate to
+  the parser-produced `types.ValType` per item 6
 - Modify: `internal/component/component_linker_test.go` — delete
   tests of these functions
 
@@ -543,14 +597,17 @@ the caller was a test of the deleted struct.
 - N/A — deletion item
 
 **Description:**
-The audit confirmed:
-- `typeDefToValType` and `valTypeRefToValType` have zero external
-  production callers; they only call each other recursively from
-  `resolveToValType`
-- `resolveToValType` has 4 callers, all in `component_linker.go`
-  (lines 2120, 2125, 2308, 2313)
-- `valTypeRefToValType` has an actively dangerous bug at line 882:
-  returns `types.U32{}` on lookup failure
+The three converters are mutually recursive within
+`component_linker.go`: `resolveToValType` calls `typeDefToValType`
+which calls `valTypeRefToValType` which calls back into
+`typeDefToValType`. The only external entry point is `resolveToValType`,
+which has 4 callers in `component_linker.go` itself (lines 2120, 2125,
+2308, 2313). After items 6 and 7, the parser populates `types.ValType`
+directly; the 4 callers can read from there without conversion.
+
+`valTypeRefToValType` has an actively dangerous bug at line 882:
+returns `types.U32{}` on lookup failure (silently turning a record
+into an i32). This bug disappears with the deletion.
 
 After items 6 and 7, the binary parser produces `types.ValType`
 directly. The 4 callers of `resolveToValType` should now be able to
@@ -576,52 +633,265 @@ Delete the three converter functions. Delete their tests.
 
 ---
 
-### Item 9: Delete `(*TypeResolver).resolveDefinedType` and its per-shape helpers
+### Item 9: Delete `TypeResolver` (resolveDefinedType + per-shape helpers + ResolveValType)
 
 - **status:** pending
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
 - **commit:** -
-- **notes:** Depends on item 8. The 3 production callers in instance.go:198/301/440 need to migrate.
+- **notes:** Depends on item 8. The 3 production callers in instance.go:198/301/440 call the public ResolveValType method (not the private resolveDefinedType directly).
 
 **Files:**
-- Modify: `internal/component/type_resolver.go` — delete
-  `resolveDefinedType`, `resolveRecord`, `resolveVariant`, `resolveList`,
-  `resolveOption`, `resolveResult`, `resolveTuple`, `resolveFlags`,
-  `resolveEnum`. Decide whether the rest of `TypeResolver` (e.g. lookup
-  helpers) should remain or also be deleted.
+- Modify: `internal/component/type_resolver.go` — delete the entire
+  `TypeResolver` struct: public `ResolveValType` method, private
+  `resolveDefinedType`, `resolveRecord`, `resolveVariant`,
+  `resolveList`, `resolveOption`, `resolveResult`, `resolveTuple`,
+  `resolveFlags`, `resolveEnum`, plus the cache and `withLocalTypes`
+  helpers. Pre-decided: TypeResolver's only responsibility is type
+  conversion; once that's gone, the struct has no remaining purpose.
 - Modify: `internal/component/instance.go` lines 198, 301, 440 —
-  migrate to use parser-produced types
-- Modify: `internal/component/type_resolver_test.go` — delete tests of
-  the deleted methods
+  these currently call `resolver.ResolveValType(typeRef)`. Migrate to
+  read parser-produced types directly (via the populated
+  `types.ValType` slot from item 6).
+- Modify: `internal/component/type_resolver_test.go` — delete the file
+  entirely (the struct is gone)
 
 **Spec authorities:**
 - N/A — deletion item
 
 **Description:**
 After items 6, 7, 8 the only remaining type converter is
-`TypeResolver.resolveDefinedType` and its per-shape helpers. The 3
-production callers in `instance.go` (lines 198, 301, 440) need to
-migrate to read parser-produced types directly.
+`TypeResolver`. Its public entry point is `ResolveValType` (called
+from instance.go:198, 301, 440). All three callers iterate over
+`*NamedValType` (already populated by the parser) and currently call
+`ResolveValType` to translate the embedded `ValTypeRef` into a
+`types.ValType`. After item 6, the parser populates `types.ValType`
+directly on the `NamedValType` (or wherever the canonical home is),
+so the callers just read it.
 
-If `TypeResolver` has any remaining responsibilities besides
-type conversion (e.g. resolving named imports across instance scopes),
-preserve those and rename the struct (e.g. to `TypeLookup`). If
-type conversion was its only purpose, delete the struct entirely.
+`TypeResolver` has no responsibilities beyond type conversion: its
+fields are a cache, an instance ref, and a localTypes ref. Once
+`ResolveValType` is deleted, the struct is empty. Delete it entirely.
 
 **Definition of done:**
-- `resolveDefinedType` and per-shape helpers deleted
-- 3 production callers migrated
-- `TypeResolver` either deleted or trimmed to its non-converter role
+- `TypeResolver` struct and all methods deleted
+- `type_resolver.go` file removed (or reduced to a doc-only stub if
+  the package needs the file for build hygiene; default: remove)
+- `type_resolver_test.go` removed
+- 3 production callers in instance.go migrated to read parser-produced
+  types directly
 - `go test ./internal/component/...` passes (or shows expected
   pre-existing failures)
 
 **Reviewer focus areas:**
 - Spec compliance: N/A
 - Code quality: confirm the migration of `instance.go:198/301/440` is
-  semantically equivalent (same types come out); confirm no orphan
-  helpers in `TypeResolver`
+  semantically equivalent (same types come out); confirm zero
+  references to `TypeResolver` or `ResolveValType` remain repo-wide
+
+---
+
+### Item 9.5: Delete existing `CanonLower` and `LoweredFunc` family from canon_lower.go
+
+- **status:** pending
+- **claimed_by:** -
+- **spec_review:** -
+- **code_review:** -
+- **commit:** -
+- **notes:** Resolves the name collision before item 26 adds the new abi.CanonLower. The existing CanonLower at canon_lower.go:98 returns *LoweredFunc which is the dead third lift/lower path.
+
+**Files:**
+- Modify: `internal/component/canon_lower.go` — delete the existing
+  `CanonLower(callback HostFunc, funcType *FuncType, options *CanonicalOptions) *LoweredFunc`
+  constructor at line 98 (verified). Delete `LoweredFunc` struct at
+  line 67. Delete every private helper inside `canon_lower.go` that
+  was only used by `LoweredFunc.CallWithStack`: `liftArguments`,
+  `liftArgumentsTyped`, `liftValFromFlat`, `liftString`, `lowerResults`,
+  `lowerResultsTyped`, `lowerValToFlatTyped`, `lowerString`,
+  `lowerValToFlat`, `lowerEnumToFlat`, `lowerFlagsToFlat`,
+  `lowerVariantToFlat`, the `flatIter` type and its methods.
+- Modify: `internal/component/canon_lower_test.go` — delete the file
+  entirely OR delete every test that references the deleted symbols
+  (the file probably becomes empty)
+- Modify: any caller of `CanonLower` or `LoweredFunc` outside
+  `canon_lower.go` (Grep first; expected: zero, since this is dead
+  code per the audit)
+
+**Spec authorities:**
+- N/A — deletion item
+
+**Description:**
+The audit confirmed that `internal/component/canon_lower.go` defines
+its own `CanonLower` constructor (line 98) returning `*LoweredFunc`
+(line 67), plus a third type hierarchy (`EnumType`/`FlagsType`/
+`VariantType`/`PrimitiveType`/`PayloadType` interface — already
+deleted by item 7) and a private lift/lower helper family that's
+called only by `LoweredFunc.CallWithStack`. The whole file is part
+of the dead canonical lower path that Loop 2 wires through `abi/`.
+
+**This item must run before item 26** because item 26 adds a new
+`CanonLower` in `abi/`. If both exist, Go has no name collision (they
+are in different packages — `internal/component` vs.
+`internal/component/abi`) but the existence of two functions with
+identical names and totally different semantics is confusing and the
+old one is dead code anyway.
+
+**`LoweredFunc.CallWithStack` is NOT deleted in this item.** That's
+deleted/rewritten by Loop 2 item 2. This item only deletes the
+constructor, the lift/lower helpers, and the local type hierarchy.
+
+**Pre-condition check:** before deleting `LoweredFunc`, run Grep to
+confirm `canon_lower.go` itself is the only file that constructs
+`*LoweredFunc`. If any other file constructs it, escalate — Loop 2
+item 2's "wire LoweredFunc.CallWithStack" plan needs the struct to
+still exist.
+
+**Resolution:** keep `LoweredFunc` struct AND its `CallWithStack`
+method (so Loop 2 item 2 can rewrite the body). Delete only the
+helper functions and the `CanonLower` constructor. Item 26 of Loop 1
+adds `abi.CanonLower` — different package, no collision.
+
+**Definition of done:**
+- `CanonLower` constructor in canon_lower.go is deleted
+- The 14 private helper functions listed above are deleted
+- `LoweredFunc` struct stays (Loop 2 item 2 needs it)
+- `LoweredFunc.CallWithStack` stays (Loop 2 item 2 rewrites it)
+- Grep returns zero for each deleted helper name
+- `go test ./internal/component/...` may fail (expected — production
+  paths still call into this code; Loop 2 wires them) but the deletion
+  is complete
+
+**Reviewer focus areas:**
+- Spec compliance: N/A
+- Code quality: confirm `LoweredFunc` and `CallWithStack` are NOT
+  deleted (they're needed by Loop 2 item 2); confirm the deleted
+  helpers had zero callers outside the deleted constructor
+
+---
+
+### Item 9.7: Resolve circular dependency between abi/ and component/ via shared package extraction
+
+- **status:** pending
+- **claimed_by:** -
+- **spec_review:** -
+- **code_review:** -
+- **commit:** -
+- **notes:** **CRITICAL ARCHITECTURAL FIX.** Today abi/lift.go, abi/lower.go, abi/context.go, abi/resource_lower.go all import `internal/component`. Loop 2 must make `internal/component` import `abi/`. This creates a circular dependency. Must be resolved before Loop 2 starts.
+
+**Files:**
+- Read: `internal/component/abi/lift.go:8`, `lower.go:9`, `context.go:8`,
+  `resource_lower.go` — verify the four files importing `internal/component`
+- Read: `internal/component/{val.go,resource_table.go,borrow_scope.go,call_context.go,subtask.go}` —
+  source of `component.Val`, `component.ResourceTable`,
+  `component.BorrowScope`, `component.CallContext`, `component.Subtask`
+- Read: `debug-vendored/wasmtime/crates/wasmtime/src/runtime/vm/component/resources.rs`
+  — wasmtime's low-level vm-resources separation reference
+- Create: a new sub-package — pre-decided default name
+  `internal/component/runtime/` — that holds the value types and
+  resource state shared between `abi/` and the parent `component/`
+- Modify: every `abi/*.go` (lift, lower, context, resource_lower) —
+  change `import "github.com/tetratelabs/wazero/internal/component"`
+  to `import "github.com/tetratelabs/wazero/internal/component/runtime"`,
+  rename `component.Val` → `runtime.Val`, etc.
+- Modify: `internal/component/{val.go,resource_table.go,borrow_scope.go,
+  call_context.go,subtask.go}` — move the type definitions to the new
+  `runtime/` sub-package, then re-export type aliases from the parent
+  package for backward compatibility within `internal/component`
+  (e.g. `type Val = runtime.Val`)
+- Modify: every other `internal/component/*.go` file that uses these
+  types — they continue to compile via the type aliases (no source
+  changes needed except imports if any)
+
+**Spec authorities:**
+- N/A — this is a Go package boundary fix, not a spec change. Wasmtime
+  reference is `vm/component/resources.rs` (low-level resource state)
+  vs `runtime/component/values.rs` (Val + lift/lower) vs
+  `runtime/component/func.rs` (orchestration). Three layers, with the
+  arrows pointing UP only.
+
+**Description:**
+The current package layout:
+
+```
+internal/component/        (Val, ResourceTable, BorrowScope, CallContext,
+                            Subtask, instance.go, linker.go, ...)
+       |
+       v   imports
+internal/component/abi/    (lift.go imports component.Val etc.)
+internal/component/types/  (ValType, Record, Variant, ...)
+```
+
+After Loop 2, the wiring direction must reverse for lift/lower:
+`instance.go::ExportedFunc.Call` will call `abi.CanonLift`/
+`abi.CanonLower`. This requires `internal/component` to import `abi/`,
+which is impossible while `abi/` imports `internal/component`.
+
+The fix is wasmtime's three-layer pattern. Move the shared
+runtime-value types into a new sub-package `internal/component/runtime/`:
+
+```
+internal/component/runtime/   (Val, ResourceTable, BorrowScope,
+                                CallContext, Subtask)
+       ^                ^
+       |                |
+internal/component/abi/  internal/component/types/
+       ^                ^
+       |                |
+internal/component/      (instance.go, linker.go — orchestration)
+```
+
+`abi/` imports `runtime/` and `types/`, never the parent.
+`internal/component/` imports `abi/`, `runtime/`, `types/`.
+No cycles.
+
+**Migration plan within this item:**
+
+1. Create `internal/component/runtime/` directory.
+2. For each of `Val`, `ResourceTable`, `BorrowScope`, `CallContext`,
+   `Subtask`: identify the file in `internal/component/` that defines
+   it (likely `val.go`, `resource_table.go`, etc.), MOVE the type
+   definition (and its methods, constructors, helpers) into a
+   correspondingly-named file under `internal/component/runtime/`.
+3. In `internal/component/`, replace each moved type with a one-line
+   alias: `type Val = runtime.Val`, `type ResourceTable = runtime.ResourceTable`,
+   etc. This keeps the rest of `internal/component/` (instance.go,
+   linker.go, etc.) compiling without source changes.
+4. In each `abi/*.go` file that previously imported
+   `internal/component`, change the import path to
+   `internal/component/runtime` and rename `component.X` → `runtime.X`
+   throughout.
+5. Run `go build ./internal/component/...` and confirm everything
+   compiles.
+6. Run `go test ./internal/component/abi/...` and confirm the abi
+   tests still pass (they should be unaffected by the move).
+7. Run `go test ./internal/component/runtime/...` (the moved tests).
+
+**This item must complete before Loop 2 starts.** It is in phase 1.A
+because it's foundational to the package architecture; everything in
+phase 1.D (new abi/ entry points) and Loop 2 (wiring) depends on it.
+
+**Definition of done:**
+- `internal/component/runtime/` exists with `Val`, `ResourceTable`,
+  `BorrowScope`, `CallContext`, `Subtask` and their methods
+- `internal/component/` retains compatibility type aliases
+- `abi/*.go` imports `internal/component/runtime` (NOT
+  `internal/component`)
+- Grep for `\"github.com/tetratelabs/wazero/internal/component\"` in
+  `internal/component/abi/*.go` returns ZERO matches
+- `go build ./internal/component/...` succeeds
+- `go test ./internal/component/abi/...` passes
+- `go test ./internal/component/runtime/...` passes
+- All other tests still build (other packages use the type aliases)
+
+**Reviewer focus areas:**
+- Spec compliance: confirm the package layering matches wasmtime's
+  three-layer pattern (cite `vm/component/resources.rs` and
+  `runtime/component/func/options.rs`)
+- Code quality: confirm zero `internal/component"` imports in
+  `abi/*.go`; confirm the type aliases are minimal (one line each);
+  confirm no functionality moved that shouldn't have (e.g.,
+  instance.go-specific orchestration must NOT move into runtime/)
 
 ---
 
@@ -801,23 +1071,34 @@ package canonical_abi
 ```
 
 The python_reference.go file holds spec constants and source-line
-references:
+references. **Note:** `internal/component/abi/context.go:13-29`
+already defines `MaxFlatParams`, `MaxFlatResults`,
+`CanonicalFloat32NaN`, `CanonicalFloat64NaN`. The conformance package
+does NOT redefine them — it imports from `abi/`. Only constants that
+are not already in `abi/` are defined here:
 
 ```go
 package canonical_abi
+
+import "github.com/tetratelabs/wazero/internal/component/abi"
 
 // PythonReferenceSHA records the upstream commit of run_tests.py at
 // the time these tests were ported. Update when re-syncing.
 const PythonReferenceSHA = "<sha>"
 
-// Spec constants from definitions.py
+// Constants imported from internal/component/abi (single source of truth):
+//   abi.MaxFlatParams      = 16    (definitions.py:142, MAX_FLAT_PARAMS)
+//   abi.MaxFlatResults     = 1     (definitions.py:143, MAX_FLAT_RESULTS)
+//   abi.CanonicalFloat32NaN = 0x7FC00000   (definitions.py canonical NaN)
+//   abi.CanonicalFloat64NaN = 0x7FF8000000000000
+
+// Constants only defined in the conformance package (not yet in abi/):
 const (
-    MaxFlatParams        = 16     // definitions.py:XXX
-    MaxFlatResults       = 1      // definitions.py:XXX
-    CanonicalFloat32NaN  = 0x7FC00000  // definitions.py:XXX
-    CanonicalFloat64NaN  = 0x7FF8000000000000  // definitions.py:XXX
-    Utf16Tag             = 1 << 31  // definitions.py:XXX
-    DeterministicProfile = true   // definitions.py:XXX
+    Utf16Tag             = 1 << 31     // definitions.py UTF16_TAG
+    // DeterministicProfile is the spec default per definitions.py:1209
+    // (DETERMINISTIC_PROFILE = False). Wazero pins it to true for
+    // testability — see item 29 for the rationale and citation.
+    DeterministicProfile = true
 )
 
 // SourceLine records the run_tests.py line that a Go test ports.
@@ -864,34 +1145,71 @@ type SourceLine struct {
 **Description:**
 The Python test suite uses helper functions to dispatch each
 parametric test category. Port each as a Go helper that takes a row
-struct and runs the assertions.
-
-Example for `test()`:
+struct and runs the assertions. Concrete signatures (using the
+post-item-9.7 `runtime` package and the actual wazero flat
+representation `[]uint64`):
 
 ```go
-// runTest is the Go equivalent of run_tests.py's test() helper at
-// line 105. It asserts (a) lift_flat(vi, t) equals expected value,
-// and (b) lower-then-re-lift through a fresh heap is stable.
-func runTest(t *testing.T, valType types.ValType, flatVals []core.Value, expected component.Val) {
+// runTest ports run_tests.py:105 (test() helper). It asserts
+// (a) lift_flat(vi, t) equals expected value, and (b) lower-then-
+// re-lift through a fresh heap is stable.
+func runTest(t *testing.T, valType types.ValType, flatVals []uint64, expected runtime.Val) {
     t.Helper()
-    // ... port the Python logic
+    // 1. Build a LiftContext with a fresh memory + canonical options
+    // 2. Lift via abi.LiftValues (item 25)
+    // 3. Assert equal to expected
+    // 4. Round-trip: lower + re-lift, assert stable
 }
 
-// runTestPairs is the Go equivalent of run_tests.py's test_pairs()
-// at line 180. Each row is (input, expected) for primitive coercion.
-func runTestPairs[T any](t *testing.T, valType types.ValType, pairs []struct{ In, Out T }) {
+// runTestPairs ports run_tests.py:180 (test_pairs() helper). Each
+// row is (input, expected) for primitive coercion.
+func runTestPairs[In, Out any](t *testing.T, valType types.ValType, pairs []struct{ In In; Out Out }) {
     t.Helper()
-    // ...
+    // For each row: lift_flat then assert equality
 }
 
-// ... and so on for runTestHeap, runTestFlatten, runTestNan,
-// runTestStringEncoding, runTestRoundtrip, runTestReentrance
+// runTestHeap ports run_tests.py:284 (test_heap()).
+// (t, expected, ptrLenArgs, memoryBytes) — byte-level golden test.
+func runTestHeap(t *testing.T, valType types.ValType, expected runtime.Val, ptrLen []uint64, memBytes []byte) {
+    t.Helper()
+}
+
+// runTestFlatten ports run_tests.py:372 (test_flatten()).
+func runTestFlatten(t *testing.T, ft types.FuncType, expectedParams []string, expectedResults []string) {
+    t.Helper()
+}
+
+// runTestNan32 ports run_tests.py:203 (test_nan32()).
+func runTestNan32(t *testing.T, inputBits, expectedBits uint32) {
+    t.Helper()
+}
+
+// runTestNan64 ports run_tests.py:217 (test_nan64()).
+func runTestNan64(t *testing.T, inputBits, expectedBits uint64) {
+    t.Helper()
+}
+
+// runTestStringEncoding ports run_tests.py:253 (test_string()).
+func runTestStringEncoding(t *testing.T, s string, src, dst abi.StringEncoding) {
+    t.Helper()
+}
+
+// runTestRoundtrip ports run_tests.py:399 (test_roundtrip()).
+func runTestRoundtrip(t *testing.T, valType types.ValType, args []runtime.Val) {
+    t.Helper()
+}
+
+// runTestReentrance ports run_tests.py:2765 (test_reentrance()).
+// Uses internal/component.ReentranceTracker.CallMightBeRecursive,
+// not abi/.
+func runTestReentrance(t *testing.T, ...) { t.Helper() }
 ```
 
-The exact signatures depend on the Go types after phase 1.A. Read
-`internal/component/types/composite.go` and `core.Value` (or whatever
-the Go equivalent of Python's `int`/`float` flat values is) before
-writing.
+(Read `abi/context.go` for the actual `LiftContext`/`LowerContext`
+shapes, `abi/strings.go` for `StringEncoding`, and
+`internal/component/types/composite.go` for `types.FuncType` (after
+item 6 populates it). All helpers MUST use the post-item-9.7
+`runtime` package, not the parent `component` package.)
 
 **Definition of done:**
 - `helpers_test.go` exists with one helper per Python helper
@@ -975,7 +1293,7 @@ they're deferred but document the value:
 > Ports must be **direct** (the same input produces the same expected
 > output). Do not "improve" the test; the spec wins.
 
-### Item 15: Port primitive coercion tests (test_pairs, ~55 cases) → primitives_test.go
+### Item 15: Port primitive coercion tests (test_pairs, 58 cases) → primitives_test.go
 
 - **status:** pending
 - **claimed_by:** -
@@ -988,8 +1306,10 @@ they're deferred but document the value:
 - Create: `internal/component/conformance/canonical_abi/primitives_test.go`
 
 **Spec authorities:**
-- `run_tests.py:180-202` (`test_pairs` definition and the ~14 calls
-  with their ~55 expanded sub-cases)
+- `run_tests.py:180-202` (`test_pairs` definition and the 14 calls
+  with their 58 expanded sub-cases — verified by counting:
+  Bool 4 + U8 7 + S8 7 + U16 7 + S16 7 + U32 3 + S32 3 + U64 3 +
+  S64 3 + F32 1 + F64 1 + Char 5 + Char 4 + Enum 3 = 58)
 
 **Description:**
 Port every `test_pairs(...)` call from `run_tests.py`. Each Python row
@@ -1039,7 +1359,7 @@ For Python's float → Go's float (use bit patterns where needed):
 
 ---
 
-### Item 16: Port lift/lower roundtrip composites tests (test, 23 cases) → composites_test.go
+### Item 16: Port lift/lower roundtrip composites tests (test, 20 cases) → composites_test.go
 
 - **status:** pending
 - **claimed_by:** -
@@ -1052,8 +1372,9 @@ For Python's float → Go's float (use bit patterns where needed):
 - Create: `internal/component/conformance/canonical_abi/composites_test.go`
 
 **Spec authorities:**
-- `run_tests.py:105-179` (`test` helper and the 23 direct invocations
-  for record/tuple/list/flags/variant/option/result)
+- `run_tests.py:105-179` (`test` helper and the 20 direct invocations
+  for record/tuple/list/flags/variant/option/result — verified count
+  by grep)
 
 **Description:**
 Port every direct `test(...)` call from `run_tests.py:105-179`. Each
@@ -1086,7 +1407,7 @@ func TestComposites(t *testing.T) {
 public API after phase 1.A. Read the actual types before writing.)
 
 **Definition of done:**
-- All 23 `test()` invocations are ported as table rows or t.Run
+- All 20 `test()` invocations are ported as table rows or t.Run
   blocks
 - Each cites the source line
 - Tests are EXPECTED TO FAIL at this stage
@@ -1348,7 +1669,7 @@ Same as items 15-20.
 
 ---
 
-### Item 22: Port test_handles resource scenario (~50 asserts) → handles_test.go
+### Item 22: Port test_handles resource scenario (~36 asserts) → handles_test.go
 
 - **status:** pending
 - **claimed_by:** -
@@ -1361,7 +1682,8 @@ Same as items 15-20.
 - Create: `internal/component/conformance/canonical_abi/handles_test.go`
 
 **Spec authorities:**
-- `run_tests.py:441-551` (`test_handles` scenario)
+- `run_tests.py:441-551` (`test_handles` scenario; ~36 asserts
+  verified by counting `assert(` lines in this range)
 
 **Description:**
 Port `test_handles`. This is a single scenario test (~50 asserts)
@@ -1409,7 +1731,7 @@ func TestHandles(t *testing.T) {
 
 ---
 
-### Item 23: Port test_reentrance (~12 asserts) → reentrance_test.go
+### Item 23: Port test_reentrance (13 asserts) → reentrance_test.go
 
 - **status:** pending
 - **claimed_by:** -
@@ -1422,23 +1744,24 @@ func TestHandles(t *testing.T) {
 - Create: `internal/component/conformance/canonical_abi/reentrance_test.go`
 
 **Spec authorities:**
-- `run_tests.py:2765-2831` (`test_reentrance` scenario)
+- `run_tests.py:2765-2802` (`test_reentrance` scenario; 13 asserts
+  verified by count)
 
 **Description:**
-Port `test_reentrance`. ~12 boolean asserts on
+Port `test_reentrance`. 13 boolean asserts on
 `call_might_be_recursive(task, inst)` for various task chains. The
 test has no I/O, no memory — just chain-construction and assertions.
 
-This test should pass relatively easily since `call_might_be_recursive`
-is a pure function over task graph data.
+The function `CallMightBeRecursive` is implemented as a method of
+`ReentranceTracker` at `internal/component/reentrance.go:44` (NOT in
+`abi/`). The Go test imports it from there.
 
 **Definition of done:**
-- All ~12 asserts ported as table rows or t.Run blocks
+- All 13 asserts ported as table rows or t.Run blocks
 - Each cites the source line
 - The test file compiles cleanly
-- Tests pass IF `call_might_be_recursive` is implemented in `abi/`
-  (which it should be — verify before completing this item; if it's
-  missing, that becomes a sub-item under phase 1.D)
+- Tests pass — `CallMightBeRecursive` already exists at
+  `internal/component/reentrance.go:44`
 
 **Reviewer focus areas:**
 Same as items 15-22.
@@ -1459,58 +1782,95 @@ Same as items 15-22.
 - **spec_review:** -
 - **code_review:** -
 - **commit:** -
-- **notes:** Depends on Loop 1 phase 1.A item 3 (Own carries *ResourceType)
+- **notes:** Depends on Loop 1 phase 1.A item 3 (Own carries *ResourceType) and item 9.7 (package boundary). Extends the EXISTING LiftOwn/LiftBorrow helpers to take *ResourceType, then folds them into the dispatch.
 
 **Files:**
-- Modify: `internal/component/abi/lift.go` — add `case types.Own:` and
-  `case types.Borrow:` to `LiftFlat` and `LiftHeap`
-- Modify: `internal/component/abi/lower.go` — add the same to
-  `LowerFlat` and `LowerHeap`
+- Modify: `internal/component/abi/lift.go` — extend the existing
+  `LiftOwn`/`LiftBorrow` (lines 708, 790) to take a `*types.ResourceType`
+  parameter for spec-correct trap-on-mismatch; then add `case types.Own:`
+  and `case types.Borrow:` to `LiftFlat` and `LiftHeap` that call them
+- Modify: `internal/component/abi/lower.go` — same for
+  `LowerOwn`/`LowerBorrow` (lines 654, 670) and `LowerFlat`/`LowerHeap`
 - Modify: `internal/component/abi/lift_test.go`,
   `internal/component/abi/lower_test.go` — add tests for the
-  integrated dispatch (record-of-own, list-of-borrow, etc.)
+  integrated dispatch (record-of-own, list-of-borrow, etc.) AND
+  for the new ResourceType validation trap
+- Modify: callers of the existing `LiftOwn`/`LiftBorrow`/`LowerOwn`/
+  `LowerBorrow` (use Grep) — pass the new `*ResourceType` argument
 
 **Spec authorities:**
 - `definitions.py:1197-1198` — `load(cx, ptr, t)` `case OwnType()`,
-  `case BorrowType()`
+  `case BorrowType()` (verified)
 - `definitions.py:1387-1388` — `store(cx, v, t, ptr)` symmetric
 - `definitions.py:1792-1793` — `lift_flat()` Own/Borrow case
 - `definitions.py:1886-1887` — `lower_flat()` Own/Borrow case
-- `definitions.py:1333-1364` — `lift_own`/`lift_borrow` definitions
-  (resource type validation at lines 2218-2219, 2237-2238)
+- `definitions.py:1333-1339` — `lift_own(cx, i, t)` definition; the
+  trap `trap_if(h.rt is not t.rt)` is at line 1336 (verified)
+- `definitions.py:1341-1347` — `lift_borrow(cx, i, t)`; the trap is at
+  line 1345 (verified)
 - `crates/wasmtime/src/runtime/component/values.rs:115` — wasmtime's
   matched case
 
 **Description:**
 Currently `abi/`'s four dispatch functions do not handle `types.Own`
 or `types.Borrow` — they fall through to the default error branch.
-The standalone `LiftOwn`/`LiftBorrow` helpers are the only way to
-lift a handle, and they're not called from inside the dispatch.
+The standalone `LiftOwn`/`LiftBorrow` helpers (at `lift.go:708, 790`)
+already exist but: (a) they don't take a `*ResourceType` so they
+can't validate the trap at `definitions.py:1336`, and (b) they're
+not called from inside the dispatch.
 
-Add the integrated dispatch:
+This item:
+1. **Extends the existing helpers** to take `*types.ResourceType`
+   (matching `definitions.py:1333-1347`):
+
+```go
+// LiftOwn lifts an own<T> handle, validating the resource type per
+// definitions.py:1336. Pre-item-9.7 this took only handleIdx; now it
+// takes the resource type for trap-on-mismatch.
+func (cx *LiftContext) LiftOwn(handleIdx uint32, t *runtime.ResourceType) (runtime.Val, error) {
+    h, ok := cx.ResourceTable.Get(handleIdx)
+    if !ok {
+        return runtime.Val{}, fmt.Errorf("invalid handle %d", handleIdx)
+    }
+    if h.ResourceType != t {  // definitions.py:1336 trap_if(h.rt is not t.rt)
+        return runtime.Val{}, fmt.Errorf("handle resource type mismatch")
+    }
+    if h.NumLends != 0 {  // definitions.py:1337
+        return runtime.Val{}, fmt.Errorf("cannot lift_own a handle with active borrows")
+    }
+    if !h.Owned {  // definitions.py:1338
+        return runtime.Val{}, fmt.Errorf("cannot lift_own a borrowed handle")
+    }
+    cx.ResourceTable.Remove(handleIdx)  // definitions.py:1334 (table.remove(i))
+    return runtime.ValOwn(h.Rep), nil
+}
+```
+
+2. **Adds the integrated dispatch** in the four type switches:
 
 ```go
 // In LiftFlat:
 case types.Own:
     handleIdx := iter.NextI32()
-    return liftOwnInternal(cx, uint32(handleIdx), t.Resource)
+    return cx.LiftOwn(uint32(handleIdx), t.Resource)
 case types.Borrow:
     handleIdx := iter.NextI32()
-    return liftBorrowInternal(cx, uint32(handleIdx), t.Resource)
+    return cx.LiftBorrow(uint32(handleIdx), t.Resource)
 
 // Similar for LiftHeap (read 4 bytes from memory), LowerFlat,
 // LowerHeap.
 ```
 
-`liftOwnInternal` is the spec-correct lift_own that:
-1. Looks up the handle in the resource table
-2. **Traps** if `handle.rt is not t.Resource` per spec lines
-   2218-2219, 2237-2238
-3. Returns the rep
+The standalone `LiftOwn`/`LiftBorrow`/`LowerOwn`/`LowerBorrow` now
+exist in their EXTENDED form (with `*ResourceType`) and are
+internal-only. Loop 2 phase 2.D item 6 deletes them as standalones —
+their callers will be the dispatch cases above, which is fine
+because they're simply being inlined.
 
-(The standalone `LiftOwn`/`LiftBorrow` exports remain in this item;
-they're deleted in Loop 2 phase 2.D item 6 once production code uses
-the integrated dispatch.)
+**Note:** Existing callers of `LiftOwn`/`LiftBorrow` etc. (find via
+Grep) need their call sites updated to pass the new `*ResourceType`
+parameter. Since `*ResourceType` is now on `types.Own.Resource` (per
+item 3), most callers can pass `t.Resource`.
 
 **Definition of done:**
 - All four dispatch functions handle `types.Own` and `types.Borrow`
@@ -1524,199 +1884,253 @@ the integrated dispatch.)
 
 **Reviewer focus areas:**
 - Spec compliance: confirm dispatch matches `definitions.py:1197/1792`;
-  confirm trap matches `definitions.py:2218`
-- Code quality: confirm no duplication with the existing standalones;
-  confirm idiomatic Go; confirm no error suppression
+  confirm the trap matches `definitions.py:1336` (`trap_if(h.rt is not t.rt)`)
+- Code quality: confirm the existing helpers were extended (not
+  duplicated); confirm idiomatic Go; confirm no error suppression;
+  confirm `runtime.Val`/`runtime.ResourceType` (post-item-9.7) not
+  `component.Val`/`component.ResourceType`
 
 ---
 
-### Item 25: Add `CanonLift` entry point with retptr param spill and result spill
+### Item 25: Add `CanonLift`/`CanonLower` lift-only entry points (pure math, no lifecycle)
 
 - **status:** pending
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
 - **commit:** -
-- **notes:** Top-level entry point that does not exist today
+- **notes:** Depends on item 9.7 (package boundary). NOT a full canon_lift wrapper — that lives in instance.go per the wasmtime layering. abi/ stays pure math.
 
 **Files:**
 - Modify: `internal/component/abi/lift.go` (or create
-  `internal/component/abi/canon_lift.go`) — add `CanonLift` function
+  `internal/component/abi/canon_lift.go`) — add lift entry points
 - Modify: `internal/component/abi/lift_test.go` — add tests for
-  param spill (>16 flat) and result spill (retptr)
+  param spill (>16 flat) and retptr result spill
 
 **Spec authorities:**
-- `definitions.py:3237+` — `canon_lift` definition
-- `definitions.py:3113` — `lift_flat_values` (param spill)
-- `definitions.py:3132` — `lower_flat_values` (result spill)
-- `crates/wasmtime/src/runtime/component/func/typed.rs::call_raw` —
-  wasmtime's retptr handling
+- `definitions.py:1978-2063` — `canon_lift(opts, inst, ft, callee, ...)`
+  (verified line; the spec function combines lift+invoke+lower in one
+  Python function — wazero splits this between `abi/` math and
+  `instance.go` lifecycle per the wasmtime layering)
+- `definitions.py:1943` — `lift_flat_values(cx, max_flat, vi, ts)`
+  (param spill helper; this is the pure-math part wazero needs)
+- `definitions.py:1954` — `lower_flat_values(cx, max_flat, vs, ts, out_param)`
+- `crates/wasmtime/src/runtime/component/values.rs:97-218` —
+  `Val::lift` pure-math reference (NOT `func.rs::call_raw` which is
+  the lifecycle wrapper; that's item 5 of Loop 2)
+- `crates/wasmtime/src/runtime/component/func/typed.rs` — `Lift`/`Lower`
+  trait reference
+
+**Architectural decision (per wasmtime layering research):**
+`abi/` is pure math, mirroring wasmtime's `values.rs`. It does NOT
+know about subtasks, borrow scope, may_leave, may_enter, post_return,
+reentrance, or enter_call/exit_call. Those live in
+`instance.go::ExportedFunc.Call` (the wasmtime `func.rs::call_raw`
+analogue) — that's Loop 2 item 5. abi/ provides the math primitives
+that the wrapper calls.
 
 **Description:**
-Today `abi/` has `LiftFlat`, `LiftHeap`, `LowerFlat`, `LowerHeap` —
-leaf operations. There is no top-level `CanonLift`/`CanonLower` that
-handles flatten + spill + invoke + result-handling. Production code
-has to reimplement the dispatcher externally; that's part of why the
-parallel implementations exist.
+Today `abi/` has `LiftFlat`, `LiftHeap`, `LowerFlat`, `LowerHeap` as
+leaf operations on individual values. What's missing are the
+**multi-value spill helpers** that handle param spill (when
+`len(flat) > MaxFlatParams`) and result spill (retptr) for an entire
+parameter or result list at once. These are direct ports of
+`lift_flat_values` and `lower_flat_values` from `definitions.py`.
 
-Add `CanonLift`:
+Add two pure-math entry points (signatures use the post-item-9.7
+`runtime` package, not the parent `component`):
 
 ```go
-// CanonLift implements the canon_lift abstract operation per
-// definitions.py:3237. It lifts the wasm core stack values into
-// component-level Vals, handling parameter spill (when len(flat) >
-// MaxFlatParams) and result retptr.
+// LiftValues implements lift_flat_values from definitions.py:1943.
+// It lifts a list of parameter or result values from the wasm flat
+// representation, spilling to memory via the retptr if the flat
+// representation would exceed maxFlat.
 //
-// opts: canonical options (encoding, memory, realloc, post-return)
-// ft: the component-level function type
-// args: the wasm core stack as []core.Value
-// callee: the inner host or guest function to invoke (returns
-//   component Vals as its result)
+// cx: lift context (memory, options, resource tables — no lifecycle)
+// maxFlat: MaxFlatParams (16) for params, MaxFlatResults (1) for results
+// flat: the wasm core stack values (post-item-9.7: []uint64, the
+//   actual wazero core stack representation)
+// types: the component-level types of each value to lift
 //
-// Returns the component-level result Vals, or an error.
-func CanonLift(opts *Options, ft *types.FuncType, args []core.Value,
-                callee func([]component.Val) ([]component.Val, error)) (
-                []component.Val, error) {
-    // 1. Determine if params need spill: flatten ft.Params,
-    //    if len(flat) > MaxFlatParams, args[0] is a retptr to
-    //    a packed memory image of the params.
-    // 2. Lift each param via LiftFlat or LiftHeap.
-    // 3. Invoke callee with the lifted Vals.
-    // 4. Handle result: if flatten ft.Results > MaxFlatResults,
-    //    write to a caller-provided retptr; otherwise pack into
-    //    return values.
-    // 5. Invoke post-return callback if configured.
-}
+// Returns the lifted runtime.Val list, or an error. Does NOT touch
+// borrow scope, may_leave, post_return, or any lifecycle state.
+func LiftValues(cx *LiftContext, maxFlat int, flat []uint64, types []types.ValType) ([]runtime.Val, error)
+
+// LowerValues implements lower_flat_values from definitions.py:1954.
+// Mirror of LiftValues for the lower direction.
+func LowerValues(cx *LowerContext, maxFlat int, vs []runtime.Val, types []types.ValType, outParam *uint32) ([]uint64, error)
 ```
 
-(Exact signature depends on existing `abi/` API. Read the current
-`Options` struct and `core.Value` shape before writing.)
+(Exact signature confirmed against the current `abi/` API: `LiftContext`/
+`LowerContext` already exist in `abi/context.go`; `[]uint64` is the
+actual wazero flat representation per `abi/lift.go:14` `FlatIter`;
+`runtime.Val` is the post-item-9.7 import path for what is currently
+`component.Val`.)
 
-The retptr handling references wasmtime's `call_raw` for the exact
-spill semantics — read it.
+The retptr handling matches `lift_flat_values`/`lower_flat_values` in
+`definitions.py:1943-1977`: if the flat representation would exceed
+`maxFlat`, the actual values are read from / written to memory at
+the address held in the retptr slot, and the flat slot just holds
+the pointer.
 
-Post-return invocation is item 27.
+Post-return is NOT part of these entry points — it's a lifecycle
+concern, handled by `instance.go::ExportedFunc.Call` after `LiftValues`
+returns the result Vals (Loop 2 item 5).
+
+**Rename note:** the design and prior plan revisions called this
+`CanonLift`/`CanonLower` after the spec's `canon_lift`/`canon_lower`
+functions. Those spec functions are wrappers that include the lifecycle
+work (subtask creation, post_return, etc.). To avoid implying that the
+wazero `abi/` versions also do lifecycle, the wazero functions are
+named `LiftValues`/`LowerValues` after `lift_flat_values`/
+`lower_flat_values` — which is exactly what they implement.
 
 **Definition of done:**
-- `CanonLift` exists and matches the spec
+- `LiftValues` exists and matches `definitions.py:1943` `lift_flat_values`
+- `LowerValues` exists and matches `definitions.py:1954` `lower_flat_values`
 - Param spill works for >16 flat params (test with 17, 32, 100)
 - Result spill works for >1 flat result (test with 2 results, 16
   results)
-- Tests from phase 1.C items 21 (test_roundtrips) start passing
+- Tests from phase 1.C items 21 (test_roundtrips) start passing for
+  the math portions (the lifecycle-dependent portions still need
+  Loop 2 item 5)
 - `go test ./internal/component/abi/...` passes
+- Neither function references subtask, borrow scope, may_leave,
+  post_return, or any other lifecycle state — verified by Grep
 
 **Reviewer focus areas:**
-- Spec compliance: confirm the implementation matches `canon_lift` at
-  `definitions.py:3237`; cite each step's source
-- Code quality: confirm idiomatic Go; confirm error wrapping; confirm
-  no helpers without consumers; confirm retptr handling matches
-  wasmtime's `call_raw`
+- Spec compliance: confirm the implementations match
+  `definitions.py:1943-1977` line by line; cite each step
+- Code quality: confirm pure-math (no lifecycle); confirm idiomatic
+  Go; confirm error wrapping; confirm `runtime.Val` (post-item-9.7)
+  not `component.Val`
 
 ---
 
-### Item 26: Add `CanonLower` entry point (mirror of CanonLift)
+### Item 26: Verify `LiftValues`/`LowerValues` integration with existing leaf operations
 
 - **status:** pending
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
 - **commit:** -
-- **notes:** -
+- **notes:** Item 25 added LiftValues and LowerValues together. This item is the integration verification — confirms both functions correctly compose with existing LiftFlat/LiftHeap/LowerFlat/LowerHeap leaf operations and the FlatIter abstraction.
 
 **Files:**
-- Modify: `internal/component/abi/lower.go` (or create
-  `internal/component/abi/canon_lower.go`) — add `CanonLower`
-- Modify: `internal/component/abi/lower_test.go` — add tests
+- Read: `internal/component/abi/flatten.go` — existing
+  `FlattenParams`, `FlattenResults`, `CoreSignature`, `flattenType`,
+  `FlatIter` (verify how the leaf operations are currently composed)
+- Modify (only if integration tests reveal a gap):
+  `internal/component/abi/lift.go`, `lower.go`, `flatten.go`
+- Add: `internal/component/abi/canon_values_test.go` — integration
+  tests that exercise `LiftValues`/`LowerValues` against composite
+  type lists with mixed flat/heap-spilled values
 
 **Spec authorities:**
-- `definitions.py:3453+` — `canon_lower` definition
-- `crates/wasmtime/src/runtime/component/func/typed.rs::call_raw`
+- `definitions.py:1943-1977` — `lift_flat_values`/`lower_flat_values`
+- `crates/wasmtime/src/runtime/component/values.rs:97-218` — wasmtime
+  reference for how leaf operations compose into multi-value lifts
 
 **Description:**
-Mirror of item 25 for the lowering direction. Used by host imports:
-the host receives lifted component Vals, the host computes a result,
-the result is lowered into the wasm core stack.
+Item 25 added the multi-value spill helpers `LiftValues` and
+`LowerValues`. They internally call the leaf operations (`LiftFlat`,
+`LiftHeap`, `LowerFlat`, `LowerHeap`) for each individual value.
+This item is the integration verification — write tests that exercise
+the composition under conditions the leaf-operation tests don't cover:
 
-```go
-// CanonLower implements the canon_lower abstract operation per
-// definitions.py:3453. It lowers component-level Vals into the wasm
-// core stack, handling parameter and result spill via retptr.
-func CanonLower(opts *Options, ft *types.FuncType, args []component.Val,
-                stack []core.Value) error {
-    // 1. Lower each param via LowerFlat or LowerHeap.
-    // 2. If params overflow MaxFlatParams, spill to memory at a
-    //    realloc-allocated buffer; pass the buffer ptr as the
-    //    retptr arg.
-    // 3. Invoke the wasm-side callee (this typically happens via
-    //    the existing api.Function.Call machinery).
-    // 4. Result is in the stack; the caller deals with it.
-}
-```
+1. **Boundary at 16/17 flat params:** call with exactly 16 flat
+   params (no spill), then exactly 17 (spill). Confirm the spill
+   pointer is read/written correctly and the resulting Vals match.
+2. **Mixed compositions:** lift/lower a parameter list of
+   `[i32, string, list<u8>, record{f1: u8, f2: i64}]`. Verify each
+   leaf operation is called in order with the right offsets.
+3. **Result spill:** lower a result list with 2 results (must spill
+   since `MaxFlatResults=1`). Verify the retptr is allocated via
+   realloc and the heap layout is correct.
+4. **Round-trip:** for each composite type defined in
+   `composite_test.go`, do `LowerValues` then `LiftValues` and
+   confirm the result equals the input.
+
+If any test reveals a bug in the leaf operations or in the
+`LiftValues`/`LowerValues` composition, fix it in this item.
 
 **Definition of done:**
-- `CanonLower` exists and matches the spec
-- Param spill works
-- Result handling matches the spec
-- Tests pass
+- `canon_values_test.go` exists with the four test categories above
+- All tests pass
+- Round-trip property holds for every composite type
 - `go test ./internal/component/abi/...` passes
 
 **Reviewer focus areas:**
-Same as item 25.
+- Spec compliance: confirm round-trip semantics match
+  `definitions.py` (lower then lift is identity for spec-supported
+  types)
+- Code quality: confirm tests use real composite types (not
+  hand-rolled mocks); confirm coverage of all flat/heap branches
 
 ---
 
-### Item 27: Add post-return invocation in `CanonLift` per spec definitions.py:3197+
+### Item 27: Document post-return contract in `Options`; do NOT invoke from abi/
 
 - **status:** pending
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
 - **commit:** -
-- **notes:** Synchronous post-return only; async-flavored post-return is out of scope
+- **notes:** Per the wasmtime layering decision: post-return invocation is a lifecycle concern that lives in instance.go (Loop 2 item 5), NOT in abi/. abi/ stays pure math. This item only documents the contract.
 
 **Files:**
-- Modify: `internal/component/abi/lift.go` (or `canon_lift.go`) —
-  add post-return invocation to `CanonLift`
-- Modify: `internal/component/abi/lift_test.go` — add a test that
-  configures a post-return callback and asserts it's invoked
+- Modify: `internal/component/abi/context.go` — update the doc comment
+  on `Options.PostReturnIdx` to document that post-return invocation
+  is the CALLER's responsibility (i.e., `instance.go::ExportedFunc.Call`),
+  not abi/'s
+- Modify: `internal/component/abi/lift_test.go` — add a test
+  confirming `LiftValues` does NOT invoke post-return (negative
+  assertion: configure a post-return callback that increments a
+  counter, call `LiftValues`, assert counter is still zero)
 
 **Spec authorities:**
-- `definitions.py:3197+` — post-return semantics
-- `CanonicalABI.md` "Post-return" section
+- `definitions.py:1978-2063` — `canon_lift` Python function. The
+  Python version invokes post-return inline because Python conflates
+  math and lifecycle in one function. Wazero splits them per the
+  wasmtime layering: post-return invocation lives in the
+  `func.rs::call_raw` analogue (Loop 2 item 5), not in `values.rs`
+  (abi/'s analogue).
+- `crates/wasmtime/src/runtime/component/func.rs::Func::post_return_impl`
+  — the wasmtime analogue. It is in `func.rs`, NOT in `values.rs`.
+  Confirms that post-return is a wrapper/lifecycle concern.
 
 **Description:**
-After `CanonLift` collects the result Vals, it must invoke the
-post-return callback (if configured in `Options.PostReturnIdx`). The
-callback receives the same retptr (or flat result values) the
-exporter wrote, and is responsible for freeing any guest-owned
-list/string backing storage.
+The original plan had `CanonLift` invoke post-return. Per the
+wasmtime layering research, post-return is a lifecycle concern that
+belongs in the `func.rs::call_raw` analogue — for wazero, that's
+`instance.go::ExportedFunc.Call` (Loop 2 item 5).
 
-```go
-// In CanonLift, after step 4 (result handling):
-if opts.PostReturnIdx != nil {
-    // Invoke the post-return callback with the same flat result
-    // values that the exporter returned. The post-return callback
-    // is a wasm function on the same instance.
-    err := invokePostReturn(opts, results)
-    if err != nil { return nil, fmt.Errorf("post-return: %w", err) }
-}
-```
+This item is therefore a documentation-only change in `abi/`:
+1. Update `Options.PostReturnIdx`'s doc comment to make it explicit
+   that this field is read by the CALLER (i.e., the wrapper in
+   `instance.go`), not by `abi/` itself.
+2. Add a negative test that confirms `LiftValues` does NOT invoke
+   post-return — to catch regressions if a future change adds the
+   invocation back into abi/.
 
-The exact mechanism for invoking the post-return callback depends on
-how `Options` carries the callback reference. Read `abi/context.go`
-to confirm.
+The actual post-return invocation logic is in Loop 2 item 5 (the
+instance.go orchestration shim). Loop 2 item 5's description has been
+updated to include post-return as one of the lifecycle steps it owns.
 
 **Definition of done:**
-- `CanonLift` invokes the post-return callback when configured
-- A test confirms the callback is invoked once per call, with the
-  correct arguments
+- `Options.PostReturnIdx` doc comment makes clear that post-return
+  invocation is the caller's responsibility
+- A negative test confirms `LiftValues` does NOT invoke post-return
 - `go test ./internal/component/abi/...` passes
+- `Grep "PostReturnIdx" internal/component/abi/` shows the field is
+  read only by callers, not invoked from inside `abi/`
 
 **Reviewer focus areas:**
-- Spec compliance: confirm the post-return semantics match
-  `definitions.py:3197+` (cite); confirm ownership transfer
-- Code quality: confirm error wrapping; confirm no leaks if
-  post-return fails
+- Spec compliance: confirm post-return is not invoked from `abi/`
+  (cite the wasmtime layering: `func.rs::post_return_impl`, NOT
+  `values.rs`)
+- Code quality: confirm the doc comment is clear; confirm the
+  negative test would catch a regression
 
 ---
 
@@ -1736,8 +2150,8 @@ to confirm.
   triggers the overflow
 
 **Spec authorities:**
-- `definitions.py` `lower_list` (search the file) — confirms the
-  check
+- `definitions.py:1594-1601` — `store_list_into_range`. The trap is
+  at `definitions.py:1596`: `trap_if(byte_length >= (1 << 32))`.
 - Existing wazero check on the lift side at
   `internal/component/abi/lift.go` lines 316-320, 676-680 (reference
   for the pattern)
@@ -1770,44 +2184,59 @@ if totalSize > math.MaxUint32 {
 
 ---
 
-### Item 29: Add NaN scrambling on store under `DETERMINISTIC_PROFILE=false`, OR pin to `true` and document
+### Item 29: Pin `DETERMINISTIC_PROFILE=true` and document the canonicalize-on-store decision
 
 - **status:** pending
 - **claimed_by:** -
 - **spec_review:** -
 - **code_review:** -
 - **commit:** -
-- **notes:** Per spec definitions.py, NaN canonicalization on lift is required; NaN scrambling on store is profile-dependent
+- **notes:** Pre-decided: pin to true. Spec default is false; wazero pins to true for testability. Wasmtime also pins.
 
 **Files:**
-- Modify: `internal/component/abi/lower.go` — add NaN scrambling on
-  f32/f64 store, gated by the deterministic profile
-- Modify: `internal/component/abi/lower_test.go` — add tests for both
-  modes
-- OR: Modify: `internal/component/abi/lower.go` to document that
-  wazero pins `DeterministicProfile = true` and skips scrambling
+- Modify: `internal/component/abi/lower.go` — add NaN canonicalization
+  (NOT scrambling) in `LowerFlat`/`LowerHeap` for f32/f64 stores,
+  using the same `canonicalizeNaN32`/`canonicalizeNaN64` already
+  defined in `internal/component/abi/context.go:32-44`
+- Modify: `internal/component/abi/lower_test.go` — add tests asserting
+  that NaN bit patterns are canonical after store
+- Modify: `internal/component/abi/context.go` — add a doc comment on
+  `canonicalizeNaN32`/`canonicalizeNaN64` explaining that wazero pins
+  `DETERMINISTIC_PROFILE=true` per spec authority below
 
 **Spec authorities:**
-- `definitions.py:2329` — `maybe_scramble_nan32`/`maybe_scramble_nan64`
-- `definitions.py` (search for `DETERMINISTIC_PROFILE`)
+- `definitions.py:1209` — `DETERMINISTIC_PROFILE = False  # or True`.
+  The spec leaves this to the implementation. Wazero pins to true.
+- `definitions.py:1395` — `maybe_scramble_nan32(f)` (verified line)
+- `definitions.py:1404` — `maybe_scramble_nan64(f)` (verified line)
+- Both functions return the input unchanged when
+  `DETERMINISTIC_PROFILE` is true (no scrambling)
+- `crates/wasmtime/src/runtime/component/values.rs` — search for
+  `canonicalize_nan32`/`canonicalize_nan64` to confirm wasmtime
+  also pins deterministic
 
 **Description:**
 The spec defines two profiles:
 - `DETERMINISTIC_PROFILE=true`: NaN values are canonicalized on lift
-  AND store
+  AND store (deterministic bit patterns)
 - `DETERMINISTIC_PROFILE=false`: NaN values are canonicalized on lift
   but on store, the implementation MAY scramble the bit pattern of
   any NaN to discourage code that depends on specific NaN bit
   representations
 
-Wazero already canonicalizes on lift. For store, decide:
-- **Option A:** Implement scrambling (random bit flips per call)
-  gated by a build-time or runtime flag
-- **Option B:** Pin to `DETERMINISTIC_PROFILE=true` (no scrambling),
-  document the choice in code, and confirm with the spec authority
-  that this is permitted
+**Decision (pre-decided):** wazero pins `DETERMINISTIC_PROFILE=true`.
+Reasons:
+1. Spec explicitly permits this choice (line 1209 comment "or True")
+2. Wasmtime pins deterministic — same behavior is more compatible
+3. Tests are easier to write against deterministic outputs
+4. The non-deterministic profile is an anti-fingerprinting measure
+   that fights nondeterminism in user code; it's a lint, not a
+   correctness requirement
 
-Wasmtime's behavior is the tiebreaker — read its NaN handling.
+Wazero already has `canonicalizeNaN32`/`canonicalizeNaN64` at
+`internal/component/abi/context.go:32-44` and calls them from the
+lift path (`lift.go:73-75`). This item adds the equivalent calls in
+the lower path (LowerFlat/LowerHeap for f32/f64).
 
 **Definition of done:**
 - NaN scrambling is either implemented or explicitly skipped with a
@@ -2031,8 +2460,10 @@ Run the conformance tests and the abi unit tests. Confirm:
   passes 100%
 - No `t.Skip` calls in `conformance/canonical_abi/`
 - No `t.SkipNow` calls
-- The test count is at least 272 (matching the design's count of
-  ports plus supplementals)
+- The test count is at least 285 (= 58 + 20 + 31 + 8 + 14 + 135 + 6
+  + 36 + 13 ported subtests; wazero supplemental tests from item 32
+  are additional). The 285 floor catches under-implementation; the
+  per-item Definition of done catches off-by-one regressions.
 
 If anything fails or skips, the responsible phase 1.C or 1.D item is
 bounced.

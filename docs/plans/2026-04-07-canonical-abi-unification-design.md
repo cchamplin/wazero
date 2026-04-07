@@ -7,9 +7,14 @@
 ## Problem statement
 
 Wazero's component-model implementation has accumulated **four parallel
-canonical-ABI implementations**, **two parallel type representations** with
-**four duplicate type converters** between them, and **systematic error
-suppression** in the wasi-p2 host imports. The single most-correct
+canonical-ABI implementations**, **three parallel type representations**
+with **four duplicate type converters** between them, and **systematic
+error suppression** in the wasi-p2 host imports.
+
+(The audit pass after the first plan revision found the third type
+hierarchy in `internal/component/canon_lower.go` — local `EnumType`,
+`FlagsType`, `VariantType`, `PrimitiveType`, `PayloadType` interface
+at lines 15-62 — which the original analysis missed.) The single most-correct
 implementation (`internal/component/abi/`) is **dead code at runtime** — it has
 zero non-test importers. Production code uses three other lift/lower paths
 (`instance.go`, `component_linker.go`, `canon_lower.go`), each with confirmed
@@ -92,10 +97,29 @@ there is nothing to convert.
    `go.bytecodealliance.org/wit/codec.go`. The four converter functions are
    deleted, not unified.
 
-2. **`internal/component/abi/` is the single source of truth for lift/lower.**
-   After Loop 2 completes, no file in `internal/component` outside `abi/` and
-   `binary/` contains lift/lower logic. Production code calls
-   `abi.CanonLift`/`abi.CanonLower` for every operation.
+2. **`internal/component/abi/` is the single source of truth for lift/lower
+   MATH.** After Loop 2 completes, no file in `internal/component` outside
+   `abi/` and `binary/` contains lift/lower math logic. Production code calls
+   `abi.LiftValues`/`abi.LowerValues` (the wazero analogues of
+   `definitions.py`'s `lift_flat_values`/`lower_flat_values`) for every
+   operation. **abi/ stays pure math** — it does NOT know about subtask,
+   borrow scope, may_leave, may_enter, post_return, reentrance, or
+   enter_call/exit_call. Those lifecycle concerns live in `instance.go`
+   (the wazero analogue of wasmtime's `func.rs::call_raw`) and
+   `canon_lower.go::LoweredFunc.CallWithStack` (the analogue of
+   wasmtime's `host.rs::HostFn::cabi_entrypoint`). This three-layer
+   separation matches wasmtime's `vm/component/resources.rs` (low-level
+   state) + `runtime/component/values.rs` (math) + `runtime/component/func.rs`
+   (orchestration).
+
+2a. **Package boundary fix.** Today `internal/component/abi/` imports
+    `internal/component` (for `Val`, `ResourceTable`, `BorrowScope`,
+    `CallContext`, `Subtask`). For Loop 2's wiring to work, the parent
+    must import `abi/` — circular. Loop 1 phase 1.A item 9.7 introduces
+    a new `internal/component/runtime` sub-package that holds the
+    shared runtime-value types. After the move:
+    `internal/component/runtime` ← imported by `internal/component/abi`
+    AND `internal/component`. No cycles.
 
 3. **`Own`/`Borrow` carry `*ResourceType`, not `ResourceIdx`.** Spec authority:
    `definitions.py:1641` `lower_own(cx, rep, t)` takes the full `OwnType(rt)`

@@ -39,9 +39,9 @@ agent reads the spec authorities before writing code.
 | [`README.md`](README.md) | This file |
 | [`spec-authorities.md`](spec-authorities.md) | Mandatory reading list for every agent + universal rules |
 | [`loop-driver.md`](loop-driver.md) | Universal session-start prompt; runs the per-item lifecycle |
-| [`loop-1-tracking.md`](loop-1-tracking.md) | Loop 1 backlog (~35 items): unify type representation, make `abi/` correct |
-| [`loop-2-tracking.md`](loop-2-tracking.md) | Loop 2 backlog (~16 items): wire `abi/` into production, delete dead code |
-| [`loop-3-tracking.md`](loop-3-tracking.md) | Loop 3 backlog (~18 items): real wasm via public API, migrate existing tests |
+| [`loop-1-tracking.md`](loop-1-tracking.md) | Loop 1 backlog (~37 items across 6 phases): unify type representation (3 hierarchies → 1), resolve abi↔component circular import via new `internal/component/runtime` package, delete dead `CanonLower` constructor, make `abi/` correct as pure math (no lifecycle) |
+| [`loop-2-tracking.md`](loop-2-tracking.md) | Loop 2 backlog (~16 items): wire `abi/` into production via lifecycle wrappers in instance.go and canon_lower.go, delete dead code, fix ~85 silent-default sites in wasip2 sockets/http |
+| [`loop-3-tracking.md`](loop-3-tracking.md) | Loop 3 backlog (~27 items across 5 phases): expose minimum public API for wasmtime parity (Phase 3.0), bring in upstream WAST + wit-bindgen fixtures, migrate 8 of 9 existing tests, verify |
 | [`templates/implement-task.md`](templates/implement-task.md) | Implementation subagent prompt template |
 | [`templates/review-spec-compliance.md`](templates/review-spec-compliance.md) | Spec-compliance reviewer subagent prompt template |
 | [`templates/review-code-quality.md`](templates/review-code-quality.md) | Code-quality reviewer subagent prompt template |
@@ -51,9 +51,9 @@ agent reads the spec authorities before writing code.
 
 | Loop | Items | Status | Notes |
 |---|---|---|---|
-| Loop 1 — Type unification + `abi/` correctness | ~35 | not started | Phase 1.A is a high-risk surgical change; expect `go test ./...` to be broken until Loop 2 wires things in |
-| Loop 2 — Wire `abi/` into production | ~16 | blocked on Loop 1 | |
-| Loop 3 — Real wasm via public API | ~18 | blocked on Loop 2 | |
+| Loop 1 — Type unification + `abi/` correctness | ~37 | not started | Phase 1.A is a high-risk surgical change (now includes item 9.5 deleting existing CanonLower and item 9.7 resolving the abi↔component circular import via a new internal/component/runtime package). Expect `go test ./...` to be broken until Loop 2 wires things in. |
+| Loop 2 — Wire `abi/` into production | ~16 | blocked on Loop 1 | abi/ stays pure math; lifecycle (subtask, borrow scope, may_leave, post_return) stays in instance.go per the wasmtime layering. |
+| Loop 3 — Public API expansion + real wasm + migration | ~27 | blocked on Loop 2 | Now includes Phase 3.0 with 5 items: 4 minimum public API exposures (matching wasmtime's LinkerInstance/ResourceTableFromContext/dynamic Func/ResourceTable.WithDestructor) plus the spectest runner extension. Migrates 8 of 9 existing tests; kv_store's TestResourceLifecycle_LinkerDefinition stays internal as a documented white-box exception. |
 
 Loops are strictly sequential. Update this table when a loop opens or closes.
 

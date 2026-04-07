@@ -45,9 +45,20 @@ Before reviewing the diff, do all of the following IN ORDER:
 3. **Read every spec citation in the implementation summary.** If the
    implementer cited a spec line you have not yet read, read it now.
 
-4. **Do NOT read the surrounding wazero codebase.** You should be primed
-   by the spec, not by the existing (potentially-wrong) wazero code. The
-   only wazero code you read is what's in the diff.
+4. **Read the wazero codebase ONLY when the diff alone is insufficient
+   to verify spec compliance.** Examples of legitimate reasons to read
+   surrounding code:
+   - The diff modifies one branch of a switch statement; you need to
+     see the other branches to confirm the modification is consistent
+     with how related types are handled
+   - The diff calls into a helper function whose behavior the spec
+     compliance depends on
+   - The diff deletes a function; you need to verify no production
+     callers remain
+   But: **do not read the codebase to "calibrate" what's normal**.
+   The spec is the only calibration source. If the existing wazero
+   code disagrees with the spec, the spec wins regardless of how
+   widespread the existing pattern is.
 
 ## Review questions
 
