@@ -21,8 +21,15 @@ type CanonicalABIInfo struct {
 // DiscriminantInfo carries derived sizing and offsets for variant-shaped
 // types (Variant, Enum, Option, Result). Computed during interning.
 type DiscriminantInfo struct {
-	DiscSize      uint8  // 1, 2, or 4 bytes
-	PayloadOffset uint32 // byte offset of the payload in the discriminated layout
+	DiscSize uint8 // 1, 2, or 4 bytes
+
+	// PayloadOffset is the byte offset of the payload in the memory32
+	// discriminated layout. For memory64 the equivalent offset is
+	// derivable as alignTo(DiscSize, variantABI.Align64) — it is not
+	// stored separately because the variant's overall Align64 is the
+	// max payload align64 (always >= DiscSize for the interesting
+	// cases) and alignTo gives the same result.
+	PayloadOffset uint32
 }
 
 // scalarABI is a package-level constant table for types whose ABI is
@@ -278,12 +285,10 @@ func computeOptionABI(elem ValType, ct *ComponentTypes) (CanonicalABIInfo, Discr
 
 // computeResultABI is sugar for variant{ok(OK), err(Err)} with the
 // payloads conditionally present.
-func computeResultABI(okT, errT ValType, hasOK, hasErr bool) func(ct *ComponentTypes) (CanonicalABIInfo, DiscriminantInfo) {
-	return func(ct *ComponentTypes) (CanonicalABIInfo, DiscriminantInfo) {
-		cases := []VariantCase{
-			{Name: "ok", Payload: okT, HasPayload: hasOK},
-			{Name: "err", Payload: errT, HasPayload: hasErr},
-		}
-		return computeVariantABI(cases, ct)
+func computeResultABI(okT, errT ValType, hasOK, hasErr bool, ct *ComponentTypes) (CanonicalABIInfo, DiscriminantInfo) {
+	cases := []VariantCase{
+		{Name: "ok", Payload: okT, HasPayload: hasOK},
+		{Name: "err", Payload: errT, HasPayload: hasErr},
 	}
+	return computeVariantABI(cases, ct)
 }

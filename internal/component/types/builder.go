@@ -363,7 +363,7 @@ func (b *ComponentTypesBuilder) InternResult(okType, errType ValType, hasOk, has
 			}
 		}
 	}
-	abi, disc := computeResultABI(okType, errType, hasOk, hasErr)(&b.ct)
+	abi, disc := computeResultABI(okType, errType, hasOk, hasErr, &b.ct)
 	idx := uint32(len(b.ct.Results))
 	b.ct.Results = append(b.ct.Results, TypeResult{
 		OK: okType, Err: errType, HasOK: hasOk, HasErr: hasErr,
