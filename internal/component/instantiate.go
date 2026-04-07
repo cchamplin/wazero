@@ -137,18 +137,13 @@ func Instantiate(ctx context.Context, instantiator ModuleInstantiator, c *Compon
 			}
 		}
 
-		// Find the function type
-		var funcType *FuncType
-		if canon.TypeIdx < uint32(len(c.Types)) {
-			td := &c.Types[canon.TypeIdx]
-			if td.Kind == TypeDefKindFunc {
-				funcType = td.Func
-			}
-		}
-
+		// Session 0 compile-fix: resolving canon lift's TypeIdx to a
+		// *types.TypeFunc requires the Task 13 binary decoder rewrite and
+		// the Session 2 TypeDef/ComponentTypes wiring. Until then we wire
+		// the export with a nil funcType; the ExportedFunc.Call body
+		// panics anyway until Session 1 replaces it.
 		inst.exports[exp.Name] = &ExportedFunc{
 			name:        exp.Name,
-			funcType:    funcType,
 			coreFunc:    coreFunc,
 			canonical:   canon,
 			component:   c,

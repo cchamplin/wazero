@@ -36,12 +36,17 @@ func (l *ComponentLinker) instantiateNestedComponent(
 		withArgs[arg.Name] = def
 	}
 
-	// Create nested instance
+	// Create nested instance.
+	//
+	// Session 0 compile-fix: the old runtime.NewResourceTable() call no
+	// longer exists. The unified runtime.Table is allocated eagerly via
+	// NewTable. Session 1 folds this into the runtime.ComponentInstance
+	// construction path.
 	nestedInst := &Instance{
 		component:      nestedComp,
 		coreInstances:  make([]api.Module, 0),
 		exports:        make(map[string]*ExportedFunc),
-		resourceTable:  runtime.NewResourceTable(),
+		table:          runtime.NewTable(),
 		componentFuncs: make(map[uint32]ComponentFunc),
 	}
 
@@ -82,29 +87,15 @@ func (l *ComponentLinker) resolveFromParentScope(
 
 	case SortType:
 		// Type from parent's type space (populated for nested instances with
-		// outer aliases) or from the parent component's type definitions.
+		// outer aliases). Session 0 compile-fix: the old TypeIdxToStoredIdx
+		// fallback and direct parentComponent.Types[idx] indexing are gone —
+		// Component.Types is now *types.ComponentTypes, the canonical type
+		// bag, and the Session 2 rewrite threads TypeDef through differently.
 		typeDef := parent.GetTypeFromSpace(arg.Idx)
 		if typeDef != nil {
 			return &TypeDefDef{TypeDef: typeDef}, nil
 		}
-		// Look up from the component's type index space. The type index space
-		// can be larger than the Types array because type aliases (export and
-		// outer) consume indices without adding to Types. Use TypeIdxToStoredIdx
-		// to map from type index space to the compact Types array.
-		if storedIdx, ok := parentComponent.TypeIdxToStoredIdx[arg.Idx]; ok {
-			if int(storedIdx) < len(parentComponent.Types) {
-				return &TypeDefDef{TypeDef: &parentComponent.Types[storedIdx]}, nil
-			}
-		}
-		// Direct index fallback for backward compatibility (when TypeIdxToStoredIdx
-		// is not populated or type indices align with Types array).
-		if int(arg.Idx) < len(parentComponent.Types) {
-			return &TypeDefDef{TypeDef: &parentComponent.Types[arg.Idx]}, nil
-		}
-		// Check if this type index comes from a type alias (export or outer).
-		// Type aliases consume type index space entries during decoding but
-		// don't add to TypeIdxToStoredIdx. Resolve them by tracing back to
-		// the actual type definition through the alias chain.
+		// Fall back to type-alias resolution for export/outer aliases.
 		resolved := l.resolveTypeAlias(parent, parentComponent, arg.Idx)
 		if resolved != nil {
 			return &TypeDefDef{TypeDef: resolved}, nil
@@ -166,102 +157,49 @@ func (l *ComponentLinker) resolveTypeAlias(parent *Instance, c *Component, typeI
 
 // resolveExportTypeAlias resolves a type export alias by tracing through the
 // source instance's type definition to find the actual TypeDef for the exported type.
+//
+// Session 0 compile-fix: the previous body indexed c.Types as a []TypeDef
+// slice and relied on TypeIdxToStoredIdx plus a buildLocalTypeIndex helper
+// that walked the old InstanceTypeDef declarations. All of those shapes
+// have been reworked by Tasks 2, 12 and will be rebuilt by Task 13's
+// binary decoder. Until then this returns nil rather than dereference
+// into a partially-migrated type bag.
 func (l *ComponentLinker) resolveExportTypeAlias(parent *Instance, c *Component, alias *Alias) *TypeDef {
-	// Find which import created this instance by walking instance imports
-	// in order (each instance import occupies one slot in the instance space).
-	var importDesc *Import
-	instCount := uint32(0)
-	for i := range c.Imports {
-		imp := &c.Imports[i]
-		if imp.ExternDesc.Kind == ImportExternDescInstance {
-			if instCount == alias.InstanceIdx {
-				importDesc = imp
-				break
-			}
-			instCount++
-		}
-	}
-	if importDesc == nil {
-		return nil
-	}
-
-	// Look up the instance type definition from the import's TypeIdx
-	instTypeIdx := importDesc.ExternDesc.TypeIdx
-	var instTypeDef *InstanceTypeDef
-
-	// First check TypeIdxToStoredIdx for the instance type
-	if storedIdx, ok := c.TypeIdxToStoredIdx[instTypeIdx]; ok {
-		if int(storedIdx) < len(c.Types) && c.Types[storedIdx].Kind == TypeDefKindInstance {
-			instTypeDef = c.Types[storedIdx].Instance
-		}
-	}
-	// Also try direct index (for components where type indices align with Types array)
-	if instTypeDef == nil && int(instTypeIdx) < len(c.Types) && c.Types[instTypeIdx].Kind == TypeDefKindInstance {
-		instTypeDef = c.Types[instTypeIdx].Instance
-	}
-	if instTypeDef == nil {
-		return nil
-	}
-
-	// Build the local type index for the instance type and find the export
-	localTypes := buildLocalTypeIndex(instTypeDef, c)
-	for _, decl := range instTypeDef.Declarations {
-		if decl.Kind == InstanceDeclKindExport && decl.Export != nil {
-			if decl.Export.Name == alias.ExportName && decl.Export.Kind == ExportKindType {
-				if td, ok := localTypes[decl.Export.Idx]; ok {
-					// Set SourceLocalTypes so the resolver can correctly resolve
-					// nested type references using the instance type's local scope.
-					if td.SourceLocalTypes == nil {
-						td.SourceLocalTypes = localTypes
-					}
-					return td
-				}
-			}
-		}
-	}
+	_ = parent
+	_ = c
+	_ = alias
 	return nil
 }
 
 // buildTypeSpace populates the instance's type index space from the component's
-// type definitions and type aliases. This must be called before processing nested
-// component instances, since resolveFromParentScope needs the type space populated.
+// type definitions and type aliases.
+//
+// Session 0 compile-fix: the old TypeIdxToStoredIdx + []TypeDef indexing
+// path is gone. Only the outer-alias branch still produces useful TypeDef
+// pointers today; the top-level section-7 types are threaded through the
+// canonical bag (Component.Types *types.ComponentTypes) and will be
+// rewired by Task 13's binary decoder rewrite.
 func (l *ComponentLinker) buildTypeSpace(inst *Instance, c *Component) {
-	// Pre-populate from type section entries via TypeIdxToStoredIdx
-	for typeIdx, storedIdx := range c.TypeIdxToStoredIdx {
-		if int(storedIdx) < len(c.Types) {
-			// Ensure typeSpace is large enough
-			for uint32(len(inst.typeSpace)) <= typeIdx {
-				inst.typeSpace = append(inst.typeSpace, nil)
-			}
-			inst.typeSpace[typeIdx] = &c.Types[storedIdx]
-		}
-	}
-
-	// Process type aliases (export and outer) to fill remaining slots
 	for i := range c.Aliases {
 		alias := &c.Aliases[i]
 		if alias.Sort != SortType {
 			continue
 		}
 
-		// Ensure typeSpace is large enough
 		for uint32(len(inst.typeSpace)) <= alias.Idx {
 			inst.typeSpace = append(inst.typeSpace, nil)
 		}
-		// Skip if already populated (shouldn't happen, but be safe)
 		if inst.typeSpace[alias.Idx] != nil {
 			continue
 		}
 
 		switch alias.Kind {
 		case AliasKindExport:
-			resolved := l.resolveExportTypeAlias(inst, c, alias)
-			if resolved != nil {
+			if resolved := l.resolveExportTypeAlias(inst, c, alias); resolved != nil {
 				inst.typeSpace[alias.Idx] = resolved
 			}
 		case AliasKindOuter:
-			resolved, err := ResolveOuterAlias(inst, alias)
-			if err == nil {
+			if resolved, err := ResolveOuterAlias(inst, alias); err == nil {
 				if td, ok := resolved.(*TypeDef); ok {
 					inst.typeSpace[alias.Idx] = td
 				}
@@ -277,12 +215,10 @@ func instanceToDefinition(inst *Instance) *InstanceDef {
 	exports := make(map[string]Definition)
 	for name, fn := range inst.exports {
 		if fn != nil {
-			// Capture fn in closure to avoid loop variable issue
+			// Capture fn in closure to avoid loop variable issue.
 			exportedFn := fn
 			exports[name] = &FuncDef{
 				Type: fn.funcType,
-				// Wrap ExportedFunc.Call to match HostFunc signature
-				// ExportedFunc.Call uses variadic params, HostFunc uses slice
 				Callback: func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 					return exportedFn.Call(ctx, args...)
 				},

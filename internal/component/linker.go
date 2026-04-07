@@ -19,8 +19,13 @@ type Definition interface {
 }
 
 // FuncDef is a function definition.
+//
+// Type is the component function type. After Task 5 / Decision 9 it is a
+// *types.TypeFunc — a flat record with interned params/results on the
+// canonical ComponentTypes table. Callers that don't have a type handy
+// (tests, FuncNoType) leave it nil.
 type FuncDef struct {
-	Type     *FuncType
+	Type     *types.TypeFunc
 	Callback HostFunc
 }
 
@@ -93,7 +98,7 @@ func (l *Linker) RelaxedSemverMatching() bool {
 }
 
 // DefineFunc adds a host function definition.
-func (l *Linker) DefineFunc(namespace, name string, typ *FuncType, fn HostFunc) error {
+func (l *Linker) DefineFunc(namespace, name string, typ *types.TypeFunc, fn HostFunc) error {
 	key := namespace + "/" + name
 	if _, exists := l.definitions[key]; exists {
 		return fmt.Errorf("definition already exists: %s", key)
@@ -130,7 +135,7 @@ func (l *Linker) DefineInstance(namespace string) *InstanceBuilder {
 }
 
 // Func adds a function export to the instance.
-func (b *InstanceBuilder) Func(name string, typ *FuncType, fn HostFunc) *InstanceBuilder {
+func (b *InstanceBuilder) Func(name string, typ *types.TypeFunc, fn HostFunc) *InstanceBuilder {
 	b.exports[name] = &FuncDef{Type: typ, Callback: fn}
 	return b
 }
@@ -471,28 +476,21 @@ func (l *Linker) Instantiate(ctx context.Context, c *Component) (*Instance, erro
 // getExactExportedFunc finds an exported function by exact name match.
 // If the function was wired by ComponentLinker.Instantiate (stored in i.exports),
 // it returns the fully-wired ExportedFunc with coreFunc, memory, etc.
+//
+// Session 0 compile-fix: the stub path that scans i.component.Exports and
+// pulls a *FuncType from c.Types[canon.TypeIdx] depended on the old
+// []TypeDef indexed shape. c.Types is now *types.ComponentTypes — the
+// canonical bag — and resolving a canon lift to its *types.TypeFunc is
+// Session 1 work. Until then we return the fully-wired export when
+// available, otherwise a stub with no funcType.
 func (i *Instance) getExactExportedFunc(name string) *ExportedFunc {
-	// First check the exports map for a fully-wired function from ComponentLinker
 	if f, ok := i.exports[name]; ok && f != nil {
 		return f
 	}
-	// Fall back to creating a stub (for the basic Linker path)
 	for _, exp := range i.component.Exports {
 		if exp.Name == name && exp.Kind == ExportKindFunc {
-			var funcType *FuncType
-			// exp.Idx is the component function index, not the canonical array index.
-			// Look up the canonical to get the type.
-			if canonIdx, ok := i.component.FuncIdxToCanonical[exp.Idx]; ok {
-				if int(canonIdx) < len(i.component.Canonicals) {
-					canon := &i.component.Canonicals[canonIdx]
-					if int(canon.TypeIdx) < len(i.component.Types) {
-						funcType = i.component.Types[canon.TypeIdx].Func
-					}
-				}
-			}
 			return &ExportedFunc{
 				name:     name,
-				funcType: funcType,
 				instance: i,
 			}
 		}
@@ -589,19 +587,10 @@ func (i *Instance) GetExportedFunc(name string) *ExportedFunc {
 		return f
 	}
 
-	// Fall back to creating a stub (for the basic Linker path)
-	var funcType *FuncType
-	if int(bestExport.Idx) < len(i.component.Types) {
-		funcType = i.component.Types[bestExport.Idx].Func
-	}
+	// Fall back to a stub with no funcType; Session 1 will resolve canon
+	// lift to its *types.TypeFunc via the rewritten abi/ package.
 	return &ExportedFunc{
 		name:     bestExport.Name,
-		funcType: funcType,
 		instance: i,
 	}
-}
-
-// Type returns the function's type.
-func (f *ExportedFunc) Type() *FuncType {
-	return f.funcType
 }

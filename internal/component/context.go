@@ -32,15 +32,16 @@ const (
 	wasiConfigContextKey
 )
 
-// WithResourceTable returns a new context with the given ResourceTable stored.
-func WithResourceTable(ctx context.Context, table *runtime.ResourceTable) context.Context {
+// WithResourceTable returns a new context with the given resource table stored.
+// The old runtime.ResourceTable type has been unified into runtime.Table.
+func WithResourceTable(ctx context.Context, table *runtime.Table) context.Context {
 	return context.WithValue(ctx, resourceTableContextKey, table)
 }
 
-// ResourceTableFromContext retrieves the ResourceTable from the context.
-// Returns nil if no ResourceTable is set.
-func ResourceTableFromContext(ctx context.Context) *runtime.ResourceTable {
-	table, _ := ctx.Value(resourceTableContextKey).(*runtime.ResourceTable)
+// ResourceTableFromContext retrieves the resource table from the context.
+// Returns nil if no table is set.
+func ResourceTableFromContext(ctx context.Context) *runtime.Table {
+	table, _ := ctx.Value(resourceTableContextKey).(*runtime.Table)
 	return table
 }
 

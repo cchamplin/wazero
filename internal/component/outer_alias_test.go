@@ -10,7 +10,7 @@ import (
 func TestResolveOuterAlias_Type(t *testing.T) {
 	// Create parent with a type
 	parent := &Instance{}
-	parentType := &TypeDef{Kind: TypeDefKindFunc, Func: &FuncType{}}
+	parentType := &TypeDef{Kind: TypeDefKindFunc}
 	parent.AddTypeToSpace(parentType)
 
 	// Create child

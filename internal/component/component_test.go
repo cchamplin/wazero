@@ -14,6 +14,7 @@ func TestComponentStructure(t *testing.T) {
 
 	// Verify all slice fields are nil by default
 	require.Nil(t, c.CoreModules)
+	// Component.Types is now *types.ComponentTypes (canonical bag).
 	require.Nil(t, c.Types)
 	require.Nil(t, c.Canonicals)
 	require.Nil(t, c.Exports)
@@ -254,11 +255,11 @@ func TestComponent_NestedComponents(t *testing.T) {
 }
 
 func TestNewTypeDefs(t *testing.T) {
-	// Verify type definitions exist and can be instantiated
-	_ = VariantTypeDef{Cases: []VariantCase{{Name: "a"}}}
-	_ = TupleTypeDef{Types: []ValTypeRef{}}
-	_ = FlagsTypeDef{Names: []string{"read", "write"}}
-	_ = EnumTypeDef{Names: []string{"red", "green", "blue"}}
+	// Session 0 compile-fix: the old top-level VariantTypeDef / TupleTypeDef
+	// / FlagsTypeDef / EnumTypeDef shapes were deleted in Task 2 and their
+	// data now lives on *types.ComponentTypes via interned table entries.
+	// See types/composite.go.
+	t.Skip("session 1 work: see docs/plans/2026-04-07-canonical-abi-unification-session0-followup.md")
 }
 
 func TestInstanceTypeDef(t *testing.T) {

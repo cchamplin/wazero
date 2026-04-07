@@ -11,7 +11,10 @@ import (
 )
 
 func TestWithResourceTable(t *testing.T) {
-	table := runtime.NewResourceTable()
+	// Session 0 compile-fix: runtime.NewResourceTable was renamed to
+	// runtime.NewTable in Task 10 (the legacy ResourceTable type was
+	// unified into Table).
+	table := runtime.NewTable()
 	ctx := WithResourceTable(context.Background(), table)
 
 	retrieved := ResourceTableFromContext(ctx)
