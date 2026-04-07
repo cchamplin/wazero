@@ -59,9 +59,10 @@ type TableEntry interface {
 }
 
 // ResourceHandleEntry is the Table entry type for resource handles.
-// Replaces the old HandleEntry{RT ResourceTypeID, ...} struct. RT is
-// now a *ResourceType with pointer identity, fixing the cross-instance
-// type-index collision bug in the deleted ValidateType.
+// RT is a *ResourceType with pointer identity, matching the spec's
+// `h.rt is t.rt` check at definitions.py:1345 and correctly
+// distinguishing cross-instance handles that happen to share a
+// type-section index.
 type ResourceHandleEntry struct {
 	RT          *ResourceType // Resource type this handle belongs to (pointer identity)
 	Rep         any           // The resource representation value
@@ -425,11 +426,8 @@ func (t *Table) GetResourceType(h Handle) (*ResourceType, error) {
 // ValidateType verifies that the handle h refers to a resource entry
 // whose runtime type is the same nominal type as expected. Comparison
 // is POINTER equality on *ResourceType — the spec's `is` check at
-// definitions.py:1345.
-//
-// Bug fix: the old ValidateType compared only ResourceTypeID, ignoring
-// instance identity. This silently accepted cross-instance handles
-// when both happened to share a type-section index.
+// definitions.py:1345. Pointer identity correctly rejects cross-instance
+// handles that happen to share a type-section index.
 func (t *Table) ValidateType(h Handle, expected *ResourceType) error {
 	entry, err := t.Get(h)
 	if err != nil {

@@ -14,11 +14,12 @@ func TestDestructorRegistry_Register(t *testing.T) {
 		calledWith = rep
 	}
 
-	// Register destructor for type 5
-	registry.Register(NewResourceTypeID(5), dtor)
+	// Register destructor for a resource type
+	rt := &ResourceType{}
+	registry.Register(rt, dtor)
 
 	// Get and call it
-	got := registry.Get(NewResourceTypeID(5))
+	got := registry.Get(rt)
 	require.NotNil(t, got)
 
 	got(42)
@@ -28,31 +29,47 @@ func TestDestructorRegistry_Register(t *testing.T) {
 func TestDestructorRegistry_Get_NotFound(t *testing.T) {
 	registry := NewDestructorRegistry()
 
-	got := registry.Get(NewResourceTypeID(99))
+	rt := &ResourceType{}
+	got := registry.Get(rt)
 	require.Nil(t, got)
 }
 
 func TestDestructorRegistry_Unregister(t *testing.T) {
 	registry := NewDestructorRegistry()
 
-	registry.Register(NewResourceTypeID(5), func(uint32) {})
-	require.NotNil(t, registry.Get(NewResourceTypeID(5)))
+	rt := &ResourceType{}
+	registry.Register(rt, func(uint32) {})
+	require.NotNil(t, registry.Get(rt))
 
-	registry.Unregister(NewResourceTypeID(5))
-	require.Nil(t, registry.Get(NewResourceTypeID(5)))
+	registry.Unregister(rt)
+	require.Nil(t, registry.Get(rt))
 }
 
 func TestDestructorRegistry_Has(t *testing.T) {
 	registry := NewDestructorRegistry()
 
+	rt := &ResourceType{}
 	// Initially should not have destructor
-	require.False(t, registry.Has(NewResourceTypeID(5)))
+	require.False(t, registry.Has(rt))
 
 	// After registration should have it
-	registry.Register(NewResourceTypeID(5), func(uint32) {})
-	require.True(t, registry.Has(NewResourceTypeID(5)))
+	registry.Register(rt, func(uint32) {})
+	require.True(t, registry.Has(rt))
 
 	// After unregistration should not have it
-	registry.Unregister(NewResourceTypeID(5))
-	require.False(t, registry.Has(NewResourceTypeID(5)))
+	registry.Unregister(rt)
+	require.False(t, registry.Has(rt))
+}
+
+func TestDestructorRegistry_PointerIdentity(t *testing.T) {
+	// Two distinct *ResourceType pointers are separate keys, even if
+	// their field contents are identical. Spec: definitions.py:1345.
+	registry := NewDestructorRegistry()
+
+	rA := &ResourceType{}
+	rB := &ResourceType{}
+
+	registry.Register(rA, func(uint32) {})
+	require.True(t, registry.Has(rA))
+	require.False(t, registry.Has(rB))
 }

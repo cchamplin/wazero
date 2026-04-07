@@ -6,12 +6,12 @@ package runtime
 // When the call completes, all lends must be released.
 // This implements the Canonical ABI's Subtask.lenders tracking.
 type BorrowScope struct {
-	table   *ResourceTable
+	table   *Table
 	lenders []Handle // Handles that were borrowed from
 }
 
 // NewBorrowScope creates a new borrow scope for tracking lends.
-func NewBorrowScope(table *ResourceTable) *BorrowScope {
+func NewBorrowScope(table *Table) *BorrowScope {
 	return &BorrowScope{
 		table:   table,
 		lenders: nil,

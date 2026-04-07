@@ -32,9 +32,9 @@ type Subtask struct {
 
 // NewSubtask creates a new Subtask with its own borrow scope.
 // The borrow scope is used to track borrowed handles during the call.
-func NewSubtask(resourceTable *ResourceTable) *Subtask {
+func NewSubtask(table *Table) *Subtask {
 	return &Subtask{
-		borrowScope: NewBorrowScope(resourceTable),
+		borrowScope: NewBorrowScope(table),
 		state:       SubtaskStatePending,
 	}
 }

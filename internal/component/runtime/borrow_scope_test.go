@@ -9,9 +9,11 @@ import (
 )
 
 func TestBorrowScope_TrackLenders(t *testing.T) {
-	table := NewResourceTable()
-	h1 := table.New("resource1", true)
-	h2 := table.New("resource2", true)
+	table := NewTable()
+	h1, err := table.NewResourceHandle("resource1", true, nil)
+	require.NoError(t, err)
+	h2, err := table.NewResourceHandle("resource2", true, nil)
+	require.NoError(t, err)
 
 	scope := NewBorrowScope(table)
 
@@ -20,23 +22,24 @@ func TestBorrowScope_TrackLenders(t *testing.T) {
 	require.NoError(t, scope.AddLender(h2))
 
 	// Both handles should have NumLends incremented
-	e1, _ := table.Get(h1)
-	e2, _ := table.Get(h2)
+	e1, _ := table.GetResourceHandle(h1)
+	e2, _ := table.GetResourceHandle(h2)
 	require.Equal(t, uint32(1), e1.NumLends)
 	require.Equal(t, uint32(1), e2.NumLends)
 
 	// End scope releases all lends
 	require.NoError(t, scope.Release())
 
-	e1, _ = table.Get(h1)
-	e2, _ = table.Get(h2)
+	e1, _ = table.GetResourceHandle(h1)
+	e2, _ = table.GetResourceHandle(h2)
 	require.Equal(t, uint32(0), e1.NumLends)
 	require.Equal(t, uint32(0), e2.NumLends)
 }
 
 func TestBorrowScope_SameLenderMultipleTimes(t *testing.T) {
-	table := NewResourceTable()
-	h := table.New("resource", true)
+	table := NewTable()
+	h, err := table.NewResourceHandle("resource", true, nil)
+	require.NoError(t, err)
 
 	scope := NewBorrowScope(table)
 
@@ -44,11 +47,11 @@ func TestBorrowScope_SameLenderMultipleTimes(t *testing.T) {
 	require.NoError(t, scope.AddLender(h))
 	require.NoError(t, scope.AddLender(h))
 
-	entry, _ := table.Get(h)
+	entry, _ := table.GetResourceHandle(h)
 	require.Equal(t, uint32(2), entry.NumLends)
 
 	require.NoError(t, scope.Release())
 
-	entry, _ = table.Get(h)
+	entry, _ = table.GetResourceHandle(h)
 	require.Equal(t, uint32(0), entry.NumLends)
 }

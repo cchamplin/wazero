@@ -72,7 +72,7 @@ func (c *CallContext) ClearLenders() {
 // ExitCall validates that the call can return and undoes all lend operations.
 // This is called when a call scope completes.
 // Returns an error if there are outstanding borrows (handles not dropped).
-func (c *CallContext) ExitCall(table *ResourceTable) error {
+func (c *CallContext) ExitCall(table *Table) error {
 	// Spec: trap if borrow_count > 0
 	if err := c.ValidateReturn(); err != nil {
 		return err

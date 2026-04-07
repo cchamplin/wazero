@@ -76,7 +76,7 @@ func NewComponentInstance(id uint32, parent *ComponentInstance) *ComponentInstan
 }
 
 // Enter marks entry into a region; may_leave does not change but
-// enterCount increments. Matches wazero's existing InstanceState.Enter.
+// enterCount increments.
 func (c *ComponentInstance) Enter() { c.enterCount++ }
 
 // Leave decrements enterCount. Paired with Enter.
@@ -90,8 +90,7 @@ func (c *ComponentInstance) Leave() {
 func (c *ComponentInstance) EnterCount() int { return c.enterCount }
 
 // IsMayLeave returns whether the instance may leave — both MayLeave is
-// true and enterCount is zero. Matches wazero's existing MayLeave()
-// semantics on the deleted InstanceState.
+// true and enterCount is zero.
 func (c *ComponentInstance) IsMayLeave() bool {
 	return c.MayLeave && c.enterCount == 0
 }

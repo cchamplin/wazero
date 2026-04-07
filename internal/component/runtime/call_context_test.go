@@ -81,17 +81,18 @@ func TestCallContext_ClearLenders(t *testing.T) {
 }
 
 func TestCallContext_ExitCall_UndoesLends(t *testing.T) {
-	table := NewResourceTable()
+	table := NewTable()
 
 	// Create a resource
-	h := table.New("resource", true)
+	h, err := table.NewResourceHandle("resource", true, nil)
+	require.NoError(t, err)
 
 	// Simulate lift_borrow: increment lends on the source handle
 	require.NoError(t, table.IncrementLends(h))
 	require.NoError(t, table.IncrementLends(h))
 
 	// Verify lends are incremented
-	entry, _ := table.Get(h)
+	entry, _ := table.GetResourceHandle(h)
 	require.Equal(t, uint32(2), entry.NumLends)
 
 	// Create call context and track lenders
@@ -100,11 +101,11 @@ func TestCallContext_ExitCall_UndoesLends(t *testing.T) {
 	ctx.AddLender(h) // Same handle borrowed twice
 
 	// Exit call should undo all lends
-	err := ctx.ExitCall(table)
+	err = ctx.ExitCall(table)
 	require.NoError(t, err)
 
 	// Verify lends are decremented
-	entry, _ = table.Get(h)
+	entry, _ = table.GetResourceHandle(h)
 	require.Equal(t, uint32(0), entry.NumLends)
 
 	// Lenders should be cleared
@@ -112,7 +113,7 @@ func TestCallContext_ExitCall_UndoesLends(t *testing.T) {
 }
 
 func TestCallContext_ExitCall_FailsWithOutstandingBorrows(t *testing.T) {
-	table := NewResourceTable()
+	table := NewTable()
 
 	ctx := NewCallContext()
 	ctx.IncrementBorrows() // Simulate unreleased borrow
