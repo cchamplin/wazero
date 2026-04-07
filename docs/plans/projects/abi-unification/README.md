@@ -53,7 +53,7 @@ agent reads the spec authorities before writing code.
 |---|---|---|---|
 | Loop 1 — Type unification + `abi/` correctness | ~37 | not started | Phase 1.A is a high-risk surgical change (now includes item 9.5 deleting existing CanonLower and item 9.7 resolving the abi↔component circular import via a new internal/component/runtime package). Expect `go test ./...` to be broken until Loop 2 wires things in. |
 | Loop 2 — Wire `abi/` into production | ~16 | blocked on Loop 1 | abi/ stays pure math; lifecycle (subtask, borrow scope, may_leave, post_return) stays in instance.go per the wasmtime layering. |
-| Loop 3 — Public API expansion + real wasm + migration | ~27 | blocked on Loop 2 | Now includes Phase 3.0 with 5 items: 4 minimum public API exposures (matching wasmtime's LinkerInstance/ResourceTableFromContext/dynamic Func/ResourceTable.WithDestructor) plus the spectest runner extension. Migrates 8 of 9 existing tests; kv_store's TestResourceLifecycle_LinkerDefinition stays internal as a documented white-box exception. |
+| Loop 3 — Public API expansion + real wasm + migration | ~26 | blocked on Loop 2 | Phase 3.0: 3 minimum public API exposures (ResourceTableFromContext, basic ComponentSubLinker matching wasmtime LinkerInstance, ResourceTable.WithDestructor) plus the spectest runner extension. The originally-proposed FuncDynamic addition was verified redundant — `api.ComponentInstanceBuilder.Func(name, fn any)` already accepts dynamic HostFunc. Migrates 8 of 9 existing tests; kv_store's TestResourceLifecycle_LinkerDefinition stays internal as a documented white-box exception. |
 
 Loops are strictly sequential. Update this table when a loop opens or closes.
 

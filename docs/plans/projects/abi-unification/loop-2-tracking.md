@@ -616,10 +616,11 @@ func (f *ExportedFunc) Call(ctx context.Context, args ...runtime.Val) ([]runtime
     // Step 8: Lift results via abi. LiftValues reads directly from
     // memory via the LiftContext for retptr-spilled results — no
     // synthesis hack needed because the lifter has memory access.
-    f.instance.SetMayLeave(false)
+    // Note: do NOT toggle may_leave here. Wasmtime's with_lift_context
+    // (func.rs:982-991) does not touch flags; result lifting happens
+    // with may_leave=true. Only param lowering and post-return toggle.
     lcx := abi.NewLiftContext(f.memory, f.options, f.instance.ResourceTable())
     results, err := abi.LiftValues(lcx, abi.MaxFlatResults, coreArgs, f.funcType.Results)
-    f.instance.SetMayLeave(true)
     if err != nil { return nil, err }
 
     // Step 9: post-return invocation (lifecycle, stays here, NOT in abi/).

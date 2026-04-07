@@ -9,9 +9,9 @@
 > existing wasip2test files to use only the public API (Phase 3.C),
 > then verify (Phase 3.D).
 >
-> **Total items:** 27 across 5 phases (was 18; Phase 3.0 adds 5 items
-> and Phase 3.C drops kv_store from migration scope per the public
-> API parity research with wasmtime)
+> **Total items:** 26 across 5 phases (Phase 3.0 adds 4 items, item
+> 10.5 adds 1 in Phase 3.C, and Phase 3.C drops kv_store from full
+> migration scope per the public API parity research with wasmtime)
 >
 > The 4 public API additions in Phase 3.0 are direct parallels of
 > wasmtime types (`LinkerInstance`, `ResourceTableFromContext`,
@@ -26,12 +26,15 @@
 
 ---
 
-## Phase 3.0 — Public API expansion (5 items, mandatory before Phase 3.C)
+## Phase 3.0 — Public API expansion (4 items, mandatory before Phase 3.C)
 
-> Per wasmtime parity research, four small public API additions plus
+> Per wasmtime parity research, three small public API additions plus
 > one runner extension are needed before the existing tests can be
 > migrated. Each addition has a direct wasmtime analogue and only
-> exposes an internal symbol that already exists.
+> exposes an internal symbol that already exists. Item 0.4 was
+> originally proposed but verified to be a no-op (the existing public
+> `Func` already takes `fn any` and accepts dynamic `HostFunc`); it
+> has been deleted.
 
 ### Item 0.1: Expose `api/component.ResourceTableFromContext`
 
@@ -230,51 +233,10 @@ in wasm).
 
 ---
 
-### Item 0.4: Confirm `api.ComponentInstanceBuilder.Func` accepts dynamic host functions; expose if needed
+### Item 0.4: [DELETED — see notes]
 
-- **status:** pending
-- **claimed_by:** -
-- **spec_review:** -
-- **code_review:** -
-- **commit:** -
-- **notes:** Used by composition_test.go (handler interface forwarding). Internal: FuncNoType.
-
-**Files:**
-- Read: `api/component.go` — current
-  `ComponentInstanceBuilder.Func(name, fn)` signature
-- Read: `internal/component/linker.go` — `InstanceBuilder.FuncNoType`
-- Modify: `api/component.go` — confirm `Func` already accepts a
-  type-optional `HostFunc`, OR add `FuncDynamic(name, fn)` if
-  needed
-
-**Spec authorities:**
-- N/A — API ergonomics
-- Wasmtime parallel: `LinkerInstance::func_new(name, ty, fn)` for
-  dynamic; `LinkerInstance::func_wrap(name, fn)` for typed
-
-**Description:**
-The composition test forwards an incoming request from one component
-to a host function that doesn't have static type info available
-(it's serving as a generic handler). Today this is done via internal
-`InstanceBuilder.FuncNoType`. Verify the public
-`api.ComponentInstanceBuilder.Func` already supports this case (the
-existing signature accepts a `HostFunc` with `(ctx, []Val) ([]Val, error)`,
-which is dynamic). If yes, this item is documentation only.
-
-If the public `Func` requires static type info that the dynamic case
-can't provide, add `FuncDynamic(name string, fn HostFunc) error` to
-`api.ComponentInstanceBuilder`.
-
-**Definition of done:**
-- The public sub-linker / ComponentInstanceBuilder API has a way to
-  register a dynamic host function with no static type
-- A test confirms it (composition-style forwarding)
-- `go test ./api/component/...` passes
-
-**Reviewer focus areas:**
-- Spec compliance: confirm the dynamic-call shape matches what the
-  canonical ABI runtime can validate at call time
-- Code quality: confirm minimum addition
+- **status:** deleted
+- **notes:** Verified against `api/component.go:155`: `Func(name string, fn any) ComponentInstanceBuilder`. The signature already takes `fn any` and the doc comment at line 122 explicitly states "The fn parameter should be a component.HostFunc from the api/component package." `HostFunc` is the dynamic `(ctx, []Val) ([]Val, error)` shape. The public API is already type-optional. No item needed. Composition tests can use the existing `Func` directly.
 
 ---
 

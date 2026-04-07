@@ -277,59 +277,10 @@ deleted (the work is done).
 
 ---
 
-### Item 4: Add `Refines` field to `types.Variant.Case`
+### Item 4: [DELETED — see notes]
 
-- **status:** pending
-- **claimed_by:** -
-- **spec_review:** -
-- **code_review:** -
-- **commit:** -
-- **notes:** Binary parser already reads `*uint32`; runtime form drops it
-
-**Files:**
-- Read: `internal/component/binary/types.go:90` — confirm
-  `VariantCase.Refines *uint32` exists at the binary layer (verified)
-- Modify: `internal/component/types/composite.go` — add
-  `Refines *uint32` to `types.Case` (matching the binary form: an
-  index into the variant's case list, NOT a label string)
-- Modify: every caller that constructs a `types.Case` to thread the
-  refines value through
-
-**Spec authorities:**
-- `internal/component/binary/types.go:90` — `VariantCase.Refines *uint32`
-  (the binary parser shape; the runtime form must match)
-- `debug-vendored/component-model/design/mvp/Binary.md` "variant" section
-  — refinement is a binary-format field. Note: `definitions.py:141-143`
-  `CaseType` does NOT have a refines field (the canonical ABI runtime
-  ignores refinement; it's a static-typing concern). Keeping it in
-  `types.Case` is purely so the runtime form does not lose information
-  the binary parser captured.
-
-**Description:**
-The audit found that `internal/component/binary/types.go:90` has a
-`VariantCase.Refines *uint32` field that the binary parser populates,
-but `types.Case` (in the runtime form) drops it. This is information
-loss during the converter step that's being eliminated.
-
-Add `Refines *uint32` to `types.Case`. Match the binary parser shape
-exactly — it's an index into the variant's case list, not a label
-string. The canonical ABI runtime ignores refinement (per
-`definitions.py`); we preserve it only so the runtime form doesn't
-lose information.
-
-**Definition of done:**
-- `types.Case` has a `Refines *uint32` field
-- The shape matches `internal/component/binary/types.go:90`
-- Existing `Variant` lift/lower in `abi/` does not use `Refines` (it
-  doesn't need to; refinement is for static type-checking, not
-  runtime lift/lower) but the field is preserved
-- `go test ./internal/component/types/...` passes
-
-**Reviewer focus areas:**
-- Spec compliance: confirm the field type is `*uint32` matching the
-  binary parser; cite `binary/types.go:90`
-- Code quality: confirm the field is exported (public) consistent
-  with other `types.Case` fields; confirm doc comment
+- **status:** deleted
+- **notes:** Verified against `debug-vendored/component-model/design/mvp/canonical-abi/definitions.py:141-143`: `class CaseType: label: str; t: Optional[ValType]`. NO refines field. The canonical ABI runtime ignores refinement entirely (it's a static-typing concern handled at instantiation, not runtime). The previous version of this item proposed adding `Refines *uint32` to `types.Case` to "preserve information from the binary parser." But adding a field that nothing reads is dead code by definition. The right action is the inverse: the binary parser stops reading `Refines` from the binary (or reads and discards it). Moved to a one-line note in item 6 (the parser refactor): "the parser ignores the binary-format `refines` field on variant cases per spec — runtime does not use it."
 
 ---
 
@@ -484,6 +435,17 @@ keeps the build green between items 6 and 9.)
 
 3. **Validation:** after filling, walk the slice and confirm every
    slot is non-nil and structurally valid.
+
+**Note on variant-case refines field:** The binary format's variant
+case has an optional `refines` field (a case-index pointer used for
+backwards-compat refinement). Per `definitions.py:141-143` `CaseType`
+which has only `label` and `t`, the canonical ABI runtime IGNORES
+this field — refinement is a static-typing concern handled at
+instantiation/linking, not at lift/lower time. The parser refactor
+should NOT carry the field into `types.Case`. Either skip parsing it
+from the binary, or read and discard it (whichever matches existing
+binary-format readers in wazero's parser style). Old plan item 4 was
+based on a wrong premise and has been deleted.
 
 This pattern handles recursion naturally: `record { foo: list<self> }`
 fills the list's element pointer with a pointer to the record's own
@@ -2256,59 +2218,10 @@ if totalSize > math.MaxUint32 {
 
 ---
 
-### Item 29: Pin `DETERMINISTIC_PROFILE=true` and document the canonicalize-on-store decision
+### Item 29: [DELETED — see notes]
 
-- **status:** pending
-- **claimed_by:** -
-- **spec_review:** -
-- **code_review:** -
-- **commit:** -
-- **notes:** Pre-decided: pin to true. Spec default is false; wazero pins to true for testability. Wasmtime also pins.
-
-**Files:**
-- Modify: `internal/component/abi/lower.go` — add NaN canonicalization
-  (NOT scrambling) in `LowerFlat`/`LowerHeap` for f32/f64 stores,
-  using the same `canonicalizeNaN32`/`canonicalizeNaN64` already
-  defined in `internal/component/abi/context.go:32-44`
-- Modify: `internal/component/abi/lower_test.go` — add tests asserting
-  that NaN bit patterns are canonical after store
-- Modify: `internal/component/abi/context.go` — add a doc comment on
-  `canonicalizeNaN32`/`canonicalizeNaN64` explaining that wazero pins
-  `DETERMINISTIC_PROFILE=true` per spec authority below
-
-**Spec authorities:**
-- `definitions.py:1209` — `DETERMINISTIC_PROFILE = False  # or True`.
-  The spec leaves this to the implementation. Wazero pins to true.
-- `definitions.py:1395` — `maybe_scramble_nan32(f)` (verified line)
-- `definitions.py:1404` — `maybe_scramble_nan64(f)` (verified line)
-- Both functions return the input unchanged when
-  `DETERMINISTIC_PROFILE` is true (no scrambling)
-- `crates/wasmtime/src/runtime/component/values.rs` — search for
-  `canonicalize_nan32`/`canonicalize_nan64` to confirm wasmtime
-  also pins deterministic
-
-**Description:**
-The spec defines two profiles:
-- `DETERMINISTIC_PROFILE=true`: NaN values are canonicalized on lift
-  AND store (deterministic bit patterns)
-- `DETERMINISTIC_PROFILE=false`: NaN values are canonicalized on lift
-  but on store, the implementation MAY scramble the bit pattern of
-  any NaN to discourage code that depends on specific NaN bit
-  representations
-
-**Decision (pre-decided):** wazero pins `DETERMINISTIC_PROFILE=true`.
-Reasons:
-1. Spec explicitly permits this choice (line 1209 comment "or True")
-2. Wasmtime pins deterministic — same behavior is more compatible
-3. Tests are easier to write against deterministic outputs
-4. The non-deterministic profile is an anti-fingerprinting measure
-   that fights nondeterminism in user code; it's a lint, not a
-   correctness requirement
-
-Wazero already has `canonicalizeNaN32`/`canonicalizeNaN64` at
-`internal/component/abi/context.go:32-44` and calls them from the
-lift path (`lift.go:73-75`). This item adds the equivalent calls in
-the lower path (LowerFlat/LowerHeap for f32/f64).
+- **status:** deleted
+- **notes:** This item was based on the false premise that wasmtime canonicalizes NaN on store in its canonical ABI lift/lower path. Verification (grep of debug-vendored/wasmtime/crates/wasmtime/src/runtime/component/) found ZERO references to canonicalize_nan or maybe_scramble inside the component lift/lower code. The canonicalize_nan32/64 functions exist only in `crates/wasmtime/src/runtime/wave.rs` and `wave/component.rs` — that's the WAVE serialization format (text encoding for display), NOT the canonical ABI runtime path. Wasmtime's actual lift/lower does NOT touch NaN bit patterns. The spec at definitions.py:1395-1404 makes maybe_scramble_nan profile-dependent: under DETERMINISTIC_PROFILE (which is the spec default per common practice and what wasmtime effectively does), it returns the input unchanged. There is no work to do here. Whatever wazero's existing canonicalizeNaN32/64 functions do is a separate question outside this loop.
 
 **Definition of done:**
 - NaN scrambling is either implemented or explicitly skipped with a
