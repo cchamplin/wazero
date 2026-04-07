@@ -389,6 +389,35 @@ func TestTable_CreateResourceDropFunc_NilDestructor(t *testing.T) {
 	}
 }
 
+func TestCreateResourceDropFunc_BorrowDoesNotCallDestructor(t *testing.T) {
+	// Spec: destructors must only fire for owned handles. A drop on a
+	// borrow handle removes the entry but must not call the destructor.
+	tab := NewTable()
+	rt := &ResourceType{}
+
+	called := false
+	dtor := func(rep uint32) { called = true }
+
+	dropFn := tab.CreateResourceDropFunc(rt, dtor)
+
+	// Insert a borrow handle (own=false).
+	h, err := tab.NewResourceHandle(uint32(42), false, rt)
+	if err != nil {
+		t.Fatalf("NewResourceHandle: %v", err)
+	}
+
+	dropFn(uint32(h))
+
+	if called {
+		t.Errorf("destructor called for borrow drop, want NOT called")
+	}
+
+	// And confirm the entry was actually removed.
+	if _, err := tab.Get(h); err == nil {
+		t.Errorf("Get on dropped borrow handle = nil error, want error (entry should be removed)")
+	}
+}
+
 func TestTable_CreateResourceRepFunc(t *testing.T) {
 	table := NewTable()
 	rt := &ResourceType{}
