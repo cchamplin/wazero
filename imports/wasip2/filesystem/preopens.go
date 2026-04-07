@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 // PreopensConfig is an interface for accessing preopen configuration.
@@ -26,34 +27,34 @@ func instantiatePreopens(linker *component.Linker) error {
 
 // getDirectories returns the list of preopened directories.
 // Signature: func() -> list<tuple<own<descriptor>, string>>
-func getDirectories(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func getDirectories(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	table := component.ResourceTableFromContext(ctx)
 	if table == nil {
 		// No resource table, return empty list
-		return []component.Val{component.ValList([]component.Val{})}, nil
+		return []types.Val{types.ValList([]types.Val{})}, nil
 	}
 
 	// Try to get preopens config from context
 	wasiConfig := component.WASIConfigFromContext(ctx)
 	if wasiConfig == nil {
 		// No config, return empty list
-		return []component.Val{component.ValList([]component.Val{})}, nil
+		return []types.Val{types.ValList([]types.Val{})}, nil
 	}
 
 	// Check if config implements PreopensConfig
 	preopensConfig, ok := wasiConfig.(PreopensConfig)
 	if !ok {
 		// Config doesn't have preopens, return empty list
-		return []component.Val{component.ValList([]component.Val{})}, nil
+		return []types.Val{types.ValList([]types.Val{})}, nil
 	}
 
 	preopens := preopensConfig.Preopens()
 	if len(preopens) == 0 {
-		return []component.Val{component.ValList([]component.Val{})}, nil
+		return []types.Val{types.ValList([]types.Val{})}, nil
 	}
 
 	// Build list of tuples
-	tuples := make([]component.Val, 0, len(preopens))
+	tuples := make([]types.Val, 0, len(preopens))
 	for guestPath, hostPath := range preopens {
 		// Open the host directory
 		file, err := os.Open(hostPath)
@@ -76,11 +77,11 @@ func getDirectories(ctx context.Context, args []component.Val) ([]component.Val,
 		handle := table.New(desc, true)
 
 		// Create tuple: (own<descriptor>, string)
-		handleVal := component.ValOwn(uint32(handle.Index()))
-		pathVal := component.ValString(guestPath)
-		tuple := component.ValTuple([]component.Val{handleVal, pathVal})
+		handleVal := types.ValOwn(uint32(handle.Index()))
+		pathVal := types.ValString(guestPath)
+		tuple := types.ValTuple([]types.Val{handleVal, pathVal})
 		tuples = append(tuples, tuple)
 	}
 
-	return []component.Val{component.ValList(tuples)}, nil
+	return []types.Val{types.ValList(tuples)}, nil
 }

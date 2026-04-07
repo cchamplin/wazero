@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -104,15 +106,15 @@ func TestInstantiatePoll_Duplicate(t *testing.T) {
 // Tests for host functions with ResourceTable
 
 func TestPollableReady_HostFunction(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create a pollable that is ready
 	pollable := NewReadyPollable()
 	handle := table.New(pollable, true)
 
-	args := []component.Val{
-		component.ValBorrow(uint32(handle)),
+	args := []types.Val{
+		types.ValBorrow(uint32(handle)),
 	}
 	results, err := pollableReady(ctx, args)
 	require.NoError(t, err)
@@ -121,15 +123,15 @@ func TestPollableReady_HostFunction(t *testing.T) {
 }
 
 func TestPollableReady_HostFunction_NotReady(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create a pollable that is not ready
 	pollable := NewPollable(func() bool { return false }, nil)
 	handle := table.New(pollable, true)
 
-	args := []component.Val{
-		component.ValBorrow(uint32(handle)),
+	args := []types.Val{
+		types.ValBorrow(uint32(handle)),
 	}
 	results, err := pollableReady(ctx, args)
 	require.NoError(t, err)
@@ -138,11 +140,11 @@ func TestPollableReady_HostFunction_NotReady(t *testing.T) {
 }
 
 func TestPollableReady_HostFunction_InvalidHandle(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
-	args := []component.Val{
-		component.ValBorrow(999), // Invalid handle
+	args := []types.Val{
+		types.ValBorrow(999), // Invalid handle
 	}
 	_, err := pollableReady(ctx, args)
 	require.Error(t, err)
@@ -152,8 +154,8 @@ func TestPollableReady_HostFunction_InvalidHandle(t *testing.T) {
 func TestPollableReady_HostFunction_NoResourceTable(t *testing.T) {
 	ctx := context.Background() // No resource table
 
-	args := []component.Val{
-		component.ValBorrow(0),
+	args := []types.Val{
+		types.ValBorrow(0),
 	}
 	_, err := pollableReady(ctx, args)
 	require.Error(t, err)
@@ -161,14 +163,14 @@ func TestPollableReady_HostFunction_NoResourceTable(t *testing.T) {
 }
 
 func TestPollableReady_HostFunction_WrongType(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Add something that's not a Pollable
 	handle := table.New("not a pollable", true)
 
-	args := []component.Val{
-		component.ValBorrow(uint32(handle)),
+	args := []types.Val{
+		types.ValBorrow(uint32(handle)),
 	}
 	_, err := pollableReady(ctx, args)
 	require.Error(t, err)
@@ -176,7 +178,7 @@ func TestPollableReady_HostFunction_WrongType(t *testing.T) {
 }
 
 func TestPollableBlock_HostFunction(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create a pollable that blocks and then becomes ready
@@ -190,8 +192,8 @@ func TestPollableBlock_HostFunction(t *testing.T) {
 	// Verify not ready before block
 	require.False(t, pollable.Ready())
 
-	args := []component.Val{
-		component.ValBorrow(uint32(handle)),
+	args := []types.Val{
+		types.ValBorrow(uint32(handle)),
 	}
 	results, err := pollableBlock(ctx, args)
 	require.NoError(t, err)
@@ -202,15 +204,15 @@ func TestPollableBlock_HostFunction(t *testing.T) {
 }
 
 func TestPollableBlock_HostFunction_NilBlockFn(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create a pollable with no block function
 	pollable := NewReadyPollable()
 	handle := table.New(pollable, true)
 
-	args := []component.Val{
-		component.ValBorrow(uint32(handle)),
+	args := []types.Val{
+		types.ValBorrow(uint32(handle)),
 	}
 	// Should not panic even with nil blockFn
 	results, err := pollableBlock(ctx, args)
@@ -219,11 +221,11 @@ func TestPollableBlock_HostFunction_NilBlockFn(t *testing.T) {
 }
 
 func TestPollableBlock_HostFunction_InvalidHandle(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
-	args := []component.Val{
-		component.ValBorrow(999),
+	args := []types.Val{
+		types.ValBorrow(999),
 	}
 	_, err := pollableBlock(ctx, args)
 	require.Error(t, err)
@@ -231,7 +233,7 @@ func TestPollableBlock_HostFunction_InvalidHandle(t *testing.T) {
 }
 
 func TestPoll_AllReady(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create three ready pollables
@@ -242,11 +244,11 @@ func TestPoll_AllReady(t *testing.T) {
 	h2 := table.New(p2, true)
 	h3 := table.New(p3, true)
 
-	args := []component.Val{
-		component.ValList([]component.Val{
-			component.ValBorrow(uint32(h1)),
-			component.ValBorrow(uint32(h2)),
-			component.ValBorrow(uint32(h3)),
+	args := []types.Val{
+		types.ValList([]types.Val{
+			types.ValBorrow(uint32(h1)),
+			types.ValBorrow(uint32(h2)),
+			types.ValBorrow(uint32(h3)),
 		}),
 	}
 	results, err := pollPoll(ctx, args)
@@ -262,7 +264,7 @@ func TestPoll_AllReady(t *testing.T) {
 }
 
 func TestPoll_SomeReady(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create pollables: first ready, second not ready, third ready
@@ -273,11 +275,11 @@ func TestPoll_SomeReady(t *testing.T) {
 	h2 := table.New(p2, true)
 	h3 := table.New(p3, true)
 
-	args := []component.Val{
-		component.ValList([]component.Val{
-			component.ValBorrow(uint32(h1)),
-			component.ValBorrow(uint32(h2)),
-			component.ValBorrow(uint32(h3)),
+	args := []types.Val{
+		types.ValList([]types.Val{
+			types.ValBorrow(uint32(h1)),
+			types.ValBorrow(uint32(h2)),
+			types.ValBorrow(uint32(h3)),
 		}),
 	}
 	results, err := pollPoll(ctx, args)
@@ -292,7 +294,7 @@ func TestPoll_SomeReady(t *testing.T) {
 }
 
 func TestPoll_NoneReady_WithBlock(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create pollables that are initially not ready but become ready after block
@@ -303,9 +305,9 @@ func TestPoll_NoneReady_WithBlock(t *testing.T) {
 	)
 	h1 := table.New(p1, true)
 
-	args := []component.Val{
-		component.ValList([]component.Val{
-			component.ValBorrow(uint32(h1)),
+	args := []types.Val{
+		types.ValList([]types.Val{
+			types.ValBorrow(uint32(h1)),
 		}),
 	}
 	results, err := pollPoll(ctx, args)
@@ -319,7 +321,7 @@ func TestPoll_NoneReady_WithBlock(t *testing.T) {
 }
 
 func TestPoll_NoneReady_NoBlockFn(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create pollable that is not ready and has no block function
@@ -328,9 +330,9 @@ func TestPoll_NoneReady_NoBlockFn(t *testing.T) {
 	p1 := NewPollable(func() bool { return false }, nil)
 	h1 := table.New(p1, true)
 
-	args := []component.Val{
-		component.ValList([]component.Val{
-			component.ValBorrow(uint32(h1)),
+	args := []types.Val{
+		types.ValList([]types.Val{
+			types.ValBorrow(uint32(h1)),
 		}),
 	}
 	results, err := pollPoll(ctx, args)
@@ -343,11 +345,11 @@ func TestPoll_NoneReady_NoBlockFn(t *testing.T) {
 }
 
 func TestPoll_EmptyList(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
-	args := []component.Val{
-		component.ValList([]component.Val{}),
+	args := []types.Val{
+		types.ValList([]types.Val{}),
 	}
 	results, err := pollPoll(ctx, args)
 	require.NoError(t, err)
@@ -359,12 +361,12 @@ func TestPoll_EmptyList(t *testing.T) {
 }
 
 func TestPoll_InvalidHandle(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
-	args := []component.Val{
-		component.ValList([]component.Val{
-			component.ValBorrow(999), // Invalid handle
+	args := []types.Val{
+		types.ValList([]types.Val{
+			types.ValBorrow(999), // Invalid handle
 		}),
 	}
 	_, err := pollPoll(ctx, args)
@@ -373,7 +375,7 @@ func TestPoll_InvalidHandle(t *testing.T) {
 }
 
 func TestPoll_BlockConcurrent(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create a pollable that becomes ready from another goroutine
@@ -395,9 +397,9 @@ func TestPoll_BlockConcurrent(t *testing.T) {
 	)
 	h1 := table.New(p1, true)
 
-	args := []component.Val{
-		component.ValList([]component.Val{
-			component.ValBorrow(uint32(h1)),
+	args := []types.Val{
+		types.ValList([]types.Val{
+			types.ValBorrow(uint32(h1)),
 		}),
 	}
 
@@ -417,7 +419,7 @@ func TestPoll_BlockConcurrent(t *testing.T) {
 }
 
 func TestGetPollable(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	pollable := NewReadyPollable()
@@ -437,7 +439,7 @@ func TestGetPollable_NoTable(t *testing.T) {
 }
 
 func TestGetPollable_InvalidHandle(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	_, err := getPollable(ctx, 999)
@@ -446,7 +448,7 @@ func TestGetPollable_InvalidHandle(t *testing.T) {
 }
 
 func TestGetPollable_WrongType(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	handle := table.New("not a pollable", true)
@@ -459,7 +461,7 @@ func TestGetPollable_WrongType(t *testing.T) {
 // Tests for poll multiplexing - Task 3.4
 
 func TestPoll_MultiplePollables_FastOneReturnsFirst(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create three pollables with different ready times:
@@ -518,11 +520,11 @@ func TestPoll_MultiplePollables_FastOneReturnsFirst(t *testing.T) {
 	h2 := table.New(p2, true)
 	h3 := table.New(p3, true)
 
-	args := []component.Val{
-		component.ValList([]component.Val{
-			component.ValBorrow(uint32(h1)),
-			component.ValBorrow(uint32(h2)),
-			component.ValBorrow(uint32(h3)),
+	args := []types.Val{
+		types.ValList([]types.Val{
+			types.ValBorrow(uint32(h1)),
+			types.ValBorrow(uint32(h2)),
+			types.ValBorrow(uint32(h3)),
 		}),
 	}
 
@@ -554,7 +556,7 @@ func TestPoll_MultiplePollables_FastOneReturnsFirst(t *testing.T) {
 }
 
 func TestPoll_MultiplePollables_AllReadyAtOnce(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create pollables that all become ready at about the same time
@@ -585,11 +587,11 @@ func TestPoll_MultiplePollables_AllReadyAtOnce(t *testing.T) {
 	h2 := table.New(p2, true)
 	h3 := table.New(p3, true)
 
-	args := []component.Val{
-		component.ValList([]component.Val{
-			component.ValBorrow(uint32(h1)),
-			component.ValBorrow(uint32(h2)),
-			component.ValBorrow(uint32(h3)),
+	args := []types.Val{
+		types.ValList([]types.Val{
+			types.ValBorrow(uint32(h1)),
+			types.ValBorrow(uint32(h2)),
+			types.ValBorrow(uint32(h3)),
 		}),
 	}
 
@@ -603,7 +605,7 @@ func TestPoll_MultiplePollables_AllReadyAtOnce(t *testing.T) {
 }
 
 func TestPoll_ChannelBasedPollable(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create a pollable with a channel for signaling readiness
@@ -631,9 +633,9 @@ func TestPoll_ChannelBasedPollable(t *testing.T) {
 		close(readyCh)
 	}()
 
-	args := []component.Val{
-		component.ValList([]component.Val{
-			component.ValBorrow(uint32(h)),
+	args := []types.Val{
+		types.ValList([]types.Val{
+			types.ValBorrow(uint32(h)),
 		}),
 	}
 

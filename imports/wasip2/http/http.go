@@ -9,6 +9,8 @@ import (
 
 	"github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 // Instantiate registers all wasi:http interfaces with the linker.
@@ -180,7 +182,7 @@ func instantiateTypes(linker *component.Linker) error {
 // ====================
 
 // getOrCreateTable returns the resource table from context or creates operations that don't require one.
-func getOrCreateTable(ctx context.Context) *component.ResourceTable {
+func getOrCreateTable(ctx context.Context) *runtime.ResourceTable {
 	return component.ResourceTableFromContext(ctx)
 }
 
@@ -190,7 +192,7 @@ func getFields(ctx context.Context, handle uint32) (*Fields, error) {
 	if table == nil {
 		return nil, fmt.Errorf("no resource table in context")
 	}
-	entry, err := table.Get(component.Handle(handle))
+	entry, err := table.Get(runtime.Handle(handle))
 	if err != nil {
 		return nil, fmt.Errorf("invalid handle %d: %w", handle, err)
 	}
@@ -207,7 +209,7 @@ func getIncomingResponse(ctx context.Context, handle uint32) (*IncomingResponse,
 	if table == nil {
 		return nil, fmt.Errorf("no resource table in context")
 	}
-	entry, err := table.Get(component.Handle(handle))
+	entry, err := table.Get(runtime.Handle(handle))
 	if err != nil {
 		return nil, fmt.Errorf("invalid handle %d: %w", handle, err)
 	}
@@ -224,7 +226,7 @@ func getIncomingBody(ctx context.Context, handle uint32) (*IncomingBody, error) 
 	if table == nil {
 		return nil, fmt.Errorf("no resource table in context")
 	}
-	entry, err := table.Get(component.Handle(handle))
+	entry, err := table.Get(runtime.Handle(handle))
 	if err != nil {
 		return nil, fmt.Errorf("invalid handle %d: %w", handle, err)
 	}
@@ -241,7 +243,7 @@ func getOutgoingBody(ctx context.Context, handle uint32) (*OutgoingBody, error) 
 	if table == nil {
 		return nil, fmt.Errorf("no resource table in context")
 	}
-	entry, err := table.Get(component.Handle(handle))
+	entry, err := table.Get(runtime.Handle(handle))
 	if err != nil {
 		return nil, fmt.Errorf("invalid handle %d: %w", handle, err)
 	}
@@ -258,7 +260,7 @@ func getRequestOptions(ctx context.Context, handle uint32) (*RequestOptions, err
 	if table == nil {
 		return nil, fmt.Errorf("no resource table in context")
 	}
-	entry, err := table.Get(component.Handle(handle))
+	entry, err := table.Get(runtime.Handle(handle))
 	if err != nil {
 		return nil, fmt.Errorf("invalid handle %d: %w", handle, err)
 	}
@@ -275,7 +277,7 @@ func getOutgoingRequest(ctx context.Context, handle uint32) (*OutgoingRequest, e
 	if table == nil {
 		return nil, fmt.Errorf("no resource table in context")
 	}
-	entry, err := table.Get(component.Handle(handle))
+	entry, err := table.Get(runtime.Handle(handle))
 	if err != nil {
 		return nil, fmt.Errorf("invalid handle %d: %w", handle, err)
 	}
@@ -292,7 +294,7 @@ func getIncomingRequest(ctx context.Context, handle uint32) (*IncomingRequest, e
 	if table == nil {
 		return nil, fmt.Errorf("no resource table in context")
 	}
-	entry, err := table.Get(component.Handle(handle))
+	entry, err := table.Get(runtime.Handle(handle))
 	if err != nil {
 		return nil, fmt.Errorf("invalid handle %d: %w", handle, err)
 	}
@@ -304,13 +306,13 @@ func getIncomingRequest(ctx context.Context, handle uint32) (*IncomingRequest, e
 }
 
 // createPollableHandle creates a pollable handle in the resource table.
-func createPollableHandle(ctx context.Context, pollable *io.Pollable) component.Val {
+func createPollableHandle(ctx context.Context, pollable *io.Pollable) types.Val {
 	table := getOrCreateTable(ctx)
 	if table == nil {
-		return component.ValOwn(0)
+		return types.ValOwn(0)
 	}
 	handle := table.New(pollable, true)
-	return component.ValOwn(uint32(handle))
+	return types.ValOwn(uint32(handle))
 }
 
 // ====================
@@ -319,23 +321,23 @@ func createPollableHandle(ctx context.Context, pollable *io.Pollable) component.
 
 // fieldsConstructor creates a new empty fields.
 // Signature: func() -> own<fields>
-func fieldsConstructor(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func fieldsConstructor(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	if table == nil {
-		return []component.Val{component.ValOwn(0)}, nil
+		return []types.Val{types.ValOwn(0)}, nil
 	}
 	fields := NewFields()
 	handle := table.New(fields, true)
-	return []component.Val{component.ValOwn(uint32(handle))}, nil
+	return []types.Val{types.ValOwn(uint32(handle))}, nil
 }
 
 // fieldsFromList creates fields from a list of entries.
 // Signature: func(entries: list<tuple<field-key, field-value>>) -> result<own<fields>, header-error>
-func fieldsFromList(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func fieldsFromList(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	if table == nil {
-		handle := component.ValOwn(0)
-		return []component.Val{component.ValResultOk(&handle)}, nil
+		handle := types.ValOwn(0)
+		return []types.Val{types.ValResultOk(&handle)}, nil
 	}
 
 	fields := NewFields()
@@ -354,54 +356,54 @@ func fieldsFromList(ctx context.Context, args []component.Val) ([]component.Val,
 	}
 
 	handle := table.New(fields, true)
-	result := component.ValOwn(uint32(handle))
-	return []component.Val{component.ValResultOk(&result)}, nil
+	result := types.ValOwn(uint32(handle))
+	return []types.Val{types.ValResultOk(&result)}, nil
 }
 
 // fieldsGet returns the values for a field name.
 // Signature: func(self: borrow<fields>, name: field-key) -> list<field-value>
-func fieldsGet(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func fieldsGet(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	fields, err := getFields(ctx, args[0].Borrow())
 	if err != nil {
 		// Return empty list on error
-		return []component.Val{component.ValList([]component.Val{})}, nil
+		return []types.Val{types.ValList([]types.Val{})}, nil
 	}
 
 	name := args[1].StringVal()
 	values := fields.Get(name)
 
 	// Convert [][]byte to list<list<u8>>
-	result := make([]component.Val, len(values))
+	result := make([]types.Val, len(values))
 	for i, v := range values {
-		bytes := make([]component.Val, len(v))
+		bytes := make([]types.Val, len(v))
 		for j, b := range v {
-			bytes[j] = component.ValU8(b)
+			bytes[j] = types.ValU8(b)
 		}
-		result[i] = component.ValList(bytes)
+		result[i] = types.ValList(bytes)
 	}
-	return []component.Val{component.ValList(result)}, nil
+	return []types.Val{types.ValList(result)}, nil
 }
 
 // fieldsHas returns whether a field name exists.
 // Signature: func(self: borrow<fields>, name: field-key) -> bool
-func fieldsHas(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func fieldsHas(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	name := args[1].StringVal()
 
 	fields, err := getFields(ctx, handle)
 	if err != nil {
-		return []component.Val{component.ValBool(false)}, nil
+		return []types.Val{types.ValBool(false)}, nil
 	}
 
-	return []component.Val{component.ValBool(fields.Has(name))}, nil
+	return []types.Val{types.ValBool(fields.Has(name))}, nil
 }
 
 // fieldsSet sets the values for a field name.
 // Signature: func(self: borrow<fields>, name: field-key, values: list<field-value>) -> result<_, header-error>
-func fieldsSet(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func fieldsSet(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	fields, err := getFields(ctx, args[0].Borrow())
 	if err != nil {
-		return []component.Val{component.ValResultOk(nil)}, nil
+		return []types.Val{types.ValResultOk(nil)}, nil
 	}
 
 	name := args[1].StringVal()
@@ -418,28 +420,28 @@ func fieldsSet(ctx context.Context, args []component.Val) ([]component.Val, erro
 	}
 
 	fields.Set(name, values)
-	return []component.Val{component.ValResultOk(nil)}, nil
+	return []types.Val{types.ValResultOk(nil)}, nil
 }
 
 // fieldsDelete removes a field by name.
 // Signature: func(self: borrow<fields>, name: field-key) -> result<_, header-error>
-func fieldsDelete(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func fieldsDelete(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	fields, err := getFields(ctx, args[0].Borrow())
 	if err != nil {
-		return []component.Val{component.ValResultOk(nil)}, nil
+		return []types.Val{types.ValResultOk(nil)}, nil
 	}
 
 	name := args[1].StringVal()
 	fields.Delete(name)
-	return []component.Val{component.ValResultOk(nil)}, nil
+	return []types.Val{types.ValResultOk(nil)}, nil
 }
 
 // fieldsAppend appends a value to a field.
 // Signature: func(self: borrow<fields>, name: field-key, value: field-value) -> result<_, header-error>
-func fieldsAppend(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func fieldsAppend(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	fields, err := getFields(ctx, args[0].Borrow())
 	if err != nil {
-		return []component.Val{component.ValResultOk(nil)}, nil
+		return []types.Val{types.ValResultOk(nil)}, nil
 	}
 
 	name := args[1].StringVal()
@@ -450,48 +452,48 @@ func fieldsAppend(ctx context.Context, args []component.Val) ([]component.Val, e
 	}
 
 	fields.Append(name, value)
-	return []component.Val{component.ValResultOk(nil)}, nil
+	return []types.Val{types.ValResultOk(nil)}, nil
 }
 
 // fieldsEntries returns all field entries.
 // Signature: func(self: borrow<fields>) -> list<tuple<field-key, field-value>>
-func fieldsEntries(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func fieldsEntries(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	fields, err := getFields(ctx, args[0].Borrow())
 	if err != nil {
-		return []component.Val{component.ValList([]component.Val{})}, nil
+		return []types.Val{types.ValList([]types.Val{})}, nil
 	}
 
 	entries := fields.Entries()
-	result := make([]component.Val, 0)
+	result := make([]types.Val, 0)
 	for _, entry := range entries {
 		for _, value := range entry.Values {
 			// Convert bytes to list<u8>
-			bytes := make([]component.Val, len(value))
+			bytes := make([]types.Val, len(value))
 			for i, b := range value {
-				bytes[i] = component.ValU8(b)
+				bytes[i] = types.ValU8(b)
 			}
-			tuple := component.ValTuple([]component.Val{
-				component.ValString(entry.Name),
-				component.ValList(bytes),
+			tuple := types.ValTuple([]types.Val{
+				types.ValString(entry.Name),
+				types.ValList(bytes),
 			})
 			result = append(result, tuple)
 		}
 	}
-	return []component.Val{component.ValList(result)}, nil
+	return []types.Val{types.ValList(result)}, nil
 }
 
 // fieldsClone creates a copy of the fields.
 // Signature: func(self: borrow<fields>) -> own<fields>
-func fieldsClone(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func fieldsClone(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	fields, err := getFields(ctx, args[0].Borrow())
 	if err != nil || table == nil {
-		return []component.Val{component.ValOwn(0)}, nil
+		return []types.Val{types.ValOwn(0)}, nil
 	}
 
 	clone := fields.Clone()
 	handle := table.New(clone, true)
-	return []component.Val{component.ValOwn(uint32(handle))}, nil
+	return []types.Val{types.ValOwn(uint32(handle))}, nil
 }
 
 // ====================
@@ -500,14 +502,14 @@ func fieldsClone(ctx context.Context, args []component.Val) ([]component.Val, er
 
 // outgoingRequestConstructor creates a new outgoing request.
 // Signature: func(headers: own<fields>) -> own<outgoing-request>
-func outgoingRequestConstructor(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func outgoingRequestConstructor(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	if table == nil {
-		return []component.Val{component.ValOwn(0)}, nil
+		return []types.Val{types.ValOwn(0)}, nil
 	}
 
 	// Get the headers handle and retrieve the Fields
-	headersHandle := component.Handle(args[0].Own())
+	headersHandle := runtime.Handle(args[0].Own())
 	headersEntry, err := table.Remove(headersHandle)
 	var headers *Fields
 	if err == nil {
@@ -521,55 +523,55 @@ func outgoingRequestConstructor(ctx context.Context, args []component.Val) ([]co
 
 	req := NewOutgoingRequest(headers)
 	handle := table.New(req, true)
-	return []component.Val{component.ValOwn(uint32(handle))}, nil
+	return []types.Val{types.ValOwn(uint32(handle))}, nil
 }
 
 // outgoingRequestMethod returns the HTTP method.
 // Signature: func(self: borrow<outgoing-request>) -> method
-func outgoingRequestMethod(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func outgoingRequestMethod(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	req, err := getOutgoingRequest(ctx, args[0].Borrow())
 	if err != nil {
-		return []component.Val{component.ValVariant("get", nil)}, nil
+		return []types.Val{types.ValVariant("get", nil)}, nil
 	}
-	return []component.Val{component.ValVariant(req.Method().String(), nil)}, nil
+	return []types.Val{types.ValVariant(req.Method().String(), nil)}, nil
 }
 
 // outgoingRequestSetMethod sets the HTTP method.
 // Signature: func(self: borrow<outgoing-request>, method: method) -> result<_, _>
-func outgoingRequestSetMethod(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func outgoingRequestSetMethod(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	req, err := getOutgoingRequest(ctx, args[0].Borrow())
 	if err != nil {
-		return []component.Val{component.ValResultOk(nil)}, nil
+		return []types.Val{types.ValResultOk(nil)}, nil
 	}
 
 	methodName, _ := args[1].Variant()
 	method := methodFromString(methodName)
 	req.SetMethod(method)
-	return []component.Val{component.ValResultOk(nil)}, nil
+	return []types.Val{types.ValResultOk(nil)}, nil
 }
 
 // outgoingRequestPathWithQuery returns the path with query.
 // Signature: func(self: borrow<outgoing-request>) -> option<string>
-func outgoingRequestPathWithQuery(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func outgoingRequestPathWithQuery(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	req, err := getOutgoingRequest(ctx, args[0].Borrow())
 	if err != nil {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
 
 	path := req.PathWithQuery()
 	if path == nil {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
-	pathVal := component.ValString(*path)
-	return []component.Val{component.ValOption(&pathVal)}, nil
+	pathVal := types.ValString(*path)
+	return []types.Val{types.ValOption(&pathVal)}, nil
 }
 
 // outgoingRequestSetPathWithQuery sets the path with query.
 // Signature: func(self: borrow<outgoing-request>, path: option<string>) -> result<_, _>
-func outgoingRequestSetPathWithQuery(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func outgoingRequestSetPathWithQuery(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	req, err := getOutgoingRequest(ctx, args[0].Borrow())
 	if err != nil {
-		return []component.Val{component.ValResultOk(nil)}, nil
+		return []types.Val{types.ValResultOk(nil)}, nil
 	}
 
 	optVal := args[1].Option()
@@ -579,33 +581,33 @@ func outgoingRequestSetPathWithQuery(ctx context.Context, args []component.Val) 
 		path := optVal.StringVal()
 		req.SetPathWithQuery(&path)
 	}
-	return []component.Val{component.ValResultOk(nil)}, nil
+	return []types.Val{types.ValResultOk(nil)}, nil
 }
 
 // outgoingRequestScheme returns the scheme.
 // Signature: func(self: borrow<outgoing-request>) -> option<scheme>
-func outgoingRequestScheme(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func outgoingRequestScheme(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	req, err := getOutgoingRequest(ctx, args[0].Borrow())
 	if err != nil {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
 
 	scheme := req.Scheme()
 	if scheme == nil {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
 
 	// Convert scheme to variant
 	schemeVal := schemeToVariant(scheme)
-	return []component.Val{component.ValOption(&schemeVal)}, nil
+	return []types.Val{types.ValOption(&schemeVal)}, nil
 }
 
 // outgoingRequestSetScheme sets the scheme.
 // Signature: func(self: borrow<outgoing-request>, scheme: option<scheme>) -> result<_, _>
-func outgoingRequestSetScheme(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func outgoingRequestSetScheme(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	req, err := getOutgoingRequest(ctx, args[0].Borrow())
 	if err != nil {
-		return []component.Val{component.ValResultOk(nil)}, nil
+		return []types.Val{types.ValResultOk(nil)}, nil
 	}
 
 	optVal := args[1].Option()
@@ -615,31 +617,31 @@ func outgoingRequestSetScheme(ctx context.Context, args []component.Val) ([]comp
 		scheme := schemeFromVariant(*optVal)
 		req.SetScheme(&scheme)
 	}
-	return []component.Val{component.ValResultOk(nil)}, nil
+	return []types.Val{types.ValResultOk(nil)}, nil
 }
 
 // outgoingRequestAuthority returns the authority.
 // Signature: func(self: borrow<outgoing-request>) -> option<string>
-func outgoingRequestAuthority(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func outgoingRequestAuthority(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	req, err := getOutgoingRequest(ctx, args[0].Borrow())
 	if err != nil {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
 
 	authority := req.Authority()
 	if authority == nil {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
-	authorityVal := component.ValString(*authority)
-	return []component.Val{component.ValOption(&authorityVal)}, nil
+	authorityVal := types.ValString(*authority)
+	return []types.Val{types.ValOption(&authorityVal)}, nil
 }
 
 // outgoingRequestSetAuthority sets the authority.
 // Signature: func(self: borrow<outgoing-request>, authority: option<string>) -> result<_, _>
-func outgoingRequestSetAuthority(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func outgoingRequestSetAuthority(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	req, err := getOutgoingRequest(ctx, args[0].Borrow())
 	if err != nil {
-		return []component.Val{component.ValResultOk(nil)}, nil
+		return []types.Val{types.ValResultOk(nil)}, nil
 	}
 
 	optVal := args[1].Option()
@@ -649,16 +651,16 @@ func outgoingRequestSetAuthority(ctx context.Context, args []component.Val) ([]c
 		authority := optVal.StringVal()
 		req.SetAuthority(&authority)
 	}
-	return []component.Val{component.ValResultOk(nil)}, nil
+	return []types.Val{types.ValResultOk(nil)}, nil
 }
 
 // outgoingRequestHeaders returns the headers.
 // Signature: func(self: borrow<outgoing-request>) -> own<fields>
-func outgoingRequestHeaders(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func outgoingRequestHeaders(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	req, err := getOutgoingRequest(ctx, args[0].Borrow())
 	if err != nil || table == nil {
-		return []component.Val{component.ValOwn(0)}, nil
+		return []types.Val{types.ValOwn(0)}, nil
 	}
 
 	// Return a handle to the headers (clone them so modifications don't affect request)
@@ -667,29 +669,29 @@ func outgoingRequestHeaders(ctx context.Context, args []component.Val) ([]compon
 		headers = NewFields()
 	}
 	handle := table.New(headers, true)
-	return []component.Val{component.ValOwn(uint32(handle))}, nil
+	return []types.Val{types.ValOwn(uint32(handle))}, nil
 }
 
 // outgoingRequestBody returns the body.
 // Signature: func(self: borrow<outgoing-request>) -> result<own<outgoing-body>, _>
-func outgoingRequestBody(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func outgoingRequestBody(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	req, err := getOutgoingRequest(ctx, args[0].Borrow())
 	if err != nil || table == nil {
-		body := component.ValOwn(0)
-		return []component.Val{component.ValResultOk(&body)}, nil
+		body := types.ValOwn(0)
+		return []types.Val{types.ValResultOk(&body)}, nil
 	}
 
 	body, err := req.Body()
 	if err != nil {
 		// Body already consumed
-		errVal := component.ValVariant("body-already-consumed", nil)
-		return []component.Val{component.ValResultError(&errVal)}, nil
+		errVal := types.ValVariant("body-already-consumed", nil)
+		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
 	handle := table.New(body, true)
-	result := component.ValOwn(uint32(handle))
-	return []component.Val{component.ValResultOk(&result)}, nil
+	result := types.ValOwn(uint32(handle))
+	return []types.Val{types.ValResultOk(&result)}, nil
 }
 
 // methodFromString converts a method name string to Method.
@@ -718,20 +720,20 @@ func methodFromString(name string) Method {
 	}
 }
 
-// schemeToVariant converts a Scheme to a component.Val variant.
-func schemeToVariant(s *Scheme) component.Val {
+// schemeToVariant converts a Scheme to a types.Val variant.
+func schemeToVariant(s *Scheme) types.Val {
 	if s.IsHTTP() {
-		return component.ValVariant("HTTP", nil)
+		return types.ValVariant("HTTP", nil)
 	}
 	if s.IsHTTPS() {
-		return component.ValVariant("HTTPS", nil)
+		return types.ValVariant("HTTPS", nil)
 	}
-	other := component.ValString(s.Other())
-	return component.ValVariant("other", &other)
+	other := types.ValString(s.Other())
+	return types.ValVariant("other", &other)
 }
 
-// schemeFromVariant converts a component.Val variant to a Scheme.
-func schemeFromVariant(v component.Val) Scheme {
+// schemeFromVariant converts a types.Val variant to a Scheme.
+func schemeFromVariant(v types.Val) Scheme {
 	name, payload := v.Variant()
 	switch name {
 	case "HTTP", "http":
@@ -754,72 +756,72 @@ func schemeFromVariant(v component.Val) Scheme {
 
 // incomingRequestMethod returns the HTTP method.
 // Signature: func(self: borrow<incoming-request>) -> method
-func incomingRequestMethod(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func incomingRequestMethod(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	req, err := getIncomingRequest(ctx, args[0].Borrow())
 	if err != nil {
 		// Return GET as fallback for invalid handle
-		return []component.Val{component.ValVariant("get", nil)}, nil
+		return []types.Val{types.ValVariant("get", nil)}, nil
 	}
-	return []component.Val{component.ValVariant(req.Method().String(), nil)}, nil
+	return []types.Val{types.ValVariant(req.Method().String(), nil)}, nil
 }
 
 // incomingRequestPathWithQuery returns the path with query.
 // Signature: func(self: borrow<incoming-request>) -> option<string>
-func incomingRequestPathWithQuery(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func incomingRequestPathWithQuery(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	req, err := getIncomingRequest(ctx, args[0].Borrow())
 	if err != nil {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
 
 	path := req.PathWithQuery()
 	if path == nil {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
-	pathVal := component.ValString(*path)
-	return []component.Val{component.ValOption(&pathVal)}, nil
+	pathVal := types.ValString(*path)
+	return []types.Val{types.ValOption(&pathVal)}, nil
 }
 
 // incomingRequestScheme returns the scheme.
 // Signature: func(self: borrow<incoming-request>) -> option<scheme>
-func incomingRequestScheme(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func incomingRequestScheme(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	req, err := getIncomingRequest(ctx, args[0].Borrow())
 	if err != nil {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
 
 	scheme := req.Scheme()
 	if scheme == nil {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
 
 	// Convert scheme to variant
 	schemeVal := schemeToVariant(scheme)
-	return []component.Val{component.ValOption(&schemeVal)}, nil
+	return []types.Val{types.ValOption(&schemeVal)}, nil
 }
 
 // incomingRequestAuthority returns the authority.
 // Signature: func(self: borrow<incoming-request>) -> option<string>
-func incomingRequestAuthority(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func incomingRequestAuthority(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	req, err := getIncomingRequest(ctx, args[0].Borrow())
 	if err != nil {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
 
 	authority := req.Authority()
 	if authority == nil {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
-	authorityVal := component.ValString(*authority)
-	return []component.Val{component.ValOption(&authorityVal)}, nil
+	authorityVal := types.ValString(*authority)
+	return []types.Val{types.ValOption(&authorityVal)}, nil
 }
 
 // incomingRequestHeaders returns the headers.
 // Signature: func(self: borrow<incoming-request>) -> own<fields>
-func incomingRequestHeaders(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func incomingRequestHeaders(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	req, err := getIncomingRequest(ctx, args[0].Borrow())
 	if err != nil || table == nil {
-		return []component.Val{component.ValOwn(0)}, nil
+		return []types.Val{types.ValOwn(0)}, nil
 	}
 
 	// Return a handle to the headers (clone them so modifications don't affect request)
@@ -828,28 +830,28 @@ func incomingRequestHeaders(ctx context.Context, args []component.Val) ([]compon
 		headers = NewFields()
 	}
 	handle := table.New(headers, true)
-	return []component.Val{component.ValOwn(uint32(handle))}, nil
+	return []types.Val{types.ValOwn(uint32(handle))}, nil
 }
 
 // incomingRequestConsume consumes the request body.
 // Signature: func(self: borrow<incoming-request>) -> result<own<incoming-body>, _>
-func incomingRequestConsume(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func incomingRequestConsume(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	req, err := getIncomingRequest(ctx, args[0].Borrow())
 	if err != nil || table == nil {
-		body := component.ValOwn(0)
-		return []component.Val{component.ValResultOk(&body)}, nil
+		body := types.ValOwn(0)
+		return []types.Val{types.ValResultOk(&body)}, nil
 	}
 
 	body, consumeErr := req.Consume()
 	if consumeErr != nil {
-		errVal := component.ValVariant("body-already-consumed", nil)
-		return []component.Val{component.ValResultError(&errVal)}, nil
+		errVal := types.ValVariant("body-already-consumed", nil)
+		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
 	handle := table.New(body, true)
-	result := component.ValOwn(uint32(handle))
-	return []component.Val{component.ValResultOk(&result)}, nil
+	result := types.ValOwn(uint32(handle))
+	return []types.Val{types.ValResultOk(&result)}, nil
 }
 
 // ====================
@@ -861,7 +863,7 @@ func getOutgoingResponse(ctx context.Context, handle uint32) (*OutgoingResponse,
 	if table == nil {
 		return nil, fmt.Errorf("no resource table in context")
 	}
-	entry, err := table.Get(component.Handle(handle))
+	entry, err := table.Get(runtime.Handle(handle))
 	if err != nil {
 		return nil, fmt.Errorf("invalid handle %d: %w", handle, err)
 	}
@@ -874,13 +876,13 @@ func getOutgoingResponse(ctx context.Context, handle uint32) (*OutgoingResponse,
 
 // outgoingResponseConstructor creates a new outgoing response.
 // Signature: func(headers: own<fields>) -> own<outgoing-response>
-func outgoingResponseConstructor(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func outgoingResponseConstructor(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	if table == nil {
-		return []component.Val{component.ValOwn(0)}, nil
+		return []types.Val{types.ValOwn(0)}, nil
 	}
 
-	headersHandle := component.Handle(args[0].Own())
+	headersHandle := runtime.Handle(args[0].Own())
 	var headers *Fields
 	headersEntry, err := table.Remove(headersHandle)
 	if err == nil {
@@ -894,65 +896,65 @@ func outgoingResponseConstructor(ctx context.Context, args []component.Val) ([]c
 
 	resp := NewOutgoingResponse(headers)
 	handle := table.New(resp, true)
-	return []component.Val{component.ValOwn(uint32(handle))}, nil
+	return []types.Val{types.ValOwn(uint32(handle))}, nil
 }
 
 // outgoingResponseStatusCode returns the status code.
 // Signature: func(self: borrow<outgoing-response>) -> status-code
-func outgoingResponseStatusCode(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func outgoingResponseStatusCode(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	resp, err := getOutgoingResponse(ctx, args[0].Borrow())
 	if err != nil {
-		return []component.Val{component.ValU16(200)}, nil
+		return []types.Val{types.ValU16(200)}, nil
 	}
-	return []component.Val{component.ValU16(resp.StatusCode())}, nil
+	return []types.Val{types.ValU16(resp.StatusCode())}, nil
 }
 
 // outgoingResponseSetStatusCode sets the status code.
 // Signature: func(self: borrow<outgoing-response>, status-code: status-code) -> result<_, _>
-func outgoingResponseSetStatusCode(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func outgoingResponseSetStatusCode(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	resp, err := getOutgoingResponse(ctx, args[0].Borrow())
 	if err != nil {
-		return []component.Val{component.ValResultOk(nil)}, nil
+		return []types.Val{types.ValResultOk(nil)}, nil
 	}
 	resp.SetStatusCode(args[1].U16())
-	return []component.Val{component.ValResultOk(nil)}, nil
+	return []types.Val{types.ValResultOk(nil)}, nil
 }
 
 // outgoingResponseHeaders returns the headers.
 // Signature: func(self: borrow<outgoing-response>) -> own<fields>
-func outgoingResponseHeaders(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func outgoingResponseHeaders(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	resp, err := getOutgoingResponse(ctx, args[0].Borrow())
 	if err != nil || table == nil {
-		return []component.Val{component.ValOwn(0)}, nil
+		return []types.Val{types.ValOwn(0)}, nil
 	}
 	headers := resp.Headers()
 	if headers == nil {
 		headers = NewFields()
 	}
 	handle := table.New(headers, true)
-	return []component.Val{component.ValOwn(uint32(handle))}, nil
+	return []types.Val{types.ValOwn(uint32(handle))}, nil
 }
 
 // outgoingResponseBody returns the body.
 // Signature: func(self: borrow<outgoing-response>) -> result<own<outgoing-body>, _>
-func outgoingResponseBody(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func outgoingResponseBody(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	resp, err := getOutgoingResponse(ctx, args[0].Borrow())
 	if err != nil || table == nil {
-		body := component.ValOwn(0)
-		return []component.Val{component.ValResultOk(&body)}, nil
+		body := types.ValOwn(0)
+		return []types.Val{types.ValResultOk(&body)}, nil
 	}
 
 	body, bodyErr := resp.Body()
 	if bodyErr != nil {
-		errVal := component.ValVariant("body-already-consumed", nil)
-		return []component.Val{component.ValResultError(&errVal)}, nil
+		errVal := types.ValVariant("body-already-consumed", nil)
+		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
 	handle := table.New(body, true)
-	result := component.ValOwn(uint32(handle))
-	return []component.Val{component.ValResultOk(&result)}, nil
+	result := types.ValOwn(uint32(handle))
+	return []types.Val{types.ValResultOk(&result)}, nil
 }
 
 // ====================
@@ -961,21 +963,21 @@ func outgoingResponseBody(ctx context.Context, args []component.Val) ([]componen
 
 // incomingResponseStatus returns the status code.
 // Signature: func(self: borrow<incoming-response>) -> status-code
-func incomingResponseStatus(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func incomingResponseStatus(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	resp, err := getIncomingResponse(ctx, args[0].Borrow())
 	if err != nil {
-		return []component.Val{component.ValU16(200)}, nil
+		return []types.Val{types.ValU16(200)}, nil
 	}
-	return []component.Val{component.ValU16(resp.Status())}, nil
+	return []types.Val{types.ValU16(resp.Status())}, nil
 }
 
 // incomingResponseHeaders returns the headers.
 // Signature: func(self: borrow<incoming-response>) -> own<fields>
-func incomingResponseHeaders(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func incomingResponseHeaders(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	resp, err := getIncomingResponse(ctx, args[0].Borrow())
 	if err != nil || table == nil {
-		return []component.Val{component.ValOwn(0)}, nil
+		return []types.Val{types.ValOwn(0)}, nil
 	}
 
 	headers := resp.Headers()
@@ -983,28 +985,28 @@ func incomingResponseHeaders(ctx context.Context, args []component.Val) ([]compo
 		headers = NewFields()
 	}
 	handle := table.New(headers, true)
-	return []component.Val{component.ValOwn(uint32(handle))}, nil
+	return []types.Val{types.ValOwn(uint32(handle))}, nil
 }
 
 // incomingResponseConsume consumes the response body.
 // Signature: func(self: borrow<incoming-response>) -> result<own<incoming-body>, _>
-func incomingResponseConsume(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func incomingResponseConsume(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	resp, err := getIncomingResponse(ctx, args[0].Borrow())
 	if err != nil || table == nil {
-		body := component.ValOwn(0)
-		return []component.Val{component.ValResultOk(&body)}, nil
+		body := types.ValOwn(0)
+		return []types.Val{types.ValResultOk(&body)}, nil
 	}
 
 	body, err := resp.Consume()
 	if err != nil {
-		errVal := component.ValVariant("body-already-consumed", nil)
-		return []component.Val{component.ValResultError(&errVal)}, nil
+		errVal := types.ValVariant("body-already-consumed", nil)
+		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
 	handle := table.New(body, true)
-	result := component.ValOwn(uint32(handle))
-	return []component.Val{component.ValResultOk(&result)}, nil
+	result := types.ValOwn(uint32(handle))
+	return []types.Val{types.ValResultOk(&result)}, nil
 }
 
 // ====================
@@ -1013,35 +1015,35 @@ func incomingResponseConsume(ctx context.Context, args []component.Val) ([]compo
 
 // incomingBodyStream returns the input stream for reading the body.
 // Signature: func(self: borrow<incoming-body>) -> result<own<input-stream>, _>
-func incomingBodyStream(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func incomingBodyStream(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	body, err := getIncomingBody(ctx, args[0].Borrow())
 	if err != nil || table == nil {
-		stream := component.ValOwn(0)
-		return []component.Val{component.ValResultOk(&stream)}, nil
+		stream := types.ValOwn(0)
+		return []types.Val{types.ValResultOk(&stream)}, nil
 	}
 
 	stream, err := body.Stream()
 	if err != nil {
-		errVal := component.ValVariant("stream-already-consumed", nil)
-		return []component.Val{component.ValResultError(&errVal)}, nil
+		errVal := types.ValVariant("stream-already-consumed", nil)
+		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
 	handle := table.New(stream, true)
-	result := component.ValOwn(uint32(handle))
-	return []component.Val{component.ValResultOk(&result)}, nil
+	result := types.ValOwn(uint32(handle))
+	return []types.Val{types.ValResultOk(&result)}, nil
 }
 
 // incomingBodyFinish finishes consuming the body.
 // Signature: func(body: own<incoming-body>) -> own<future-trailers>
-func incomingBodyFinish(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func incomingBodyFinish(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	if table == nil {
-		return []component.Val{component.ValOwn(0)}, nil
+		return []types.Val{types.ValOwn(0)}, nil
 	}
 
 	// Consume the body handle
-	bodyHandle := component.Handle(args[0].Own())
+	bodyHandle := runtime.Handle(args[0].Own())
 	bodyEntry, err := table.Remove(bodyHandle)
 	if err == nil {
 		if body, ok := bodyEntry.Rep.(*IncomingBody); ok {
@@ -1052,7 +1054,7 @@ func incomingBodyFinish(ctx context.Context, args []component.Val) ([]component.
 	// For simple cases (no trailer support), resolve immediately with no trailers
 	ft := NewFutureTrailersReady(nil, nil)
 	handle := table.New(ft, true)
-	return []component.Val{component.ValOwn(uint32(handle))}, nil
+	return []types.Val{types.ValOwn(uint32(handle))}, nil
 }
 
 // ====================
@@ -1061,35 +1063,35 @@ func incomingBodyFinish(ctx context.Context, args []component.Val) ([]component.
 
 // outgoingBodyWrite returns the output stream for writing the body.
 // Signature: func(self: borrow<outgoing-body>) -> result<own<output-stream>, _>
-func outgoingBodyWrite(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func outgoingBodyWrite(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	body, err := getOutgoingBody(ctx, args[0].Borrow())
 	if err != nil || table == nil {
-		stream := component.ValOwn(0)
-		return []component.Val{component.ValResultOk(&stream)}, nil
+		stream := types.ValOwn(0)
+		return []types.Val{types.ValResultOk(&stream)}, nil
 	}
 
 	stream, err := body.Write()
 	if err != nil {
-		errVal := component.ValVariant("stream-already-consumed", nil)
-		return []component.Val{component.ValResultError(&errVal)}, nil
+		errVal := types.ValVariant("stream-already-consumed", nil)
+		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
 	handle := table.New(stream, true)
-	result := component.ValOwn(uint32(handle))
-	return []component.Val{component.ValResultOk(&result)}, nil
+	result := types.ValOwn(uint32(handle))
+	return []types.Val{types.ValResultOk(&result)}, nil
 }
 
 // outgoingBodyFinish finishes writing the body.
 // Signature: func(body: own<outgoing-body>, trailers: option<own<fields>>) -> result<_, error-code>
-func outgoingBodyFinish(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func outgoingBodyFinish(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	if table == nil {
-		return []component.Val{component.ValResultOk(nil)}, nil
+		return []types.Val{types.ValResultOk(nil)}, nil
 	}
 
 	// Consume the body handle
-	bodyHandle := component.Handle(args[0].Own())
+	bodyHandle := runtime.Handle(args[0].Own())
 	bodyEntry, err := table.Remove(bodyHandle)
 	if err == nil {
 		if body, ok := bodyEntry.Rep.(*OutgoingBody); ok {
@@ -1100,11 +1102,11 @@ func outgoingBodyFinish(ctx context.Context, args []component.Val) ([]component.
 	// Consume optional trailers
 	trailersOpt := args[1].Option()
 	if trailersOpt != nil {
-		trailersHandle := component.Handle(trailersOpt.Own())
+		trailersHandle := runtime.Handle(trailersOpt.Own())
 		table.Remove(trailersHandle)
 	}
 
-	return []component.Val{component.ValResultOk(nil)}, nil
+	return []types.Val{types.ValResultOk(nil)}, nil
 }
 
 // ====================
@@ -1113,16 +1115,16 @@ func outgoingBodyFinish(ctx context.Context, args []component.Val) ([]component.
 
 // futureIncomingResponseGet polls for the response.
 // Signature: func(self: borrow<future-incoming-response>) -> option<result<result<own<incoming-response>, error-code>, _>>
-func futureIncomingResponseGet(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func futureIncomingResponseGet(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	future, err := getFutureIncomingResponse(ctx, args[0].Borrow())
 	if err != nil || table == nil {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
 
 	resp, errCode, ready := future.Get()
 	if !ready {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
 
 	// Response is ready - build the nested result
@@ -1130,29 +1132,29 @@ func futureIncomingResponseGet(ctx context.Context, args []component.Val) ([]com
 	if errCode != nil {
 		// Error case: result<result<..., error-code>, _> -> ok(err(error-code))
 		errVal := errorCodeToVariant(*errCode)
-		innerResult := component.ValResultError(&errVal)
-		outerResult := component.ValResultOk(&innerResult)
-		return []component.Val{component.ValOption(&outerResult)}, nil
+		innerResult := types.ValResultError(&errVal)
+		outerResult := types.ValResultOk(&innerResult)
+		return []types.Val{types.ValOption(&outerResult)}, nil
 	}
 
 	// Success case: create handle for incoming response
 	respHandle := table.New(resp, true)
-	respVal := component.ValOwn(uint32(respHandle))
-	innerResult := component.ValResultOk(&respVal)
-	outerResult := component.ValResultOk(&innerResult)
-	return []component.Val{component.ValOption(&outerResult)}, nil
+	respVal := types.ValOwn(uint32(respHandle))
+	innerResult := types.ValResultOk(&respVal)
+	outerResult := types.ValResultOk(&innerResult)
+	return []types.Val{types.ValOption(&outerResult)}, nil
 }
 
 // futureIncomingResponseSubscribe returns a pollable for the future.
 // Signature: func(self: borrow<future-incoming-response>) -> own<pollable>
-func futureIncomingResponseSubscribe(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func futureIncomingResponseSubscribe(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	future, err := getFutureIncomingResponse(ctx, args[0].Borrow())
 	if err != nil {
-		return []component.Val{component.ValOwn(0)}, nil
+		return []types.Val{types.ValOwn(0)}, nil
 	}
 
 	pollable := future.Subscribe()
-	return []component.Val{createPollableHandle(ctx, pollable)}, nil
+	return []types.Val{createPollableHandle(ctx, pollable)}, nil
 }
 
 // getFutureIncomingResponse retrieves a FutureIncomingResponse from the resource table.
@@ -1161,7 +1163,7 @@ func getFutureIncomingResponse(ctx context.Context, handle uint32) (*FutureIncom
 	if table == nil {
 		return nil, fmt.Errorf("no resource table in context")
 	}
-	entry, err := table.Get(component.Handle(handle))
+	entry, err := table.Get(runtime.Handle(handle))
 	if err != nil {
 		return nil, fmt.Errorf("invalid handle %d: %w", handle, err)
 	}
@@ -1182,7 +1184,7 @@ func getFutureTrailers(ctx context.Context, handle uint32) (*FutureTrailers, err
 	if table == nil {
 		return nil, fmt.Errorf("no resource table in context")
 	}
-	entry, err := table.Get(component.Handle(handle))
+	entry, err := table.Get(runtime.Handle(handle))
 	if err != nil {
 		return nil, fmt.Errorf("invalid handle %d: %w", handle, err)
 	}
@@ -1195,16 +1197,16 @@ func getFutureTrailers(ctx context.Context, handle uint32) (*FutureTrailers, err
 
 // futureTrailersGet polls for the trailers.
 // Signature: func(self: borrow<future-trailers>) -> option<result<result<option<own<fields>>, error-code>, _>>
-func futureTrailersGet(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func futureTrailersGet(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	ft, err := getFutureTrailers(ctx, args[0].Borrow())
 	if err != nil {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
 
 	// SetConsumed atomically advances state to consumed if currently waiting+ready
 	// or done. Returns false if still waiting (channel not closed) or already consumed.
 	if !ft.SetConsumed() {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
 
 	// State has now transitioned to consumed; ft.err and ft.trailers are
@@ -1213,34 +1215,34 @@ func futureTrailersGet(ctx context.Context, args []component.Val) ([]component.V
 	table := getOrCreateTable(ctx)
 	if ft.err != nil {
 		errVal := errorCodeToVariant(*ft.err)
-		innerResult := component.ValResultError(&errVal)
-		outerResult := component.ValResultOk(&innerResult)
-		return []component.Val{component.ValOption(&outerResult)}, nil
+		innerResult := types.ValResultError(&errVal)
+		outerResult := types.ValResultOk(&innerResult)
+		return []types.Val{types.ValOption(&outerResult)}, nil
 	}
 
 	// Ok case: option<trailers>
-	var trailersOpt component.Val
+	var trailersOpt types.Val
 	if ft.trailers != nil && table != nil {
 		handle := table.New(ft.trailers, true)
-		trailersHandle := component.ValOwn(uint32(handle))
-		trailersOpt = component.ValOption(&trailersHandle)
+		trailersHandle := types.ValOwn(uint32(handle))
+		trailersOpt = types.ValOption(&trailersHandle)
 	} else {
-		trailersOpt = component.ValOption(nil)
+		trailersOpt = types.ValOption(nil)
 	}
 
-	innerResult := component.ValResultOk(&trailersOpt)
-	outerResult := component.ValResultOk(&innerResult)
-	return []component.Val{component.ValOption(&outerResult)}, nil
+	innerResult := types.ValResultOk(&trailersOpt)
+	outerResult := types.ValResultOk(&innerResult)
+	return []types.Val{types.ValOption(&outerResult)}, nil
 }
 
 // futureTrailersSubscribe returns a pollable for the future.
 // Signature: func(self: borrow<future-trailers>) -> own<pollable>
-func futureTrailersSubscribe(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func futureTrailersSubscribe(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	ft, err := getFutureTrailers(ctx, args[0].Borrow())
 	if err != nil {
 		// Return a ready pollable
 		pollable := io.NewReadyPollable()
-		return []component.Val{createPollableHandle(ctx, pollable)}, nil
+		return []types.Val{createPollableHandle(ctx, pollable)}, nil
 	}
 
 	// Create pollable that checks if future is ready and blocks on done channel
@@ -1248,7 +1250,7 @@ func futureTrailersSubscribe(ctx context.Context, args []component.Val) ([]compo
 		func() bool { return ft.IsReady() },
 		func() { <-ft.done },
 	)
-	return []component.Val{createPollableHandle(ctx, pollable)}, nil
+	return []types.Val{createPollableHandle(ctx, pollable)}, nil
 }
 
 // ====================
@@ -1274,13 +1276,13 @@ func futureTrailersSubscribe(ctx context.Context, args []component.Val) ([]compo
 // Reference: wasmtime's equivalent in
 // crates/wasi-http/src/types_impl.rs (HostResponseOutparam::set) uses
 // `self.table().delete(resp)?` which propagates the error as a wasmtime trap.
-func responseOutparamSet(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func responseOutparamSet(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	if table == nil {
 		// No resource table at all is a degenerate test/host configuration; in
 		// production a table is always present. Returning unit here preserves
 		// existing behavior for tests that exercise the function without a table.
-		return []component.Val{}, nil
+		return []types.Val{}, nil
 	}
 
 	// Parse the result<own<outgoing-response>, error-code> first.
@@ -1294,7 +1296,7 @@ func responseOutparamSet(ctx context.Context, args []component.Val) ([]component
 	if isOk {
 		// Success branch: lift the own<outgoing-response>. Per CanonicalABI.md
 		// lift_own, an invalid handle traps.
-		respHandle := component.Handle(okVal.Own())
+		respHandle := runtime.Handle(okVal.Own())
 		respEntry, err := table.Remove(respHandle)
 		if err != nil {
 			return nil, fmt.Errorf("response-outparam.set: invalid outgoing-response handle %d: %w", respHandle, err)
@@ -1314,7 +1316,7 @@ func responseOutparamSet(ctx context.Context, args []component.Val) ([]component
 	}
 
 	// Lift the outparam own handle. Invalid handle traps per lift_own.
-	outparamHandle := component.Handle(args[0].Own())
+	outparamHandle := runtime.Handle(args[0].Own())
 	outparamEntry, err := table.Remove(outparamHandle)
 	if err != nil {
 		return nil, fmt.Errorf("response-outparam.set: invalid response-outparam handle %d: %w", outparamHandle, err)
@@ -1333,7 +1335,7 @@ func responseOutparamSet(ctx context.Context, args []component.Val) ([]component
 	default:
 	}
 
-	return []component.Val{}, nil
+	return []types.Val{}, nil
 }
 
 // ====================
@@ -1342,39 +1344,39 @@ func responseOutparamSet(ctx context.Context, args []component.Val) ([]component
 
 // requestOptionsConstructor creates new request options.
 // Signature: func() -> own<request-options>
-func requestOptionsConstructor(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func requestOptionsConstructor(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	if table == nil {
-		return []component.Val{component.ValOwn(0)}, nil
+		return []types.Val{types.ValOwn(0)}, nil
 	}
 
 	opts := NewRequestOptions()
 	handle := table.New(opts, true)
-	return []component.Val{component.ValOwn(uint32(handle))}, nil
+	return []types.Val{types.ValOwn(uint32(handle))}, nil
 }
 
 // requestOptionsConnectTimeout returns the connect timeout.
 // Signature: func(self: borrow<request-options>) -> option<duration>
-func requestOptionsConnectTimeout(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func requestOptionsConnectTimeout(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	opts, err := getRequestOptions(ctx, args[0].Borrow())
 	if err != nil {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
 
 	timeout := opts.ConnectTimeout()
 	if timeout == nil {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
-	timeoutVal := component.ValU64(*timeout)
-	return []component.Val{component.ValOption(&timeoutVal)}, nil
+	timeoutVal := types.ValU64(*timeout)
+	return []types.Val{types.ValOption(&timeoutVal)}, nil
 }
 
 // requestOptionsSetConnectTimeout sets the connect timeout.
 // Signature: func(self: borrow<request-options>, timeout: option<duration>) -> result<_, _>
-func requestOptionsSetConnectTimeout(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func requestOptionsSetConnectTimeout(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	opts, err := getRequestOptions(ctx, args[0].Borrow())
 	if err != nil {
-		return []component.Val{component.ValResultOk(nil)}, nil
+		return []types.Val{types.ValResultOk(nil)}, nil
 	}
 
 	optVal := args[1].Option()
@@ -1384,31 +1386,31 @@ func requestOptionsSetConnectTimeout(ctx context.Context, args []component.Val) 
 		timeout := optVal.U64()
 		opts.SetConnectTimeout(&timeout)
 	}
-	return []component.Val{component.ValResultOk(nil)}, nil
+	return []types.Val{types.ValResultOk(nil)}, nil
 }
 
 // requestOptionsFirstByteTimeout returns the first byte timeout.
 // Signature: func(self: borrow<request-options>) -> option<duration>
-func requestOptionsFirstByteTimeout(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func requestOptionsFirstByteTimeout(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	opts, err := getRequestOptions(ctx, args[0].Borrow())
 	if err != nil {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
 
 	timeout := opts.FirstByteTimeout()
 	if timeout == nil {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
-	timeoutVal := component.ValU64(*timeout)
-	return []component.Val{component.ValOption(&timeoutVal)}, nil
+	timeoutVal := types.ValU64(*timeout)
+	return []types.Val{types.ValOption(&timeoutVal)}, nil
 }
 
 // requestOptionsSetFirstByteTimeout sets the first byte timeout.
 // Signature: func(self: borrow<request-options>, timeout: option<duration>) -> result<_, _>
-func requestOptionsSetFirstByteTimeout(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func requestOptionsSetFirstByteTimeout(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	opts, err := getRequestOptions(ctx, args[0].Borrow())
 	if err != nil {
-		return []component.Val{component.ValResultOk(nil)}, nil
+		return []types.Val{types.ValResultOk(nil)}, nil
 	}
 
 	optVal := args[1].Option()
@@ -1418,31 +1420,31 @@ func requestOptionsSetFirstByteTimeout(ctx context.Context, args []component.Val
 		timeout := optVal.U64()
 		opts.SetFirstByteTimeout(&timeout)
 	}
-	return []component.Val{component.ValResultOk(nil)}, nil
+	return []types.Val{types.ValResultOk(nil)}, nil
 }
 
 // requestOptionsBetweenBytesTimeout returns the between bytes timeout.
 // Signature: func(self: borrow<request-options>) -> option<duration>
-func requestOptionsBetweenBytesTimeout(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func requestOptionsBetweenBytesTimeout(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	opts, err := getRequestOptions(ctx, args[0].Borrow())
 	if err != nil {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
 
 	timeout := opts.BetweenBytesTimeout()
 	if timeout == nil {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
-	timeoutVal := component.ValU64(*timeout)
-	return []component.Val{component.ValOption(&timeoutVal)}, nil
+	timeoutVal := types.ValU64(*timeout)
+	return []types.Val{types.ValOption(&timeoutVal)}, nil
 }
 
 // requestOptionsSetBetweenBytesTimeout sets the between bytes timeout.
 // Signature: func(self: borrow<request-options>, timeout: option<duration>) -> result<_, _>
-func requestOptionsSetBetweenBytesTimeout(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func requestOptionsSetBetweenBytesTimeout(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	opts, err := getRequestOptions(ctx, args[0].Borrow())
 	if err != nil {
-		return []component.Val{component.ValResultOk(nil)}, nil
+		return []types.Val{types.ValResultOk(nil)}, nil
 	}
 
 	optVal := args[1].Option()
@@ -1452,7 +1454,7 @@ func requestOptionsSetBetweenBytesTimeout(ctx context.Context, args []component.
 		timeout := optVal.U64()
 		opts.SetBetweenBytesTimeout(&timeout)
 	}
-	return []component.Val{component.ValResultOk(nil)}, nil
+	return []types.Val{types.ValResultOk(nil)}, nil
 }
 
 // ====================
@@ -1461,30 +1463,30 @@ func requestOptionsSetBetweenBytesTimeout(ctx context.Context, args []component.
 
 // httpErrorCode extracts an error code from an error.
 // Signature: func(err: borrow<io-error>) -> option<error-code>
-func httpErrorCode(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func httpErrorCode(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	table := getOrCreateTable(ctx)
 	if table == nil {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
 
-	entry, err := table.Get(component.Handle(handle))
+	entry, err := table.Get(runtime.Handle(handle))
 	if err != nil {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
 
 	ioErr, ok := entry.Rep.(*io.Error)
 	if !ok {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
 
 	// Unwrap the Go error and check if it's an HTTPError
 	var httpErr *HTTPError
 	if errors.As(ioErr.Unwrap(), &httpErr) {
 		codeVal := errorCodeToVariant(httpErr.Code)
-		return []component.Val{component.ValOption(&codeVal)}, nil
+		return []types.Val{types.ValOption(&codeVal)}, nil
 	}
 
-	return []component.Val{component.ValOption(nil)}, nil
+	return []types.Val{types.ValOption(nil)}, nil
 }

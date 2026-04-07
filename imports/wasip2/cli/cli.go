@@ -9,6 +9,7 @@ import (
 
 	wasip2io "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 // ExitError is returned when a WASI program calls exit with an error status.
@@ -71,57 +72,57 @@ func instantiateEnvironment(linker *component.Linker) error {
 }
 
 // getEnvironment returns the environment variables as list<tuple<string, string>>
-func getEnvironment(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func getEnvironment(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	config := component.WASIConfigFromContext(ctx)
 	if config == nil {
 		// No config, return empty list
-		return []component.Val{component.ValList([]component.Val{})}, nil
+		return []types.Val{types.ValList([]types.Val{})}, nil
 	}
 
 	environ := config.Environ()
-	tuples := make([]component.Val, 0, len(environ))
+	tuples := make([]types.Val, 0, len(environ))
 	for _, env := range environ {
 		// Split "KEY=value" into (key, value) tuple
 		parts := strings.SplitN(env, "=", 2)
 		if len(parts) == 2 {
-			tuple := component.ValTuple([]component.Val{
-				component.ValString(parts[0]),
-				component.ValString(parts[1]),
+			tuple := types.ValTuple([]types.Val{
+				types.ValString(parts[0]),
+				types.ValString(parts[1]),
 			})
 			tuples = append(tuples, tuple)
 		}
 	}
 
-	return []component.Val{component.ValList(tuples)}, nil
+	return []types.Val{types.ValList(tuples)}, nil
 }
 
 // getArguments returns command line arguments as list<string>
-func getArguments(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func getArguments(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	config := component.WASIConfigFromContext(ctx)
 	if config == nil {
 		// No config, return empty list
-		return []component.Val{component.ValList([]component.Val{})}, nil
+		return []types.Val{types.ValList([]types.Val{})}, nil
 	}
 
 	configArgs := config.Args()
-	stringVals := make([]component.Val, len(configArgs))
+	stringVals := make([]types.Val, len(configArgs))
 	for i, arg := range configArgs {
-		stringVals[i] = component.ValString(arg)
+		stringVals[i] = types.ValString(arg)
 	}
 
-	return []component.Val{component.ValList(stringVals)}, nil
+	return []types.Val{types.ValList(stringVals)}, nil
 }
 
 // initialCwd returns the initial working directory as option<string>
-func initialCwd(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func initialCwd(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		// Unable to get cwd, return None
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
 
-	cwdVal := component.ValString(cwd)
-	return []component.Val{component.ValOption(&cwdVal)}, nil
+	cwdVal := types.ValString(cwd)
+	return []types.Val{types.ValOption(&cwdVal)}, nil
 }
 
 // instantiateExit registers wasi:cli/exit@0.2.0
@@ -134,7 +135,7 @@ func instantiateExit(linker *component.Linker) error {
 }
 
 // exit handles program termination with result<_, _>
-func exit(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func exit(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	// The argument is result<_, _> where ok (discriminant 0) means success, error (discriminant 1) means failure
 	if len(args) > 0 {
 		isOk, _, _ := args[0].Result()
@@ -163,13 +164,13 @@ func instantiateStdin(linker *component.Linker) error {
 }
 
 // getStdin returns stdin as own<input-stream>
-func getStdin(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func getStdin(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	table := component.ResourceTableFromContext(ctx)
 	config := component.WASIConfigFromContext(ctx)
 
 	if table == nil || config == nil || config.Stdin() == nil {
 		// No table or config, return placeholder handle 0
-		return []component.Val{component.ValOwn(0)}, nil
+		return []types.Val{types.ValOwn(0)}, nil
 	}
 
 	// Create an InputStream from the config's stdin reader
@@ -178,7 +179,7 @@ func getStdin(ctx context.Context, args []component.Val) ([]component.Val, error
 	// Register in resource table and get handle
 	handle := table.New(stream, true)
 
-	return []component.Val{component.ValOwn(uint32(handle))}, nil
+	return []types.Val{types.ValOwn(uint32(handle))}, nil
 }
 
 // instantiateStdout registers wasi:cli/stdout@0.2.0
@@ -197,13 +198,13 @@ func instantiateStdout(linker *component.Linker) error {
 }
 
 // getStdout returns stdout as own<output-stream>
-func getStdout(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func getStdout(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	table := component.ResourceTableFromContext(ctx)
 	config := component.WASIConfigFromContext(ctx)
 
 	if table == nil || config == nil || config.Stdout() == nil {
 		// No table or config, return placeholder handle 1
-		return []component.Val{component.ValOwn(1)}, nil
+		return []types.Val{types.ValOwn(1)}, nil
 	}
 
 	// Create an OutputStream from the config's stdout writer
@@ -212,7 +213,7 @@ func getStdout(ctx context.Context, args []component.Val) ([]component.Val, erro
 	// Register in resource table and get handle
 	handle := table.New(stream, true)
 
-	return []component.Val{component.ValOwn(uint32(handle))}, nil
+	return []types.Val{types.ValOwn(uint32(handle))}, nil
 }
 
 // instantiateStderr registers wasi:cli/stderr@0.2.0
@@ -231,13 +232,13 @@ func instantiateStderr(linker *component.Linker) error {
 }
 
 // getStderr returns stderr as own<output-stream>
-func getStderr(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func getStderr(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	table := component.ResourceTableFromContext(ctx)
 	config := component.WASIConfigFromContext(ctx)
 
 	if table == nil || config == nil || config.Stderr() == nil {
 		// No table or config, return placeholder handle 2
-		return []component.Val{component.ValOwn(2)}, nil
+		return []types.Val{types.ValOwn(2)}, nil
 	}
 
 	// Create an OutputStream from the config's stderr writer
@@ -246,7 +247,7 @@ func getStderr(ctx context.Context, args []component.Val) ([]component.Val, erro
 	// Register in resource table and get handle
 	handle := table.New(stream, true)
 
-	return []component.Val{component.ValOwn(uint32(handle))}, nil
+	return []types.Val{types.ValOwn(uint32(handle))}, nil
 }
 
 // instantiateTerminalInput registers wasi:cli/terminal-input@0.2.0
@@ -280,10 +281,10 @@ func instantiateTerminalStdin(linker *component.Linker) error {
 }
 
 // getTerminalStdin returns Some(terminal-input) if stdin is a terminal, None otherwise
-func getTerminalStdin(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func getTerminalStdin(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	config := component.WASIConfigFromContext(ctx)
 	if config == nil {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
 
 	isTerminal := false
@@ -297,17 +298,17 @@ func getTerminalStdin(ctx context.Context, args []component.Val) ([]component.Va
 	}
 
 	if !isTerminal {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
 
 	// Create terminal-input resource and return Some(handle)
 	table := component.ResourceTableFromContext(ctx)
 	if table == nil {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
 	handle := table.New(&TerminalInput{}, true)
-	val := component.ValOwn(uint32(handle))
-	return []component.Val{component.ValOption(&val)}, nil
+	val := types.ValOwn(uint32(handle))
+	return []types.Val{types.ValOption(&val)}, nil
 }
 
 // instantiateTerminalStdout registers wasi:cli/terminal-stdout@0.2.0
@@ -321,10 +322,10 @@ func instantiateTerminalStdout(linker *component.Linker) error {
 }
 
 // getTerminalStdout returns Some(terminal-output) if stdout is a terminal, None otherwise
-func getTerminalStdout(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func getTerminalStdout(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	config := component.WASIConfigFromContext(ctx)
 	if config == nil {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
 
 	isTerminal := false
@@ -338,17 +339,17 @@ func getTerminalStdout(ctx context.Context, args []component.Val) ([]component.V
 	}
 
 	if !isTerminal {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
 
 	// Create terminal-output resource and return Some(handle)
 	table := component.ResourceTableFromContext(ctx)
 	if table == nil {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
 	handle := table.New(&TerminalOutput{}, true)
-	val := component.ValOwn(uint32(handle))
-	return []component.Val{component.ValOption(&val)}, nil
+	val := types.ValOwn(uint32(handle))
+	return []types.Val{types.ValOption(&val)}, nil
 }
 
 // instantiateTerminalStderr registers wasi:cli/terminal-stderr@0.2.0
@@ -362,10 +363,10 @@ func instantiateTerminalStderr(linker *component.Linker) error {
 }
 
 // getTerminalStderr returns Some(terminal-output) if stderr is a terminal, None otherwise
-func getTerminalStderr(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func getTerminalStderr(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	config := component.WASIConfigFromContext(ctx)
 	if config == nil {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
 
 	isTerminal := false
@@ -379,15 +380,15 @@ func getTerminalStderr(ctx context.Context, args []component.Val) ([]component.V
 	}
 
 	if !isTerminal {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
 
 	// Create terminal-output resource and return Some(handle)
 	table := component.ResourceTableFromContext(ctx)
 	if table == nil {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
 	handle := table.New(&TerminalOutput{}, true)
-	val := component.ValOwn(uint32(handle))
-	return []component.Val{component.ValOption(&val)}, nil
+	val := types.ValOwn(uint32(handle))
+	return []types.Val{types.ValOption(&val)}, nil
 }

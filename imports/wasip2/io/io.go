@@ -19,4 +19,3 @@ func Instantiate(linker *component.Linker) error {
 	}
 	return nil
 }
-

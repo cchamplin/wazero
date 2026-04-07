@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 // Instantiate registers all wasi:random interfaces with the linker.
@@ -52,18 +53,18 @@ func instantiateRandom(linker *component.Linker) error {
 	return inst.SkipValidation().Build()
 }
 
-func getRandomBytes(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func getRandomBytes(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	length := args[0].U64()
 	bytes := GetRandomBytes(length)
 
 	// Convert to list of u8
-	vals := make([]component.Val, len(bytes))
+	vals := make([]types.Val, len(bytes))
 	for i, b := range bytes {
-		vals[i] = component.ValU8(b)
+		vals[i] = types.ValU8(b)
 	}
-	return []component.Val{component.ValList(vals)}, nil
+	return []types.Val{types.ValList(vals)}, nil
 }
 
-func getRandomU64(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	return []component.Val{component.ValU64(GetRandomU64())}, nil
+func getRandomU64(ctx context.Context, args []types.Val) ([]types.Val, error) {
+	return []types.Val{types.ValU64(GetRandomU64())}, nil
 }

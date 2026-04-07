@@ -14,6 +14,8 @@ import (
 
 	"github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -243,47 +245,47 @@ func TestInstantiateTypes(t *testing.T) {
 
 func TestFieldsConstructor(t *testing.T) {
 	// Returns: own<fields>
-	result, err := fieldsConstructor(context.Background(), []component.Val{})
+	result, err := fieldsConstructor(context.Background(), []types.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOwn, result[0].Kind())
+	require.Equal(t, types.ValKindOwn, result[0].Kind())
 }
 
 func TestFieldsFromList(t *testing.T) {
 	// Args: entries (list<tuple<field-key, field-value>>)
 	// Returns: result<own<fields>, header-error>
-	entries := component.ValList([]component.Val{})
-	result, err := fieldsFromList(context.Background(), []component.Val{entries})
+	entries := types.ValList([]types.Val{})
+	result, err := fieldsFromList(context.Background(), []types.Val{entries})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindOwn, ok.Kind())
+	require.Equal(t, types.ValKindOwn, ok.Kind())
 }
 
 func TestFieldsGet(t *testing.T) {
 	// Args: self (borrow<fields>), name (field-key)
 	// Returns: list<field-value>
-	selfHandle := component.ValBorrow(0)
-	name := component.ValString("content-type")
-	result, err := fieldsGet(context.Background(), []component.Val{selfHandle, name})
+	selfHandle := types.ValBorrow(0)
+	name := types.ValString("content-type")
+	result, err := fieldsGet(context.Background(), []types.Val{selfHandle, name})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindList, result[0].Kind())
+	require.Equal(t, types.ValKindList, result[0].Kind())
 }
 
 func TestFieldsSet(t *testing.T) {
 	// Args: self (borrow<fields>), name (field-key), values (list<field-value>)
 	// Returns: result<_, header-error>
-	selfHandle := component.ValBorrow(0)
-	name := component.ValString("content-type")
-	values := component.ValList([]component.Val{})
-	result, err := fieldsSet(context.Background(), []component.Val{selfHandle, name, values})
+	selfHandle := types.ValBorrow(0)
+	name := types.ValString("content-type")
+	values := types.ValList([]types.Val{})
+	result, err := fieldsSet(context.Background(), []types.Val{selfHandle, name, values})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 }
@@ -291,12 +293,12 @@ func TestFieldsSet(t *testing.T) {
 func TestFieldsDelete(t *testing.T) {
 	// Args: self (borrow<fields>), name (field-key)
 	// Returns: result<_, header-error>
-	selfHandle := component.ValBorrow(0)
-	name := component.ValString("content-type")
-	result, err := fieldsDelete(context.Background(), []component.Val{selfHandle, name})
+	selfHandle := types.ValBorrow(0)
+	name := types.ValString("content-type")
+	result, err := fieldsDelete(context.Background(), []types.Val{selfHandle, name})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 }
@@ -304,13 +306,13 @@ func TestFieldsDelete(t *testing.T) {
 func TestFieldsAppend(t *testing.T) {
 	// Args: self (borrow<fields>), name (field-key), value (field-value)
 	// Returns: result<_, header-error>
-	selfHandle := component.ValBorrow(0)
-	name := component.ValString("accept")
-	value := component.ValList([]component.Val{component.ValU8('a')})
-	result, err := fieldsAppend(context.Background(), []component.Val{selfHandle, name, value})
+	selfHandle := types.ValBorrow(0)
+	name := types.ValString("accept")
+	value := types.ValList([]types.Val{types.ValU8('a')})
+	result, err := fieldsAppend(context.Background(), []types.Val{selfHandle, name, value})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 }
@@ -318,42 +320,42 @@ func TestFieldsAppend(t *testing.T) {
 func TestFieldsEntries(t *testing.T) {
 	// Args: self (borrow<fields>)
 	// Returns: list<tuple<field-key, field-value>>
-	selfHandle := component.ValBorrow(0)
-	result, err := fieldsEntries(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := fieldsEntries(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindList, result[0].Kind())
+	require.Equal(t, types.ValKindList, result[0].Kind())
 }
 
 func TestFieldsClone(t *testing.T) {
 	// Args: self (borrow<fields>)
 	// Returns: own<fields>
-	selfHandle := component.ValBorrow(0)
-	result, err := fieldsClone(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := fieldsClone(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOwn, result[0].Kind())
+	require.Equal(t, types.ValKindOwn, result[0].Kind())
 }
 
 func TestFieldsHas_WithResourceTable(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	fields := NewFields()
 	fields.Set("Content-Type", [][]byte{[]byte("text/html")})
 	handle := table.New(fields, true)
 
-	selfHandle := component.ValBorrow(uint32(handle))
+	selfHandle := types.ValBorrow(uint32(handle))
 
 	// Has existing key
-	name := component.ValString("Content-Type")
-	result, err := fieldsHas(ctx, []component.Val{selfHandle, name})
+	name := types.ValString("Content-Type")
+	result, err := fieldsHas(ctx, []types.Val{selfHandle, name})
 	require.NoError(t, err)
 	require.True(t, result[0].Bool(), "should return true for existing key")
 
 	// Has missing key
-	name = component.ValString("X-Missing")
-	result, err = fieldsHas(ctx, []component.Val{selfHandle, name})
+	name = types.ValString("X-Missing")
+	result, err = fieldsHas(ctx, []types.Val{selfHandle, name})
 	require.NoError(t, err)
 	require.False(t, result[0].Bool(), "should return false for missing key")
 }
@@ -365,32 +367,32 @@ func TestFieldsHas_WithResourceTable(t *testing.T) {
 func TestOutgoingRequestConstructor(t *testing.T) {
 	// Args: headers (own<fields>)
 	// Returns: own<outgoing-request>
-	headers := component.ValOwn(0)
-	result, err := outgoingRequestConstructor(context.Background(), []component.Val{headers})
+	headers := types.ValOwn(0)
+	result, err := outgoingRequestConstructor(context.Background(), []types.Val{headers})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOwn, result[0].Kind())
+	require.Equal(t, types.ValKindOwn, result[0].Kind())
 }
 
 func TestOutgoingRequestMethod(t *testing.T) {
 	// Args: self (borrow<outgoing-request>)
 	// Returns: method
-	selfHandle := component.ValBorrow(0)
-	result, err := outgoingRequestMethod(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := outgoingRequestMethod(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindVariant, result[0].Kind())
+	require.Equal(t, types.ValKindVariant, result[0].Kind())
 }
 
 func TestOutgoingRequestSetMethod(t *testing.T) {
 	// Args: self (borrow<outgoing-request>), method (method)
 	// Returns: result<_, _>
-	selfHandle := component.ValBorrow(0)
-	method := component.ValVariant("get", nil)
-	result, err := outgoingRequestSetMethod(context.Background(), []component.Val{selfHandle, method})
+	selfHandle := types.ValBorrow(0)
+	method := types.ValVariant("get", nil)
+	result, err := outgoingRequestSetMethod(context.Background(), []types.Val{selfHandle, method})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 }
@@ -398,23 +400,23 @@ func TestOutgoingRequestSetMethod(t *testing.T) {
 func TestOutgoingRequestPathWithQuery(t *testing.T) {
 	// Args: self (borrow<outgoing-request>)
 	// Returns: option<string>
-	selfHandle := component.ValBorrow(0)
-	result, err := outgoingRequestPathWithQuery(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := outgoingRequestPathWithQuery(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOption, result[0].Kind())
+	require.Equal(t, types.ValKindOption, result[0].Kind())
 }
 
 func TestOutgoingRequestSetPathWithQuery(t *testing.T) {
 	// Args: self (borrow<outgoing-request>), path (option<string>)
 	// Returns: result<_, _>
-	selfHandle := component.ValBorrow(0)
-	path := component.ValString("/foo/bar")
-	pathOpt := component.ValOption(&path)
-	result, err := outgoingRequestSetPathWithQuery(context.Background(), []component.Val{selfHandle, pathOpt})
+	selfHandle := types.ValBorrow(0)
+	path := types.ValString("/foo/bar")
+	pathOpt := types.ValOption(&path)
+	result, err := outgoingRequestSetPathWithQuery(context.Background(), []types.Val{selfHandle, pathOpt})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 }
@@ -422,23 +424,23 @@ func TestOutgoingRequestSetPathWithQuery(t *testing.T) {
 func TestOutgoingRequestScheme(t *testing.T) {
 	// Args: self (borrow<outgoing-request>)
 	// Returns: option<scheme>
-	selfHandle := component.ValBorrow(0)
-	result, err := outgoingRequestScheme(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := outgoingRequestScheme(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOption, result[0].Kind())
+	require.Equal(t, types.ValKindOption, result[0].Kind())
 }
 
 func TestOutgoingRequestSetScheme(t *testing.T) {
 	// Args: self (borrow<outgoing-request>), scheme (option<scheme>)
 	// Returns: result<_, _>
-	selfHandle := component.ValBorrow(0)
-	scheme := component.ValVariant("https", nil)
-	schemeOpt := component.ValOption(&scheme)
-	result, err := outgoingRequestSetScheme(context.Background(), []component.Val{selfHandle, schemeOpt})
+	selfHandle := types.ValBorrow(0)
+	scheme := types.ValVariant("https", nil)
+	schemeOpt := types.ValOption(&scheme)
+	result, err := outgoingRequestSetScheme(context.Background(), []types.Val{selfHandle, schemeOpt})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 }
@@ -446,23 +448,23 @@ func TestOutgoingRequestSetScheme(t *testing.T) {
 func TestOutgoingRequestAuthority(t *testing.T) {
 	// Args: self (borrow<outgoing-request>)
 	// Returns: option<string>
-	selfHandle := component.ValBorrow(0)
-	result, err := outgoingRequestAuthority(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := outgoingRequestAuthority(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOption, result[0].Kind())
+	require.Equal(t, types.ValKindOption, result[0].Kind())
 }
 
 func TestOutgoingRequestSetAuthority(t *testing.T) {
 	// Args: self (borrow<outgoing-request>), authority (option<string>)
 	// Returns: result<_, _>
-	selfHandle := component.ValBorrow(0)
-	authority := component.ValString("example.com")
-	authorityOpt := component.ValOption(&authority)
-	result, err := outgoingRequestSetAuthority(context.Background(), []component.Val{selfHandle, authorityOpt})
+	selfHandle := types.ValBorrow(0)
+	authority := types.ValString("example.com")
+	authorityOpt := types.ValOption(&authority)
+	result, err := outgoingRequestSetAuthority(context.Background(), []types.Val{selfHandle, authorityOpt})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 }
@@ -470,25 +472,25 @@ func TestOutgoingRequestSetAuthority(t *testing.T) {
 func TestOutgoingRequestHeaders(t *testing.T) {
 	// Args: self (borrow<outgoing-request>)
 	// Returns: own<fields>
-	selfHandle := component.ValBorrow(0)
-	result, err := outgoingRequestHeaders(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := outgoingRequestHeaders(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOwn, result[0].Kind())
+	require.Equal(t, types.ValKindOwn, result[0].Kind())
 }
 
 func TestOutgoingRequestBody(t *testing.T) {
 	// Args: self (borrow<outgoing-request>)
 	// Returns: result<own<outgoing-body>, _>
-	selfHandle := component.ValBorrow(0)
-	result, err := outgoingRequestBody(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := outgoingRequestBody(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindOwn, ok.Kind())
+	require.Equal(t, types.ValKindOwn, ok.Kind())
 }
 
 // ====================
@@ -498,65 +500,65 @@ func TestOutgoingRequestBody(t *testing.T) {
 func TestIncomingRequestMethod(t *testing.T) {
 	// Args: self (borrow<incoming-request>)
 	// Returns: method
-	selfHandle := component.ValBorrow(0)
-	result, err := incomingRequestMethod(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := incomingRequestMethod(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindVariant, result[0].Kind())
+	require.Equal(t, types.ValKindVariant, result[0].Kind())
 }
 
 func TestIncomingRequestPathWithQuery(t *testing.T) {
 	// Args: self (borrow<incoming-request>)
 	// Returns: option<string>
-	selfHandle := component.ValBorrow(0)
-	result, err := incomingRequestPathWithQuery(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := incomingRequestPathWithQuery(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOption, result[0].Kind())
+	require.Equal(t, types.ValKindOption, result[0].Kind())
 }
 
 func TestIncomingRequestScheme(t *testing.T) {
 	// Args: self (borrow<incoming-request>)
 	// Returns: option<scheme>
-	selfHandle := component.ValBorrow(0)
-	result, err := incomingRequestScheme(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := incomingRequestScheme(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOption, result[0].Kind())
+	require.Equal(t, types.ValKindOption, result[0].Kind())
 }
 
 func TestIncomingRequestAuthority(t *testing.T) {
 	// Args: self (borrow<incoming-request>)
 	// Returns: option<string>
-	selfHandle := component.ValBorrow(0)
-	result, err := incomingRequestAuthority(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := incomingRequestAuthority(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOption, result[0].Kind())
+	require.Equal(t, types.ValKindOption, result[0].Kind())
 }
 
 func TestIncomingRequestHeaders(t *testing.T) {
 	// Args: self (borrow<incoming-request>)
 	// Returns: own<fields>
-	selfHandle := component.ValBorrow(0)
-	result, err := incomingRequestHeaders(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := incomingRequestHeaders(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOwn, result[0].Kind())
+	require.Equal(t, types.ValKindOwn, result[0].Kind())
 }
 
 func TestIncomingRequestConsume(t *testing.T) {
 	// Args: self (borrow<incoming-request>)
 	// Returns: result<own<incoming-body>, _>
-	selfHandle := component.ValBorrow(0)
-	result, err := incomingRequestConsume(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := incomingRequestConsume(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindOwn, ok.Kind())
+	require.Equal(t, types.ValKindOwn, ok.Kind())
 }
 
 // ====================
@@ -567,7 +569,7 @@ func TestIncomingRequestConsume(t *testing.T) {
 // returns the correct HTTP method from a registered incoming request.
 func TestIncomingRequest_Method_WithResourceTable(t *testing.T) {
 	// Create resource table and context
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create an incoming request with POST method
@@ -581,11 +583,11 @@ func TestIncomingRequest_Method_WithResourceTable(t *testing.T) {
 	handle := table.New(req, true)
 
 	// Call method accessor
-	selfHandle := component.ValBorrow(uint32(handle))
-	result, err := incomingRequestMethod(ctx, []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(uint32(handle))
+	result, err := incomingRequestMethod(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindVariant, result[0].Kind())
+	require.Equal(t, types.ValKindVariant, result[0].Kind())
 
 	// Verify returns correct method variant
 	methodName, _ := result[0].Variant()
@@ -596,7 +598,7 @@ func TestIncomingRequest_Method_WithResourceTable(t *testing.T) {
 // accessor returns the correct path from a registered incoming request.
 func TestIncomingRequest_PathWithQuery_WithResourceTable(t *testing.T) {
 	// Create resource table and context
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create an incoming request with path
@@ -610,11 +612,11 @@ func TestIncomingRequest_PathWithQuery_WithResourceTable(t *testing.T) {
 	handle := table.New(req, true)
 
 	// Call path-with-query accessor
-	selfHandle := component.ValBorrow(uint32(handle))
-	result, err := incomingRequestPathWithQuery(ctx, []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(uint32(handle))
+	result, err := incomingRequestPathWithQuery(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOption, result[0].Kind())
+	require.Equal(t, types.ValKindOption, result[0].Kind())
 
 	// Verify returns Some with correct path
 	optVal := result[0].Option()
@@ -626,7 +628,7 @@ func TestIncomingRequest_PathWithQuery_WithResourceTable(t *testing.T) {
 // returns the correct scheme from a registered incoming request.
 func TestIncomingRequest_Scheme_WithResourceTable(t *testing.T) {
 	// Create resource table and context
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create an incoming request with HTTPS scheme
@@ -640,16 +642,16 @@ func TestIncomingRequest_Scheme_WithResourceTable(t *testing.T) {
 	handle := table.New(req, true)
 
 	// Call scheme accessor
-	selfHandle := component.ValBorrow(uint32(handle))
-	result, err := incomingRequestScheme(ctx, []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(uint32(handle))
+	result, err := incomingRequestScheme(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOption, result[0].Kind())
+	require.Equal(t, types.ValKindOption, result[0].Kind())
 
 	// Verify returns Some with correct scheme variant
 	optVal := result[0].Option()
 	require.NotNil(t, optVal, "expected Some, got None")
-	require.Equal(t, component.ValKindVariant, optVal.Kind())
+	require.Equal(t, types.ValKindVariant, optVal.Kind())
 	schemeName, _ := optVal.Variant()
 	require.Equal(t, "HTTPS", schemeName, "expected HTTPS scheme")
 }
@@ -658,7 +660,7 @@ func TestIncomingRequest_Scheme_WithResourceTable(t *testing.T) {
 // returns the correct authority from a registered incoming request.
 func TestIncomingRequest_Authority_WithResourceTable(t *testing.T) {
 	// Create resource table and context
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create an incoming request with authority
@@ -672,11 +674,11 @@ func TestIncomingRequest_Authority_WithResourceTable(t *testing.T) {
 	handle := table.New(req, true)
 
 	// Call authority accessor
-	selfHandle := component.ValBorrow(uint32(handle))
-	result, err := incomingRequestAuthority(ctx, []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(uint32(handle))
+	result, err := incomingRequestAuthority(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOption, result[0].Kind())
+	require.Equal(t, types.ValKindOption, result[0].Kind())
 
 	// Verify returns Some with correct authority
 	optVal := result[0].Option()
@@ -688,7 +690,7 @@ func TestIncomingRequest_Authority_WithResourceTable(t *testing.T) {
 // returns a valid headers handle from a registered incoming request.
 func TestIncomingRequest_Headers_WithResourceTable(t *testing.T) {
 	// Create resource table and context
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create an incoming request with headers
@@ -704,14 +706,14 @@ func TestIncomingRequest_Headers_WithResourceTable(t *testing.T) {
 	handle := table.New(req, true)
 
 	// Call headers accessor
-	selfHandle := component.ValBorrow(uint32(handle))
-	result, err := incomingRequestHeaders(ctx, []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(uint32(handle))
+	result, err := incomingRequestHeaders(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOwn, result[0].Kind())
+	require.Equal(t, types.ValKindOwn, result[0].Kind())
 
 	// Verify the returned handle points to valid headers
-	headersHandle := component.Handle(result[0].Own())
+	headersHandle := runtime.Handle(result[0].Own())
 	entry, err := table.Get(headersHandle)
 	require.NoError(t, err)
 	require.NotNil(t, entry)
@@ -730,7 +732,7 @@ func TestIncomingRequest_Headers_WithResourceTable(t *testing.T) {
 // returns a valid incoming body handle from a registered incoming request.
 func TestIncomingRequest_Consume_WithResourceTable(t *testing.T) {
 	// Create resource table and context
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create an incoming request
@@ -744,20 +746,20 @@ func TestIncomingRequest_Consume_WithResourceTable(t *testing.T) {
 	handle := table.New(req, true)
 
 	// Call consume
-	selfHandle := component.ValBorrow(uint32(handle))
-	result, err := incomingRequestConsume(ctx, []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(uint32(handle))
+	result, err := incomingRequestConsume(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindOwn, ok.Kind())
+	require.Equal(t, types.ValKindOwn, ok.Kind())
 
 	// Verify the returned handle points to a valid incoming body
-	bodyHandle := component.Handle(ok.Own())
-	require.NotEqual(t, component.Handle(0), bodyHandle, "body handle should not be 0")
+	bodyHandle := runtime.Handle(ok.Own())
+	require.NotEqual(t, runtime.Handle(0), bodyHandle, "body handle should not be 0")
 
 	entry, err := table.Get(bodyHandle)
 	require.NoError(t, err)
@@ -786,7 +788,7 @@ func TestIncomingRequest_AllMethods(t *testing.T) {
 
 	for _, tc := range methods {
 		t.Run(tc.expectedName, func(t *testing.T) {
-			table := component.NewResourceTable()
+			table := runtime.NewResourceTable()
 			ctx := component.WithResourceTable(context.Background(), table)
 
 			headers := NewFields()
@@ -796,9 +798,9 @@ func TestIncomingRequest_AllMethods(t *testing.T) {
 			req := NewIncomingRequest(tc.method, &scheme, &authority, &path, headers)
 
 			handle := table.New(req, true)
-			selfHandle := component.ValBorrow(uint32(handle))
+			selfHandle := types.ValBorrow(uint32(handle))
 
-			result, err := incomingRequestMethod(ctx, []component.Val{selfHandle})
+			result, err := incomingRequestMethod(ctx, []types.Val{selfHandle})
 			require.NoError(t, err)
 
 			methodName, _ := result[0].Variant()
@@ -809,7 +811,7 @@ func TestIncomingRequest_AllMethods(t *testing.T) {
 
 // TestIncomingRequest_NilScheme tests handling of nil scheme.
 func TestIncomingRequest_NilScheme(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	headers := NewFields()
@@ -818,11 +820,11 @@ func TestIncomingRequest_NilScheme(t *testing.T) {
 	req := NewIncomingRequest(MethodGet, nil, &authority, &path, headers)
 
 	handle := table.New(req, true)
-	selfHandle := component.ValBorrow(uint32(handle))
+	selfHandle := types.ValBorrow(uint32(handle))
 
-	result, err := incomingRequestScheme(ctx, []component.Val{selfHandle})
+	result, err := incomingRequestScheme(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
-	require.Equal(t, component.ValKindOption, result[0].Kind())
+	require.Equal(t, types.ValKindOption, result[0].Kind())
 
 	// Should return None when scheme is nil
 	optVal := result[0].Option()
@@ -831,7 +833,7 @@ func TestIncomingRequest_NilScheme(t *testing.T) {
 
 // TestIncomingRequest_NilPathWithQuery tests handling of nil path.
 func TestIncomingRequest_NilPathWithQuery(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	headers := NewFields()
@@ -840,11 +842,11 @@ func TestIncomingRequest_NilPathWithQuery(t *testing.T) {
 	req := NewIncomingRequest(MethodGet, &scheme, &authority, nil, headers)
 
 	handle := table.New(req, true)
-	selfHandle := component.ValBorrow(uint32(handle))
+	selfHandle := types.ValBorrow(uint32(handle))
 
-	result, err := incomingRequestPathWithQuery(ctx, []component.Val{selfHandle})
+	result, err := incomingRequestPathWithQuery(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
-	require.Equal(t, component.ValKindOption, result[0].Kind())
+	require.Equal(t, types.ValKindOption, result[0].Kind())
 
 	// Should return None when path is nil
 	optVal := result[0].Option()
@@ -853,7 +855,7 @@ func TestIncomingRequest_NilPathWithQuery(t *testing.T) {
 
 // TestIncomingRequest_NilAuthority tests handling of nil authority.
 func TestIncomingRequest_NilAuthority(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	headers := NewFields()
@@ -862,11 +864,11 @@ func TestIncomingRequest_NilAuthority(t *testing.T) {
 	req := NewIncomingRequest(MethodGet, &scheme, nil, &path, headers)
 
 	handle := table.New(req, true)
-	selfHandle := component.ValBorrow(uint32(handle))
+	selfHandle := types.ValBorrow(uint32(handle))
 
-	result, err := incomingRequestAuthority(ctx, []component.Val{selfHandle})
+	result, err := incomingRequestAuthority(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
-	require.Equal(t, component.ValKindOption, result[0].Kind())
+	require.Equal(t, types.ValKindOption, result[0].Kind())
 
 	// Should return None when authority is nil
 	optVal := result[0].Option()
@@ -880,32 +882,32 @@ func TestIncomingRequest_NilAuthority(t *testing.T) {
 func TestOutgoingResponseConstructor(t *testing.T) {
 	// Args: headers (own<fields>)
 	// Returns: own<outgoing-response>
-	headers := component.ValOwn(0)
-	result, err := outgoingResponseConstructor(context.Background(), []component.Val{headers})
+	headers := types.ValOwn(0)
+	result, err := outgoingResponseConstructor(context.Background(), []types.Val{headers})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOwn, result[0].Kind())
+	require.Equal(t, types.ValKindOwn, result[0].Kind())
 }
 
 func TestOutgoingResponseStatusCode(t *testing.T) {
 	// Args: self (borrow<outgoing-response>)
 	// Returns: status-code (u16)
-	selfHandle := component.ValBorrow(0)
-	result, err := outgoingResponseStatusCode(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := outgoingResponseStatusCode(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindU16, result[0].Kind())
+	require.Equal(t, types.ValKindU16, result[0].Kind())
 }
 
 func TestOutgoingResponseSetStatusCode(t *testing.T) {
 	// Args: self (borrow<outgoing-response>), status-code (u16)
 	// Returns: result<_, _>
-	selfHandle := component.ValBorrow(0)
-	status := component.ValU16(200)
-	result, err := outgoingResponseSetStatusCode(context.Background(), []component.Val{selfHandle, status})
+	selfHandle := types.ValBorrow(0)
+	status := types.ValU16(200)
+	result, err := outgoingResponseSetStatusCode(context.Background(), []types.Val{selfHandle, status})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 }
@@ -913,29 +915,29 @@ func TestOutgoingResponseSetStatusCode(t *testing.T) {
 func TestOutgoingResponseHeaders(t *testing.T) {
 	// Args: self (borrow<outgoing-response>)
 	// Returns: own<fields>
-	selfHandle := component.ValBorrow(0)
-	result, err := outgoingResponseHeaders(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := outgoingResponseHeaders(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOwn, result[0].Kind())
+	require.Equal(t, types.ValKindOwn, result[0].Kind())
 }
 
 func TestOutgoingResponseBody(t *testing.T) {
 	// Args: self (borrow<outgoing-response>)
 	// Returns: result<own<outgoing-body>, _>
-	selfHandle := component.ValBorrow(0)
-	result, err := outgoingResponseBody(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := outgoingResponseBody(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindOwn, ok.Kind())
+	require.Equal(t, types.ValKindOwn, ok.Kind())
 }
 
 func TestOutgoingResponseConstructor_WithResourceTable(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Occupy slot 0 so that when headers (slot 1) is removed,
@@ -947,43 +949,43 @@ func TestOutgoingResponseConstructor_WithResourceTable(t *testing.T) {
 	headers.Set("X-Test", [][]byte{[]byte("value")})
 	headersHandle := table.New(headers, true)
 
-	headersVal := component.ValOwn(uint32(headersHandle))
-	result, err := outgoingResponseConstructor(ctx, []component.Val{headersVal})
+	headersVal := types.ValOwn(uint32(headersHandle))
+	result, err := outgoingResponseConstructor(ctx, []types.Val{headersVal})
 	require.NoError(t, err)
 	respHandle := result[0].Own()
 	require.NotEqual(t, uint32(0), respHandle)
 
 	// Verify the response works by calling status code on it
-	selfHandle := component.ValBorrow(respHandle)
-	statusResult, err := outgoingResponseStatusCode(ctx, []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(respHandle)
+	statusResult, err := outgoingResponseStatusCode(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, uint16(200), statusResult[0].U16())
 }
 
 func TestOutgoingResponseStatusCode_WithResourceTable(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	resp := NewOutgoingResponse(NewFields())
 	resp.SetStatusCode(404)
 	handle := table.New(resp, true)
 
-	selfHandle := component.ValBorrow(uint32(handle))
-	result, err := outgoingResponseStatusCode(ctx, []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(uint32(handle))
+	result, err := outgoingResponseStatusCode(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, uint16(404), result[0].U16())
 }
 
 func TestOutgoingResponseSetStatusCode_WithResourceTable(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	resp := NewOutgoingResponse(NewFields())
 	handle := table.New(resp, true)
 
-	selfHandle := component.ValBorrow(uint32(handle))
-	status := component.ValU16(500)
-	result, err := outgoingResponseSetStatusCode(ctx, []component.Val{selfHandle, status})
+	selfHandle := types.ValBorrow(uint32(handle))
+	status := types.ValU16(500)
+	result, err := outgoingResponseSetStatusCode(ctx, []types.Val{selfHandle, status})
 	require.NoError(t, err)
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk)
@@ -991,21 +993,21 @@ func TestOutgoingResponseSetStatusCode_WithResourceTable(t *testing.T) {
 }
 
 func TestOutgoingResponseBody_WithResourceTable(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	resp := NewOutgoingResponse(NewFields())
 	handle := table.New(resp, true)
 
-	selfHandle := component.ValBorrow(uint32(handle))
-	result, err := outgoingResponseBody(ctx, []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(uint32(handle))
+	result, err := outgoingResponseBody(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
 	isOk, bodyHandle, _ := result[0].Result()
 	require.True(t, isOk)
 	require.NotNil(t, bodyHandle)
 
 	// Second call should fail
-	result, err = outgoingResponseBody(ctx, []component.Val{selfHandle})
+	result, err = outgoingResponseBody(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
 	isOk, _, _ = result[0].Result()
 	require.False(t, isOk, "second body call should fail")
@@ -1018,35 +1020,35 @@ func TestOutgoingResponseBody_WithResourceTable(t *testing.T) {
 func TestIncomingResponseStatus(t *testing.T) {
 	// Args: self (borrow<incoming-response>)
 	// Returns: status-code (u16)
-	selfHandle := component.ValBorrow(0)
-	result, err := incomingResponseStatus(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := incomingResponseStatus(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindU16, result[0].Kind())
+	require.Equal(t, types.ValKindU16, result[0].Kind())
 }
 
 func TestIncomingResponseHeaders(t *testing.T) {
 	// Args: self (borrow<incoming-response>)
 	// Returns: own<fields>
-	selfHandle := component.ValBorrow(0)
-	result, err := incomingResponseHeaders(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := incomingResponseHeaders(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOwn, result[0].Kind())
+	require.Equal(t, types.ValKindOwn, result[0].Kind())
 }
 
 func TestIncomingResponseConsume(t *testing.T) {
 	// Args: self (borrow<incoming-response>)
 	// Returns: result<own<incoming-body>, _>
-	selfHandle := component.ValBorrow(0)
-	result, err := incomingResponseConsume(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := incomingResponseConsume(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindOwn, ok.Kind())
+	require.Equal(t, types.ValKindOwn, ok.Kind())
 }
 
 // ====================
@@ -1056,25 +1058,25 @@ func TestIncomingResponseConsume(t *testing.T) {
 func TestIncomingBodyStream(t *testing.T) {
 	// Args: self (borrow<incoming-body>)
 	// Returns: result<own<input-stream>, _>
-	selfHandle := component.ValBorrow(0)
-	result, err := incomingBodyStream(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := incomingBodyStream(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindOwn, ok.Kind())
+	require.Equal(t, types.ValKindOwn, ok.Kind())
 }
 
 func TestIncomingBodyFinish(t *testing.T) {
 	// Args: body (own<incoming-body>)
 	// Returns: own<future-trailers>
-	body := component.ValOwn(0)
-	result, err := incomingBodyFinish(context.Background(), []component.Val{body})
+	body := types.ValOwn(0)
+	result, err := incomingBodyFinish(context.Background(), []types.Val{body})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOwn, result[0].Kind())
+	require.Equal(t, types.ValKindOwn, result[0].Kind())
 }
 
 // ====================
@@ -1084,26 +1086,26 @@ func TestIncomingBodyFinish(t *testing.T) {
 func TestOutgoingBodyWrite(t *testing.T) {
 	// Args: self (borrow<outgoing-body>)
 	// Returns: result<own<output-stream>, _>
-	selfHandle := component.ValBorrow(0)
-	result, err := outgoingBodyWrite(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := outgoingBodyWrite(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindOwn, ok.Kind())
+	require.Equal(t, types.ValKindOwn, ok.Kind())
 }
 
 func TestOutgoingBodyFinish(t *testing.T) {
 	// Args: body (own<outgoing-body>), trailers (option<own<fields>>)
 	// Returns: result<_, error-code>
-	body := component.ValOwn(0)
-	trailers := component.ValOption(nil)
-	result, err := outgoingBodyFinish(context.Background(), []component.Val{body, trailers})
+	body := types.ValOwn(0)
+	trailers := types.ValOption(nil)
+	result, err := outgoingBodyFinish(context.Background(), []types.Val{body, trailers})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 }
@@ -1115,21 +1117,21 @@ func TestOutgoingBodyFinish(t *testing.T) {
 func TestFutureIncomingResponseGet(t *testing.T) {
 	// Args: self (borrow<future-incoming-response>)
 	// Returns: option<result<result<own<incoming-response>, error-code>, _>>
-	selfHandle := component.ValBorrow(0)
-	result, err := futureIncomingResponseGet(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := futureIncomingResponseGet(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOption, result[0].Kind())
+	require.Equal(t, types.ValKindOption, result[0].Kind())
 }
 
 func TestFutureIncomingResponseSubscribe(t *testing.T) {
 	// Args: self (borrow<future-incoming-response>)
 	// Returns: own<pollable>
-	selfHandle := component.ValBorrow(0)
-	result, err := futureIncomingResponseSubscribe(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := futureIncomingResponseSubscribe(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOwn, result[0].Kind())
+	require.Equal(t, types.ValKindOwn, result[0].Kind())
 }
 
 // ====================
@@ -1139,33 +1141,33 @@ func TestFutureIncomingResponseSubscribe(t *testing.T) {
 func TestFutureTrailersGet(t *testing.T) {
 	// Args: self (borrow<future-trailers>)
 	// Returns: option<result<result<option<own<fields>>, error-code>, _>>
-	selfHandle := component.ValBorrow(0)
-	result, err := futureTrailersGet(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := futureTrailersGet(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOption, result[0].Kind())
+	require.Equal(t, types.ValKindOption, result[0].Kind())
 }
 
 func TestFutureTrailersSubscribe(t *testing.T) {
 	// Args: self (borrow<future-trailers>)
 	// Returns: own<pollable>
-	selfHandle := component.ValBorrow(0)
-	result, err := futureTrailersSubscribe(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := futureTrailersSubscribe(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOwn, result[0].Kind())
+	require.Equal(t, types.ValKindOwn, result[0].Kind())
 }
 
 func TestIncomingBodyFinish_ReturnsFutureTrailers(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Use a non-existent body handle — incomingBodyFinish handles this
 	// gracefully and still creates the FutureTrailers resource.
-	bodyVal := component.ValOwn(uint32(999))
-	result, err := incomingBodyFinish(ctx, []component.Val{bodyVal})
+	bodyVal := types.ValOwn(uint32(999))
+	result, err := incomingBodyFinish(ctx, []types.Val{bodyVal})
 	require.NoError(t, err)
-	require.Equal(t, component.ValKindOwn, result[0].Kind())
+	require.Equal(t, types.ValKindOwn, result[0].Kind())
 
 	// Verify the returned handle points to a FutureTrailers by using it
 	ftHandle := result[0].Own()
@@ -1176,17 +1178,17 @@ func TestIncomingBodyFinish_ReturnsFutureTrailers(t *testing.T) {
 }
 
 func TestFutureTrailersGet_NoTrailers(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create a ready FutureTrailers directly (no body removal to avoid slot reuse)
 	ft := NewFutureTrailersReady(nil, nil)
 	ftHandle := table.New(ft, true)
 
-	ftBorrow := component.ValBorrow(uint32(ftHandle))
+	ftBorrow := types.ValBorrow(uint32(ftHandle))
 
 	// Get should return Some (ready)
-	result, err := futureTrailersGet(ctx, []component.Val{ftBorrow})
+	result, err := futureTrailersGet(ctx, []types.Val{ftBorrow})
 	require.NoError(t, err)
 
 	outerOpt := result[0].Option()
@@ -1194,35 +1196,35 @@ func TestFutureTrailersGet_NoTrailers(t *testing.T) {
 }
 
 func TestFutureTrailersGet_ConsumedOnSecondCall(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	ft := NewFutureTrailersReady(nil, nil)
 	ftHandle := table.New(ft, true)
 
-	ftBorrow := component.ValBorrow(uint32(ftHandle))
+	ftBorrow := types.ValBorrow(uint32(ftHandle))
 
 	// First call returns result
-	futureTrailersGet(ctx, []component.Val{ftBorrow})
+	futureTrailersGet(ctx, []types.Val{ftBorrow})
 
 	// Second call returns None (consumed)
-	result, err := futureTrailersGet(ctx, []component.Val{ftBorrow})
+	result, err := futureTrailersGet(ctx, []types.Val{ftBorrow})
 	require.NoError(t, err)
 	outerOpt := result[0].Option()
 	require.Nil(t, outerOpt, "second get should return None (consumed)")
 }
 
 func TestFutureTrailersSubscribe_ReturnsValidPollable(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	ft := NewFutureTrailersReady(nil, nil)
 	ftHandle := table.New(ft, true)
 
-	ftBorrow := component.ValBorrow(uint32(ftHandle))
-	result, err := futureTrailersSubscribe(ctx, []component.Val{ftBorrow})
+	ftBorrow := types.ValBorrow(uint32(ftHandle))
+	result, err := futureTrailersSubscribe(ctx, []types.Val{ftBorrow})
 	require.NoError(t, err)
-	require.Equal(t, component.ValKindOwn, result[0].Kind())
+	require.Equal(t, types.ValKindOwn, result[0].Kind())
 	require.True(t, result[0].Own() > 0, "should return valid pollable handle")
 }
 
@@ -1233,10 +1235,10 @@ func TestFutureTrailersSubscribe_ReturnsValidPollable(t *testing.T) {
 func TestResponseOutparamSet(t *testing.T) {
 	// Args: param (own<response-outparam>), response (result<own<outgoing-response>, error-code>)
 	// Returns: nothing (unit)
-	param := component.ValOwn(0)
-	response := component.ValOwn(1)
-	responseResult := component.ValResultOk(&response)
-	result, err := responseOutparamSet(context.Background(), []component.Val{param, responseResult})
+	param := types.ValOwn(0)
+	response := types.ValOwn(1)
+	responseResult := types.ValResultOk(&response)
+	result, err := responseOutparamSet(context.Background(), []types.Val{param, responseResult})
 	require.NoError(t, err)
 	require.Equal(t, 0, len(result)) // Returns nothing
 }
@@ -1247,32 +1249,32 @@ func TestResponseOutparamSet(t *testing.T) {
 
 func TestRequestOptionsConstructor(t *testing.T) {
 	// Returns: own<request-options>
-	result, err := requestOptionsConstructor(context.Background(), []component.Val{})
+	result, err := requestOptionsConstructor(context.Background(), []types.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOwn, result[0].Kind())
+	require.Equal(t, types.ValKindOwn, result[0].Kind())
 }
 
 func TestRequestOptionsConnectTimeout(t *testing.T) {
 	// Args: self (borrow<request-options>)
 	// Returns: option<duration>
-	selfHandle := component.ValBorrow(0)
-	result, err := requestOptionsConnectTimeout(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := requestOptionsConnectTimeout(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOption, result[0].Kind())
+	require.Equal(t, types.ValKindOption, result[0].Kind())
 }
 
 func TestRequestOptionsSetConnectTimeout(t *testing.T) {
 	// Args: self (borrow<request-options>), timeout (option<duration>)
 	// Returns: result<_, _>
-	selfHandle := component.ValBorrow(0)
-	timeout := component.ValU64(30000000000) // 30 seconds in nanoseconds
-	timeoutOpt := component.ValOption(&timeout)
-	result, err := requestOptionsSetConnectTimeout(context.Background(), []component.Val{selfHandle, timeoutOpt})
+	selfHandle := types.ValBorrow(0)
+	timeout := types.ValU64(30000000000) // 30 seconds in nanoseconds
+	timeoutOpt := types.ValOption(&timeout)
+	result, err := requestOptionsSetConnectTimeout(context.Background(), []types.Val{selfHandle, timeoutOpt})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 }
@@ -1280,23 +1282,23 @@ func TestRequestOptionsSetConnectTimeout(t *testing.T) {
 func TestRequestOptionsFirstByteTimeout(t *testing.T) {
 	// Args: self (borrow<request-options>)
 	// Returns: option<duration>
-	selfHandle := component.ValBorrow(0)
-	result, err := requestOptionsFirstByteTimeout(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := requestOptionsFirstByteTimeout(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOption, result[0].Kind())
+	require.Equal(t, types.ValKindOption, result[0].Kind())
 }
 
 func TestRequestOptionsSetFirstByteTimeout(t *testing.T) {
 	// Args: self (borrow<request-options>), timeout (option<duration>)
 	// Returns: result<_, _>
-	selfHandle := component.ValBorrow(0)
-	timeout := component.ValU64(60000000000)
-	timeoutOpt := component.ValOption(&timeout)
-	result, err := requestOptionsSetFirstByteTimeout(context.Background(), []component.Val{selfHandle, timeoutOpt})
+	selfHandle := types.ValBorrow(0)
+	timeout := types.ValU64(60000000000)
+	timeoutOpt := types.ValOption(&timeout)
+	result, err := requestOptionsSetFirstByteTimeout(context.Background(), []types.Val{selfHandle, timeoutOpt})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 }
@@ -1304,23 +1306,23 @@ func TestRequestOptionsSetFirstByteTimeout(t *testing.T) {
 func TestRequestOptionsBetweenBytesTimeout(t *testing.T) {
 	// Args: self (borrow<request-options>)
 	// Returns: option<duration>
-	selfHandle := component.ValBorrow(0)
-	result, err := requestOptionsBetweenBytesTimeout(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := requestOptionsBetweenBytesTimeout(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOption, result[0].Kind())
+	require.Equal(t, types.ValKindOption, result[0].Kind())
 }
 
 func TestRequestOptionsSetBetweenBytesTimeout(t *testing.T) {
 	// Args: self (borrow<request-options>), timeout (option<duration>)
 	// Returns: result<_, _>
-	selfHandle := component.ValBorrow(0)
-	timeout := component.ValU64(10000000000)
-	timeoutOpt := component.ValOption(&timeout)
-	result, err := requestOptionsSetBetweenBytesTimeout(context.Background(), []component.Val{selfHandle, timeoutOpt})
+	selfHandle := types.ValBorrow(0)
+	timeout := types.ValU64(10000000000)
+	timeoutOpt := types.ValOption(&timeout)
+	result, err := requestOptionsSetBetweenBytesTimeout(context.Background(), []types.Val{selfHandle, timeoutOpt})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 }
@@ -1332,11 +1334,11 @@ func TestRequestOptionsSetBetweenBytesTimeout(t *testing.T) {
 func TestHttpErrorCode(t *testing.T) {
 	// Args: err (borrow<io-error>)
 	// Returns: option<error-code>
-	errHandle := component.ValBorrow(0)
-	result, err := httpErrorCode(context.Background(), []component.Val{errHandle})
+	errHandle := types.ValBorrow(0)
+	result, err := httpErrorCode(context.Background(), []types.Val{errHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOption, result[0].Kind())
+	require.Equal(t, types.ValKindOption, result[0].Kind())
 }
 
 // ====================
@@ -1362,16 +1364,16 @@ func TestInstantiateOutgoingHandler(t *testing.T) {
 func TestOutgoingHandlerHandle(t *testing.T) {
 	// Args: request (own<outgoing-request>), options (option<own<request-options>>)
 	// Returns: result<own<future-incoming-response>, error-code>
-	request := component.ValOwn(0)
-	options := component.ValOption(nil)
-	result, err := outgoingHandlerHandle(context.Background(), []component.Val{request, options})
+	request := types.ValOwn(0)
+	options := types.ValOption(nil)
+	result, err := outgoingHandlerHandle(context.Background(), []types.Val{request, options})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindOwn, ok.Kind())
+	require.Equal(t, types.ValKindOwn, ok.Kind())
 }
 
 // ====================
@@ -1397,9 +1399,9 @@ func TestInstantiateIncomingHandler(t *testing.T) {
 func TestIncomingHandlerHandle(t *testing.T) {
 	// Args: request (own<incoming-request>), response-out (own<response-outparam>)
 	// Returns: nothing (unit)
-	request := component.ValOwn(0)
-	responseOut := component.ValOwn(1)
-	result, err := incomingHandlerHandle(context.Background(), []component.Val{request, responseOut})
+	request := types.ValOwn(0)
+	responseOut := types.ValOwn(1)
+	result, err := incomingHandlerHandle(context.Background(), []types.Val{request, responseOut})
 	require.NoError(t, err)
 	require.Equal(t, 0, len(result)) // Returns nothing
 }
@@ -2052,7 +2054,7 @@ func TestIncomingBody_StreamRead(t *testing.T) {
 }
 
 func TestResponseOutparamSet_OkResponse(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	outparam := NewResponseOutparam()
@@ -2063,11 +2065,11 @@ func TestResponseOutparamSet_OkResponse(t *testing.T) {
 	respHandle := table.New(resp, true)
 
 	// Build args: own<response-outparam>, result<own<outgoing-response>, error-code>
-	outparamVal := component.ValOwn(uint32(outparamHandle))
-	respVal := component.ValOwn(uint32(respHandle))
-	resultVal := component.ValResultOk(&respVal)
+	outparamVal := types.ValOwn(uint32(outparamHandle))
+	respVal := types.ValOwn(uint32(respHandle))
+	resultVal := types.ValResultOk(&respVal)
 
-	result, err := responseOutparamSet(ctx, []component.Val{outparamVal, resultVal})
+	result, err := responseOutparamSet(ctx, []types.Val{outparamVal, resultVal})
 	require.NoError(t, err)
 	require.Equal(t, 0, len(result)) // returns unit
 
@@ -2080,17 +2082,17 @@ func TestResponseOutparamSet_OkResponse(t *testing.T) {
 }
 
 func TestResponseOutparamSet_ErrorResponse(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	outparam := NewResponseOutparam()
 	outparamHandle := table.New(outparam, true)
 
-	outparamVal := component.ValOwn(uint32(outparamHandle))
-	errCodeVal := component.ValVariant("connection-refused", nil)
-	resultVal := component.ValResultError(&errCodeVal)
+	outparamVal := types.ValOwn(uint32(outparamHandle))
+	errCodeVal := types.ValVariant("connection-refused", nil)
+	resultVal := types.ValResultError(&errCodeVal)
 
-	result, err := responseOutparamSet(ctx, []component.Val{outparamVal, resultVal})
+	result, err := responseOutparamSet(ctx, []types.Val{outparamVal, resultVal})
 	require.NoError(t, err)
 	require.Equal(t, 0, len(result))
 
@@ -2107,7 +2109,7 @@ func TestResponseOutparamSet_ErrorResponse(t *testing.T) {
 // returning Err(internal-error), which must NOT trap and must be delivered through the
 // outparam channel.
 func TestResponseOutparamSet_BadOutgoingResponseHandle(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	outparam := NewResponseOutparam()
@@ -2116,12 +2118,12 @@ func TestResponseOutparamSet_BadOutgoingResponseHandle(t *testing.T) {
 	// Bogus outgoing-response handle that has nothing in the table.
 	const bogusRespHandleIdx uint32 = 9999
 
-	outparamVal := component.ValOwn(uint32(outparamHandle))
-	respVal := component.ValOwn(bogusRespHandleIdx)
-	resultVal := component.ValResultOk(&respVal)
+	outparamVal := types.ValOwn(uint32(outparamHandle))
+	respVal := types.ValOwn(bogusRespHandleIdx)
+	resultVal := types.ValResultOk(&respVal)
 
 	// The host function must signal a trap by returning a non-nil error.
-	_, err := responseOutparamSet(ctx, []component.Val{outparamVal, resultVal})
+	_, err := responseOutparamSet(ctx, []types.Val{outparamVal, resultVal})
 	require.Error(t, err, "responseOutparamSet must trap on invalid outgoing-response handle")
 	require.Contains(t, err.Error(), "outgoing-response", "error must mention which handle was invalid")
 
@@ -2140,7 +2142,7 @@ func TestResponseOutparamSet_BadOutgoingResponseHandle(t *testing.T) {
 // payload is well-formed. Per CanonicalABI.md (lift_own), an own handle that does not
 // exist in the table must trap.
 func TestResponseOutparamSet_BadOutparamHandle(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Bogus outparam handle that has nothing in the table.
@@ -2148,17 +2150,17 @@ func TestResponseOutparamSet_BadOutparamHandle(t *testing.T) {
 
 	// Provide a well-formed Err(error-code) for the response payload so that we
 	// only test the bad outparam handle path.
-	outparamVal := component.ValOwn(bogusOutparamHandleIdx)
-	errCodeVal := component.ValVariant("connection-refused", nil)
-	resultVal := component.ValResultError(&errCodeVal)
+	outparamVal := types.ValOwn(bogusOutparamHandleIdx)
+	errCodeVal := types.ValVariant("connection-refused", nil)
+	resultVal := types.ValResultError(&errCodeVal)
 
-	_, err := responseOutparamSet(ctx, []component.Val{outparamVal, resultVal})
+	_, err := responseOutparamSet(ctx, []types.Val{outparamVal, resultVal})
 	require.Error(t, err, "responseOutparamSet must trap on invalid response-outparam handle")
 	require.Contains(t, err.Error(), "response-outparam", "error must mention which handle was invalid")
 }
 
 func TestIncomingRequestConsume_WithBody(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	bodyReader := goio.NopCloser(strings.NewReader("request body content"))
@@ -2170,15 +2172,15 @@ func TestIncomingRequestConsume_WithBody(t *testing.T) {
 	req.SetBody(body)
 	handle := table.New(req, true)
 
-	selfHandle := component.ValBorrow(uint32(handle))
-	result, err := incomingRequestConsume(ctx, []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(uint32(handle))
+	result, err := incomingRequestConsume(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
 	isOk, bodyHandleVal, _ := result[0].Result()
 	require.True(t, isOk)
 
 	// Verify body is accessible
 	bodyHandle := bodyHandleVal.Own()
-	entry, err := table.Get(component.Handle(bodyHandle))
+	entry, err := table.Get(runtime.Handle(bodyHandle))
 	require.NoError(t, err)
 	inBody, ok := entry.Rep.(*IncomingBody)
 	require.True(t, ok)
@@ -2186,7 +2188,7 @@ func TestIncomingRequestConsume_WithBody(t *testing.T) {
 }
 
 func TestIncomingRequestConsume_BodyAlreadyConsumed(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	scheme := NewSchemeHTTPS()
@@ -2194,16 +2196,16 @@ func TestIncomingRequestConsume_BodyAlreadyConsumed(t *testing.T) {
 	req := NewIncomingRequest(MethodPost, &scheme, nil, &pathStr, NewFields())
 	handle := table.New(req, true)
 
-	selfHandle := component.ValBorrow(uint32(handle))
+	selfHandle := types.ValBorrow(uint32(handle))
 
 	// First call succeeds
-	result, err := incomingRequestConsume(ctx, []component.Val{selfHandle})
+	result, err := incomingRequestConsume(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk, "first consume should succeed")
 
 	// Second call must return the body-already-consumed error variant
-	result2, err := incomingRequestConsume(ctx, []component.Val{selfHandle})
+	result2, err := incomingRequestConsume(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
 	isOk2, _, errVal := result2[0].Result()
 	require.False(t, isOk2, "second consume should fail")
@@ -2212,15 +2214,15 @@ func TestIncomingRequestConsume_BodyAlreadyConsumed(t *testing.T) {
 }
 
 func TestHttpErrorCode_WithHTTPError(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	httpErr := &HTTPError{Code: ErrorCodeConnectionRefused}
 	ioErr := io.NewError(httpErr)
 	handle := table.New(ioErr, true)
 
-	errHandle := component.ValBorrow(uint32(handle))
-	result, err := httpErrorCode(ctx, []component.Val{errHandle})
+	errHandle := types.ValBorrow(uint32(handle))
+	result, err := httpErrorCode(ctx, []types.Val{errHandle})
 	require.NoError(t, err)
 
 	opt := result[0].Option()
@@ -2231,7 +2233,7 @@ func TestHttpErrorCode_WithHTTPError(t *testing.T) {
 }
 
 func TestNewHTTPHandler_SimpleGET(t *testing.T) {
-	handler := NewHTTPHandler(func(ctx context.Context, requestHandle, outparamHandle component.Handle) error {
+	handler := NewHTTPHandler(func(ctx context.Context, requestHandle, outparamHandle runtime.Handle) error {
 		table := component.ResourceTableFromContext(ctx)
 
 		// Read request
@@ -2263,7 +2265,7 @@ func TestNewHTTPHandler_SimpleGET(t *testing.T) {
 }
 
 func TestNewHTTPHandler_CallHandleError(t *testing.T) {
-	handler := NewHTTPHandler(func(ctx context.Context, requestHandle, outparamHandle component.Handle) error {
+	handler := NewHTTPHandler(func(ctx context.Context, requestHandle, outparamHandle runtime.Handle) error {
 		return errors.New("handler crashed")
 	})
 
@@ -2275,7 +2277,7 @@ func TestNewHTTPHandler_CallHandleError(t *testing.T) {
 }
 
 func TestNewHTTPHandler_ErrorCodeResponse(t *testing.T) {
-	handler := NewHTTPHandler(func(ctx context.Context, requestHandle, outparamHandle component.Handle) error {
+	handler := NewHTTPHandler(func(ctx context.Context, requestHandle, outparamHandle runtime.Handle) error {
 		table := component.ResourceTableFromContext(ctx)
 		entry, _ := table.Get(outparamHandle)
 		outparam := entry.Rep.(*ResponseOutparam)
@@ -2293,7 +2295,7 @@ func TestNewHTTPHandler_ErrorCodeResponse(t *testing.T) {
 
 func TestNewHTTPHandler_HeadersAreLowercased(t *testing.T) {
 	var sawLowercase bool
-	handler := NewHTTPHandler(func(ctx context.Context, requestHandle, outparamHandle component.Handle) error {
+	handler := NewHTTPHandler(func(ctx context.Context, requestHandle, outparamHandle runtime.Handle) error {
 		table := component.ResourceTableFromContext(ctx)
 		entry, _ := table.Get(requestHandle)
 		req := entry.Rep.(*IncomingRequest)
@@ -2319,14 +2321,14 @@ func TestNewHTTPHandler_HeadersAreLowercased(t *testing.T) {
 }
 
 func TestHttpErrorCode_WithNonHTTPError(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	ioErr := io.NewError(errors.New("some random error"))
 	handle := table.New(ioErr, true)
 
-	errHandle := component.ValBorrow(uint32(handle))
-	result, err := httpErrorCode(ctx, []component.Val{errHandle})
+	errHandle := types.ValBorrow(uint32(handle))
+	result, err := httpErrorCode(ctx, []types.Val{errHandle})
 	require.NoError(t, err)
 	require.Nil(t, result[0].Option(), "should return None for non-HTTP error")
 }

@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -420,7 +422,6 @@ func TestOutputStream_Close_WithCloser(t *testing.T) {
 	require.True(t, buf.closed)
 }
 
-
 // flushableWriter for testing flush
 type flushableWriter struct {
 	bytes.Buffer
@@ -547,7 +548,7 @@ func TestInstantiateStreams_Duplicate(t *testing.T) {
 // Tests for host functions with ResourceTable
 
 func TestInputStreamRead_HostFunction(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create input stream and add to table
@@ -556,9 +557,9 @@ func TestInputStreamRead_HostFunction(t *testing.T) {
 	handle := table.New(stream, true)
 
 	// Call host function
-	args := []component.Val{
-		component.ValBorrow(uint32(handle)),
-		component.ValU64(5),
+	args := []types.Val{
+		types.ValBorrow(uint32(handle)),
+		types.ValU64(5),
 	}
 	results, err := inputStreamRead(ctx, args)
 	require.NoError(t, err)
@@ -580,7 +581,7 @@ func TestInputStreamRead_HostFunction(t *testing.T) {
 }
 
 func TestInputStreamRead_ClosedStream(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create closed input stream
@@ -589,9 +590,9 @@ func TestInputStreamRead_ClosedStream(t *testing.T) {
 	stream.Close()
 	handle := table.New(stream, true)
 
-	args := []component.Val{
-		component.ValBorrow(uint32(handle)),
-		component.ValU64(5),
+	args := []types.Val{
+		types.ValBorrow(uint32(handle)),
+		types.ValU64(5),
 	}
 	results, err := inputStreamRead(ctx, args)
 	require.NoError(t, err)
@@ -603,16 +604,16 @@ func TestInputStreamRead_ClosedStream(t *testing.T) {
 }
 
 func TestInputStreamSkip_HostFunction(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	reader := bytes.NewReader([]byte("hello world"))
 	stream := NewInputStream(reader)
 	handle := table.New(stream, true)
 
-	args := []component.Val{
-		component.ValBorrow(uint32(handle)),
-		component.ValU64(6),
+	args := []types.Val{
+		types.ValBorrow(uint32(handle)),
+		types.ValU64(6),
 	}
 	results, err := inputStreamSkip(ctx, args)
 	require.NoError(t, err)
@@ -625,15 +626,15 @@ func TestInputStreamSkip_HostFunction(t *testing.T) {
 }
 
 func TestInputStreamSubscribe_HostFunction(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	reader := bytes.NewReader([]byte("test"))
 	stream := NewInputStream(reader)
 	handle := table.New(stream, true)
 
-	args := []component.Val{
-		component.ValBorrow(uint32(handle)),
+	args := []types.Val{
+		types.ValBorrow(uint32(handle)),
 	}
 	results, err := inputStreamSubscribe(ctx, args)
 	require.NoError(t, err)
@@ -646,15 +647,15 @@ func TestInputStreamSubscribe_HostFunction(t *testing.T) {
 }
 
 func TestOutputStreamCheckWrite_HostFunction(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	buf := &bytes.Buffer{}
 	stream := NewOutputStream(buf)
 	handle := table.New(stream, true)
 
-	args := []component.Val{
-		component.ValBorrow(uint32(handle)),
+	args := []types.Val{
+		types.ValBorrow(uint32(handle)),
 	}
 	results, err := outputStreamCheckWrite(ctx, args)
 	require.NoError(t, err)
@@ -667,7 +668,7 @@ func TestOutputStreamCheckWrite_HostFunction(t *testing.T) {
 }
 
 func TestOutputStreamWrite_HostFunction(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	buf := &bytes.Buffer{}
@@ -676,14 +677,14 @@ func TestOutputStreamWrite_HostFunction(t *testing.T) {
 
 	// Create list<u8> for "hello"
 	data := []byte("hello")
-	listVals := make([]component.Val, len(data))
+	listVals := make([]types.Val, len(data))
 	for i, b := range data {
-		listVals[i] = component.ValU8(b)
+		listVals[i] = types.ValU8(b)
 	}
 
-	args := []component.Val{
-		component.ValBorrow(uint32(handle)),
-		component.ValList(listVals),
+	args := []types.Val{
+		types.ValBorrow(uint32(handle)),
+		types.ValList(listVals),
 	}
 	results, err := outputStreamWrite(ctx, args)
 	require.NoError(t, err)
@@ -697,15 +698,15 @@ func TestOutputStreamWrite_HostFunction(t *testing.T) {
 }
 
 func TestOutputStreamFlush_HostFunction(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	buf := &flushableWriter{}
 	stream := NewOutputStream(buf)
 	handle := table.New(stream, true)
 
-	args := []component.Val{
-		component.ValBorrow(uint32(handle)),
+	args := []types.Val{
+		types.ValBorrow(uint32(handle)),
 	}
 	results, err := outputStreamFlush(ctx, args)
 	require.NoError(t, err)
@@ -717,16 +718,16 @@ func TestOutputStreamFlush_HostFunction(t *testing.T) {
 }
 
 func TestOutputStreamWriteZeroes_HostFunction(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	buf := &bytes.Buffer{}
 	stream := NewOutputStream(buf)
 	handle := table.New(stream, true)
 
-	args := []component.Val{
-		component.ValBorrow(uint32(handle)),
-		component.ValU64(10),
+	args := []types.Val{
+		types.ValBorrow(uint32(handle)),
+		types.ValU64(10),
 	}
 	results, err := outputStreamWriteZeroes(ctx, args)
 	require.NoError(t, err)
@@ -742,7 +743,7 @@ func TestOutputStreamWriteZeroes_HostFunction(t *testing.T) {
 }
 
 func TestOutputStreamSplice_HostFunction(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	srcReader := bytes.NewReader([]byte("source data"))
@@ -753,10 +754,10 @@ func TestOutputStreamSplice_HostFunction(t *testing.T) {
 	dstStream := NewOutputStream(dstBuf)
 	dstHandle := table.New(dstStream, true)
 
-	args := []component.Val{
-		component.ValBorrow(uint32(dstHandle)),
-		component.ValBorrow(uint32(srcHandle)),
-		component.ValU64(6),
+	args := []types.Val{
+		types.ValBorrow(uint32(dstHandle)),
+		types.ValBorrow(uint32(srcHandle)),
+		types.ValU64(6),
 	}
 	results, err := outputStreamSplice(ctx, args)
 	require.NoError(t, err)
@@ -770,15 +771,15 @@ func TestOutputStreamSplice_HostFunction(t *testing.T) {
 }
 
 func TestOutputStreamSubscribe_HostFunction(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	buf := &bytes.Buffer{}
 	stream := NewOutputStream(buf)
 	handle := table.New(stream, true)
 
-	args := []component.Val{
-		component.ValBorrow(uint32(handle)),
+	args := []types.Val{
+		types.ValBorrow(uint32(handle)),
 	}
 	results, err := outputStreamSubscribe(ctx, args)
 	require.NoError(t, err)
@@ -789,13 +790,13 @@ func TestOutputStreamSubscribe_HostFunction(t *testing.T) {
 }
 
 func TestHostFunction_InvalidHandle(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Use an invalid handle
-	args := []component.Val{
-		component.ValBorrow(999),
-		component.ValU64(5),
+	args := []types.Val{
+		types.ValBorrow(999),
+		types.ValU64(5),
 	}
 	_, err := inputStreamRead(ctx, args)
 	require.Error(t, err)
@@ -806,9 +807,9 @@ func TestHostFunction_NoResourceTable(t *testing.T) {
 	// Context without ResourceTable
 	ctx := context.Background()
 
-	args := []component.Val{
-		component.ValBorrow(0),
-		component.ValU64(5),
+	args := []types.Val{
+		types.ValBorrow(0),
+		types.ValU64(5),
 	}
 	_, err := inputStreamRead(ctx, args)
 	require.Error(t, err)
@@ -816,7 +817,7 @@ func TestHostFunction_NoResourceTable(t *testing.T) {
 }
 
 func TestHostFunction_WrongResourceType(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create an OutputStream but try to use it as InputStream
@@ -824,9 +825,9 @@ func TestHostFunction_WrongResourceType(t *testing.T) {
 	stream := NewOutputStream(buf)
 	handle := table.New(stream, true)
 
-	args := []component.Val{
-		component.ValBorrow(uint32(handle)),
-		component.ValU64(5),
+	args := []types.Val{
+		types.ValBorrow(uint32(handle)),
+		types.ValU64(5),
 	}
 	_, err := inputStreamRead(ctx, args)
 	require.Error(t, err)
@@ -845,12 +846,12 @@ func TestBytesToListU8(t *testing.T) {
 }
 
 func TestListU8ToBytes(t *testing.T) {
-	listVals := []component.Val{
-		component.ValU8(1),
-		component.ValU8(2),
-		component.ValU8(3),
+	listVals := []types.Val{
+		types.ValU8(1),
+		types.ValU8(2),
+		types.ValU8(3),
 	}
-	listVal := component.ValList(listVals)
+	listVal := types.ValList(listVals)
 
 	data := listU8ToBytes(listVal)
 	require.Equal(t, []byte{1, 2, 3}, data)
@@ -975,4 +976,3 @@ func (f *flushableCloserWriter) Close() error {
 	f.closed = true
 	return nil
 }
-

@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/tetratelabs/wazero/internal/component"
+	cmpruntime "github.com/tetratelabs/wazero/internal/component/runtime"
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 // Error represents a wasi:io/error resource with enhanced debugging.
@@ -131,26 +133,26 @@ func instantiateError(linker *component.Linker) error {
 }
 
 // errorToDebugString implements [method]error.to-debug-string
-func errorToDebugString(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func errorToDebugString(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	table := component.ResourceTableFromContext(ctx)
 	if table == nil {
-		return []component.Val{component.ValString("no resource table")}, nil
+		return []types.Val{types.ValString("no resource table")}, nil
 	}
 
 	handle := args[0].Borrow()
-	entry, err := table.Get(component.Handle(handle))
+	entry, err := table.Get(cmpruntime.Handle(handle))
 	if err != nil {
-		return []component.Val{component.ValString("invalid error handle")}, nil
+		return []types.Val{types.ValString("invalid error handle")}, nil
 	}
 
 	wasiErr, ok := entry.Rep.(*Error)
 	if !ok {
 		// Try to handle as generic error
 		if genericErr, ok := entry.Rep.(error); ok {
-			return []component.Val{component.ValString(genericErr.Error())}, nil
+			return []types.Val{types.ValString(genericErr.Error())}, nil
 		}
-		return []component.Val{component.ValString("not an error resource")}, nil
+		return []types.Val{types.ValString("not an error resource")}, nil
 	}
 
-	return []component.Val{component.ValString(wasiErr.ToDebugString())}, nil
+	return []types.Val{types.ValString(wasiErr.ToDebugString())}, nil
 }

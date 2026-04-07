@@ -8,6 +8,7 @@ import (
 
 	wasip2io "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 // monotonicBase is the starting point for monotonic time measurement.
@@ -62,15 +63,15 @@ func instantiateMonotonicClock(linker *component.Linker) error {
 	return inst.SkipValidation().Build()
 }
 
-func monotonicClockNow(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	return []component.Val{component.ValU64(MonotonicNow())}, nil
+func monotonicClockNow(ctx context.Context, args []types.Val) ([]types.Val, error) {
+	return []types.Val{types.ValU64(MonotonicNow())}, nil
 }
 
-func monotonicClockResolution(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	return []component.Val{component.ValU64(MonotonicResolution())}, nil
+func monotonicClockResolution(ctx context.Context, args []types.Val) ([]types.Val, error) {
+	return []types.Val{types.ValU64(MonotonicResolution())}, nil
 }
 
-func monotonicClockSubscribeInstant(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func monotonicClockSubscribeInstant(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	// args[0] is instant (u64)
 	instant := args[0].U64()
 
@@ -84,15 +85,15 @@ func monotonicClockSubscribeInstant(ctx context.Context, args []component.Val) (
 	table := component.ResourceTableFromContext(ctx)
 	if table == nil {
 		// Fallback - return placeholder handle if no resource table
-		return []component.Val{component.ValOwn(0)}, nil
+		return []types.Val{types.ValOwn(0)}, nil
 	}
 
 	// Register the pollable in the resource table and return the handle
 	handle := table.New(pollable, true)
-	return []component.Val{component.ValOwn(uint32(handle))}, nil
+	return []types.Val{types.ValOwn(uint32(handle))}, nil
 }
 
-func monotonicClockSubscribeDuration(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func monotonicClockSubscribeDuration(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	// args[0] is duration (u64)
 	duration := args[0].U64()
 
@@ -106,10 +107,10 @@ func monotonicClockSubscribeDuration(ctx context.Context, args []component.Val) 
 	table := component.ResourceTableFromContext(ctx)
 	if table == nil {
 		// Fallback - return placeholder handle if no resource table
-		return []component.Val{component.ValOwn(0)}, nil
+		return []types.Val{types.ValOwn(0)}, nil
 	}
 
 	// Register the pollable in the resource table and return the handle
 	handle := table.New(pollable, true)
-	return []component.Val{component.ValOwn(uint32(handle))}, nil
+	return []types.Val{types.ValOwn(uint32(handle))}, nil
 }

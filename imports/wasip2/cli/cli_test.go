@@ -12,6 +12,8 @@ import (
 
 	wasip2io "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -104,10 +106,10 @@ func TestInstantiateEnvironment(t *testing.T) {
 
 func TestGetEnvironment_NoConfig(t *testing.T) {
 	// Without config, returns empty list
-	result, err := getEnvironment(context.Background(), []component.Val{})
+	result, err := getEnvironment(context.Background(), []types.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindList, result[0].Kind())
+	require.Equal(t, types.ValKindList, result[0].Kind())
 	list := result[0].List()
 	require.NotNil(t, list)
 	require.Equal(t, 0, len(list))
@@ -121,10 +123,10 @@ func TestGetEnvironment_WithConfig(t *testing.T) {
 
 	ctx := component.WithWASIConfig(context.Background(), config)
 
-	result, err := getEnvironment(ctx, []component.Val{})
+	result, err := getEnvironment(ctx, []types.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindList, result[0].Kind())
+	require.Equal(t, types.ValKindList, result[0].Kind())
 
 	list := result[0].List()
 	require.Equal(t, 3, len(list))
@@ -150,10 +152,10 @@ func TestGetEnvironment_WithConfig(t *testing.T) {
 
 func TestGetArguments_NoConfig(t *testing.T) {
 	// Without config, returns empty list
-	result, err := getArguments(context.Background(), []component.Val{})
+	result, err := getArguments(context.Background(), []types.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindList, result[0].Kind())
+	require.Equal(t, types.ValKindList, result[0].Kind())
 	list := result[0].List()
 	require.NotNil(t, list)
 	require.Equal(t, 0, len(list))
@@ -167,10 +169,10 @@ func TestGetArguments_WithConfig(t *testing.T) {
 
 	ctx := component.WithWASIConfig(context.Background(), config)
 
-	result, err := getArguments(ctx, []component.Val{})
+	result, err := getArguments(ctx, []types.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindList, result[0].Kind())
+	require.Equal(t, types.ValKindList, result[0].Kind())
 
 	list := result[0].List()
 	require.Equal(t, 3, len(list))
@@ -181,10 +183,10 @@ func TestGetArguments_WithConfig(t *testing.T) {
 
 func TestInitialCwd(t *testing.T) {
 	// initialCwd uses os.Getwd(), so it should return a real directory
-	result, err := initialCwd(context.Background(), []component.Val{})
+	result, err := initialCwd(context.Background(), []types.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOption, result[0].Kind())
+	require.Equal(t, types.ValKindOption, result[0].Kind())
 
 	opt := result[0].Option()
 	require.NotNil(t, opt, "initial-cwd should return Some with current directory")
@@ -213,8 +215,8 @@ func TestInstantiateExit(t *testing.T) {
 
 func TestExit_Success(t *testing.T) {
 	// With ok result - should return ExitError with code 0
-	okResult := component.ValResultOk(nil)
-	result, err := exit(context.Background(), []component.Val{okResult})
+	okResult := types.ValResultOk(nil)
+	result, err := exit(context.Background(), []types.Val{okResult})
 	require.Nil(t, result)
 
 	exitErr, ok := err.(*ExitError)
@@ -225,8 +227,8 @@ func TestExit_Success(t *testing.T) {
 
 func TestExit_Failure(t *testing.T) {
 	// With error result - should return ExitError with code 1
-	errResult := component.ValResultError(nil)
-	result, err := exit(context.Background(), []component.Val{errResult})
+	errResult := types.ValResultError(nil)
+	result, err := exit(context.Background(), []types.Val{errResult})
 	require.Nil(t, result)
 
 	exitErr, ok := err.(*ExitError)
@@ -253,10 +255,10 @@ func TestInstantiateStdin(t *testing.T) {
 
 func TestGetStdin_NoConfig(t *testing.T) {
 	// Without config or table, returns placeholder handle 0
-	result, err := getStdin(context.Background(), []component.Val{})
+	result, err := getStdin(context.Background(), []types.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOwn, result[0].Kind())
+	require.Equal(t, types.ValKindOwn, result[0].Kind())
 	handle := result[0].Own()
 	require.Equal(t, uint32(0), handle)
 }
@@ -266,18 +268,18 @@ func TestGetStdin_WithConfig(t *testing.T) {
 	stdinData := bytes.NewReader([]byte("hello world"))
 	config := &testConfig{stdin: stdinData}
 
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 	ctx = component.WithWASIConfig(ctx, config)
 
-	result, err := getStdin(ctx, []component.Val{})
+	result, err := getStdin(ctx, []types.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOwn, result[0].Kind())
+	require.Equal(t, types.ValKindOwn, result[0].Kind())
 
 	handle := result[0].Own()
 	// Should have created a real handle (not placeholder 0)
-	entry, err := table.Get(component.Handle(handle))
+	entry, err := table.Get(runtime.Handle(handle))
 	require.NoError(t, err)
 	require.NotNil(t, entry)
 
@@ -310,10 +312,10 @@ func TestInstantiateStdout(t *testing.T) {
 
 func TestGetStdout_NoConfig(t *testing.T) {
 	// Without config or table, returns placeholder handle 1
-	result, err := getStdout(context.Background(), []component.Val{})
+	result, err := getStdout(context.Background(), []types.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOwn, result[0].Kind())
+	require.Equal(t, types.ValKindOwn, result[0].Kind())
 	handle := result[0].Own()
 	require.Equal(t, uint32(1), handle)
 }
@@ -323,18 +325,18 @@ func TestGetStdout_WithConfig(t *testing.T) {
 	var stdoutBuf bytes.Buffer
 	config := &testConfig{stdout: &stdoutBuf}
 
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 	ctx = component.WithWASIConfig(ctx, config)
 
-	result, err := getStdout(ctx, []component.Val{})
+	result, err := getStdout(ctx, []types.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOwn, result[0].Kind())
+	require.Equal(t, types.ValKindOwn, result[0].Kind())
 
 	handle := result[0].Own()
 	// Should have created a real handle
-	entry, err := table.Get(component.Handle(handle))
+	entry, err := table.Get(runtime.Handle(handle))
 	require.NoError(t, err)
 	require.NotNil(t, entry)
 
@@ -367,10 +369,10 @@ func TestInstantiateStderr(t *testing.T) {
 
 func TestGetStderr_NoConfig(t *testing.T) {
 	// Without config or table, returns placeholder handle 2
-	result, err := getStderr(context.Background(), []component.Val{})
+	result, err := getStderr(context.Background(), []types.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOwn, result[0].Kind())
+	require.Equal(t, types.ValKindOwn, result[0].Kind())
 	handle := result[0].Own()
 	require.Equal(t, uint32(2), handle)
 }
@@ -380,18 +382,18 @@ func TestGetStderr_WithConfig(t *testing.T) {
 	var stderrBuf bytes.Buffer
 	config := &testConfig{stderr: &stderrBuf}
 
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 	ctx = component.WithWASIConfig(ctx, config)
 
-	result, err := getStderr(ctx, []component.Val{})
+	result, err := getStderr(ctx, []types.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOwn, result[0].Kind())
+	require.Equal(t, types.ValKindOwn, result[0].Kind())
 
 	handle := result[0].Own()
 	// Should have created a real handle
-	entry, err := table.Get(component.Handle(handle))
+	entry, err := table.Get(runtime.Handle(handle))
 	require.NoError(t, err)
 	require.NotNil(t, entry)
 
@@ -504,10 +506,10 @@ func TestInstantiateTerminalStderr(t *testing.T) {
 
 func TestGetTerminalStdin_NoConfig(t *testing.T) {
 	// Without config, returns None
-	result, err := getTerminalStdin(context.Background(), []component.Val{})
+	result, err := getTerminalStdin(context.Background(), []types.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOption, result[0].Kind())
+	require.Equal(t, types.ValKindOption, result[0].Kind())
 	opt := result[0].Option()
 	require.Nil(t, opt, "should return None when no config")
 }
@@ -520,10 +522,10 @@ func TestGetTerminalStdin_ModeNone(t *testing.T) {
 	}
 	ctx := component.WithWASIConfig(context.Background(), config)
 
-	result, err := getTerminalStdin(ctx, []component.Val{})
+	result, err := getTerminalStdin(ctx, []types.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOption, result[0].Kind())
+	require.Equal(t, types.ValKindOption, result[0].Kind())
 	opt := result[0].Option()
 	require.Nil(t, opt, "should return None with TerminalModeNone")
 }
@@ -537,7 +539,7 @@ func TestGetTerminalStdin_ModeCustom_False(t *testing.T) {
 	}
 	ctx := component.WithWASIConfig(context.Background(), config)
 
-	result, err := getTerminalStdin(ctx, []component.Val{})
+	result, err := getTerminalStdin(ctx, []types.Val{})
 	require.NoError(t, err)
 	opt := result[0].Option()
 	require.Nil(t, opt, "should return None when stdinIsTerminal=false")
@@ -550,21 +552,21 @@ func TestGetTerminalStdin_ModeCustom_True(t *testing.T) {
 		terminalMode:    component.TerminalModeCustom,
 		stdinIsTerminal: true,
 	}
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 	ctx = component.WithWASIConfig(ctx, config)
 
-	result, err := getTerminalStdin(ctx, []component.Val{})
+	result, err := getTerminalStdin(ctx, []types.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOption, result[0].Kind())
+	require.Equal(t, types.ValKindOption, result[0].Kind())
 	opt := result[0].Option()
 	require.NotNil(t, opt, "should return Some when stdinIsTerminal=true")
-	require.Equal(t, component.ValKindOwn, opt.Kind())
+	require.Equal(t, types.ValKindOwn, opt.Kind())
 
 	// Verify the resource was created in the table
 	handle := opt.Own()
-	entry, err := table.Get(component.Handle(handle))
+	entry, err := table.Get(runtime.Handle(handle))
 	require.NoError(t, err)
 	require.NotNil(t, entry)
 	_, ok := entry.Rep.(*TerminalInput)
@@ -579,14 +581,14 @@ func TestGetTerminalStdin_ModeAuto_NotFile(t *testing.T) {
 	}
 	ctx := component.WithWASIConfig(context.Background(), config)
 
-	result, err := getTerminalStdin(ctx, []component.Val{})
+	result, err := getTerminalStdin(ctx, []types.Val{})
 	require.NoError(t, err)
 	opt := result[0].Option()
 	require.Nil(t, opt, "should return None when stdin is not an *os.File")
 }
 
 func TestGetTerminalStdout_NoConfig(t *testing.T) {
-	result, err := getTerminalStdout(context.Background(), []component.Val{})
+	result, err := getTerminalStdout(context.Background(), []types.Val{})
 	require.NoError(t, err)
 	opt := result[0].Option()
 	require.Nil(t, opt, "should return None when no config")
@@ -599,7 +601,7 @@ func TestGetTerminalStdout_ModeNone(t *testing.T) {
 	}
 	ctx := component.WithWASIConfig(context.Background(), config)
 
-	result, err := getTerminalStdout(ctx, []component.Val{})
+	result, err := getTerminalStdout(ctx, []types.Val{})
 	require.NoError(t, err)
 	opt := result[0].Option()
 	require.Nil(t, opt, "should return None with TerminalModeNone")
@@ -611,17 +613,17 @@ func TestGetTerminalStdout_ModeCustom_True(t *testing.T) {
 		terminalMode:     component.TerminalModeCustom,
 		stdoutIsTerminal: true,
 	}
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 	ctx = component.WithWASIConfig(ctx, config)
 
-	result, err := getTerminalStdout(ctx, []component.Val{})
+	result, err := getTerminalStdout(ctx, []types.Val{})
 	require.NoError(t, err)
 	opt := result[0].Option()
 	require.NotNil(t, opt, "should return Some when stdoutIsTerminal=true")
 
 	handle := opt.Own()
-	entry, err := table.Get(component.Handle(handle))
+	entry, err := table.Get(runtime.Handle(handle))
 	require.NoError(t, err)
 	_, ok := entry.Rep.(*TerminalOutput)
 	require.True(t, ok, "expected TerminalOutput resource")
@@ -634,14 +636,14 @@ func TestGetTerminalStdout_ModeAuto_NotFile(t *testing.T) {
 	}
 	ctx := component.WithWASIConfig(context.Background(), config)
 
-	result, err := getTerminalStdout(ctx, []component.Val{})
+	result, err := getTerminalStdout(ctx, []types.Val{})
 	require.NoError(t, err)
 	opt := result[0].Option()
 	require.Nil(t, opt, "should return None when stdout is not an *os.File")
 }
 
 func TestGetTerminalStderr_NoConfig(t *testing.T) {
-	result, err := getTerminalStderr(context.Background(), []component.Val{})
+	result, err := getTerminalStderr(context.Background(), []types.Val{})
 	require.NoError(t, err)
 	opt := result[0].Option()
 	require.Nil(t, opt, "should return None when no config")
@@ -654,7 +656,7 @@ func TestGetTerminalStderr_ModeNone(t *testing.T) {
 	}
 	ctx := component.WithWASIConfig(context.Background(), config)
 
-	result, err := getTerminalStderr(ctx, []component.Val{})
+	result, err := getTerminalStderr(ctx, []types.Val{})
 	require.NoError(t, err)
 	opt := result[0].Option()
 	require.Nil(t, opt, "should return None with TerminalModeNone")
@@ -666,17 +668,17 @@ func TestGetTerminalStderr_ModeCustom_True(t *testing.T) {
 		terminalMode:     component.TerminalModeCustom,
 		stderrIsTerminal: true,
 	}
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 	ctx = component.WithWASIConfig(ctx, config)
 
-	result, err := getTerminalStderr(ctx, []component.Val{})
+	result, err := getTerminalStderr(ctx, []types.Val{})
 	require.NoError(t, err)
 	opt := result[0].Option()
 	require.NotNil(t, opt, "should return Some when stderrIsTerminal=true")
 
 	handle := opt.Own()
-	entry, err := table.Get(component.Handle(handle))
+	entry, err := table.Get(runtime.Handle(handle))
 	require.NoError(t, err)
 	_, ok := entry.Rep.(*TerminalOutput)
 	require.True(t, ok, "expected TerminalOutput resource")
@@ -689,7 +691,7 @@ func TestGetTerminalStderr_ModeAuto_NotFile(t *testing.T) {
 	}
 	ctx := component.WithWASIConfig(context.Background(), config)
 
-	result, err := getTerminalStderr(ctx, []component.Val{})
+	result, err := getTerminalStderr(ctx, []types.Val{})
 	require.NoError(t, err)
 	opt := result[0].Option()
 	require.Nil(t, opt, "should return None when stderr is not an *os.File")

@@ -8,6 +8,8 @@ import (
 	"sync"
 
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 // Pollable represents something that can be polled for readiness.
@@ -138,7 +140,7 @@ func getPollable(ctx context.Context, handle uint32) (*Pollable, error) {
 	if table == nil {
 		return nil, fmt.Errorf("no resource table in context")
 	}
-	entry, err := table.Get(component.Handle(handle))
+	entry, err := table.Get(runtime.Handle(handle))
 	if err != nil {
 		return nil, fmt.Errorf("invalid handle %d: %w", handle, err)
 	}
@@ -169,7 +171,7 @@ func instantiatePoll(linker *component.Linker) error {
 	return inst.SkipValidation().Build()
 }
 
-func pollableReady(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func pollableReady(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	pollable, err := getPollable(ctx, handle)
@@ -177,10 +179,10 @@ func pollableReady(ctx context.Context, args []component.Val) ([]component.Val, 
 		return nil, err
 	}
 
-	return []component.Val{component.ValBool(pollable.Ready())}, nil
+	return []types.Val{types.ValBool(pollable.Ready())}, nil
 }
 
-func pollableBlock(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func pollableBlock(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	pollable, err := getPollable(ctx, handle)
@@ -192,13 +194,13 @@ func pollableBlock(ctx context.Context, args []component.Val) ([]component.Val, 
 	return nil, nil
 }
 
-func pollPoll(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func pollPoll(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	// args[0] is list<borrow<pollable>>
 	handles := args[0].List()
 
 	if len(handles) == 0 {
 		// Empty list - return empty result
-		return []component.Val{component.ValList(nil)}, nil
+		return []types.Val{types.ValList(nil)}, nil
 	}
 
 	// Resolve all pollables first
@@ -213,16 +215,16 @@ func pollPoll(ctx context.Context, args []component.Val) ([]component.Val, error
 	}
 
 	// First pass: check which pollables are already ready
-	var readyIndices []component.Val
+	var readyIndices []types.Val
 	for i, p := range pollables {
 		if p.Ready() {
-			readyIndices = append(readyIndices, component.ValU32(uint32(i)))
+			readyIndices = append(readyIndices, types.ValU32(uint32(i)))
 		}
 	}
 
 	// If at least one is ready, return the ready indices immediately
 	if len(readyIndices) > 0 {
-		return []component.Val{component.ValList(readyIndices)}, nil
+		return []types.Val{types.ValList(readyIndices)}, nil
 	}
 
 	// None are ready - use goroutines and channels for true multiplexing
@@ -241,7 +243,7 @@ func pollPoll(ctx context.Context, args []component.Val) ([]component.Val, error
 	// If no pollable has a block function but none are ready,
 	// return an empty list (this shouldn't happen in correct usage).
 	if !hasBlockFn {
-		return []component.Val{component.ValList(nil)}, nil
+		return []types.Val{types.ValList(nil)}, nil
 	}
 
 	// Use channel-based multiplexing: spawn a goroutine for each pollable
@@ -270,7 +272,7 @@ func pollPoll(ctx context.Context, args []component.Val) ([]component.Val, error
 	readyIndices = nil
 	for i, p := range pollables {
 		if p.Ready() {
-			readyIndices = append(readyIndices, component.ValU32(uint32(i)))
+			readyIndices = append(readyIndices, types.ValU32(uint32(i)))
 		}
 	}
 
@@ -278,8 +280,8 @@ func pollPoll(ctx context.Context, args []component.Val) ([]component.Val, error
 	if len(readyIndices) == 0 {
 		// Fallback: if somehow nothing is ready, return the one that signaled
 		// This shouldn't happen in correct usage
-		readyIndices = append(readyIndices, component.ValU32(0))
+		readyIndices = append(readyIndices, types.ValU32(0))
 	}
 
-	return []component.Val{component.ValList(readyIndices)}, nil
+	return []types.Val{types.ValList(readyIndices)}, nil
 }

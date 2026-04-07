@@ -777,7 +777,7 @@ func (f *FutureIncomingResponse) Destroy() {
 type futureTrailersState int
 
 const (
-	futureTrailersWaiting  futureTrailersState = iota
+	futureTrailersWaiting futureTrailersState = iota
 	futureTrailersDone
 	futureTrailersConsumed
 )
@@ -868,9 +868,9 @@ type ResponseResult struct {
 // ResponseOutparam represents a response outparam for server responses.
 // Matches wasi:http/types response-outparam resource.
 type ResponseOutparam struct {
-	mu       sync.Mutex
-	result   chan ResponseResult
-	closed   bool
+	mu     sync.Mutex
+	result chan ResponseResult
+	closed bool
 }
 
 // NewResponseOutparam creates a new response outparam.

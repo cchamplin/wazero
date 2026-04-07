@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 // Datetime represents the wall-clock datetime record.
@@ -43,22 +44,22 @@ func instantiateWallClock(linker *component.Linker) error {
 	return inst.SkipValidation().Build()
 }
 
-func wallClockNow(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func wallClockNow(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	dt := WallClockNow()
-	return []component.Val{
-		component.ValRecord(map[string]component.Val{
-			"seconds":     component.ValU64(dt.Seconds),
-			"nanoseconds": component.ValU32(dt.Nanoseconds),
+	return []types.Val{
+		types.ValRecord(map[string]types.Val{
+			"seconds":     types.ValU64(dt.Seconds),
+			"nanoseconds": types.ValU32(dt.Nanoseconds),
 		}),
 	}, nil
 }
 
-func wallClockResolution(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func wallClockResolution(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	dt := WallClockResolution()
-	return []component.Val{
-		component.ValRecord(map[string]component.Val{
-			"seconds":     component.ValU64(dt.Seconds),
-			"nanoseconds": component.ValU32(dt.Nanoseconds),
+	return []types.Val{
+		types.ValRecord(map[string]types.Val{
+			"seconds":     types.ValU64(dt.Seconds),
+			"nanoseconds": types.ValU32(dt.Nanoseconds),
 		}),
 	}, nil
 }

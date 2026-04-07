@@ -9,6 +9,8 @@ import (
 
 	wasip2io "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -106,13 +108,13 @@ func TestInstantiateMonotonicClock_Duplicate(t *testing.T) {
 // Tests for host functions with ResourceTable
 
 func TestSubscribeDuration_HostFunction(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Subscribe for a 10ms duration
 	duration := uint64(10 * time.Millisecond)
-	args := []component.Val{
-		component.ValU64(duration),
+	args := []types.Val{
+		types.ValU64(duration),
 	}
 
 	results, err := monotonicClockSubscribeDuration(ctx, args)
@@ -120,7 +122,7 @@ func TestSubscribeDuration_HostFunction(t *testing.T) {
 	require.Equal(t, 1, len(results))
 
 	// Get the handle from the result
-	handle := component.Handle(results[0].Own())
+	handle := runtime.Handle(results[0].Own())
 
 	// Verify the pollable was registered correctly by retrieving it
 	entry, err := table.Get(handle)
@@ -141,19 +143,19 @@ func TestSubscribeDuration_HostFunction(t *testing.T) {
 }
 
 func TestSubscribeDuration_HostFunction_Zero(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Zero duration should be immediately ready
-	args := []component.Val{
-		component.ValU64(0),
+	args := []types.Val{
+		types.ValU64(0),
 	}
 
 	results, err := monotonicClockSubscribeDuration(ctx, args)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results))
 
-	handle := component.Handle(results[0].Own())
+	handle := runtime.Handle(results[0].Own())
 	entry, err := table.Get(handle)
 	require.NoError(t, err)
 
@@ -167,8 +169,8 @@ func TestSubscribeDuration_HostFunction_Zero(t *testing.T) {
 func TestSubscribeDuration_HostFunction_NoResourceTable(t *testing.T) {
 	ctx := context.Background() // No resource table
 
-	args := []component.Val{
-		component.ValU64(1000),
+	args := []types.Val{
+		types.ValU64(1000),
 	}
 
 	// Should return placeholder handle 0 when no resource table
@@ -179,13 +181,13 @@ func TestSubscribeDuration_HostFunction_NoResourceTable(t *testing.T) {
 }
 
 func TestSubscribeInstant_HostFunction(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Subscribe for an instant 10ms in the future
 	futureInstant := MonotonicNow() + uint64(10*time.Millisecond)
-	args := []component.Val{
-		component.ValU64(futureInstant),
+	args := []types.Val{
+		types.ValU64(futureInstant),
 	}
 
 	results, err := monotonicClockSubscribeInstant(ctx, args)
@@ -193,7 +195,7 @@ func TestSubscribeInstant_HostFunction(t *testing.T) {
 	require.Equal(t, 1, len(results))
 
 	// Get the handle from the result
-	handle := component.Handle(results[0].Own())
+	handle := runtime.Handle(results[0].Own())
 
 	// Verify the pollable was registered correctly by retrieving it
 	entry, err := table.Get(handle)
@@ -214,19 +216,19 @@ func TestSubscribeInstant_HostFunction(t *testing.T) {
 }
 
 func TestSubscribeInstant_HostFunction_Past(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Past instant (0) should be immediately ready
-	args := []component.Val{
-		component.ValU64(0),
+	args := []types.Val{
+		types.ValU64(0),
 	}
 
 	results, err := monotonicClockSubscribeInstant(ctx, args)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results))
 
-	handle := component.Handle(results[0].Own())
+	handle := runtime.Handle(results[0].Own())
 	entry, err := table.Get(handle)
 	require.NoError(t, err)
 
@@ -240,8 +242,8 @@ func TestSubscribeInstant_HostFunction_Past(t *testing.T) {
 func TestSubscribeInstant_HostFunction_NoResourceTable(t *testing.T) {
 	ctx := context.Background() // No resource table
 
-	args := []component.Val{
-		component.ValU64(MonotonicNow() + 1000),
+	args := []types.Val{
+		types.ValU64(MonotonicNow() + 1000),
 	}
 
 	// Should return placeholder handle 0 when no resource table

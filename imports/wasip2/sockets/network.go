@@ -10,6 +10,8 @@ import (
 
 	wasipIO "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 // instantiateNetwork registers wasi:sockets/network@0.2.0
@@ -38,15 +40,15 @@ func instantiateInstanceNetwork(linker *component.Linker) error {
 
 // instanceNetwork returns the network capability for this instance.
 // Signature: func() -> own<network>
-func instanceNetwork(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func instanceNetwork(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	table := component.ResourceTableFromContext(ctx)
 	if table == nil {
-		return []component.Val{component.ValOwn(0)}, nil
+		return []types.Val{types.ValOwn(0)}, nil
 	}
 
 	network := NewNetwork()
 	handle := table.New(network, true)
-	return []component.Val{component.ValOwn(uint32(handle))}, nil
+	return []types.Val{types.ValOwn(uint32(handle))}, nil
 }
 
 // instantiateIpNameLookup registers wasi:sockets/ip-name-lookup@0.2.0
@@ -72,11 +74,11 @@ func instantiateIpNameLookup(linker *component.Linker) error {
 
 // resolveAddresses starts name resolution.
 // Signature: func(network: borrow<network>, name: string) -> result<own<resolve-address-stream>, error-code>
-func resolveAddresses(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func resolveAddresses(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	table := component.ResourceTableFromContext(ctx)
 	if table == nil {
-		errVal := component.ValEnum("invalid-argument")
-		return []component.Val{component.ValResultError(&errVal)}, nil
+		errVal := types.ValEnum("invalid-argument")
+		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
 	// args[0] = borrow<network>
@@ -85,14 +87,14 @@ func resolveAddresses(ctx context.Context, args []component.Val) ([]component.Va
 	// Validate input per WASI conformance
 	if name == "" || strings.TrimSpace(name) != name || strings.Contains(name, "/") ||
 		strings.Contains(name, "://") || strings.ContainsAny(name, "<>&") {
-		errVal := component.ValEnum("invalid-argument")
-		return []component.Val{component.ValResultError(&errVal)}, nil
+		errVal := types.ValEnum("invalid-argument")
+		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
 	// Reject if name contains a port (SplitHostPort succeeds when port present)
 	if _, _, err := net.SplitHostPort(name); err == nil {
-		errVal := component.ValEnum("invalid-argument")
-		return []component.Val{component.ValResultError(&errVal)}, nil
+		errVal := types.ValEnum("invalid-argument")
+		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
 	// Check for IP literal
@@ -100,8 +102,8 @@ func resolveAddresses(ctx context.Context, args []component.Val) ([]component.Va
 		addr := netIPToIpAddress(ip)
 		stream := NewResolveAddressStream([]IpAddress{addr})
 		handle := table.New(stream, true)
-		handleVal := component.ValOwn(uint32(handle))
-		return []component.Val{component.ValResultOk(&handleVal)}, nil
+		handleVal := types.ValOwn(uint32(handle))
+		return []types.Val{types.ValResultOk(&handleVal)}, nil
 	}
 
 	// Async DNS resolution with cancellable context
@@ -124,72 +126,72 @@ func resolveAddresses(ctx context.Context, args []component.Val) ([]component.Va
 		stream.SetResult(resolved, nil)
 	}()
 
-	handleVal := component.ValOwn(uint32(handle))
-	return []component.Val{component.ValResultOk(&handleVal)}, nil
+	handleVal := types.ValOwn(uint32(handle))
+	return []types.Val{types.ValResultOk(&handleVal)}, nil
 }
 
 // resolveNextAddress returns the next resolved address.
 // Signature: func(self: borrow<resolve-address-stream>) -> result<option<ip-address>, error-code>
-func resolveNextAddress(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func resolveNextAddress(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	table := component.ResourceTableFromContext(ctx)
 	if table == nil {
-		none := component.ValOption(nil)
-		return []component.Val{component.ValResultOk(&none)}, nil
+		none := types.ValOption(nil)
+		return []types.Val{types.ValResultOk(&none)}, nil
 	}
 
-	entry, err := table.Get(component.Handle(handle))
+	entry, err := table.Get(runtime.Handle(handle))
 	if err != nil {
-		errVal := component.ValEnum("invalid-argument")
-		return []component.Val{component.ValResultError(&errVal)}, nil
+		errVal := types.ValEnum("invalid-argument")
+		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
 	stream, ok := entry.Rep.(*ResolveAddressStream)
 	if !ok {
-		errVal := component.ValEnum("invalid-argument")
-		return []component.Val{component.ValResultError(&errVal)}, nil
+		errVal := types.ValEnum("invalid-argument")
+		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
 	if !stream.IsReady() {
-		errVal := component.ValEnum("would-block")
-		return []component.Val{component.ValResultError(&errVal)}, nil
+		errVal := types.ValEnum("would-block")
+		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
 	addr, nextErr := stream.NextAddress()
 	if nextErr != nil {
-		errVal := component.ValEnum("name-unresolvable")
-		return []component.Val{component.ValResultError(&errVal)}, nil
+		errVal := types.ValEnum("name-unresolvable")
+		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
 	if addr == nil {
-		none := component.ValOption(nil)
-		return []component.Val{component.ValResultOk(&none)}, nil
+		none := types.ValOption(nil)
+		return []types.Val{types.ValResultOk(&none)}, nil
 	}
 
 	addrVal := ipAddressToVal(*addr)
-	opt := component.ValOption(&addrVal)
-	return []component.Val{component.ValResultOk(&opt)}, nil
+	opt := types.ValOption(&addrVal)
+	return []types.Val{types.ValResultOk(&opt)}, nil
 }
 
 // resolveAddressStreamSubscribe returns a pollable for the stream.
 // Signature: func(self: borrow<resolve-address-stream>) -> own<pollable>
-func resolveAddressStreamSubscribe(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func resolveAddressStreamSubscribe(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	table := component.ResourceTableFromContext(ctx)
 	if table == nil {
-		return []component.Val{component.ValOwn(0)}, nil
+		return []types.Val{types.ValOwn(0)}, nil
 	}
 
-	entry, err := table.Get(component.Handle(handle))
+	entry, err := table.Get(runtime.Handle(handle))
 	if err != nil {
-		return []component.Val{component.ValOwn(0)}, nil
+		return []types.Val{types.ValOwn(0)}, nil
 	}
 
 	stream, ok := entry.Rep.(*ResolveAddressStream)
 	if !ok {
-		return []component.Val{component.ValOwn(0)}, nil
+		return []types.Val{types.ValOwn(0)}, nil
 	}
 
 	pollable := wasipIO.NewPollable(
@@ -197,35 +199,35 @@ func resolveAddressStreamSubscribe(ctx context.Context, args []component.Val) ([
 		func() { <-stream.done },
 	)
 	pollHandle := table.New(pollable, true)
-	return []component.Val{component.ValOwn(uint32(pollHandle))}, nil
+	return []types.Val{types.ValOwn(uint32(pollHandle))}, nil
 }
 
 // networkErrorCode extracts a socket error code from an io.Error resource.
 // Signature: func(err: borrow<error>) -> option<error-code>
-func networkErrorCode(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func networkErrorCode(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	table := component.ResourceTableFromContext(ctx)
 	if table == nil {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
 
-	entry, err := table.Get(component.Handle(handle))
+	entry, err := table.Get(runtime.Handle(handle))
 	if err != nil {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
 
 	ioErr, ok := entry.Rep.(*wasipIO.Error)
 	if !ok {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
 
 	// Unwrap the Go error and check if it's a SocketError
 	var sockErr *SocketError
 	if errors.As(ioErr.Unwrap(), &sockErr) {
-		codeVal := component.ValEnum(string(sockErr.Code))
-		return []component.Val{component.ValOption(&codeVal)}, nil
+		codeVal := types.ValEnum(string(sockErr.Code))
+		return []types.Val{types.ValOption(&codeVal)}, nil
 	}
 
-	return []component.Val{component.ValOption(nil)}, nil
+	return []types.Val{types.ValOption(nil)}, nil
 }

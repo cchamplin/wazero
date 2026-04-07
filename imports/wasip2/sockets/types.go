@@ -14,6 +14,8 @@ import (
 	"syscall"
 
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 // IpAddressFamily represents the IP address family (IPv4 or IPv6).
@@ -333,7 +335,7 @@ func NewIncomingDatagramStream(socket *UdpSocket) *IncomingDatagramStream {
 type sendState int
 
 const (
-	sendStateIdle      sendState = iota
+	sendStateIdle sendState = iota
 	sendStatePermitted
 	sendStateWaiting
 )
@@ -370,8 +372,8 @@ type ResolveAddressStream struct {
 	addresses []IpAddress
 	index     int
 	done      chan struct{} // closed when resolution completes
-	resolved  bool         // guards against double-close of done
-	err       error        // non-nil if resolution failed
+	resolved  bool          // guards against double-close of done
+	err       error         // non-nil if resolution failed
 	cancel    context.CancelFunc
 }
 
@@ -457,8 +459,8 @@ func (e *SocketError) Error() string {
 // Address Conversion Helpers
 // ===========================
 
-// ipSocketAddressFromVal converts a component.Val ip-socket-address variant to IpSocketAddress.
-func ipSocketAddressFromVal(val component.Val) (*IpSocketAddress, error) {
+// ipSocketAddressFromVal converts a types.Val ip-socket-address variant to IpSocketAddress.
+func ipSocketAddressFromVal(val types.Val) (*IpSocketAddress, error) {
 	caseName, payload := val.Variant()
 	if payload == nil {
 		return nil, errors.New("invalid ip-socket-address: nil payload")
@@ -510,51 +512,51 @@ func ipSocketAddressFromVal(val component.Val) (*IpSocketAddress, error) {
 	}
 }
 
-// ipSocketAddressToVal converts an IpSocketAddress to a component.Val ip-socket-address variant.
-func ipSocketAddressToVal(addr *IpSocketAddress) component.Val {
+// ipSocketAddressToVal converts an IpSocketAddress to a types.Val ip-socket-address variant.
+func ipSocketAddressToVal(addr *IpSocketAddress) types.Val {
 	if addr == nil {
 		// Return default IPv4 0.0.0.0:0
-		addrRecord := component.ValRecord(map[string]component.Val{
-			"port":    component.ValU16(0),
-			"address": component.ValTuple([]component.Val{component.ValU8(0), component.ValU8(0), component.ValU8(0), component.ValU8(0)}),
+		addrRecord := types.ValRecord(map[string]types.Val{
+			"port":    types.ValU16(0),
+			"address": types.ValTuple([]types.Val{types.ValU8(0), types.ValU8(0), types.ValU8(0), types.ValU8(0)}),
 		})
-		return component.ValVariant("ipv4", &addrRecord)
+		return types.ValVariant("ipv4", &addrRecord)
 	}
 
 	switch addr.Family() {
 	case IpAddressFamilyIpv4:
 		ipv4 := addr.Address().Ipv4()
-		addrRecord := component.ValRecord(map[string]component.Val{
-			"port": component.ValU16(addr.Port()),
-			"address": component.ValTuple([]component.Val{
-				component.ValU8(ipv4[0]),
-				component.ValU8(ipv4[1]),
-				component.ValU8(ipv4[2]),
-				component.ValU8(ipv4[3]),
+		addrRecord := types.ValRecord(map[string]types.Val{
+			"port": types.ValU16(addr.Port()),
+			"address": types.ValTuple([]types.Val{
+				types.ValU8(ipv4[0]),
+				types.ValU8(ipv4[1]),
+				types.ValU8(ipv4[2]),
+				types.ValU8(ipv4[3]),
 			}),
 		})
-		return component.ValVariant("ipv4", &addrRecord)
+		return types.ValVariant("ipv4", &addrRecord)
 
 	case IpAddressFamilyIpv6:
 		ipv6 := addr.Address().Ipv6()
-		tupleVals := make([]component.Val, 8)
+		tupleVals := make([]types.Val, 8)
 		for i := 0; i < 8; i++ {
 			u16Val := uint16(ipv6[i*2])<<8 | uint16(ipv6[i*2+1])
-			tupleVals[i] = component.ValU16(u16Val)
+			tupleVals[i] = types.ValU16(u16Val)
 		}
-		addrRecord := component.ValRecord(map[string]component.Val{
-			"port":    component.ValU16(addr.Port()),
-			"address": component.ValTuple(tupleVals),
+		addrRecord := types.ValRecord(map[string]types.Val{
+			"port":    types.ValU16(addr.Port()),
+			"address": types.ValTuple(tupleVals),
 		})
-		return component.ValVariant("ipv6", &addrRecord)
+		return types.ValVariant("ipv6", &addrRecord)
 
 	default:
 		// Fallback to IPv4 0.0.0.0:0
-		addrRecord := component.ValRecord(map[string]component.Val{
-			"port":    component.ValU16(0),
-			"address": component.ValTuple([]component.Val{component.ValU8(0), component.ValU8(0), component.ValU8(0), component.ValU8(0)}),
+		addrRecord := types.ValRecord(map[string]types.Val{
+			"port":    types.ValU16(0),
+			"address": types.ValTuple([]types.Val{types.ValU8(0), types.ValU8(0), types.ValU8(0), types.ValU8(0)}),
 		})
-		return component.ValVariant("ipv4", &addrRecord)
+		return types.ValVariant("ipv4", &addrRecord)
 	}
 }
 
@@ -568,31 +570,31 @@ func netIPToIpAddress(ip net.IP) IpAddress {
 	return NewIpv6Address(addr16)
 }
 
-// ipAddressToVal converts an IpAddress to a component.Val variant.
-func ipAddressToVal(addr IpAddress) component.Val {
+// ipAddressToVal converts an IpAddress to a types.Val variant.
+func ipAddressToVal(addr IpAddress) types.Val {
 	switch addr.Family() {
 	case IpAddressFamilyIpv4:
 		ipv4 := addr.Ipv4()
-		addrTuple := component.ValTuple([]component.Val{
-			component.ValU8(ipv4[0]), component.ValU8(ipv4[1]),
-			component.ValU8(ipv4[2]), component.ValU8(ipv4[3]),
+		addrTuple := types.ValTuple([]types.Val{
+			types.ValU8(ipv4[0]), types.ValU8(ipv4[1]),
+			types.ValU8(ipv4[2]), types.ValU8(ipv4[3]),
 		})
-		return component.ValVariant("ipv4", &addrTuple)
+		return types.ValVariant("ipv4", &addrTuple)
 	case IpAddressFamilyIpv6:
 		ipv6 := addr.Ipv6()
-		tupleVals := make([]component.Val, 8)
+		tupleVals := make([]types.Val, 8)
 		for i := 0; i < 8; i++ {
 			u16Val := uint16(ipv6[i*2])<<8 | uint16(ipv6[i*2+1])
-			tupleVals[i] = component.ValU16(u16Val)
+			tupleVals[i] = types.ValU16(u16Val)
 		}
-		addrTuple := component.ValTuple(tupleVals)
-		return component.ValVariant("ipv6", &addrTuple)
+		addrTuple := types.ValTuple(tupleVals)
+		return types.ValVariant("ipv6", &addrTuple)
 	default:
-		addrTuple := component.ValTuple([]component.Val{
-			component.ValU8(0), component.ValU8(0),
-			component.ValU8(0), component.ValU8(0),
+		addrTuple := types.ValTuple([]types.Val{
+			types.ValU8(0), types.ValU8(0),
+			types.ValU8(0), types.ValU8(0),
 		})
-		return component.ValVariant("ipv4", &addrTuple)
+		return types.ValVariant("ipv4", &addrTuple)
 	}
 }
 
@@ -751,10 +753,10 @@ func mapNetError(err error) ErrorCode {
 	return ErrorCodeUnknown
 }
 
-// errorCodeToVal converts an ErrorCode to a component.Val error result.
-func errorCodeToVal(code ErrorCode) component.Val {
-	errVal := component.ValEnum(string(code))
-	return component.ValResultError(&errVal)
+// errorCodeToVal converts an ErrorCode to a types.Val error result.
+func errorCodeToVal(code ErrorCode) types.Val {
+	errVal := types.ValEnum(string(code))
+	return types.ValResultError(&errVal)
 }
 
 // ===========================
@@ -767,7 +769,7 @@ func getTcpSocket(ctx context.Context, handle uint32) (*TcpSocket, error) {
 	if table == nil {
 		return nil, errors.New("no resource table in context")
 	}
-	entry, err := table.Get(component.Handle(handle))
+	entry, err := table.Get(runtime.Handle(handle))
 	if err != nil {
 		return nil, fmt.Errorf("invalid handle %d: %w", handle, err)
 	}
@@ -784,7 +786,7 @@ func getUdpSocket(ctx context.Context, handle uint32) (*UdpSocket, error) {
 	if table == nil {
 		return nil, errors.New("no resource table in context")
 	}
-	entry, err := table.Get(component.Handle(handle))
+	entry, err := table.Get(runtime.Handle(handle))
 	if err != nil {
 		return nil, fmt.Errorf("invalid handle %d: %w", handle, err)
 	}
@@ -801,7 +803,7 @@ func getIncomingDatagramStream(ctx context.Context, handle uint32) (*IncomingDat
 	if table == nil {
 		return nil, errors.New("no resource table in context")
 	}
-	entry, err := table.Get(component.Handle(handle))
+	entry, err := table.Get(runtime.Handle(handle))
 	if err != nil {
 		return nil, fmt.Errorf("invalid handle %d: %w", handle, err)
 	}
@@ -818,7 +820,7 @@ func getOutgoingDatagramStream(ctx context.Context, handle uint32) (*OutgoingDat
 	if table == nil {
 		return nil, errors.New("no resource table in context")
 	}
-	entry, err := table.Get(component.Handle(handle))
+	entry, err := table.Get(runtime.Handle(handle))
 	if err != nil {
 		return nil, fmt.Errorf("invalid handle %d: %w", handle, err)
 	}
@@ -830,7 +832,7 @@ func getOutgoingDatagramStream(ctx context.Context, handle uint32) (*OutgoingDat
 }
 
 // parseAddressFamily parses an address family enum value.
-func parseAddressFamily(val component.Val) IpAddressFamily {
+func parseAddressFamily(val types.Val) IpAddressFamily {
 	family := val.Enum()
 	if family == "ipv6" {
 		return IpAddressFamilyIpv6

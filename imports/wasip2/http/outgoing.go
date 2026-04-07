@@ -7,6 +7,8 @@ import (
 	gohttp "net/http"
 
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 // DefaultHTTPClient is the HTTP client used for outgoing requests.
@@ -23,42 +25,42 @@ func instantiateOutgoingHandler(linker *component.Linker) error {
 	return inst.SkipValidation().Build()
 }
 
-// errorCodeToVariant converts an ErrorCode to a component.Val variant.
-func errorCodeToVariant(code ErrorCode) component.Val {
-	return component.ValVariant(string(code), nil)
+// errorCodeToVariant converts an ErrorCode to a types.Val variant.
+func errorCodeToVariant(code ErrorCode) types.Val {
+	return types.ValVariant(string(code), nil)
 }
 
 // outgoingHandlerHandle sends an HTTP request and returns a future response.
 // Signature: func(request: own<outgoing-request>, options: option<own<request-options>>) -> result<own<future-incoming-response>, error-code>
-func outgoingHandlerHandle(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func outgoingHandlerHandle(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	table := component.ResourceTableFromContext(ctx)
 	if table == nil {
 		// No resource table, fall back to placeholder behavior
-		futureHandle := component.ValOwn(0)
-		return []component.Val{component.ValResultOk(&futureHandle)}, nil
+		futureHandle := types.ValOwn(0)
+		return []types.Val{types.ValResultOk(&futureHandle)}, nil
 	}
 
 	// Get the request handle (own<outgoing-request>)
-	reqHandle := component.Handle(args[0].Own())
+	reqHandle := runtime.Handle(args[0].Own())
 
 	// Remove and consume the request from the table (ownership transfer)
 	reqEntry, err := table.Remove(reqHandle)
 	if err != nil {
 		errVal := errorCodeToVariant(ErrorCodeInternalError)
-		return []component.Val{component.ValResultError(&errVal)}, nil
+		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
 	req, ok := reqEntry.Rep.(*OutgoingRequest)
 	if !ok {
 		errVal := errorCodeToVariant(ErrorCodeInternalError)
-		return []component.Val{component.ValResultError(&errVal)}, nil
+		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
 	// Get optional request options
 	var opts *RequestOptions
 	optionVal := args[1].Option()
 	if optionVal != nil {
-		optsHandle := component.Handle(optionVal.Own())
+		optsHandle := runtime.Handle(optionVal.Own())
 		optsEntry, err := table.Remove(optsHandle)
 		if err == nil {
 			if o, ok := optsEntry.Rep.(*RequestOptions); ok {
@@ -71,7 +73,7 @@ func outgoingHandlerHandle(ctx context.Context, args []component.Val) ([]compone
 	httpReq, err := req.ToHTTPRequest(ctx)
 	if err != nil {
 		errVal := errorCodeToVariant(ErrorCodeHTTPRequestURIInvalid)
-		return []component.Val{component.ValResultError(&errVal)}, nil
+		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
 	// Create the future response
@@ -101,8 +103,8 @@ func outgoingHandlerHandle(ctx context.Context, args []component.Val) ([]compone
 	futureHandle := table.New(future, true)
 
 	// Return success with the future handle
-	result := component.ValOwn(uint32(futureHandle))
-	return []component.Val{component.ValResultOk(&result)}, nil
+	result := types.ValOwn(uint32(futureHandle))
+	return []types.Val{types.ValResultOk(&result)}, nil
 }
 
 // Note: getOutgoingRequest and getFutureIncomingResponse are defined in http.go

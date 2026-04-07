@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 var (
@@ -80,25 +81,25 @@ func instantiateInsecureSeed(linker *component.Linker) error {
 	return inst.SkipValidation().Build()
 }
 
-func getInsecureRandomBytes(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func getInsecureRandomBytes(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	length := args[0].U64()
 	bytes := GetInsecureRandomBytes(length)
 
-	vals := make([]component.Val, len(bytes))
+	vals := make([]types.Val, len(bytes))
 	for i, b := range bytes {
-		vals[i] = component.ValU8(b)
+		vals[i] = types.ValU8(b)
 	}
-	return []component.Val{component.ValList(vals)}, nil
+	return []types.Val{types.ValList(vals)}, nil
 }
 
-func getInsecureRandomU64(ctx context.Context, args []component.Val) ([]component.Val, error) {
-	return []component.Val{component.ValU64(GetInsecureRandomU64())}, nil
+func getInsecureRandomU64(ctx context.Context, args []types.Val) ([]types.Val, error) {
+	return []types.Val{types.ValU64(GetInsecureRandomU64())}, nil
 }
 
-func insecureSeedFunc(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func insecureSeedFunc(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	s1, s2 := InsecureSeed()
-	return []component.Val{component.ValTuple([]component.Val{
-		component.ValU64(s1),
-		component.ValU64(s2),
+	return []types.Val{types.ValTuple([]types.Val{
+		types.ValU64(s1),
+		types.ValU64(s2),
 	})}, nil
 }

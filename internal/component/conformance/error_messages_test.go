@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/component/abi"
 	compbinary "github.com/tetratelabs/wazero/internal/component/binary"
 	"github.com/tetratelabs/wazero/internal/component/runtime"

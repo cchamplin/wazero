@@ -14,6 +14,8 @@ import (
 
 	wasipIO "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 // getDescriptor retrieves a Descriptor from the ResourceTable using a handle.
@@ -22,7 +24,7 @@ func getDescriptor(ctx context.Context, handle uint32) (*Descriptor, error) {
 	if table == nil {
 		return nil, errors.New("no resource table in context")
 	}
-	entry, err := table.Get(component.Handle(handle))
+	entry, err := table.Get(runtime.Handle(handle))
 	if err != nil {
 		return nil, err
 	}
@@ -39,7 +41,7 @@ func getDirEntryStream(ctx context.Context, handle uint32) (*DirectoryEntryStrea
 	if table == nil {
 		return nil, errors.New("no resource table in context")
 	}
-	entry, err := table.Get(component.Handle(handle))
+	entry, err := table.Get(runtime.Handle(handle))
 	if err != nil {
 		return nil, err
 	}
@@ -60,22 +62,22 @@ func (e *FilesystemError) Error() string {
 }
 
 // errorResult creates a result<_, error-code> error value.
-func errorResult(code ErrorCode) []component.Val {
-	errVal := component.ValEnum(string(code))
-	return []component.Val{component.ValResultError(&errVal)}
+func errorResult(code ErrorCode) []types.Val {
+	errVal := types.ValEnum(string(code))
+	return []types.Val{types.ValResultError(&errVal)}
 }
 
-// bytesToListU8 converts a byte slice to a component.Val list of u8.
-func bytesToListU8(data []byte) component.Val {
-	vals := make([]component.Val, len(data))
+// bytesToListU8 converts a byte slice to a types.Val list of u8.
+func bytesToListU8(data []byte) types.Val {
+	vals := make([]types.Val, len(data))
 	for i, b := range data {
-		vals[i] = component.ValU8(b)
+		vals[i] = types.ValU8(b)
 	}
-	return component.ValList(vals)
+	return types.ValList(vals)
 }
 
-// listU8ToBytes converts a component.Val list of u8 to a byte slice.
-func listU8ToBytes(list component.Val) []byte {
+// listU8ToBytes converts a types.Val list of u8 to a byte slice.
+func listU8ToBytes(list types.Val) []byte {
 	vals := list.List()
 	data := make([]byte, len(vals))
 	for i, v := range vals {
@@ -109,22 +111,22 @@ func fileInfoToDescriptorType(info os.FileInfo) DescriptorType {
 }
 
 // fileInfoToStat converts os.FileInfo to a descriptor-stat record Val.
-func fileInfoToStat(info os.FileInfo) component.Val {
+func fileInfoToStat(info os.FileInfo) types.Val {
 	descType := fileInfoToDescriptorType(info)
 	modTime := info.ModTime()
-	modTimestamp := component.ValRecord(map[string]component.Val{
-		"seconds":     component.ValU64(uint64(modTime.Unix())),
-		"nanoseconds": component.ValU32(uint32(modTime.Nanosecond())),
+	modTimestamp := types.ValRecord(map[string]types.Val{
+		"seconds":     types.ValU64(uint64(modTime.Unix())),
+		"nanoseconds": types.ValU32(uint32(modTime.Nanosecond())),
 	})
-	modOpt := component.ValOption(&modTimestamp)
+	modOpt := types.ValOption(&modTimestamp)
 
-	stat := component.ValRecord(map[string]component.Val{
-		"type":                        component.ValEnum(descType.String()),
-		"link-count":                  component.ValU64(1), // Not easily available on all platforms
-		"size":                        component.ValU64(uint64(info.Size())),
-		"data-access-timestamp":       component.ValOption(nil), // Not easily available
+	stat := types.ValRecord(map[string]types.Val{
+		"type":                        types.ValEnum(descType.String()),
+		"link-count":                  types.ValU64(1), // Not easily available on all platforms
+		"size":                        types.ValU64(uint64(info.Size())),
+		"data-access-timestamp":       types.ValOption(nil), // Not easily available
 		"data-modification-timestamp": modOpt,
-		"status-change-timestamp":     component.ValOption(nil), // Not easily available
+		"status-change-timestamp":     types.ValOption(nil), // Not easily available
 	})
 	return stat
 }
@@ -193,7 +195,7 @@ func instantiateTypes(linker *component.Linker) error {
 
 // descriptorReadViaStream returns an input-stream for reading from a descriptor at an offset.
 // Signature: func(self: borrow<descriptor>, offset: u64) -> result<own<input-stream>, error-code>
-func descriptorReadViaStream(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func descriptorReadViaStream(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	descHandle := args[0].Borrow()
 	offset := args[1].U64()
 
@@ -237,13 +239,13 @@ func descriptorReadViaStream(ctx context.Context, args []component.Val) ([]compo
 
 	// Add the stream to the resource table
 	streamHandle := table.New(inputStream, true)
-	handleVal := component.ValOwn(uint32(streamHandle.Index()))
-	return []component.Val{component.ValResultOk(&handleVal)}, nil
+	handleVal := types.ValOwn(uint32(streamHandle.Index()))
+	return []types.Val{types.ValResultOk(&handleVal)}, nil
 }
 
 // descriptorWriteViaStream returns an output-stream for writing to a descriptor at an offset.
 // Signature: func(self: borrow<descriptor>, offset: u64) -> result<own<output-stream>, error-code>
-func descriptorWriteViaStream(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func descriptorWriteViaStream(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	descHandle := args[0].Borrow()
 	offset := args[1].U64()
 
@@ -287,13 +289,13 @@ func descriptorWriteViaStream(ctx context.Context, args []component.Val) ([]comp
 
 	// Add the stream to the resource table
 	streamHandle := table.New(outputStream, true)
-	handleVal := component.ValOwn(uint32(streamHandle.Index()))
-	return []component.Val{component.ValResultOk(&handleVal)}, nil
+	handleVal := types.ValOwn(uint32(streamHandle.Index()))
+	return []types.Val{types.ValResultOk(&handleVal)}, nil
 }
 
 // descriptorAppendViaStream returns an output-stream for appending to a descriptor.
 // Signature: func(self: borrow<descriptor>) -> result<own<output-stream>, error-code>
-func descriptorAppendViaStream(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func descriptorAppendViaStream(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	descHandle := args[0].Borrow()
 
 	table := component.ResourceTableFromContext(ctx)
@@ -327,13 +329,13 @@ func descriptorAppendViaStream(ctx context.Context, args []component.Val) ([]com
 
 	// Add the stream to the resource table
 	streamHandle := table.New(outputStream, true)
-	handleVal := component.ValOwn(uint32(streamHandle.Index()))
-	return []component.Val{component.ValResultOk(&handleVal)}, nil
+	handleVal := types.ValOwn(uint32(streamHandle.Index()))
+	return []types.Val{types.ValResultOk(&handleVal)}, nil
 }
 
 // descriptorAdvise provides advice about expected access patterns.
 // Signature: func(self: borrow<descriptor>, offset: u64, length: u64, advice: advice) -> result<_, error-code>
-func descriptorAdvise(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func descriptorAdvise(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	offset := args[1].U64()
 	length := args[2].U64()
@@ -352,12 +354,12 @@ func descriptorAdvise(ctx context.Context, args []component.Val) ([]component.Va
 		return errorResult(MapOSError(advErr)), nil
 	}
 
-	return []component.Val{component.ValResultOk(nil)}, nil
+	return []types.Val{types.ValResultOk(nil)}, nil
 }
 
 // descriptorSyncData synchronizes file data to storage.
 // Signature: func(self: borrow<descriptor>) -> result<_, error-code>
-func descriptorSyncData(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func descriptorSyncData(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	desc, err := getDescriptor(ctx, handle)
@@ -370,12 +372,12 @@ func descriptorSyncData(ctx context.Context, args []component.Val) ([]component.
 			return errorResult(MapOSError(syncErr)), nil
 		}
 	}
-	return []component.Val{component.ValResultOk(nil)}, nil
+	return []types.Val{types.ValResultOk(nil)}, nil
 }
 
 // descriptorGetFlags returns the flags of a descriptor.
 // Signature: func(self: borrow<descriptor>) -> result<descriptor-flags, error-code>
-func descriptorGetFlags(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func descriptorGetFlags(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	desc, err := getDescriptor(ctx, handle)
@@ -385,7 +387,7 @@ func descriptorGetFlags(ctx context.Context, args []component.Val) ([]component.
 
 	// Convert descriptor flags to component flags
 	descFlags := desc.Flags()
-	flags := component.ValFlags(map[string]bool{
+	flags := types.ValFlags(map[string]bool{
 		"read":                 descFlags.HasRead(),
 		"write":                descFlags.HasWrite(),
 		"file-integrity-sync":  descFlags&DescriptorFlagFileIntegritySync != 0,
@@ -393,12 +395,12 @@ func descriptorGetFlags(ctx context.Context, args []component.Val) ([]component.
 		"requested-write-sync": descFlags&DescriptorFlagRequestedWriteSync != 0,
 		"mutate-directory":     descFlags&DescriptorFlagMutateDirectory != 0,
 	})
-	return []component.Val{component.ValResultOk(&flags)}, nil
+	return []types.Val{types.ValResultOk(&flags)}, nil
 }
 
 // descriptorGetType returns the type of a descriptor.
 // Signature: func(self: borrow<descriptor>) -> result<descriptor-type, error-code>
-func descriptorGetType(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func descriptorGetType(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	desc, err := getDescriptor(ctx, handle)
@@ -413,13 +415,13 @@ func descriptorGetType(ctx context.Context, args []component.Val) ([]component.V
 	}
 
 	descType := fileInfoToDescriptorType(info)
-	dt := component.ValEnum(descType.String())
-	return []component.Val{component.ValResultOk(&dt)}, nil
+	dt := types.ValEnum(descType.String())
+	return []types.Val{types.ValResultOk(&dt)}, nil
 }
 
 // descriptorSetSize sets the size of a file.
 // Signature: func(self: borrow<descriptor>, size: u64) -> result<_, error-code>
-func descriptorSetSize(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func descriptorSetSize(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	size := args[1].U64()
 
@@ -440,13 +442,13 @@ func descriptorSetSize(ctx context.Context, args []component.Val) ([]component.V
 		return errorResult(MapOSError(truncErr)), nil
 	}
 
-	return []component.Val{component.ValResultOk(nil)}, nil
+	return []types.Val{types.ValResultOk(nil)}, nil
 }
 
 // parseNewTimestamp extracts a time.Time from a new-timestamp variant.
 // The variant is: no-change | now | timestamp(datetime)
 // For no-change, returns the provided fallback time.
-func parseNewTimestamp(v component.Val, fallback time.Time) time.Time {
+func parseNewTimestamp(v types.Val, fallback time.Time) time.Time {
 	caseName, payload := v.Variant()
 	switch caseName {
 	case "no-change":
@@ -465,7 +467,7 @@ func parseNewTimestamp(v component.Val, fallback time.Time) time.Time {
 
 // descriptorSetTimes sets the access and modification times of a file.
 // Signature: func(self: borrow<descriptor>, access: new-timestamp, modification: new-timestamp) -> result<_, error-code>
-func descriptorSetTimes(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func descriptorSetTimes(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	accessTimeArg := args[1]
 	modTimeArg := args[2]
@@ -495,12 +497,12 @@ func descriptorSetTimes(ctx context.Context, args []component.Val) ([]component.
 		return errorResult(MapOSError(chtErr)), nil
 	}
 
-	return []component.Val{component.ValResultOk(nil)}, nil
+	return []types.Val{types.ValResultOk(nil)}, nil
 }
 
 // descriptorRead reads bytes from a file at an offset.
 // Signature: func(self: borrow<descriptor>, length: u64, offset: u64) -> result<tuple<list<u8>, bool>, error-code>
-func descriptorRead(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func descriptorRead(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	length := args[1].U64()
 	offset := args[2].U64()
@@ -540,14 +542,14 @@ func descriptorRead(ctx context.Context, args []component.Val) ([]component.Val,
 
 	// Return result<tuple<list<u8>, bool>, error-code>
 	bytesVal := bytesToListU8(buf[:n])
-	eofVal := component.ValBool(eof)
-	tuple := component.ValTuple([]component.Val{bytesVal, eofVal})
-	return []component.Val{component.ValResultOk(&tuple)}, nil
+	eofVal := types.ValBool(eof)
+	tuple := types.ValTuple([]types.Val{bytesVal, eofVal})
+	return []types.Val{types.ValResultOk(&tuple)}, nil
 }
 
 // descriptorWrite writes bytes to a file at an offset.
 // Signature: func(self: borrow<descriptor>, buffer: list<u8>, offset: u64) -> result<u64, error-code>
-func descriptorWrite(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func descriptorWrite(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	buffer := args[1]
 	offset := args[2].U64()
@@ -577,13 +579,13 @@ func descriptorWrite(ctx context.Context, args []component.Val) ([]component.Val
 	}
 
 	// Return result<u64, error-code>
-	written := component.ValU64(uint64(n))
-	return []component.Val{component.ValResultOk(&written)}, nil
+	written := types.ValU64(uint64(n))
+	return []types.Val{types.ValResultOk(&written)}, nil
 }
 
 // descriptorReadDirectory returns a directory entry stream for reading directory contents.
 // Signature: func(self: borrow<descriptor>) -> result<own<directory-entry-stream>, error-code>
-func descriptorReadDirectory(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func descriptorReadDirectory(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	desc, err := getDescriptor(ctx, handle)
@@ -628,13 +630,13 @@ func descriptorReadDirectory(ctx context.Context, args []component.Val) ([]compo
 	}
 
 	newHandle := table.New(stream, true)
-	handleVal := component.ValOwn(uint32(newHandle.Index()))
-	return []component.Val{component.ValResultOk(&handleVal)}, nil
+	handleVal := types.ValOwn(uint32(newHandle.Index()))
+	return []types.Val{types.ValResultOk(&handleVal)}, nil
 }
 
 // descriptorSync synchronizes file data and metadata to storage.
 // Signature: func(self: borrow<descriptor>) -> result<_, error-code>
-func descriptorSync(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func descriptorSync(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	desc, err := getDescriptor(ctx, handle)
@@ -647,12 +649,12 @@ func descriptorSync(ctx context.Context, args []component.Val) ([]component.Val,
 			return errorResult(MapOSError(syncErr)), nil
 		}
 	}
-	return []component.Val{component.ValResultOk(nil)}, nil
+	return []types.Val{types.ValResultOk(nil)}, nil
 }
 
 // descriptorCreateDirectoryAt creates a directory relative to a descriptor.
 // Signature: func(self: borrow<descriptor>, path: string) -> result<_, error-code>
-func descriptorCreateDirectoryAt(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func descriptorCreateDirectoryAt(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	path := args[1].StringVal()
 
@@ -681,12 +683,12 @@ func descriptorCreateDirectoryAt(ctx context.Context, args []component.Val) ([]c
 		return errorResult(MapOSError(mkdirErr)), nil
 	}
 
-	return []component.Val{component.ValResultOk(nil)}, nil
+	return []types.Val{types.ValResultOk(nil)}, nil
 }
 
 // descriptorStat returns metadata about a descriptor.
 // Signature: func(self: borrow<descriptor>) -> result<descriptor-stat, error-code>
-func descriptorStat(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func descriptorStat(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	desc, err := getDescriptor(ctx, handle)
@@ -701,12 +703,12 @@ func descriptorStat(ctx context.Context, args []component.Val) ([]component.Val,
 	}
 
 	stat := fileInfoToStat(info)
-	return []component.Val{component.ValResultOk(&stat)}, nil
+	return []types.Val{types.ValResultOk(&stat)}, nil
 }
 
 // descriptorStatAt returns metadata about a file relative to a descriptor.
 // Signature: func(self: borrow<descriptor>, path-flags: path-flags, path: string) -> result<descriptor-stat, error-code>
-func descriptorStatAt(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func descriptorStatAt(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	pathFlags := args[1].Flags()
 	path := args[2].StringVal()
@@ -747,12 +749,12 @@ func descriptorStatAt(ctx context.Context, args []component.Val) ([]component.Va
 	}
 
 	stat := fileInfoToStat(info)
-	return []component.Val{component.ValResultOk(&stat)}, nil
+	return []types.Val{types.ValResultOk(&stat)}, nil
 }
 
 // descriptorSetTimesAt sets the times of a file relative to a descriptor.
 // Signature: func(self: borrow<descriptor>, path-flags: path-flags, path: string, access: new-timestamp, modification: new-timestamp) -> result<_, error-code>
-func descriptorSetTimesAt(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func descriptorSetTimesAt(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	pathFlags := args[1].Flags()
 	pathStr := args[2].StringVal()
@@ -804,12 +806,12 @@ func descriptorSetTimesAt(ctx context.Context, args []component.Val) ([]componen
 		return errorResult(MapOSError(chtErr)), nil
 	}
 
-	return []component.Val{component.ValResultOk(nil)}, nil
+	return []types.Val{types.ValResultOk(nil)}, nil
 }
 
 // descriptorLinkAt creates a hard link relative to descriptors.
 // Signature: func(self: borrow<descriptor>, old-path-flags: path-flags, old-path: string, new-descriptor: borrow<descriptor>, new-path: string) -> result<_, error-code>
-func descriptorLinkAt(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func descriptorLinkAt(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	oldPathFlags := args[1].Flags()
 	oldPath := args[2].StringVal()
@@ -867,12 +869,12 @@ func descriptorLinkAt(ctx context.Context, args []component.Val) ([]component.Va
 		return errorResult(MapOSError(linkErr)), nil
 	}
 
-	return []component.Val{component.ValResultOk(nil)}, nil
+	return []types.Val{types.ValResultOk(nil)}, nil
 }
 
 // descriptorOpenAt opens a file relative to a descriptor.
 // Signature: func(self: borrow<descriptor>, path-flags: path-flags, path: string, open-flags: open-flags, descriptor-flags: descriptor-flags) -> result<own<descriptor>, error-code>
-func descriptorOpenAt(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func descriptorOpenAt(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	pathFlags := args[1].Flags()
 	path := args[2].StringVal()
@@ -995,13 +997,13 @@ func descriptorOpenAt(ctx context.Context, args []component.Val) ([]component.Va
 	}
 
 	newHandle := table.New(newDesc, true)
-	handleVal := component.ValOwn(uint32(newHandle.Index()))
-	return []component.Val{component.ValResultOk(&handleVal)}, nil
+	handleVal := types.ValOwn(uint32(newHandle.Index()))
+	return []types.Val{types.ValResultOk(&handleVal)}, nil
 }
 
 // descriptorReadlinkAt reads the target of a symbolic link.
 // Signature: func(self: borrow<descriptor>, path: string) -> result<string, error-code>
-func descriptorReadlinkAt(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func descriptorReadlinkAt(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	path := args[1].StringVal()
 
@@ -1031,13 +1033,13 @@ func descriptorReadlinkAt(ctx context.Context, args []component.Val) ([]componen
 		return errorResult(MapOSError(readErr)), nil
 	}
 
-	target := component.ValString(targetPath)
-	return []component.Val{component.ValResultOk(&target)}, nil
+	target := types.ValString(targetPath)
+	return []types.Val{types.ValResultOk(&target)}, nil
 }
 
 // descriptorRemoveDirectoryAt removes a directory relative to a descriptor.
 // Signature: func(self: borrow<descriptor>, path: string) -> result<_, error-code>
-func descriptorRemoveDirectoryAt(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func descriptorRemoveDirectoryAt(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	path := args[1].StringVal()
 
@@ -1075,12 +1077,12 @@ func descriptorRemoveDirectoryAt(ctx context.Context, args []component.Val) ([]c
 		return errorResult(MapOSError(rmErr)), nil
 	}
 
-	return []component.Val{component.ValResultOk(nil)}, nil
+	return []types.Val{types.ValResultOk(nil)}, nil
 }
 
 // descriptorRenameAt renames a file or directory.
 // Signature: func(self: borrow<descriptor>, old-path: string, new-descriptor: borrow<descriptor>, new-path: string) -> result<_, error-code>
-func descriptorRenameAt(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func descriptorRenameAt(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	oldPath := args[1].StringVal()
 	newHandle := args[2].Borrow()
@@ -1123,12 +1125,12 @@ func descriptorRenameAt(ctx context.Context, args []component.Val) ([]component.
 		return errorResult(MapOSError(renameErr)), nil
 	}
 
-	return []component.Val{component.ValResultOk(nil)}, nil
+	return []types.Val{types.ValResultOk(nil)}, nil
 }
 
 // descriptorSymlinkAt creates a symbolic link.
 // Signature: func(self: borrow<descriptor>, old-path: string, new-path: string) -> result<_, error-code>
-func descriptorSymlinkAt(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func descriptorSymlinkAt(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	oldPath := args[1].StringVal() // target
 	newPath := args[2].StringVal() // link name
@@ -1158,12 +1160,12 @@ func descriptorSymlinkAt(ctx context.Context, args []component.Val) ([]component
 		return errorResult(MapOSError(symlinkErr)), nil
 	}
 
-	return []component.Val{component.ValResultOk(nil)}, nil
+	return []types.Val{types.ValResultOk(nil)}, nil
 }
 
 // descriptorUnlinkFileAt removes a file.
 // Signature: func(self: borrow<descriptor>, path: string) -> result<_, error-code>
-func descriptorUnlinkFileAt(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func descriptorUnlinkFileAt(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	path := args[1].StringVal()
 
@@ -1201,41 +1203,41 @@ func descriptorUnlinkFileAt(ctx context.Context, args []component.Val) ([]compon
 		return errorResult(MapOSError(rmErr)), nil
 	}
 
-	return []component.Val{component.ValResultOk(nil)}, nil
+	return []types.Val{types.ValResultOk(nil)}, nil
 }
 
 // descriptorIsSameObject compares two descriptors for identity using dev+ino via os.SameFile.
 // Signature: func(self: borrow<descriptor>, other: borrow<descriptor>) -> bool
-func descriptorIsSameObject(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func descriptorIsSameObject(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	selfHandle := args[0].Borrow()
 	otherHandle := args[1].Borrow()
 
 	selfDesc, err := getDescriptor(ctx, selfHandle)
 	if err != nil {
-		return []component.Val{component.ValBool(false)}, nil
+		return []types.Val{types.ValBool(false)}, nil
 	}
 
 	otherDesc, err := getDescriptor(ctx, otherHandle)
 	if err != nil {
-		return []component.Val{component.ValBool(false)}, nil
+		return []types.Val{types.ValBool(false)}, nil
 	}
 
 	selfInfo, err := selfDesc.File().Stat()
 	if err != nil {
-		return []component.Val{component.ValBool(false)}, nil
+		return []types.Val{types.ValBool(false)}, nil
 	}
 
 	otherInfo, err := otherDesc.File().Stat()
 	if err != nil {
-		return []component.Val{component.ValBool(false)}, nil
+		return []types.Val{types.ValBool(false)}, nil
 	}
 
-	return []component.Val{component.ValBool(os.SameFile(selfInfo, otherInfo))}, nil
+	return []types.Val{types.ValBool(os.SameFile(selfInfo, otherInfo))}, nil
 }
 
 // descriptorMetadataHash returns a hash of file metadata.
 // Signature: func(self: borrow<descriptor>) -> result<metadata-hash-value, error-code>
-func descriptorMetadataHash(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func descriptorMetadataHash(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	desc, err := getDescriptor(ctx, handle)
@@ -1249,16 +1251,16 @@ func descriptorMetadataHash(ctx context.Context, args []component.Val) ([]compon
 	}
 
 	lower, upper := computeMetadataHash(info)
-	hash := component.ValRecord(map[string]component.Val{
-		"lower": component.ValU64(lower),
-		"upper": component.ValU64(upper),
+	hash := types.ValRecord(map[string]types.Val{
+		"lower": types.ValU64(lower),
+		"upper": types.ValU64(upper),
 	})
-	return []component.Val{component.ValResultOk(&hash)}, nil
+	return []types.Val{types.ValResultOk(&hash)}, nil
 }
 
 // descriptorMetadataHashAt returns a hash of file metadata for a path.
 // Signature: func(self: borrow<descriptor>, path-flags: path-flags, path: string) -> result<metadata-hash-value, error-code>
-func descriptorMetadataHashAt(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func descriptorMetadataHashAt(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	pathFlags := args[1].Flags()
 	pathStr := args[2].StringVal()
@@ -1295,11 +1297,11 @@ func descriptorMetadataHashAt(ctx context.Context, args []component.Val) ([]comp
 	}
 
 	lower, upper := computeMetadataHash(info)
-	hash := component.ValRecord(map[string]component.Val{
-		"lower": component.ValU64(lower),
-		"upper": component.ValU64(upper),
+	hash := types.ValRecord(map[string]types.Val{
+		"lower": types.ValU64(lower),
+		"upper": types.ValU64(upper),
 	})
-	return []component.Val{component.ValResultOk(&hash)}, nil
+	return []types.Val{types.ValResultOk(&hash)}, nil
 }
 
 // computeMetadataHashFallback hashes name + size when dev/ino unavailable.
@@ -1316,37 +1318,37 @@ func computeMetadataHashFallback(info os.FileInfo) (uint64, uint64) {
 
 // filesystemErrorCode converts an error to a filesystem error code.
 // Signature: func(err: borrow<error>) -> option<error-code>
-func filesystemErrorCode(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func filesystemErrorCode(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	table := component.ResourceTableFromContext(ctx)
 	if table == nil {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
 
-	entry, err := table.Get(component.Handle(handle))
+	entry, err := table.Get(runtime.Handle(handle))
 	if err != nil {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
 
 	ioErr, ok := entry.Rep.(*wasipIO.Error)
 	if !ok {
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
 
 	// Unwrap the Go error and check if it's a FilesystemError
 	var fsErr *FilesystemError
 	if errors.As(ioErr.Unwrap(), &fsErr) {
-		codeVal := component.ValEnum(string(fsErr.Code))
-		return []component.Val{component.ValOption(&codeVal)}, nil
+		codeVal := types.ValEnum(string(fsErr.Code))
+		return []types.Val{types.ValOption(&codeVal)}, nil
 	}
 
-	return []component.Val{component.ValOption(nil)}, nil
+	return []types.Val{types.ValOption(nil)}, nil
 }
 
 // directoryEntryStreamReadEntry reads the next entry from a directory stream.
 // Signature: func(self: borrow<directory-entry-stream>) -> result<option<directory-entry>, error-code>
-func directoryEntryStreamReadEntry(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func directoryEntryStreamReadEntry(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	stream, err := getDirEntryStream(ctx, handle)
@@ -1358,15 +1360,15 @@ func directoryEntryStreamReadEntry(ctx context.Context, args []component.Val) ([
 	entry, ok := stream.ReadEntry()
 	if !ok {
 		// No more entries
-		none := component.ValOption(nil)
-		return []component.Val{component.ValResultOk(&none)}, nil
+		none := types.ValOption(nil)
+		return []types.Val{types.ValResultOk(&none)}, nil
 	}
 
 	// Build directory-entry record
-	dirEntry := component.ValRecord(map[string]component.Val{
-		"type": component.ValEnum(entry.Type.String()),
-		"name": component.ValString(entry.Name),
+	dirEntry := types.ValRecord(map[string]types.Val{
+		"type": types.ValEnum(entry.Type.String()),
+		"name": types.ValString(entry.Name),
 	})
-	opt := component.ValOption(&dirEntry)
-	return []component.Val{component.ValResultOk(&opt)}, nil
+	opt := types.ValOption(&dirEntry)
+	return []types.Val{types.ValResultOk(&opt)}, nil
 }

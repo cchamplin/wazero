@@ -31,11 +31,11 @@ func ConfigFromContext(ctx context.Context) *Config {
 // Config configures WASI Preview 2 behavior.
 // It implements the component.WASIConfig interface.
 type Config struct {
-	stdin   io.Reader
-	stdout  io.Writer
-	stderr  io.Writer
-	environ func() []string
-	args    func() []string
+	stdin    io.Reader
+	stdout   io.Writer
+	stderr   io.Writer
+	environ  func() []string
+	args     func() []string
 	preopens map[string]string
 
 	// Feature flags
@@ -59,12 +59,12 @@ func NewConfig() *Config {
 // DefaultConfig returns config backed by os package defaults.
 func DefaultConfig() *Config {
 	return &Config{
-		stdin:   os.Stdin,
-		stdout:  os.Stdout,
-		stderr:  os.Stderr,
-		environ: os.Environ,
-		args:    func() []string { return os.Args },
-		preopens: make(map[string]string),
+		stdin:        os.Stdin,
+		stdout:       os.Stdout,
+		stderr:       os.Stderr,
+		environ:      os.Environ,
+		args:         func() []string { return os.Args },
+		preopens:     make(map[string]string),
 		allowNetwork: true,
 		allowHTTP:    true,
 	}

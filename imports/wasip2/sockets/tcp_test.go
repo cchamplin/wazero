@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -22,48 +22,48 @@ func TestTCPSocket_BindAndListen(t *testing.T) {
 	ctx := contextWithResourceTable()
 
 	// Create a TCP socket
-	network := component.ValBorrow(0)
-	family := component.ValEnum("ipv4")
-	result, err := createTcpSocket(ctx, []component.Val{network, family})
+	network := types.ValBorrow(0)
+	family := types.ValEnum("ipv4")
+	result, err := createTcpSocket(ctx, []types.Val{network, family})
 	require.NoError(t, err)
 
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk, "createTcpSocket should succeed")
 	require.NotNil(t, ok)
 	sockHandle := ok.Own()
-	selfHandle := component.ValBorrow(sockHandle)
+	selfHandle := types.ValBorrow(sockHandle)
 
 	// Bind to localhost:0 (any available port)
 	localAddr := makeIPv4SocketAddrVal(127, 0, 0, 1, 0)
-	result, err = tcpSocketStartBind(ctx, []component.Val{selfHandle, network, localAddr})
+	result, err = tcpSocketStartBind(ctx, []types.Val{selfHandle, network, localAddr})
 	require.NoError(t, err)
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk, "start-bind should succeed")
 
-	result, err = tcpSocketFinishBind(ctx, []component.Val{selfHandle})
+	result, err = tcpSocketFinishBind(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk, "finish-bind should succeed")
 
 	// Start listening
-	result, err = tcpSocketStartListen(ctx, []component.Val{selfHandle})
+	result, err = tcpSocketStartListen(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk, "start-listen should succeed")
 
 	// Finish listening
-	result, err = tcpSocketFinishListen(ctx, []component.Val{selfHandle})
+	result, err = tcpSocketFinishListen(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk, "finish-listen should succeed")
 
 	// Verify is-listening returns true
-	result, err = tcpSocketIsListening(ctx, []component.Val{selfHandle})
+	result, err = tcpSocketIsListening(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.True(t, result[0].Bool(), "socket should be listening")
 
 	// Verify local address has assigned port
-	result, err = tcpSocketLocalAddress(ctx, []component.Val{selfHandle})
+	result, err = tcpSocketLocalAddress(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
 	isOk, addrVal, _ := result[0].Result()
 	require.True(t, isOk, "local-address should succeed")
@@ -92,35 +92,35 @@ func TestTCPSocket_BindAndListen(t *testing.T) {
 // - Verifying remote address is correct
 func TestTCPSocket_Connect(t *testing.T) {
 	ctx := contextWithResourceTable()
-	network := component.ValBorrow(0)
-	family := component.ValEnum("ipv4")
+	network := types.ValBorrow(0)
+	family := types.ValEnum("ipv4")
 
 	// === Setup server socket ===
 
 	// Create server socket
-	result, err := createTcpSocket(ctx, []component.Val{network, family})
+	result, err := createTcpSocket(ctx, []types.Val{network, family})
 	require.NoError(t, err)
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk)
 	serverHandle := ok.Own()
-	serverBorrow := component.ValBorrow(serverHandle)
+	serverBorrow := types.ValBorrow(serverHandle)
 
 	// Bind server to 127.0.0.1:0
 	localAddr := makeIPv4SocketAddrVal(127, 0, 0, 1, 0)
-	result, _ = tcpSocketStartBind(ctx, []component.Val{serverBorrow, network, localAddr})
+	result, _ = tcpSocketStartBind(ctx, []types.Val{serverBorrow, network, localAddr})
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk, "server start-bind should succeed")
 
-	result, _ = tcpSocketFinishBind(ctx, []component.Val{serverBorrow})
+	result, _ = tcpSocketFinishBind(ctx, []types.Val{serverBorrow})
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk, "server finish-bind should succeed")
 
 	// Start and finish listen on server
-	result, _ = tcpSocketStartListen(ctx, []component.Val{serverBorrow})
+	result, _ = tcpSocketStartListen(ctx, []types.Val{serverBorrow})
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk, "server start-listen should succeed")
 
-	result, _ = tcpSocketFinishListen(ctx, []component.Val{serverBorrow})
+	result, _ = tcpSocketFinishListen(ctx, []types.Val{serverBorrow})
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk, "server finish-listen should succeed")
 
@@ -133,22 +133,22 @@ func TestTCPSocket_Connect(t *testing.T) {
 	// === Setup client socket ===
 
 	// Create client socket
-	result, err = createTcpSocket(ctx, []component.Val{network, family})
+	result, err = createTcpSocket(ctx, []types.Val{network, family})
 	require.NoError(t, err)
 	isOk, ok, _ = result[0].Result()
 	require.True(t, isOk)
 	clientHandle := ok.Own()
-	clientBorrow := component.ValBorrow(clientHandle)
+	clientBorrow := types.ValBorrow(clientHandle)
 
 	// Start connect to server
 	remoteAddr := makeIPv4SocketAddrVal(127, 0, 0, 1, serverPort)
-	result, err = tcpSocketStartConnect(ctx, []component.Val{clientBorrow, network, remoteAddr})
+	result, err = tcpSocketStartConnect(ctx, []types.Val{clientBorrow, network, remoteAddr})
 	require.NoError(t, err)
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk, "client start-connect should succeed")
 
 	// Finish connect (this actually establishes the connection)
-	result, err = tcpSocketFinishConnect(ctx, []component.Val{clientBorrow})
+	result, err = tcpSocketFinishConnect(ctx, []types.Val{clientBorrow})
 	require.NoError(t, err)
 	isOk, tupleVal, _ := result[0].Result()
 	require.True(t, isOk, "client finish-connect should succeed")
@@ -159,7 +159,7 @@ func TestTCPSocket_Connect(t *testing.T) {
 	require.Equal(t, 2, len(streams), "should return input and output stream handles")
 
 	// Verify remote address matches server
-	result, err = tcpSocketRemoteAddress(ctx, []component.Val{clientBorrow})
+	result, err = tcpSocketRemoteAddress(ctx, []types.Val{clientBorrow})
 	require.NoError(t, err)
 	isOk, remoteAddrVal, _ := result[0].Result()
 	require.True(t, isOk, "remote-address should succeed")
@@ -188,31 +188,31 @@ func TestTCPSocket_Connect(t *testing.T) {
 // - The accepted socket has correct local and remote addresses
 func TestTCPSocket_Accept(t *testing.T) {
 	ctx := contextWithResourceTable()
-	network := component.ValBorrow(0)
-	family := component.ValEnum("ipv4")
+	network := types.ValBorrow(0)
+	family := types.ValEnum("ipv4")
 
 	// Create and setup server socket
-	result, _ := createTcpSocket(ctx, []component.Val{network, family})
+	result, _ := createTcpSocket(ctx, []types.Val{network, family})
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk)
 	serverHandle := ok.Own()
-	serverBorrow := component.ValBorrow(serverHandle)
+	serverBorrow := types.ValBorrow(serverHandle)
 
 	// Bind and listen
 	localAddr := makeIPv4SocketAddrVal(127, 0, 0, 1, 0)
-	result, _ = tcpSocketStartBind(ctx, []component.Val{serverBorrow, network, localAddr})
+	result, _ = tcpSocketStartBind(ctx, []types.Val{serverBorrow, network, localAddr})
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk)
 
-	result, _ = tcpSocketFinishBind(ctx, []component.Val{serverBorrow})
+	result, _ = tcpSocketFinishBind(ctx, []types.Val{serverBorrow})
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk)
 
-	result, _ = tcpSocketStartListen(ctx, []component.Val{serverBorrow})
+	result, _ = tcpSocketStartListen(ctx, []types.Val{serverBorrow})
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk)
 
-	result, _ = tcpSocketFinishListen(ctx, []component.Val{serverBorrow})
+	result, _ = tcpSocketFinishListen(ctx, []types.Val{serverBorrow})
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk)
 
@@ -230,7 +230,7 @@ func TestTCPSocket_Accept(t *testing.T) {
 	defer clientConn.Close()
 
 	// Accept the connection
-	result, err = tcpSocketAccept(ctx, []component.Val{serverBorrow})
+	result, err = tcpSocketAccept(ctx, []types.Val{serverBorrow})
 	require.NoError(t, err)
 	isOk, tupleVal, _ := result[0].Result()
 	require.True(t, isOk, "accept should succeed")
@@ -242,15 +242,15 @@ func TestTCPSocket_Accept(t *testing.T) {
 
 	// The first element is the new socket handle
 	acceptedSocketHandle := acceptResult[0].Own()
-	acceptedBorrow := component.ValBorrow(acceptedSocketHandle)
+	acceptedBorrow := types.ValBorrow(acceptedSocketHandle)
 
 	// Verify the accepted socket has correct addresses
-	result, err = tcpSocketLocalAddress(ctx, []component.Val{acceptedBorrow})
+	result, err = tcpSocketLocalAddress(ctx, []types.Val{acceptedBorrow})
 	require.NoError(t, err)
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk, "accepted socket local-address should succeed")
 
-	result, err = tcpSocketRemoteAddress(ctx, []component.Val{acceptedBorrow})
+	result, err = tcpSocketRemoteAddress(ctx, []types.Val{acceptedBorrow})
 	require.NoError(t, err)
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk, "accepted socket remote-address should succeed")
@@ -268,26 +268,26 @@ func TestTCPSocket_Accept(t *testing.T) {
 // TestTCPSocket_ConnectRefused tests that connecting to a non-listening port fails.
 func TestTCPSocket_ConnectRefused(t *testing.T) {
 	ctx := contextWithResourceTable()
-	network := component.ValBorrow(0)
-	family := component.ValEnum("ipv4")
+	network := types.ValBorrow(0)
+	family := types.ValEnum("ipv4")
 
 	// Create client socket
-	result, _ := createTcpSocket(ctx, []component.Val{network, family})
+	result, _ := createTcpSocket(ctx, []types.Val{network, family})
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk)
 	clientHandle := ok.Own()
-	clientBorrow := component.ValBorrow(clientHandle)
+	clientBorrow := types.ValBorrow(clientHandle)
 
 	// Try to connect to a port that is likely not listening
 	// Using port 1 which typically requires root and won't be listening
 	remoteAddr := makeIPv4SocketAddrVal(127, 0, 0, 1, 59999)
-	result, err := tcpSocketStartConnect(ctx, []component.Val{clientBorrow, network, remoteAddr})
+	result, err := tcpSocketStartConnect(ctx, []types.Val{clientBorrow, network, remoteAddr})
 	require.NoError(t, err)
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk, "start-connect should succeed (it's async)")
 
 	// Finish connect - this should fail with connection refused
-	result, err = tcpSocketFinishConnect(ctx, []component.Val{clientBorrow})
+	result, err = tcpSocketFinishConnect(ctx, []types.Val{clientBorrow})
 	require.NoError(t, err)
 	isOk, _, errVal := result[0].Result()
 	// The connection should fail
@@ -304,28 +304,28 @@ func TestTCPSocket_ConnectRefused(t *testing.T) {
 // TestTCPSocket_BindTwice tests that binding twice fails with correct error.
 func TestTCPSocket_BindTwice(t *testing.T) {
 	ctx := contextWithResourceTable()
-	network := component.ValBorrow(0)
-	family := component.ValEnum("ipv4")
+	network := types.ValBorrow(0)
+	family := types.ValEnum("ipv4")
 
 	// Create and bind first socket
-	result, _ := createTcpSocket(ctx, []component.Val{network, family})
+	result, _ := createTcpSocket(ctx, []types.Val{network, family})
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk)
 	sockHandle := ok.Own()
-	selfHandle := component.ValBorrow(sockHandle)
+	selfHandle := types.ValBorrow(sockHandle)
 
 	// First bind should succeed
 	localAddr := makeIPv4SocketAddrVal(127, 0, 0, 1, 0)
-	result, _ = tcpSocketStartBind(ctx, []component.Val{selfHandle, network, localAddr})
+	result, _ = tcpSocketStartBind(ctx, []types.Val{selfHandle, network, localAddr})
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk)
 
-	result, _ = tcpSocketFinishBind(ctx, []component.Val{selfHandle})
+	result, _ = tcpSocketFinishBind(ctx, []types.Val{selfHandle})
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk)
 
 	// Trying to start bind again should fail with invalid state
-	result, _ = tcpSocketStartBind(ctx, []component.Val{selfHandle, network, localAddr})
+	result, _ = tcpSocketStartBind(ctx, []types.Val{selfHandle, network, localAddr})
 	isOk, _, errVal := result[0].Result()
 	require.False(t, isOk, "second bind should fail")
 	require.NotNil(t, errVal)
@@ -341,44 +341,44 @@ func TestTCPSocket_BindTwice(t *testing.T) {
 // TestTCPSocket_IPv6 tests TCP socket operations with IPv6.
 func TestTCPSocket_IPv6(t *testing.T) {
 	ctx := contextWithResourceTable()
-	network := component.ValBorrow(0)
-	family := component.ValEnum("ipv6")
+	network := types.ValBorrow(0)
+	family := types.ValEnum("ipv6")
 
 	// Create IPv6 socket
-	result, err := createTcpSocket(ctx, []component.Val{network, family})
+	result, err := createTcpSocket(ctx, []types.Val{network, family})
 	require.NoError(t, err)
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk)
 	sockHandle := ok.Own()
-	selfHandle := component.ValBorrow(sockHandle)
+	selfHandle := types.ValBorrow(sockHandle)
 
 	// Verify address family
-	result, err = tcpSocketAddressFamily(ctx, []component.Val{selfHandle})
+	result, err = tcpSocketAddressFamily(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, "ipv6", result[0].Enum())
 
 	// Bind to IPv6 loopback (::1) port 0
-	addrRecord := component.ValRecord(map[string]component.Val{
-		"port": component.ValU16(0),
-		"address": component.ValTuple([]component.Val{
-			component.ValU16(0), component.ValU16(0), component.ValU16(0), component.ValU16(0),
-			component.ValU16(0), component.ValU16(0), component.ValU16(0), component.ValU16(1),
+	addrRecord := types.ValRecord(map[string]types.Val{
+		"port": types.ValU16(0),
+		"address": types.ValTuple([]types.Val{
+			types.ValU16(0), types.ValU16(0), types.ValU16(0), types.ValU16(0),
+			types.ValU16(0), types.ValU16(0), types.ValU16(0), types.ValU16(1),
 		}),
 	})
-	localAddr := component.ValVariant("ipv6", &addrRecord)
+	localAddr := types.ValVariant("ipv6", &addrRecord)
 
-	result, err = tcpSocketStartBind(ctx, []component.Val{selfHandle, network, localAddr})
+	result, err = tcpSocketStartBind(ctx, []types.Val{selfHandle, network, localAddr})
 	require.NoError(t, err)
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk, "IPv6 start-bind should succeed")
 
-	result, err = tcpSocketFinishBind(ctx, []component.Val{selfHandle})
+	result, err = tcpSocketFinishBind(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk, "IPv6 finish-bind should succeed")
 
 	// Verify local address is IPv6
-	result, err = tcpSocketLocalAddress(ctx, []component.Val{selfHandle})
+	result, err = tcpSocketLocalAddress(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
 	isOk, addrVal, _ := result[0].Result()
 	require.True(t, isOk)

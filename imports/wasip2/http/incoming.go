@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 // defaultHandlerTimeout is the maximum time NewHTTPHandler will wait for a
@@ -29,9 +31,9 @@ func instantiateIncomingHandler(linker *component.Linker) error {
 // NewHTTPHandler creates a Go http.Handler that bridges to a WASI component's
 // incoming-handler.handle export. The callHandle function should invoke the
 // component's handle function with the given request and outparam handles.
-func NewHTTPHandler(callHandle func(ctx context.Context, requestHandle, outparamHandle component.Handle) error) gohttp.Handler {
+func NewHTTPHandler(callHandle func(ctx context.Context, requestHandle, outparamHandle runtime.Handle) error) gohttp.Handler {
 	return gohttp.HandlerFunc(func(w gohttp.ResponseWriter, r *gohttp.Request) {
-		table := component.NewResourceTable()
+		table := runtime.NewResourceTable()
 
 		// Apply a default deadline so a misbehaving component cannot hang the
 		// host handler indefinitely. Callers wanting a different deadline can
@@ -175,7 +177,7 @@ func methodFromHTTPMethod(s string) Method {
 
 // incomingHandlerHandle handles an incoming HTTP request.
 // Signature: func(request: own<incoming-request>, response-out: own<response-outparam>)
-func incomingHandlerHandle(ctx context.Context, args []component.Val) ([]component.Val, error) {
+func incomingHandlerHandle(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	// This is a no-op placeholder - returns nothing (unit)
-	return []component.Val{}, nil
+	return []types.Val{}, nil
 }

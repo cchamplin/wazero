@@ -9,6 +9,8 @@ import (
 
 	wasipIO "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -86,10 +88,10 @@ func TestInstantiateInstanceNetwork(t *testing.T) {
 
 func TestInstanceNetwork(t *testing.T) {
 	// Returns: own<network>
-	result, err := instanceNetwork(context.Background(), []component.Val{})
+	result, err := instanceNetwork(context.Background(), []types.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOwn, result[0].Kind())
+	require.Equal(t, types.ValKindOwn, result[0].Kind())
 }
 
 // ====================
@@ -124,17 +126,17 @@ func TestInstantiateIpNameLookup(t *testing.T) {
 func TestResolveAddresses_IPv4Literal(t *testing.T) {
 	ctx := contextWithResourceTable()
 
-	network := component.ValBorrow(0)
-	name := component.ValString("127.0.0.1")
-	result, err := resolveAddresses(ctx, []component.Val{network, name})
+	network := types.ValBorrow(0)
+	name := types.ValString("127.0.0.1")
+	result, err := resolveAddresses(ctx, []types.Val{network, name})
 	require.NoError(t, err)
 	isOk, streamHandle, _ := result[0].Result()
 	require.True(t, isOk, "resolving IP literal should succeed")
 	require.NotNil(t, streamHandle)
 
 	// Get next address
-	borrow := component.ValBorrow(streamHandle.Own())
-	result, err = resolveNextAddress(ctx, []component.Val{borrow})
+	borrow := types.ValBorrow(streamHandle.Own())
+	result, err = resolveNextAddress(ctx, []types.Val{borrow})
 	require.NoError(t, err)
 	isOk, addrOpt, _ := result[0].Result()
 	require.True(t, isOk)
@@ -142,7 +144,7 @@ func TestResolveAddresses_IPv4Literal(t *testing.T) {
 	require.NotNil(t, opt, "should return an address for IP literal")
 
 	// Second call should return None (exhausted)
-	result, err = resolveNextAddress(ctx, []component.Val{borrow})
+	result, err = resolveNextAddress(ctx, []types.Val{borrow})
 	require.NoError(t, err)
 	isOk, addrOpt, _ = result[0].Result()
 	require.True(t, isOk)
@@ -152,9 +154,9 @@ func TestResolveAddresses_IPv4Literal(t *testing.T) {
 
 func TestResolveAddresses_EmptyString(t *testing.T) {
 	ctx := contextWithResourceTable()
-	network := component.ValBorrow(0)
-	name := component.ValString("")
-	result, err := resolveAddresses(ctx, []component.Val{network, name})
+	network := types.ValBorrow(0)
+	name := types.ValString("")
+	result, err := resolveAddresses(ctx, []types.Val{network, name})
 	require.NoError(t, err)
 	isOk, _, _ := result[0].Result()
 	require.False(t, isOk, "empty string should fail")
@@ -162,9 +164,9 @@ func TestResolveAddresses_EmptyString(t *testing.T) {
 
 func TestResolveAddresses_InvalidWithPort(t *testing.T) {
 	ctx := contextWithResourceTable()
-	network := component.ValBorrow(0)
-	name := component.ValString("127.0.0.1:80")
-	result, err := resolveAddresses(ctx, []component.Val{network, name})
+	network := types.ValBorrow(0)
+	name := types.ValString("127.0.0.1:80")
+	result, err := resolveAddresses(ctx, []types.Val{network, name})
 	require.NoError(t, err)
 	isOk, _, _ := result[0].Result()
 	require.False(t, isOk, "address with port should fail")
@@ -172,9 +174,9 @@ func TestResolveAddresses_InvalidWithPort(t *testing.T) {
 
 func TestResolveAddresses_InvalidWithSlash(t *testing.T) {
 	ctx := contextWithResourceTable()
-	network := component.ValBorrow(0)
-	name := component.ValString("example.com/path")
-	result, err := resolveAddresses(ctx, []component.Val{network, name})
+	network := types.ValBorrow(0)
+	name := types.ValString("example.com/path")
+	result, err := resolveAddresses(ctx, []types.Val{network, name})
 	require.NoError(t, err)
 	isOk, _, _ := result[0].Result()
 	require.False(t, isOk, "address with slash should fail")
@@ -182,15 +184,15 @@ func TestResolveAddresses_InvalidWithSlash(t *testing.T) {
 
 func TestResolveAddressStreamSubscribe(t *testing.T) {
 	ctx := contextWithResourceTable()
-	network := component.ValBorrow(0)
-	name := component.ValString("127.0.0.1")
-	result, _ := resolveAddresses(ctx, []component.Val{network, name})
+	network := types.ValBorrow(0)
+	name := types.ValString("127.0.0.1")
+	result, _ := resolveAddresses(ctx, []types.Val{network, name})
 	_, streamHandle, _ := result[0].Result()
 
-	borrow := component.ValBorrow(streamHandle.Own())
-	result, err := resolveAddressStreamSubscribe(ctx, []component.Val{borrow})
+	borrow := types.ValBorrow(streamHandle.Own())
+	result, err := resolveAddressStreamSubscribe(ctx, []types.Val{borrow})
 	require.NoError(t, err)
-	require.Equal(t, component.ValKindOwn, result[0].Kind())
+	require.Equal(t, types.ValKindOwn, result[0].Kind())
 	require.True(t, result[0].Own() > 0, "subscribe should return valid pollable handle")
 }
 
@@ -270,28 +272,28 @@ func TestInstantiateTcpCreateSocket(t *testing.T) {
 func TestCreateTcpSocket(t *testing.T) {
 	// Args: network (borrow<network>), address-family (ip-address-family)
 	// Returns: result<own<tcp-socket>, error-code>
-	network := component.ValBorrow(0)
-	family := component.ValEnum("ipv4")
-	result, err := createTcpSocket(context.Background(), []component.Val{network, family})
+	network := types.ValBorrow(0)
+	family := types.ValEnum("ipv4")
+	result, err := createTcpSocket(context.Background(), []types.Val{network, family})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindOwn, ok.Kind())
+	require.Equal(t, types.ValKindOwn, ok.Kind())
 }
 
 func TestTcpSocketStartBind(t *testing.T) {
 	// Args: self (borrow<tcp-socket>), network (borrow<network>), local-address (ip-socket-address)
 	// Returns: result<_, error-code>
-	selfHandle := component.ValBorrow(0)
-	network := component.ValBorrow(1)
-	localAddr := component.ValVariant("ipv4", &component.Val{})
-	result, err := tcpSocketStartBind(context.Background(), []component.Val{selfHandle, network, localAddr})
+	selfHandle := types.ValBorrow(0)
+	network := types.ValBorrow(1)
+	localAddr := types.ValVariant("ipv4", &types.Val{})
+	result, err := tcpSocketStartBind(context.Background(), []types.Val{selfHandle, network, localAddr})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 }
@@ -299,11 +301,11 @@ func TestTcpSocketStartBind(t *testing.T) {
 func TestTcpSocketFinishBind(t *testing.T) {
 	// Args: self (borrow<tcp-socket>)
 	// Returns: result<_, error-code>
-	selfHandle := component.ValBorrow(0)
-	result, err := tcpSocketFinishBind(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := tcpSocketFinishBind(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 }
@@ -311,13 +313,13 @@ func TestTcpSocketFinishBind(t *testing.T) {
 func TestTcpSocketStartConnect(t *testing.T) {
 	// Args: self (borrow<tcp-socket>), network (borrow<network>), remote-address (ip-socket-address)
 	// Returns: result<_, error-code>
-	selfHandle := component.ValBorrow(0)
-	network := component.ValBorrow(1)
-	remoteAddr := component.ValVariant("ipv4", &component.Val{})
-	result, err := tcpSocketStartConnect(context.Background(), []component.Val{selfHandle, network, remoteAddr})
+	selfHandle := types.ValBorrow(0)
+	network := types.ValBorrow(1)
+	remoteAddr := types.ValVariant("ipv4", &types.Val{})
+	result, err := tcpSocketStartConnect(context.Background(), []types.Val{selfHandle, network, remoteAddr})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 }
@@ -325,25 +327,25 @@ func TestTcpSocketStartConnect(t *testing.T) {
 func TestTcpSocketFinishConnect(t *testing.T) {
 	// Args: self (borrow<tcp-socket>)
 	// Returns: result<tuple<own<input-stream>, own<output-stream>>, error-code>
-	selfHandle := component.ValBorrow(0)
-	result, err := tcpSocketFinishConnect(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := tcpSocketFinishConnect(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindTuple, ok.Kind())
+	require.Equal(t, types.ValKindTuple, ok.Kind())
 }
 
 func TestTcpSocketStartListen(t *testing.T) {
 	// Args: self (borrow<tcp-socket>)
 	// Returns: result<_, error-code>
-	selfHandle := component.ValBorrow(0)
-	result, err := tcpSocketStartListen(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := tcpSocketStartListen(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 }
@@ -351,11 +353,11 @@ func TestTcpSocketStartListen(t *testing.T) {
 func TestTcpSocketFinishListen(t *testing.T) {
 	// Args: self (borrow<tcp-socket>)
 	// Returns: result<_, error-code>
-	selfHandle := component.ValBorrow(0)
-	result, err := tcpSocketFinishListen(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := tcpSocketFinishListen(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 }
@@ -363,76 +365,76 @@ func TestTcpSocketFinishListen(t *testing.T) {
 func TestTcpSocketAccept(t *testing.T) {
 	// Args: self (borrow<tcp-socket>)
 	// Returns: result<tuple<own<tcp-socket>, own<input-stream>, own<output-stream>>, error-code>
-	selfHandle := component.ValBorrow(0)
-	result, err := tcpSocketAccept(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := tcpSocketAccept(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	// Accept returns placeholder result
 	isOk, okVal, _ := result[0].Result()
 	// Should return ok with tuple
 	require.True(t, isOk, "should return ok result")
 	require.NotNil(t, okVal)
-	require.Equal(t, component.ValKindTuple, okVal.Kind())
+	require.Equal(t, types.ValKindTuple, okVal.Kind())
 }
 
 func TestTcpSocketLocalAddress(t *testing.T) {
 	// Args: self (borrow<tcp-socket>)
 	// Returns: result<ip-socket-address, error-code>
-	selfHandle := component.ValBorrow(0)
-	result, err := tcpSocketLocalAddress(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := tcpSocketLocalAddress(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindVariant, ok.Kind())
+	require.Equal(t, types.ValKindVariant, ok.Kind())
 }
 
 func TestTcpSocketRemoteAddress(t *testing.T) {
 	// Args: self (borrow<tcp-socket>)
 	// Returns: result<ip-socket-address, error-code>
-	selfHandle := component.ValBorrow(0)
-	result, err := tcpSocketRemoteAddress(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := tcpSocketRemoteAddress(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindVariant, ok.Kind())
+	require.Equal(t, types.ValKindVariant, ok.Kind())
 }
 
 func TestTcpSocketIsListening(t *testing.T) {
 	// Args: self (borrow<tcp-socket>)
 	// Returns: bool
-	selfHandle := component.ValBorrow(0)
-	result, err := tcpSocketIsListening(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := tcpSocketIsListening(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindBool, result[0].Kind())
+	require.Equal(t, types.ValKindBool, result[0].Kind())
 }
 
 func TestTcpSocketAddressFamily(t *testing.T) {
 	// Args: self (borrow<tcp-socket>)
 	// Returns: ip-address-family
-	selfHandle := component.ValBorrow(0)
-	result, err := tcpSocketAddressFamily(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := tcpSocketAddressFamily(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindEnum, result[0].Kind())
+	require.Equal(t, types.ValKindEnum, result[0].Kind())
 }
 
 func TestTcpSocketSetListenBacklogSize(t *testing.T) {
 	// Args: self (borrow<tcp-socket>), value (u64)
 	// Returns: result<_, error-code>
-	selfHandle := component.ValBorrow(0)
-	size := component.ValU64(128)
-	result, err := tcpSocketSetListenBacklogSize(context.Background(), []component.Val{selfHandle, size})
+	selfHandle := types.ValBorrow(0)
+	size := types.ValU64(128)
+	result, err := tcpSocketSetListenBacklogSize(context.Background(), []types.Val{selfHandle, size})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 }
@@ -440,26 +442,26 @@ func TestTcpSocketSetListenBacklogSize(t *testing.T) {
 func TestTcpSocketKeepAliveEnabled(t *testing.T) {
 	// Args: self (borrow<tcp-socket>)
 	// Returns: result<bool, error-code>
-	selfHandle := component.ValBorrow(0)
-	result, err := tcpSocketKeepAliveEnabled(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := tcpSocketKeepAliveEnabled(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindBool, ok.Kind())
+	require.Equal(t, types.ValKindBool, ok.Kind())
 }
 
 func TestTcpSocketSetKeepAliveEnabled(t *testing.T) {
 	// Args: self (borrow<tcp-socket>), value (bool)
 	// Returns: result<_, error-code>
-	selfHandle := component.ValBorrow(0)
-	enabled := component.ValBool(true)
-	result, err := tcpSocketSetKeepAliveEnabled(context.Background(), []component.Val{selfHandle, enabled})
+	selfHandle := types.ValBorrow(0)
+	enabled := types.ValBool(true)
+	result, err := tcpSocketSetKeepAliveEnabled(context.Background(), []types.Val{selfHandle, enabled})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 }
@@ -467,26 +469,26 @@ func TestTcpSocketSetKeepAliveEnabled(t *testing.T) {
 func TestTcpSocketKeepAliveIdleTime(t *testing.T) {
 	// Args: self (borrow<tcp-socket>)
 	// Returns: result<duration, error-code>
-	selfHandle := component.ValBorrow(0)
-	result, err := tcpSocketKeepAliveIdleTime(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := tcpSocketKeepAliveIdleTime(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindU64, ok.Kind())
+	require.Equal(t, types.ValKindU64, ok.Kind())
 }
 
 func TestTcpSocketSetKeepAliveIdleTime(t *testing.T) {
 	// Args: self (borrow<tcp-socket>), value (duration)
 	// Returns: result<_, error-code>
-	selfHandle := component.ValBorrow(0)
-	duration := component.ValU64(7200)
-	result, err := tcpSocketSetKeepAliveIdleTime(context.Background(), []component.Val{selfHandle, duration})
+	selfHandle := types.ValBorrow(0)
+	duration := types.ValU64(7200)
+	result, err := tcpSocketSetKeepAliveIdleTime(context.Background(), []types.Val{selfHandle, duration})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 }
@@ -494,26 +496,26 @@ func TestTcpSocketSetKeepAliveIdleTime(t *testing.T) {
 func TestTcpSocketKeepAliveInterval(t *testing.T) {
 	// Args: self (borrow<tcp-socket>)
 	// Returns: result<duration, error-code>
-	selfHandle := component.ValBorrow(0)
-	result, err := tcpSocketKeepAliveInterval(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := tcpSocketKeepAliveInterval(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindU64, ok.Kind())
+	require.Equal(t, types.ValKindU64, ok.Kind())
 }
 
 func TestTcpSocketSetKeepAliveInterval(t *testing.T) {
 	// Args: self (borrow<tcp-socket>), value (duration)
 	// Returns: result<_, error-code>
-	selfHandle := component.ValBorrow(0)
-	duration := component.ValU64(75)
-	result, err := tcpSocketSetKeepAliveInterval(context.Background(), []component.Val{selfHandle, duration})
+	selfHandle := types.ValBorrow(0)
+	duration := types.ValU64(75)
+	result, err := tcpSocketSetKeepAliveInterval(context.Background(), []types.Val{selfHandle, duration})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 }
@@ -521,26 +523,26 @@ func TestTcpSocketSetKeepAliveInterval(t *testing.T) {
 func TestTcpSocketKeepAliveCount(t *testing.T) {
 	// Args: self (borrow<tcp-socket>)
 	// Returns: result<u32, error-code>
-	selfHandle := component.ValBorrow(0)
-	result, err := tcpSocketKeepAliveCount(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := tcpSocketKeepAliveCount(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindU32, ok.Kind())
+	require.Equal(t, types.ValKindU32, ok.Kind())
 }
 
 func TestTcpSocketSetKeepAliveCount(t *testing.T) {
 	// Args: self (borrow<tcp-socket>), value (u32)
 	// Returns: result<_, error-code>
-	selfHandle := component.ValBorrow(0)
-	count := component.ValU32(9)
-	result, err := tcpSocketSetKeepAliveCount(context.Background(), []component.Val{selfHandle, count})
+	selfHandle := types.ValBorrow(0)
+	count := types.ValU32(9)
+	result, err := tcpSocketSetKeepAliveCount(context.Background(), []types.Val{selfHandle, count})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 }
@@ -548,26 +550,26 @@ func TestTcpSocketSetKeepAliveCount(t *testing.T) {
 func TestTcpSocketHopLimit(t *testing.T) {
 	// Args: self (borrow<tcp-socket>)
 	// Returns: result<u8, error-code>
-	selfHandle := component.ValBorrow(0)
-	result, err := tcpSocketHopLimit(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := tcpSocketHopLimit(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindU8, ok.Kind())
+	require.Equal(t, types.ValKindU8, ok.Kind())
 }
 
 func TestTcpSocketSetHopLimit(t *testing.T) {
 	// Args: self (borrow<tcp-socket>), value (u8)
 	// Returns: result<_, error-code>
-	selfHandle := component.ValBorrow(0)
-	limit := component.ValU8(64)
-	result, err := tcpSocketSetHopLimit(context.Background(), []component.Val{selfHandle, limit})
+	selfHandle := types.ValBorrow(0)
+	limit := types.ValU8(64)
+	result, err := tcpSocketSetHopLimit(context.Background(), []types.Val{selfHandle, limit})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 }
@@ -575,26 +577,26 @@ func TestTcpSocketSetHopLimit(t *testing.T) {
 func TestTcpSocketReceiveBufferSize(t *testing.T) {
 	// Args: self (borrow<tcp-socket>)
 	// Returns: result<u64, error-code>
-	selfHandle := component.ValBorrow(0)
-	result, err := tcpSocketReceiveBufferSize(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := tcpSocketReceiveBufferSize(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindU64, ok.Kind())
+	require.Equal(t, types.ValKindU64, ok.Kind())
 }
 
 func TestTcpSocketSetReceiveBufferSize(t *testing.T) {
 	// Args: self (borrow<tcp-socket>), value (u64)
 	// Returns: result<_, error-code>
-	selfHandle := component.ValBorrow(0)
-	size := component.ValU64(65536)
-	result, err := tcpSocketSetReceiveBufferSize(context.Background(), []component.Val{selfHandle, size})
+	selfHandle := types.ValBorrow(0)
+	size := types.ValU64(65536)
+	result, err := tcpSocketSetReceiveBufferSize(context.Background(), []types.Val{selfHandle, size})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 }
@@ -602,26 +604,26 @@ func TestTcpSocketSetReceiveBufferSize(t *testing.T) {
 func TestTcpSocketSendBufferSize(t *testing.T) {
 	// Args: self (borrow<tcp-socket>)
 	// Returns: result<u64, error-code>
-	selfHandle := component.ValBorrow(0)
-	result, err := tcpSocketSendBufferSize(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := tcpSocketSendBufferSize(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindU64, ok.Kind())
+	require.Equal(t, types.ValKindU64, ok.Kind())
 }
 
 func TestTcpSocketSetSendBufferSize(t *testing.T) {
 	// Args: self (borrow<tcp-socket>), value (u64)
 	// Returns: result<_, error-code>
-	selfHandle := component.ValBorrow(0)
-	size := component.ValU64(65536)
-	result, err := tcpSocketSetSendBufferSize(context.Background(), []component.Val{selfHandle, size})
+	selfHandle := types.ValBorrow(0)
+	size := types.ValU64(65536)
+	result, err := tcpSocketSetSendBufferSize(context.Background(), []types.Val{selfHandle, size})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 }
@@ -629,22 +631,22 @@ func TestTcpSocketSetSendBufferSize(t *testing.T) {
 func TestTcpSocketSubscribe(t *testing.T) {
 	// Args: self (borrow<tcp-socket>)
 	// Returns: own<pollable>
-	selfHandle := component.ValBorrow(0)
-	result, err := tcpSocketSubscribe(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := tcpSocketSubscribe(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOwn, result[0].Kind())
+	require.Equal(t, types.ValKindOwn, result[0].Kind())
 }
 
 func TestTcpSocketShutdown(t *testing.T) {
 	// Args: self (borrow<tcp-socket>), shutdown-type (shutdown-type)
 	// Returns: result<_, error-code>
-	selfHandle := component.ValBorrow(0)
-	shutdownType := component.ValEnum("both")
-	result, err := tcpSocketShutdown(context.Background(), []component.Val{selfHandle, shutdownType})
+	selfHandle := types.ValBorrow(0)
+	shutdownType := types.ValEnum("both")
+	result, err := tcpSocketShutdown(context.Background(), []types.Val{selfHandle, shutdownType})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 }
@@ -732,28 +734,28 @@ func TestInstantiateUdpCreateSocket(t *testing.T) {
 func TestCreateUdpSocket(t *testing.T) {
 	// Args: network (borrow<network>), address-family (ip-address-family)
 	// Returns: result<own<udp-socket>, error-code>
-	network := component.ValBorrow(0)
-	family := component.ValEnum("ipv4")
-	result, err := createUdpSocket(context.Background(), []component.Val{network, family})
+	network := types.ValBorrow(0)
+	family := types.ValEnum("ipv4")
+	result, err := createUdpSocket(context.Background(), []types.Val{network, family})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindOwn, ok.Kind())
+	require.Equal(t, types.ValKindOwn, ok.Kind())
 }
 
 func TestUdpSocketStartBind(t *testing.T) {
 	// Args: self (borrow<udp-socket>), network (borrow<network>), local-address (ip-socket-address)
 	// Returns: result<_, error-code>
-	selfHandle := component.ValBorrow(0)
-	network := component.ValBorrow(1)
-	localAddr := component.ValVariant("ipv4", &component.Val{})
-	result, err := udpSocketStartBind(context.Background(), []component.Val{selfHandle, network, localAddr})
+	selfHandle := types.ValBorrow(0)
+	network := types.ValBorrow(1)
+	localAddr := types.ValVariant("ipv4", &types.Val{})
+	result, err := udpSocketStartBind(context.Background(), []types.Val{selfHandle, network, localAddr})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 }
@@ -761,11 +763,11 @@ func TestUdpSocketStartBind(t *testing.T) {
 func TestUdpSocketFinishBind(t *testing.T) {
 	// Args: self (borrow<udp-socket>)
 	// Returns: result<_, error-code>
-	selfHandle := component.ValBorrow(0)
-	result, err := udpSocketFinishBind(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := udpSocketFinishBind(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 }
@@ -773,79 +775,79 @@ func TestUdpSocketFinishBind(t *testing.T) {
 func TestUdpSocketStream(t *testing.T) {
 	// Args: self (borrow<udp-socket>), remote-address (option<ip-socket-address>)
 	// Returns: result<tuple<own<incoming-datagram-stream>, own<outgoing-datagram-stream>>, error-code>
-	selfHandle := component.ValBorrow(0)
-	remoteAddr := component.ValOption(nil)
-	result, err := udpSocketStream(context.Background(), []component.Val{selfHandle, remoteAddr})
+	selfHandle := types.ValBorrow(0)
+	remoteAddr := types.ValOption(nil)
+	result, err := udpSocketStream(context.Background(), []types.Val{selfHandle, remoteAddr})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindTuple, ok.Kind())
+	require.Equal(t, types.ValKindTuple, ok.Kind())
 }
 
 func TestUdpSocketLocalAddress(t *testing.T) {
 	// Args: self (borrow<udp-socket>)
 	// Returns: result<ip-socket-address, error-code>
-	selfHandle := component.ValBorrow(0)
-	result, err := udpSocketLocalAddress(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := udpSocketLocalAddress(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindVariant, ok.Kind())
+	require.Equal(t, types.ValKindVariant, ok.Kind())
 }
 
 func TestUdpSocketRemoteAddress(t *testing.T) {
 	// Args: self (borrow<udp-socket>)
 	// Returns: result<ip-socket-address, error-code>
-	selfHandle := component.ValBorrow(0)
-	result, err := udpSocketRemoteAddress(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := udpSocketRemoteAddress(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindVariant, ok.Kind())
+	require.Equal(t, types.ValKindVariant, ok.Kind())
 }
 
 func TestUdpSocketAddressFamily(t *testing.T) {
 	// Args: self (borrow<udp-socket>)
 	// Returns: ip-address-family
-	selfHandle := component.ValBorrow(0)
-	result, err := udpSocketAddressFamily(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := udpSocketAddressFamily(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindEnum, result[0].Kind())
+	require.Equal(t, types.ValKindEnum, result[0].Kind())
 }
 
 func TestUdpSocketUnicastHopLimit(t *testing.T) {
 	// Args: self (borrow<udp-socket>)
 	// Returns: result<u8, error-code>
-	selfHandle := component.ValBorrow(0)
-	result, err := udpSocketUnicastHopLimit(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := udpSocketUnicastHopLimit(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindU8, ok.Kind())
+	require.Equal(t, types.ValKindU8, ok.Kind())
 }
 
 func TestUdpSocketSetUnicastHopLimit(t *testing.T) {
 	// Args: self (borrow<udp-socket>), value (u8)
 	// Returns: result<_, error-code>
-	selfHandle := component.ValBorrow(0)
-	limit := component.ValU8(64)
-	result, err := udpSocketSetUnicastHopLimit(context.Background(), []component.Val{selfHandle, limit})
+	selfHandle := types.ValBorrow(0)
+	limit := types.ValU8(64)
+	result, err := udpSocketSetUnicastHopLimit(context.Background(), []types.Val{selfHandle, limit})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 }
@@ -853,26 +855,26 @@ func TestUdpSocketSetUnicastHopLimit(t *testing.T) {
 func TestUdpSocketReceiveBufferSize(t *testing.T) {
 	// Args: self (borrow<udp-socket>)
 	// Returns: result<u64, error-code>
-	selfHandle := component.ValBorrow(0)
-	result, err := udpSocketReceiveBufferSize(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := udpSocketReceiveBufferSize(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindU64, ok.Kind())
+	require.Equal(t, types.ValKindU64, ok.Kind())
 }
 
 func TestUdpSocketSetReceiveBufferSize(t *testing.T) {
 	// Args: self (borrow<udp-socket>), value (u64)
 	// Returns: result<_, error-code>
-	selfHandle := component.ValBorrow(0)
-	size := component.ValU64(65536)
-	result, err := udpSocketSetReceiveBufferSize(context.Background(), []component.Val{selfHandle, size})
+	selfHandle := types.ValBorrow(0)
+	size := types.ValU64(65536)
+	result, err := udpSocketSetReceiveBufferSize(context.Background(), []types.Val{selfHandle, size})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 }
@@ -880,26 +882,26 @@ func TestUdpSocketSetReceiveBufferSize(t *testing.T) {
 func TestUdpSocketSendBufferSize(t *testing.T) {
 	// Args: self (borrow<udp-socket>)
 	// Returns: result<u64, error-code>
-	selfHandle := component.ValBorrow(0)
-	result, err := udpSocketSendBufferSize(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := udpSocketSendBufferSize(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindU64, ok.Kind())
+	require.Equal(t, types.ValKindU64, ok.Kind())
 }
 
 func TestUdpSocketSetSendBufferSize(t *testing.T) {
 	// Args: self (borrow<udp-socket>), value (u64)
 	// Returns: result<_, error-code>
-	selfHandle := component.ValBorrow(0)
-	size := component.ValU64(65536)
-	result, err := udpSocketSetSendBufferSize(context.Background(), []component.Val{selfHandle, size})
+	selfHandle := types.ValBorrow(0)
+	size := types.ValU64(65536)
+	result, err := udpSocketSetSendBufferSize(context.Background(), []types.Val{selfHandle, size})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 }
@@ -907,75 +909,75 @@ func TestUdpSocketSetSendBufferSize(t *testing.T) {
 func TestUdpSocketSubscribe(t *testing.T) {
 	// Args: self (borrow<udp-socket>)
 	// Returns: own<pollable>
-	selfHandle := component.ValBorrow(0)
-	result, err := udpSocketSubscribe(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := udpSocketSubscribe(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOwn, result[0].Kind())
+	require.Equal(t, types.ValKindOwn, result[0].Kind())
 }
 
 func TestIncomingDatagramStreamReceive(t *testing.T) {
 	// Args: self (borrow<incoming-datagram-stream>), max-results (u64)
 	// Returns: result<list<incoming-datagram>, error-code>
-	selfHandle := component.ValBorrow(0)
-	maxResults := component.ValU64(10)
-	result, err := incomingDatagramStreamReceive(context.Background(), []component.Val{selfHandle, maxResults})
+	selfHandle := types.ValBorrow(0)
+	maxResults := types.ValU64(10)
+	result, err := incomingDatagramStreamReceive(context.Background(), []types.Val{selfHandle, maxResults})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindList, ok.Kind())
+	require.Equal(t, types.ValKindList, ok.Kind())
 }
 
 func TestIncomingDatagramStreamSubscribe(t *testing.T) {
 	// Args: self (borrow<incoming-datagram-stream>)
 	// Returns: own<pollable>
-	selfHandle := component.ValBorrow(0)
-	result, err := incomingDatagramStreamSubscribe(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := incomingDatagramStreamSubscribe(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOwn, result[0].Kind())
+	require.Equal(t, types.ValKindOwn, result[0].Kind())
 }
 
 func TestOutgoingDatagramStreamCheckSend(t *testing.T) {
 	// Args: self (borrow<outgoing-datagram-stream>)
 	// Returns: result<u64, error-code>
-	selfHandle := component.ValBorrow(0)
-	result, err := outgoingDatagramStreamCheckSend(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := outgoingDatagramStreamCheckSend(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindU64, ok.Kind())
+	require.Equal(t, types.ValKindU64, ok.Kind())
 }
 
 func TestOutgoingDatagramStreamSend(t *testing.T) {
 	// Args: self (borrow<outgoing-datagram-stream>), datagrams (list<outgoing-datagram>)
 	// Returns: result<u64, error-code>
-	selfHandle := component.ValBorrow(0)
-	datagrams := component.ValList([]component.Val{})
-	result, err := outgoingDatagramStreamSend(context.Background(), []component.Val{selfHandle, datagrams})
+	selfHandle := types.ValBorrow(0)
+	datagrams := types.ValList([]types.Val{})
+	result, err := outgoingDatagramStreamSend(context.Background(), []types.Val{selfHandle, datagrams})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk, "should return ok result")
 	require.NotNil(t, ok)
-	require.Equal(t, component.ValKindU64, ok.Kind())
+	require.Equal(t, types.ValKindU64, ok.Kind())
 }
 
 func TestOutgoingDatagramStreamSubscribe(t *testing.T) {
 	// Args: self (borrow<outgoing-datagram-stream>)
 	// Returns: own<pollable>
-	selfHandle := component.ValBorrow(0)
-	result, err := outgoingDatagramStreamSubscribe(context.Background(), []component.Val{selfHandle})
+	selfHandle := types.ValBorrow(0)
+	result, err := outgoingDatagramStreamSubscribe(context.Background(), []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOwn, result[0].Kind())
+	require.Equal(t, types.ValKindOwn, result[0].Kind())
 }
 
 // ====================
@@ -1109,26 +1111,26 @@ func TestDatagramStreams(t *testing.T) {
 
 // Helper to create a context with resource table
 func contextWithResourceTable() context.Context {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	return component.WithResourceTable(context.Background(), table)
 }
 
 // Helper to create an IPv4 socket address Val
-func makeIPv4SocketAddrVal(a, b, c, d byte, port uint16) component.Val {
-	addrRecord := component.ValRecord(map[string]component.Val{
-		"port":    component.ValU16(port),
-		"address": component.ValTuple([]component.Val{component.ValU8(a), component.ValU8(b), component.ValU8(c), component.ValU8(d)}),
+func makeIPv4SocketAddrVal(a, b, c, d byte, port uint16) types.Val {
+	addrRecord := types.ValRecord(map[string]types.Val{
+		"port":    types.ValU16(port),
+		"address": types.ValTuple([]types.Val{types.ValU8(a), types.ValU8(b), types.ValU8(c), types.ValU8(d)}),
 	})
-	return component.ValVariant("ipv4", &addrRecord)
+	return types.ValVariant("ipv4", &addrRecord)
 }
 
 func TestTcpSocket_CreateAndBind(t *testing.T) {
 	ctx := contextWithResourceTable()
 
 	// Create TCP socket
-	network := component.ValBorrow(0)
-	family := component.ValEnum("ipv4")
-	result, err := createTcpSocket(ctx, []component.Val{network, family})
+	network := types.ValBorrow(0)
+	family := types.ValEnum("ipv4")
+	result, err := createTcpSocket(ctx, []types.Val{network, family})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 
@@ -1138,21 +1140,21 @@ func TestTcpSocket_CreateAndBind(t *testing.T) {
 	sockHandle := ok.Own()
 
 	// Start bind to 127.0.0.1:0 (port 0 = let OS pick)
-	selfHandle := component.ValBorrow(sockHandle)
+	selfHandle := types.ValBorrow(sockHandle)
 	localAddr := makeIPv4SocketAddrVal(127, 0, 0, 1, 0)
-	result, err = tcpSocketStartBind(ctx, []component.Val{selfHandle, network, localAddr})
+	result, err = tcpSocketStartBind(ctx, []types.Val{selfHandle, network, localAddr})
 	require.NoError(t, err)
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk, "start-bind should succeed")
 
 	// Finish bind
-	result, err = tcpSocketFinishBind(ctx, []component.Val{selfHandle})
+	result, err = tcpSocketFinishBind(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk, "finish-bind should succeed")
 
 	// Verify local address is set
-	result, err = tcpSocketLocalAddress(ctx, []component.Val{selfHandle})
+	result, err = tcpSocketLocalAddress(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
 	isOk, addrVal, _ := result[0].Result()
 	require.True(t, isOk, "local-address should succeed")
@@ -1173,44 +1175,44 @@ func TestTcpSocket_ListenAndAccept(t *testing.T) {
 	ctx := contextWithResourceTable()
 
 	// Create TCP socket
-	network := component.ValBorrow(0)
-	family := component.ValEnum("ipv4")
-	result, err := createTcpSocket(ctx, []component.Val{network, family})
+	network := types.ValBorrow(0)
+	family := types.ValEnum("ipv4")
+	result, err := createTcpSocket(ctx, []types.Val{network, family})
 	require.NoError(t, err)
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk)
 	serverHandle := ok.Own()
 
 	// Bind to 127.0.0.1:0
-	selfHandle := component.ValBorrow(serverHandle)
+	selfHandle := types.ValBorrow(serverHandle)
 	localAddr := makeIPv4SocketAddrVal(127, 0, 0, 1, 0)
-	result, _ = tcpSocketStartBind(ctx, []component.Val{selfHandle, network, localAddr})
+	result, _ = tcpSocketStartBind(ctx, []types.Val{selfHandle, network, localAddr})
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk)
 
-	result, _ = tcpSocketFinishBind(ctx, []component.Val{selfHandle})
+	result, _ = tcpSocketFinishBind(ctx, []types.Val{selfHandle})
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk)
 
 	// Start listen
-	result, err = tcpSocketStartListen(ctx, []component.Val{selfHandle})
+	result, err = tcpSocketStartListen(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk, "start-listen should succeed")
 
 	// Finish listen
-	result, err = tcpSocketFinishListen(ctx, []component.Val{selfHandle})
+	result, err = tcpSocketFinishListen(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk, "finish-listen should succeed")
 
 	// Verify is-listening returns true
-	result, err = tcpSocketIsListening(ctx, []component.Val{selfHandle})
+	result, err = tcpSocketIsListening(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.True(t, result[0].Bool(), "socket should be listening")
 
 	// Get local address (for client to connect to)
-	result, _ = tcpSocketLocalAddress(ctx, []component.Val{selfHandle})
+	result, _ = tcpSocketLocalAddress(ctx, []types.Val{selfHandle})
 	isOk, addrVal, _ := result[0].Result()
 	require.True(t, isOk)
 
@@ -1226,37 +1228,37 @@ func TestTcpSocket_ListenAndAccept(t *testing.T) {
 
 func TestTcpSocket_ConnectToListener(t *testing.T) {
 	ctx := contextWithResourceTable()
-	network := component.ValBorrow(0)
+	network := types.ValBorrow(0)
 
 	// Create server socket
-	family := component.ValEnum("ipv4")
-	result, _ := createTcpSocket(ctx, []component.Val{network, family})
+	family := types.ValEnum("ipv4")
+	result, _ := createTcpSocket(ctx, []types.Val{network, family})
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk)
 	serverHandle := ok.Own()
 
 	// Bind server
-	serverBorrow := component.ValBorrow(serverHandle)
+	serverBorrow := types.ValBorrow(serverHandle)
 	localAddr := makeIPv4SocketAddrVal(127, 0, 0, 1, 0)
-	result, _ = tcpSocketStartBind(ctx, []component.Val{serverBorrow, network, localAddr})
+	result, _ = tcpSocketStartBind(ctx, []types.Val{serverBorrow, network, localAddr})
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk)
 
-	result, _ = tcpSocketFinishBind(ctx, []component.Val{serverBorrow})
+	result, _ = tcpSocketFinishBind(ctx, []types.Val{serverBorrow})
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk)
 
 	// Listen
-	result, _ = tcpSocketStartListen(ctx, []component.Val{serverBorrow})
+	result, _ = tcpSocketStartListen(ctx, []types.Val{serverBorrow})
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk)
 
-	result, _ = tcpSocketFinishListen(ctx, []component.Val{serverBorrow})
+	result, _ = tcpSocketFinishListen(ctx, []types.Val{serverBorrow})
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk)
 
 	// Get server's port
-	result, _ = tcpSocketLocalAddress(ctx, []component.Val{serverBorrow})
+	result, _ = tcpSocketLocalAddress(ctx, []types.Val{serverBorrow})
 	isOk, addrVal, _ := result[0].Result()
 	require.True(t, isOk)
 
@@ -1264,21 +1266,21 @@ func TestTcpSocket_ConnectToListener(t *testing.T) {
 	serverPort := serverSock.LocalAddress().Port()
 
 	// Create client socket
-	result, _ = createTcpSocket(ctx, []component.Val{network, family})
+	result, _ = createTcpSocket(ctx, []types.Val{network, family})
 	isOk, ok, _ = result[0].Result()
 	require.True(t, isOk)
 	clientHandle := ok.Own()
 
 	// Start connect to server
-	clientBorrow := component.ValBorrow(clientHandle)
+	clientBorrow := types.ValBorrow(clientHandle)
 	remoteAddr := makeIPv4SocketAddrVal(127, 0, 0, 1, serverPort)
-	result, err := tcpSocketStartConnect(ctx, []component.Val{clientBorrow, network, remoteAddr})
+	result, err := tcpSocketStartConnect(ctx, []types.Val{clientBorrow, network, remoteAddr})
 	require.NoError(t, err)
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk, "start-connect should succeed")
 
 	// Finish connect (this actually connects)
-	result, err = tcpSocketFinishConnect(ctx, []component.Val{clientBorrow})
+	result, err = tcpSocketFinishConnect(ctx, []types.Val{clientBorrow})
 	require.NoError(t, err)
 	isOk, tupleVal, _ := result[0].Result()
 	require.True(t, isOk, "finish-connect should succeed")
@@ -1289,7 +1291,7 @@ func TestTcpSocket_ConnectToListener(t *testing.T) {
 	require.Equal(t, 2, len(streams), "should return input and output stream handles")
 
 	// Verify remote address
-	result, _ = tcpSocketRemoteAddress(ctx, []component.Val{clientBorrow})
+	result, _ = tcpSocketRemoteAddress(ctx, []types.Val{clientBorrow})
 	isOk, remoteAddrVal, _ := result[0].Result()
 	require.True(t, isOk)
 	require.NotNil(t, remoteAddrVal)
@@ -1310,9 +1312,9 @@ func TestUdpSocket_CreateAndBind(t *testing.T) {
 	ctx := contextWithResourceTable()
 
 	// Create UDP socket
-	network := component.ValBorrow(0)
-	family := component.ValEnum("ipv4")
-	result, err := createUdpSocket(ctx, []component.Val{network, family})
+	network := types.ValBorrow(0)
+	family := types.ValEnum("ipv4")
+	result, err := createUdpSocket(ctx, []types.Val{network, family})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 
@@ -1322,21 +1324,21 @@ func TestUdpSocket_CreateAndBind(t *testing.T) {
 	sockHandle := ok.Own()
 
 	// Start bind to 127.0.0.1:0
-	selfHandle := component.ValBorrow(sockHandle)
+	selfHandle := types.ValBorrow(sockHandle)
 	localAddr := makeIPv4SocketAddrVal(127, 0, 0, 1, 0)
-	result, err = udpSocketStartBind(ctx, []component.Val{selfHandle, network, localAddr})
+	result, err = udpSocketStartBind(ctx, []types.Val{selfHandle, network, localAddr})
 	require.NoError(t, err)
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk, "start-bind should succeed")
 
 	// Finish bind
-	result, err = udpSocketFinishBind(ctx, []component.Val{selfHandle})
+	result, err = udpSocketFinishBind(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk, "finish-bind should succeed")
 
 	// Verify local address is set
-	result, err = udpSocketLocalAddress(ctx, []component.Val{selfHandle})
+	result, err = udpSocketLocalAddress(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
 	isOk, addrVal, _ := result[0].Result()
 	require.True(t, isOk, "local-address should succeed")
@@ -1355,28 +1357,28 @@ func TestUdpSocket_CreateAndBind(t *testing.T) {
 
 func TestUdpSocket_SendReceive(t *testing.T) {
 	ctx := contextWithResourceTable()
-	network := component.ValBorrow(0)
-	family := component.ValEnum("ipv4")
+	network := types.ValBorrow(0)
+	family := types.ValEnum("ipv4")
 
 	// Create and bind socket 1
-	result, _ := createUdpSocket(ctx, []component.Val{network, family})
+	result, _ := createUdpSocket(ctx, []types.Val{network, family})
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk)
 	sock1Handle := ok.Own()
 
-	sock1Borrow := component.ValBorrow(sock1Handle)
+	sock1Borrow := types.ValBorrow(sock1Handle)
 	localAddr1 := makeIPv4SocketAddrVal(127, 0, 0, 1, 0)
-	result, _ = udpSocketStartBind(ctx, []component.Val{sock1Borrow, network, localAddr1})
+	result, _ = udpSocketStartBind(ctx, []types.Val{sock1Borrow, network, localAddr1})
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk)
 
-	result, _ = udpSocketFinishBind(ctx, []component.Val{sock1Borrow})
+	result, _ = udpSocketFinishBind(ctx, []types.Val{sock1Borrow})
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk)
 
 	// Get streams for socket 1
-	remoteAddrOpt := component.ValOption(nil)
-	result, err := udpSocketStream(ctx, []component.Val{sock1Borrow, remoteAddrOpt})
+	remoteAddrOpt := types.ValOption(nil)
+	result, err := udpSocketStream(ctx, []types.Val{sock1Borrow, remoteAddrOpt})
 	require.NoError(t, err)
 	isOk, tupleVal, _ := result[0].Result()
 	require.True(t, isOk, "stream() should succeed")
@@ -1386,8 +1388,8 @@ func TestUdpSocket_SendReceive(t *testing.T) {
 	require.Equal(t, 2, len(streams))
 
 	// Verify address family
-	result, _ = udpSocketAddressFamily(ctx, []component.Val{sock1Borrow})
-	require.Equal(t, component.ValKindEnum, result[0].Kind())
+	result, _ = udpSocketAddressFamily(ctx, []types.Val{sock1Borrow})
+	require.Equal(t, types.ValKindEnum, result[0].Kind())
 	require.Equal(t, "ipv4", result[0].Enum())
 
 	// Clean up
@@ -1431,24 +1433,24 @@ func TestErrorCodeMapping(t *testing.T) {
 
 func TestTcpSocket_InvalidStateTransitions(t *testing.T) {
 	ctx := contextWithResourceTable()
-	network := component.ValBorrow(0)
-	family := component.ValEnum("ipv4")
+	network := types.ValBorrow(0)
+	family := types.ValEnum("ipv4")
 
 	// Create socket
-	result, _ := createTcpSocket(ctx, []component.Val{network, family})
+	result, _ := createTcpSocket(ctx, []types.Val{network, family})
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk)
 	sockHandle := ok.Own()
-	selfHandle := component.ValBorrow(sockHandle)
+	selfHandle := types.ValBorrow(sockHandle)
 
 	// Try to start listen without binding first - should fail with invalid state
-	result, _ = tcpSocketStartListen(ctx, []component.Val{selfHandle})
+	result, _ = tcpSocketStartListen(ctx, []types.Val{selfHandle})
 	isOk, _, errVal := result[0].Result()
 	require.False(t, isOk, "start-listen should fail without bind")
 	require.NotNil(t, errVal)
 
 	// Try to finish bind without start bind - should fail with invalid state
-	result, _ = tcpSocketFinishBind(ctx, []component.Val{selfHandle})
+	result, _ = tcpSocketFinishBind(ctx, []types.Val{selfHandle})
 	isOk, _, errVal = result[0].Result()
 	require.False(t, isOk, "finish-bind should fail without start-bind")
 
@@ -1461,25 +1463,25 @@ func TestTcpSocket_InvalidStateTransitions(t *testing.T) {
 
 func TestUdpSocket_InvalidStateTransitions(t *testing.T) {
 	ctx := contextWithResourceTable()
-	network := component.ValBorrow(0)
-	family := component.ValEnum("ipv4")
+	network := types.ValBorrow(0)
+	family := types.ValEnum("ipv4")
 
 	// Create socket
-	result, _ := createUdpSocket(ctx, []component.Val{network, family})
+	result, _ := createUdpSocket(ctx, []types.Val{network, family})
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk)
 	sockHandle := ok.Own()
-	selfHandle := component.ValBorrow(sockHandle)
+	selfHandle := types.ValBorrow(sockHandle)
 
 	// Try to get stream without binding first - should fail
-	remoteAddrOpt := component.ValOption(nil)
-	result, _ = udpSocketStream(ctx, []component.Val{selfHandle, remoteAddrOpt})
+	remoteAddrOpt := types.ValOption(nil)
+	result, _ = udpSocketStream(ctx, []types.Val{selfHandle, remoteAddrOpt})
 	isOk, _, errVal := result[0].Result()
 	require.False(t, isOk, "stream() should fail without bind")
 	require.NotNil(t, errVal)
 
 	// Try to finish bind without start bind - should fail with invalid state
-	result, _ = udpSocketFinishBind(ctx, []component.Val{selfHandle})
+	result, _ = udpSocketFinishBind(ctx, []types.Val{selfHandle})
 	isOk, _, errVal = result[0].Result()
 	require.False(t, isOk, "finish-bind should fail without start-bind")
 
@@ -1557,22 +1559,22 @@ func TestUdpSocket_Destroy_Idempotent(t *testing.T) {
 
 func TestUdpSocket_Destroy_WithConnection(t *testing.T) {
 	ctx := contextWithResourceTable()
-	network := component.ValBorrow(0)
-	family := component.ValEnum("ipv4")
+	network := types.ValBorrow(0)
+	family := types.ValEnum("ipv4")
 
 	// Create and bind a UDP socket
-	result, _ := createUdpSocket(ctx, []component.Val{network, family})
+	result, _ := createUdpSocket(ctx, []types.Val{network, family})
 	isOk, ok, _ := result[0].Result()
 	require.True(t, isOk)
 	sockHandle := ok.Own()
 
-	sock1Borrow := component.ValBorrow(sockHandle)
+	sock1Borrow := types.ValBorrow(sockHandle)
 	localAddr := makeIPv4SocketAddrVal(127, 0, 0, 1, 0)
-	result, _ = udpSocketStartBind(ctx, []component.Val{sock1Borrow, network, localAddr})
+	result, _ = udpSocketStartBind(ctx, []types.Val{sock1Borrow, network, localAddr})
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk)
 
-	result, _ = udpSocketFinishBind(ctx, []component.Val{sock1Borrow})
+	result, _ = udpSocketFinishBind(ctx, []types.Val{sock1Borrow})
 	isOk, _, _ = result[0].Result()
 	require.True(t, isOk)
 
@@ -1590,15 +1592,15 @@ func TestUdpSocket_Destroy_WithConnection(t *testing.T) {
 func TestInstanceNetwork_ReturnsValidHandle(t *testing.T) {
 	ctx := contextWithResourceTable()
 
-	result, err := instanceNetwork(ctx, []component.Val{})
+	result, err := instanceNetwork(ctx, []types.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindOwn, result[0].Kind())
+	require.Equal(t, types.ValKindOwn, result[0].Kind())
 
 	handle := result[0].Own()
 	// Handle should be non-zero (valid resource)
 	table := component.ResourceTableFromContext(ctx)
-	entry, err := table.Get(component.Handle(handle))
+	entry, err := table.Get(runtime.Handle(handle))
 	require.NoError(t, err)
 	_, ok := entry.Rep.(*Network)
 	require.True(t, ok, "handle should resolve to a Network resource")
@@ -1607,8 +1609,8 @@ func TestInstanceNetwork_ReturnsValidHandle(t *testing.T) {
 func TestInstanceNetwork_DistinctHandles(t *testing.T) {
 	ctx := contextWithResourceTable()
 
-	result1, _ := instanceNetwork(ctx, []component.Val{})
-	result2, _ := instanceNetwork(ctx, []component.Val{})
+	result1, _ := instanceNetwork(ctx, []types.Val{})
+	result2, _ := instanceNetwork(ctx, []types.Val{})
 
 	h1 := result1[0].Own()
 	h2 := result2[0].Own()
@@ -1621,16 +1623,16 @@ func TestTcpSocketSubscribe_ReturnsValidPollable(t *testing.T) {
 
 	sock := NewTcpSocket(IpAddressFamilyIpv4)
 	handle := table.New(sock, true)
-	selfHandle := component.ValBorrow(uint32(handle))
+	selfHandle := types.ValBorrow(uint32(handle))
 
-	result, err := tcpSocketSubscribe(ctx, []component.Val{selfHandle})
+	result, err := tcpSocketSubscribe(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
-	require.Equal(t, component.ValKindOwn, result[0].Kind())
+	require.Equal(t, types.ValKindOwn, result[0].Kind())
 	pollHandle := result[0].Own()
 	require.True(t, pollHandle > 0, "should return valid pollable handle")
 
 	// Verify it's a real Pollable in the table
-	entry, err := table.Get(component.Handle(pollHandle))
+	entry, err := table.Get(runtime.Handle(pollHandle))
 	require.NoError(t, err)
 	_, ok := entry.Rep.(*wasipIO.Pollable)
 	require.True(t, ok, "handle should resolve to a Pollable")
@@ -1642,13 +1644,13 @@ func TestUdpSocketSubscribe_ImmediatelyReady(t *testing.T) {
 
 	sock := NewUdpSocket(IpAddressFamilyIpv4)
 	handle := table.New(sock, true)
-	selfHandle := component.ValBorrow(uint32(handle))
+	selfHandle := types.ValBorrow(uint32(handle))
 
-	result, err := udpSocketSubscribe(ctx, []component.Val{selfHandle})
+	result, err := udpSocketSubscribe(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
 	pollHandle := result[0].Own()
 
-	entry, err := table.Get(component.Handle(pollHandle))
+	entry, err := table.Get(runtime.Handle(pollHandle))
 	require.NoError(t, err)
 	pollable := entry.Rep.(*wasipIO.Pollable)
 	require.True(t, pollable.Ready(), "UDP socket pollable should be immediately ready")
@@ -1661,13 +1663,13 @@ func TestIncomingDatagramStreamSubscribe_ReturnsValidPollable(t *testing.T) {
 	sock := NewUdpSocket(IpAddressFamilyIpv4)
 	stream := NewIncomingDatagramStream(sock)
 	handle := table.New(stream, true)
-	selfHandle := component.ValBorrow(uint32(handle))
+	selfHandle := types.ValBorrow(uint32(handle))
 
-	result, err := incomingDatagramStreamSubscribe(ctx, []component.Val{selfHandle})
+	result, err := incomingDatagramStreamSubscribe(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
 	pollHandle := result[0].Own()
 
-	entry, err := table.Get(component.Handle(pollHandle))
+	entry, err := table.Get(runtime.Handle(pollHandle))
 	require.NoError(t, err)
 	pollable := entry.Rep.(*wasipIO.Pollable)
 	require.True(t, pollable.Ready(), "incoming datagram stream pollable should be immediately ready")
@@ -1680,13 +1682,13 @@ func TestOutgoingDatagramStreamSubscribe_ReturnsValidPollable(t *testing.T) {
 	sock := NewUdpSocket(IpAddressFamilyIpv4)
 	stream := NewOutgoingDatagramStream(sock)
 	handle := table.New(stream, true)
-	selfHandle := component.ValBorrow(uint32(handle))
+	selfHandle := types.ValBorrow(uint32(handle))
 
-	result, err := outgoingDatagramStreamSubscribe(ctx, []component.Val{selfHandle})
+	result, err := outgoingDatagramStreamSubscribe(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
 	pollHandle := result[0].Own()
 
-	entry, err := table.Get(component.Handle(pollHandle))
+	entry, err := table.Get(runtime.Handle(pollHandle))
 	require.NoError(t, err)
 	pollable := entry.Rep.(*wasipIO.Pollable)
 	require.True(t, pollable.Ready(), "outgoing datagram stream pollable should be ready when sendState is idle")
@@ -1700,13 +1702,13 @@ func TestOutgoingDatagramStreamSubscribe_WaitingState(t *testing.T) {
 	stream := NewOutgoingDatagramStream(sock)
 	stream.sendState = sendStateWaiting
 	handle := table.New(stream, true)
-	selfHandle := component.ValBorrow(uint32(handle))
+	selfHandle := types.ValBorrow(uint32(handle))
 
-	result, err := outgoingDatagramStreamSubscribe(ctx, []component.Val{selfHandle})
+	result, err := outgoingDatagramStreamSubscribe(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
 	pollHandle := result[0].Own()
 
-	entry, err := table.Get(component.Handle(pollHandle))
+	entry, err := table.Get(runtime.Handle(pollHandle))
 	require.NoError(t, err)
 	pollable := entry.Rep.(*wasipIO.Pollable)
 	require.False(t, pollable.Ready(), "outgoing datagram stream pollable should NOT be ready when sendState is waiting")
@@ -1720,8 +1722,8 @@ func TestOutgoingDatagramStreamCheckSend_InitialPermit(t *testing.T) {
 	stream := NewOutgoingDatagramStream(sock)
 	handle := table.New(stream, true)
 
-	borrow := component.ValBorrow(uint32(handle))
-	result, err := outgoingDatagramStreamCheckSend(ctx, []component.Val{borrow})
+	borrow := types.ValBorrow(uint32(handle))
+	result, err := outgoingDatagramStreamCheckSend(ctx, []types.Val{borrow})
 	require.NoError(t, err)
 	isOk, val, _ := result[0].Result()
 	require.True(t, isOk)
@@ -1736,11 +1738,11 @@ func TestOutgoingDatagramStreamCheckSend_StablePermit(t *testing.T) {
 	stream := NewOutgoingDatagramStream(sock)
 	handle := table.New(stream, true)
 
-	borrow := component.ValBorrow(uint32(handle))
+	borrow := types.ValBorrow(uint32(handle))
 	// First call grants permit
-	outgoingDatagramStreamCheckSend(ctx, []component.Val{borrow})
+	outgoingDatagramStreamCheckSend(ctx, []types.Val{borrow})
 	// Second call should still return 16 (no sends happened)
-	result, _ := outgoingDatagramStreamCheckSend(ctx, []component.Val{borrow})
+	result, _ := outgoingDatagramStreamCheckSend(ctx, []types.Val{borrow})
 	isOk, val, _ := result[0].Result()
 	require.True(t, isOk)
 	require.Equal(t, uint64(16), val.U64(), "repeated check-send without sends should return same permit")
@@ -1749,15 +1751,15 @@ func TestOutgoingDatagramStreamCheckSend_StablePermit(t *testing.T) {
 // makeOutgoingDatagramVal constructs an outgoing-datagram record Val with the
 // given payload and no remote-address override. Used by trap-path tests — the
 // datagrams never reach the wire because the precondition check runs first.
-func makeOutgoingDatagramVal(data []byte) component.Val {
-	dataVals := make([]component.Val, len(data))
+func makeOutgoingDatagramVal(data []byte) types.Val {
+	dataVals := make([]types.Val, len(data))
 	for i, b := range data {
-		dataVals[i] = component.ValU8(b)
+		dataVals[i] = types.ValU8(b)
 	}
 	// remote-address is option<ip-socket-address>; pass none.
-	return component.ValRecord(map[string]component.Val{
-		"data":           component.ValList(dataVals),
-		"remote-address": component.ValOption(nil),
+	return types.ValRecord(map[string]types.Val{
+		"data":           types.ValList(dataVals),
+		"remote-address": types.ValOption(nil),
 	})
 }
 
@@ -1782,13 +1784,13 @@ func TestOutgoingDatagramStreamSend_TrapsOnMissingCheckSend(t *testing.T) {
 	stream := NewOutgoingDatagramStream(sock)
 	// Default sendState is sendStateIdle — no check-send has been called.
 	handle := table.New(stream, true)
-	selfHandle := component.ValBorrow(uint32(handle))
+	selfHandle := types.ValBorrow(uint32(handle))
 
-	datagrams := component.ValList([]component.Val{
+	datagrams := types.ValList([]types.Val{
 		makeOutgoingDatagramVal([]byte{0x01, 0x02, 0x03}),
 	})
 
-	result, err := outgoingDatagramStreamSend(ctx, []component.Val{selfHandle, datagrams})
+	result, err := outgoingDatagramStreamSend(ctx, []types.Val{selfHandle, datagrams})
 	require.Error(t, err, "send without preceding check-send must return a Go error (trap)")
 	require.Nil(t, result, "trap path must return nil result")
 }
@@ -1803,23 +1805,23 @@ func TestOutgoingDatagramStreamSend_TrapsOnDatagramsExceedingPermit(t *testing.T
 	sock := NewUdpSocket(IpAddressFamilyIpv4)
 	stream := NewOutgoingDatagramStream(sock)
 	handle := table.New(stream, true)
-	selfHandle := component.ValBorrow(uint32(handle))
+	selfHandle := types.ValBorrow(uint32(handle))
 
 	// Grant a permit of 16 via check-send.
-	checkResult, checkErr := outgoingDatagramStreamCheckSend(ctx, []component.Val{selfHandle})
+	checkResult, checkErr := outgoingDatagramStreamCheckSend(ctx, []types.Val{selfHandle})
 	require.NoError(t, checkErr)
 	isOk, val, _ := checkResult[0].Result()
 	require.True(t, isOk)
 	require.Equal(t, uint64(16), val.U64(), "check-send should grant 16")
 
 	// Build 17 datagrams — one more than permitted.
-	datagramVals := make([]component.Val, 17)
+	datagramVals := make([]types.Val, 17)
 	for i := range datagramVals {
 		datagramVals[i] = makeOutgoingDatagramVal([]byte{byte(i)})
 	}
-	datagrams := component.ValList(datagramVals)
+	datagrams := types.ValList(datagramVals)
 
-	result, err := outgoingDatagramStreamSend(ctx, []component.Val{selfHandle, datagrams})
+	result, err := outgoingDatagramStreamSend(ctx, []types.Val{selfHandle, datagrams})
 	require.Error(t, err, "send with more datagrams than permitted must return a Go error (trap)")
 	require.Nil(t, result, "trap path must return nil result")
 }
@@ -1837,18 +1839,18 @@ func TestOutgoingDatagramStreamSend_NoTrapWhenWithinPermit(t *testing.T) {
 	sock := NewUdpSocket(IpAddressFamilyIpv4)
 	stream := NewOutgoingDatagramStream(sock)
 	handle := table.New(stream, true)
-	selfHandle := component.ValBorrow(uint32(handle))
+	selfHandle := types.ValBorrow(uint32(handle))
 
 	// Grant a permit via check-send.
-	_, checkErr := outgoingDatagramStreamCheckSend(ctx, []component.Val{selfHandle})
+	_, checkErr := outgoingDatagramStreamCheckSend(ctx, []types.Val{selfHandle})
 	require.NoError(t, checkErr)
 
 	// Single datagram, well within the permit of 16.
-	datagrams := component.ValList([]component.Val{
+	datagrams := types.ValList([]types.Val{
 		makeOutgoingDatagramVal([]byte{0xAA}),
 	})
 
-	result, err := outgoingDatagramStreamSend(ctx, []component.Val{selfHandle, datagrams})
+	result, err := outgoingDatagramStreamSend(ctx, []types.Val{selfHandle, datagrams})
 	// The critical assertion: precondition check must pass, so Go error is nil.
 	// The in-band Result may be Err(invalid-state) because socket.conn is nil
 	// (the stream was not created via the bound-and-streaming path), but that
@@ -1856,7 +1858,7 @@ func TestOutgoingDatagramStreamSend_NoTrapWhenWithinPermit(t *testing.T) {
 	require.NoError(t, err, "send within permitted count must NOT trap")
 	require.NotNil(t, result, "non-trap path must return a non-nil result")
 	require.Equal(t, 1, len(result))
-	require.Equal(t, component.ValKindResult, result[0].Kind())
+	require.Equal(t, types.ValKindResult, result[0].Kind())
 }
 
 func TestNetworkErrorCode_WithSocketError(t *testing.T) {
@@ -1868,8 +1870,8 @@ func TestNetworkErrorCode_WithSocketError(t *testing.T) {
 	ioErr := wasipIO.NewError(sockErr)
 	handle := table.New(ioErr, true)
 
-	errHandle := component.ValBorrow(uint32(handle))
-	result, err := networkErrorCode(ctx, []component.Val{errHandle})
+	errHandle := types.ValBorrow(uint32(handle))
+	result, err := networkErrorCode(ctx, []types.Val{errHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 
@@ -1885,8 +1887,8 @@ func TestNetworkErrorCode_NonSocketError(t *testing.T) {
 	ioErr := wasipIO.NewError(errors.New("some random error"))
 	handle := table.New(ioErr, true)
 
-	errHandle := component.ValBorrow(uint32(handle))
-	result, err := networkErrorCode(ctx, []component.Val{errHandle})
+	errHandle := types.ValBorrow(uint32(handle))
+	result, err := networkErrorCode(ctx, []types.Val{errHandle})
 	require.NoError(t, err)
 
 	opt := result[0].Option()
