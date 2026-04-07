@@ -4,122 +4,97 @@
 
 package types
 
-// ValType represents any component model value type.
-type ValType interface {
-	valType() // marker method
+// TypeKind discriminates the variants of ValType. For scalar kinds the
+// Index field of ValType is unused. For composite kinds Index points
+// into the corresponding slice on *ComponentTypes.
+//
+// Spec: debug-vendored/component-model/design/mvp/canonical-abi/definitions.py:103-180
+type TypeKind uint8
 
-	// Size returns the byte size when stored in linear memory.
-	Size() uint32
+const (
+	TypeKindBool TypeKind = iota
+	TypeKindS8
+	TypeKindU8
+	TypeKindS16
+	TypeKindU16
+	TypeKindS32
+	TypeKindU32
+	TypeKindS64
+	TypeKindU64
+	TypeKindF32
+	TypeKindF64
+	TypeKindChar
+	TypeKindString
+	TypeKindList         // Index -> ComponentTypes.Lists (dynamic length)
+	TypeKindFixedList    // Index -> ComponentTypes.FixedLists (fixed length, distinct type)
+	TypeKindRecord       // Index -> ComponentTypes.Records
+	TypeKindTuple        // Index -> ComponentTypes.Tuples
+	TypeKindVariant      // Index -> ComponentTypes.Variants
+	TypeKindEnum         // Index -> ComponentTypes.Enums
+	TypeKindOption       // Index -> ComponentTypes.Options
+	TypeKindResult       // Index -> ComponentTypes.Results
+	TypeKindFlags        // Index -> ComponentTypes.Flags
+	TypeKindOwn          // Index -> ComponentTypes.ResourceTables
+	TypeKindBorrow       // Index -> ComponentTypes.ResourceTables
+	TypeKindStream       // Index -> ComponentTypes.Streams (lift/lower traps)
+	TypeKindFuture       // Index -> ComponentTypes.Futures (lift/lower traps)
+	TypeKindErrorContext // Index -> ComponentTypes.ErrorContextTables (lift/lower traps)
+)
 
-	// Align returns the alignment requirement in bytes.
-	Align() uint32
-
-	// FlattenCount returns the number of core wasm values when flattened.
-	// Used to determine if values pass in registers (flat) or memory (heap).
-	FlattenCount() int
+// ValType identifies a single component-model value type. 8 bytes total.
+// Comparable with ==, usable as a map key, copyable by value. Pass by
+// value through lift/lower dispatch.
+//
+// For scalar kinds (TypeKindBool through TypeKindString), Index is zero
+// and ignored. For composite kinds Index is the offset into the matching
+// ComponentTypes slice.
+type ValType struct {
+	Kind  TypeKind
+	Index uint32
 }
 
-// Bool represents a boolean value.
-type Bool struct{}
+// IsZero reports whether v is the zero ValType. Zero is distinguishable
+// from a legitimate TypeKindBool value only by context; the builder
+// never returns a zero ValType.
+func (v ValType) IsZero() bool { return v == ValType{} }
 
-func (Bool) valType()          {}
-func (Bool) Size() uint32      { return 1 }
-func (Bool) Align() uint32     { return 1 }
-func (Bool) FlattenCount() int { return 1 }
+// Named scalar constants. These are the only non-composite ValType
+// values that can be constructed without a builder.
+var (
+	Bool    = ValType{Kind: TypeKindBool}
+	S8      = ValType{Kind: TypeKindS8}
+	U8      = ValType{Kind: TypeKindU8}
+	S16     = ValType{Kind: TypeKindS16}
+	U16     = ValType{Kind: TypeKindU16}
+	S32     = ValType{Kind: TypeKindS32}
+	U32     = ValType{Kind: TypeKindU32}
+	S64     = ValType{Kind: TypeKindS64}
+	U64     = ValType{Kind: TypeKindU64}
+	F32     = ValType{Kind: TypeKindF32}
+	F64     = ValType{Kind: TypeKindF64}
+	Char    = ValType{Kind: TypeKindChar}
+	String_ = ValType{Kind: TypeKindString}
+)
 
-// S8 represents a signed 8-bit integer.
-type S8 struct{}
-
-func (S8) valType()          {}
-func (S8) Size() uint32      { return 1 }
-func (S8) Align() uint32     { return 1 }
-func (S8) FlattenCount() int { return 1 }
-
-// U8 represents an unsigned 8-bit integer.
-type U8 struct{}
-
-func (U8) valType()          {}
-func (U8) Size() uint32      { return 1 }
-func (U8) Align() uint32     { return 1 }
-func (U8) FlattenCount() int { return 1 }
-
-// S16 represents a signed 16-bit integer.
-type S16 struct{}
-
-func (S16) valType()          {}
-func (S16) Size() uint32      { return 2 }
-func (S16) Align() uint32     { return 2 }
-func (S16) FlattenCount() int { return 1 }
-
-// U16 represents an unsigned 16-bit integer.
-type U16 struct{}
-
-func (U16) valType()          {}
-func (U16) Size() uint32      { return 2 }
-func (U16) Align() uint32     { return 2 }
-func (U16) FlattenCount() int { return 1 }
-
-// S32 represents a signed 32-bit integer.
-type S32 struct{}
-
-func (S32) valType()          {}
-func (S32) Size() uint32      { return 4 }
-func (S32) Align() uint32     { return 4 }
-func (S32) FlattenCount() int { return 1 }
-
-// U32 represents an unsigned 32-bit integer.
-type U32 struct{}
-
-func (U32) valType()          {}
-func (U32) Size() uint32      { return 4 }
-func (U32) Align() uint32     { return 4 }
-func (U32) FlattenCount() int { return 1 }
-
-// S64 represents a signed 64-bit integer.
-type S64 struct{}
-
-func (S64) valType()          {}
-func (S64) Size() uint32      { return 8 }
-func (S64) Align() uint32     { return 8 }
-func (S64) FlattenCount() int { return 1 }
-
-// U64 represents an unsigned 64-bit integer.
-type U64 struct{}
-
-func (U64) valType()          {}
-func (U64) Size() uint32      { return 8 }
-func (U64) Align() uint32     { return 8 }
-func (U64) FlattenCount() int { return 1 }
-
-// F32 represents a 32-bit floating point number.
-type F32 struct{}
-
-func (F32) valType()          {}
-func (F32) Size() uint32      { return 4 }
-func (F32) Align() uint32     { return 4 }
-func (F32) FlattenCount() int { return 1 }
-
-// F64 represents a 64-bit floating point number.
-type F64 struct{}
-
-func (F64) valType()          {}
-func (F64) Size() uint32      { return 8 }
-func (F64) Align() uint32     { return 8 }
-func (F64) FlattenCount() int { return 1 }
-
-// Char represents a Unicode scalar value (code point).
-type Char struct{}
-
-func (Char) valType()          {}
-func (Char) Size() uint32      { return 4 }
-func (Char) Align() uint32     { return 4 }
-func (Char) FlattenCount() int { return 1 }
-
-// String represents a UTF-8 encoded string.
-// In memory: (ptr: i32, len: i32)
-type String struct{}
-
-func (String) valType()          {}
-func (String) Size() uint32      { return 8 } // ptr + len
-func (String) Align() uint32     { return 4 } // aligned to i32
-func (String) FlattenCount() int { return 2 } // ptr, len
+// ComponentTypes is the per-top-level-component immutable type bag.
+// Built by ComponentTypesBuilder during binary decode, frozen at Finish,
+// and threaded through all subsequent lift/lower / validation / linking.
+// One pointer identity per compiled component drives the fast-path
+// type-equality short-circuit during cross-component type checking
+// (added in Session 2).
+type ComponentTypes struct {
+	Records            []TypeRecord
+	Variants           []TypeVariant
+	Lists              []TypeList            // dynamic-length lists only
+	FixedLists         []TypeFixedLengthList // fixed-length lists are a distinct type
+	Tuples             []TypeTuple
+	Flags              []TypeFlags
+	Enums              []TypeEnum
+	Options            []TypeOption
+	Results            []TypeResult
+	ResourceTables     []TypeResourceTable
+	Streams            []TypeStream
+	Futures            []TypeFuture
+	ErrorContextTables []TypeErrorContextTable
+	Funcs              []TypeFunc
+}

@@ -1,88 +1,89 @@
-// Copyright 2024 The Go Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file.
-
 package types
 
-import (
-	"testing"
+import "testing"
 
-	"github.com/tetratelabs/wazero/internal/testing/require"
-)
-
-func TestPrimitiveValType(t *testing.T) {
-	tests := []struct {
-		name         string
-		typ          ValType
-		size         uint32
-		align        uint32
-		flattenCount int
+func TestTypeKindConstants(t *testing.T) {
+	// Confirm the discriminator order matches the design doc.
+	// Spec: definitions.py:103-180 (canonical type list).
+	cases := []struct {
+		k    TypeKind
+		want uint8
 	}{
-		{"Bool", Bool{}, 1, 1, 1},
-		{"S8", S8{}, 1, 1, 1},
-		{"U8", U8{}, 1, 1, 1},
-		{"S16", S16{}, 2, 2, 1},
-		{"U16", U16{}, 2, 2, 1},
-		{"S32", S32{}, 4, 4, 1},
-		{"U32", U32{}, 4, 4, 1},
-		{"S64", S64{}, 8, 8, 1},
-		{"U64", U64{}, 8, 8, 1},
-		{"F32", F32{}, 4, 4, 1},
-		{"F64", F64{}, 8, 8, 1},
-		{"Char", Char{}, 4, 4, 1},
-		{"String", String{}, 8, 4, 2}, // ptr + len, align 4
+		{TypeKindBool, 0},
+		{TypeKindS8, 1},
+		{TypeKindU8, 2},
+		{TypeKindString, 12},
+		{TypeKindList, 13},
+		{TypeKindFixedList, 14},
+		{TypeKindRecord, 15},
+		{TypeKindOwn, 22},
+		{TypeKindBorrow, 23},
+		{TypeKindStream, 24},
+		{TypeKindFuture, 25},
+		{TypeKindErrorContext, 26},
 	}
-
-	for _, tt := range tests {
-		tc := tt
-		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.size, tc.typ.Size())
-			require.Equal(t, tc.align, tc.typ.Align())
-			require.Equal(t, tc.flattenCount, tc.typ.FlattenCount())
-		})
+	for _, c := range cases {
+		if uint8(c.k) != c.want {
+			t.Errorf("TypeKind(%v) = %d, want %d", c.k, uint8(c.k), c.want)
+		}
 	}
 }
 
-// TestAsyncValTypes asserts the existence and i32-handle shape of the async
-// value types Stream, Future, and ErrorContext. All three flatten to a single
-// i32 handle per the canonical ABI spec:
-//   - alignment(): definitions.py:1074, 1080 — ErrorContextType=4, StreamType|FutureType=4
-//   - elem_size(): definitions.py:1132, 1138 — ErrorContextType=4, StreamType|FutureType=4
-//   - flatten_type(): definitions.py:1713, 1719 — all three flatten to ['i32']
-//
-// Lift/lower of these types is intentionally unimplemented and traps; that
-// behavior is asserted in internal/component/abi/lift_test.go and lower_test.go.
-func TestAsyncValTypes(t *testing.T) {
-	tests := []struct {
-		name         string
-		typ          ValType
-		size         uint32
-		align        uint32
-		flattenCount int
-	}{
-		{"Stream_no_element", Stream{}, 4, 4, 1},
-		{"Stream_with_element", Stream{Element: U32{}}, 4, 4, 1},
-		{"Future_no_element", Future{}, 4, 4, 1},
-		{"Future_with_element", Future{Element: U32{}}, 4, 4, 1},
-		{"ErrorContext", ErrorContext{}, 4, 4, 1},
+func TestValTypeIsZero(t *testing.T) {
+	var z ValType
+	if !z.IsZero() {
+		t.Errorf("zero ValType.IsZero() = false, want true")
 	}
-
-	for _, tt := range tests {
-		tc := tt
-		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.size, tc.typ.Size())
-			require.Equal(t, tc.align, tc.typ.Align())
-			require.Equal(t, tc.flattenCount, tc.typ.FlattenCount())
-		})
+	if Bool.IsZero() {
+		t.Errorf("Bool.IsZero() = true, want false")
+	}
+	if (ValType{Kind: TypeKindRecord, Index: 5}).IsZero() {
+		t.Errorf("non-zero ValType.IsZero() = true, want false")
 	}
 }
 
-// TestAsyncValTypesImplementValType compile-time-checks that Stream, Future,
-// and ErrorContext satisfy the ValType interface.
-func TestAsyncValTypesImplementValType(t *testing.T) {
-	var _ ValType = Stream{}
-	var _ ValType = Stream{Element: U32{}}
-	var _ ValType = Future{}
-	var _ ValType = Future{Element: U32{}}
-	var _ ValType = ErrorContext{}
+func TestNamedScalarConstants(t *testing.T) {
+	cases := []struct {
+		name string
+		v    ValType
+		kind TypeKind
+	}{
+		{"Bool", Bool, TypeKindBool},
+		{"S8", S8, TypeKindS8},
+		{"U8", U8, TypeKindU8},
+		{"S16", S16, TypeKindS16},
+		{"U16", U16, TypeKindU16},
+		{"S32", S32, TypeKindS32},
+		{"U32", U32, TypeKindU32},
+		{"S64", S64, TypeKindS64},
+		{"U64", U64, TypeKindU64},
+		{"F32", F32, TypeKindF32},
+		{"F64", F64, TypeKindF64},
+		{"Char", Char, TypeKindChar},
+		{"String_", String_, TypeKindString},
+	}
+	for _, c := range cases {
+		if c.v.Kind != c.kind {
+			t.Errorf("%s.Kind = %v, want %v", c.name, c.v.Kind, c.kind)
+		}
+		if c.v.Index != 0 {
+			t.Errorf("%s.Index = %d, want 0", c.name, c.v.Index)
+		}
+	}
+}
+
+func TestValTypeComparable(t *testing.T) {
+	// ValType is a value-type struct and must be usable as a map key.
+	m := map[ValType]string{
+		Bool:                                "bool",
+		U32:                                 "u32",
+		{Kind: TypeKindRecord, Index: 5}:    "record5",
+		{Kind: TypeKindRecord, Index: 6}:    "record6",
+	}
+	if m[Bool] != "bool" {
+		t.Errorf("map lookup of Bool failed")
+	}
+	if m[ValType{Kind: TypeKindRecord, Index: 5}] != "record5" {
+		t.Errorf("map lookup of record5 failed")
+	}
 }
