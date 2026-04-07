@@ -976,6 +976,78 @@ bounced.
 
 ---
 
+### Item 10.5: Verify the binary parser computes flatten counts correctly for retptr-triggering types
+
+- **status:** pending
+- **claimed_by:** -
+- **spec_review:** -
+- **code_review:** -
+- **commit:** -
+- **notes:** Anti-bug-hiding check. The instance.go retptr synthesis hack at 335-338 may have been masking a parser bug where FlattenCount returned 1 for types that should return >1 (causing the retptr branch to never trigger). Loop 2 deletes the hack; this item verifies the parser produces correct flatten counts so the retptr branch DOES trigger when needed.
+
+**Files:**
+- Read: `internal/component/binary/` parser files (the ones modified
+  in item 6)
+- Read: `definitions.py` `flatten_type` function (search for `def flatten_type`)
+- Read: `crates/wasmtime/src/runtime/component/values.rs` and
+  `crates/wasmtime-environ/src/component/types.rs` —
+  `CanonicalAbiInfo.flat_count` computation
+- Add: `internal/component/conformance/canonical_abi/parser_flatten_test.go`
+  — table-driven test that constructs every value type via the parser
+  AND directly, then asserts both produce the same `FlattenCount`
+
+**Spec authorities:**
+- `definitions.py` `flatten_type(t)` and `flatten_record/variant/option/result/tuple/flags`
+  helpers — the canonical computation
+- `crates/wasmtime/src/runtime/environ/component/types.rs` —
+  `CanonicalAbiInfo.flat_count` (precomputed at parse time)
+
+**Description:**
+The audit found an unverified concern: if the binary parser's
+`FlattenCount` is wrong for any composite type (e.g., always returns
+1 because of a bug), the retptr branch in lifters and lowers would
+never trigger — and the bug would be masked by the synthesis hack at
+instance.go:335-338. Loop 2 item 5 deletes that hack; if the parser
+bug exists, deleting the hack will expose it as test failures in
+Loop 2 (good — the bug surfaces). But it's better to verify and
+fix the parser before Loop 2 starts.
+
+This item:
+1. Walks every concrete `types.ValType` case (Bool, S8/U8, ..., String,
+   List, FixedSizeList, Record, Tuple, Variant, Enum, Option, Result,
+   Flags, Own, Borrow, Stream, Future, ErrorContext)
+2. For each, constructs the type two ways: (a) via the binary parser
+   on a hand-crafted minimal binary that defines the type, (b) directly
+   in Go by allocating `types.X{...}`
+3. Computes `FlattenCount` (and `Size`, `Align`) for both
+4. Asserts they match
+5. Additionally: builds a record-of-3-i32 (which should have flatten
+   count 3, triggering the retptr branch on the lower side and the
+   memory-read branch on the lift side) and confirms both methods
+   agree on count=3
+6. Asserts against `definitions.py` directly: for each type, manually
+   compute `flatten_type` per the spec algorithm and compare
+
+If any mismatch is found, fix it in the binary parser (item 6 may
+need a follow-up commit).
+
+**Definition of done:**
+- `parser_flatten_test.go` exists with at least one test row per
+  concrete value type
+- All rows pass
+- A specific row exercises a record with 3 i32 fields and confirms
+  flatten count is 3 (not 1 — the bug-masking case)
+- `go test ./internal/component/conformance/canonical_abi/...` passes
+  for the new test file
+
+**Reviewer focus areas:**
+- Spec compliance: confirm every flatten count matches `definitions.py`
+  `flatten_type` (cite the specific case)
+- Code quality: confirm the test exhaustively covers all types; confirm
+  no synthesis hacks were re-introduced
+
+---
+
 ### Item 11: Reviewer subagent verifies new `types.ValType` shape matches spec for every type category
 
 - **status:** pending

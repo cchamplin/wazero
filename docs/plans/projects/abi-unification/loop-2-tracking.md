@@ -497,24 +497,53 @@ and `conformance/canonical_abi/` (Loop 1 phase 1.C).
 - **notes:** Largest single-file change in Loop 2. Lifecycle (subtask, borrow scope, may_leave, post_return, reentrance, enter/exit, validateReturn) STAYS in instance.go per the wasmtime layering. abi/ stays pure math. Depends on items 4 and Loop 1 items 9.7, 24, 25.
 
 **Files:**
-- Modify: `internal/component/instance.go` —
-  - Rewrite `ExportedFunc.Call` body to keep the lifecycle steps and
-    delegate lift/lower math to `abi.LiftValues` / `abi.LowerValues`
-  - Delete `liftRecord` (line 757, alphabetical sort at 765)
-  - Delete `liftResolvedType` (line 794)
-  - Delete the retptr-as-PARAM detection block at instance.go:305-322
-    AND replace with `abi.LowerValues`'s built-in spill handling
-  - **KEEP** the retptr-as-RESULT synthesis at instance.go:335-338
-    (this is a wazero-specific workaround for Go/TinyGo cores that
-    return the retptr as a result rather than a param; it's a
-    toolchain detection, not a canonical ABI bug)
-  - **KEEP** the legacy fallback at instance.go:450+ (which calls
-    `liftRecord` at 501) — rewrite it to call `abi.LiftValues`
+- Modify: `internal/component/instance.go` — DELETE everything that
+  is per-value lift/lower logic; KEEP the lifecycle orchestration
+  (numbered list below). After this item, `ExportedFunc.Call` is a
+  pure lifecycle wrapper that calls `abi.LowerValues` for params and
+  `abi.LiftValues` for results.
+
+  **Delete** (none of these are workarounds; they are accumulated
+  buggy parallel implementations):
+  - The retptr-as-PARAM allocation block at instance.go:305-322 —
+    spec-compliant in intent but lives in the wrong place per the
+    wasmtime layering. Retptr allocation moves INTO `abi.LowerValues`
+    (Loop 1 item 25), where the spec function `lower_flat_values`
+    at `definitions.py:1954` puts it via the `out_param` argument.
+  - The stale "Some toolchains (Go): core function returns retptr as
+    i32, no extra param" comment at instance.go:308 — this comment
+    describes an abandoned approach the code never actually
+    implements. Go and TinyGo components produce spec-compliant
+    retptr signatures; there is no Go-specific retptr branch.
+  - The synthesis hack at instance.go:335-338
+    (`if usedRetptr && len(coreResults) == 0 { coreResults = []uint64{retptrVal} }`)
+    — this exists ONLY because the buggy `liftRecord`/`liftResolvedType`
+    family can't read memory directly; it stuffs the retptr pointer
+    into `coreResults` so the lifter knows where to look. After
+    `abi.LiftValues` (which has a `LiftContext` with direct memory
+    access) replaces the lifter, the hack is unnecessary and goes.
+  - `liftRecord` at instance.go:757 (with the alphabetical sort at
+    line 765 — the spec violation)
+  - `liftResolvedType` at instance.go:794 (the dispatcher used by
+    `liftRecord`)
+  - **The entire "legacy fallback" block at instance.go:450+** —
+    this is a fifth parallel lift implementation with its own
+    hardcoded per-type logic (`if typeDef.Option != nil`,
+    `if typeDef.Record != nil`, `if typeDef.Result != nil`, etc.).
+    It assumes specific flat layouts ("Option type: first result is
+    discriminant, second is payload"), does not handle nested types,
+    and was bolted on next to the TypeResolver path as a "fallback".
+    Both paths get replaced by `abi.LiftValues` which handles every
+    case correctly.
+  - The TypeResolver path at instance.go:440-447 — was the "newer"
+    approach bolted on top of the legacy fallback; deleted because
+    `TypeResolver` itself goes away in Loop 1 item 9.
 - Modify: `internal/component/instance_test.go` — delete the three
   `TestLiftResolvedType_*` tests at lines 2149, 2177, 2198 (verified
-  by audit). Delete any `TestLiftRecord*` tests. Keep tests of the
-  orchestration (subtask, borrow scope, may_leave, post_return) —
-  those still apply.
+  by audit). Delete any `TestLiftRecord*` tests. Delete any test
+  that asserts the legacy fallback's per-type behavior (option-
+  hardcoded, result-hardcoded). Keep tests of the orchestration
+  (subtask, borrow scope, may_leave, post_return) — those still apply.
 
 **Spec authorities:**
 - `definitions.py:1978-2063` — `canon_lift` (verified line). Note:
@@ -531,31 +560,34 @@ and `conformance/canonical_abi/` (Loop 1 phase 1.C).
   post-return invocation that lives in instance.go (NOT abi/).
 
 **Description:**
-`ExportedFunc.Call` is the guest-export path. It's also the wazero
+`ExportedFunc.Call` is the guest-export path. It's the wazero
 analogue of wasmtime's `Func::call_raw`. Per the wasmtime layering
-research, it owns the **lifecycle**:
+research, it owns the **lifecycle**. The lifecycle steps below are
+the ones that STAY in instance.go (the per-value lift/lower internals
+they currently include get DELETED):
 
-1. Reentrance check (`may_enter`) — line ~168 in current code
-2. Subtask creation — lines 134-157
-3. Borrow scope creation from subtask — line 146
-4. Set instance.callContext — line 161
-5. EnterCall/ExitCall tracking — lines 174-175
-6. Toggle `mayLeave` around lowering — lines 207-281
-7. Allocate retptr via realloc — lines 312-322 (the part that stays)
-8. Call core function — line 329
-9. (Workaround) Synthesize coreResults from retptr for Go/TinyGo —
-   lines 335-338 (KEEP)
-10. Call post-return function — lines 345-356
-11. Call lift_own/lift_borrow for own/borrow results — lines 363+
-12. Validate `callCtx.ValidateReturn()` — line 371
-13. Resolve subtask — lines 379-385
+1. Reentrance check (`may_enter`)
+2. Subtask creation
+3. Borrow scope creation from subtask
+4. Set instance.callContext
+5. EnterCall/ExitCall tracking
+6. Toggle `mayLeave` around lowering
+7. Call core function (the core wasm `Function.Call`)
+8. Toggle `mayLeave` around result handling
+9. Call post-return function
+10. Validate `callCtx.ValidateReturn()`
+11. Resolve subtask
 
-**ALL of these stay in instance.go.** What changes is the per-value
-lift/lower logic in the middle, which gets delegated to abi/.
+What gets DELETED (per the Files section above): the entire per-type
+lift/lower logic, the retptr allocation (which moves into
+`abi.LowerValues`), the synthesis hack at 335-338, the legacy
+fallback at 450+, `liftRecord`, `liftResolvedType`, the TypeResolver
+path. Result lifting flows through `abi.LiftValues` which reads
+directly from memory via `LiftContext`.
 
 ```go
 func (f *ExportedFunc) Call(ctx context.Context, args ...runtime.Val) ([]runtime.Val, error) {
-    // Steps 1-5 (orchestration setup) stay unchanged
+    // Steps 1-5: orchestration setup (stays unchanged)
     callCtx := newCallContext(...)
     subtask := newSubtask(...)
     scope := newBorrowScope(subtask)
@@ -565,7 +597,9 @@ func (f *ExportedFunc) Call(ctx context.Context, args ...runtime.Val) ([]runtime
     defer f.instance.ExitCall()
 
     // Step 6: lower params via abi (replaces ~75 lines of per-type
-    // lowering at instance.go:207-281)
+    // lowering at instance.go:207-281). LowerValues handles param
+    // spill AND result-retptr allocation internally per
+    // definitions.py:1954 lower_flat_values (the out_param argument).
     f.instance.SetMayLeave(false)
     lwx := abi.NewLowerContext(f.memory, f.options, f.realloc, f.instance.ResourceTable())
     coreArgs, err := abi.LowerValues(lwx, abi.MaxFlatParams, args, f.funcType.Params, nil)
@@ -575,41 +609,28 @@ func (f *ExportedFunc) Call(ctx context.Context, args ...runtime.Val) ([]runtime
     }
     f.instance.SetMayLeave(true)
 
-    // Step 7: Allocate retptr if results need it (KEEP — wazero-specific
-    // realloc plumbing). The actual logic moves into abi.LowerValues
-    // for the "params spill" case; for the "results spill" case the
-    // retptr is part of coreArgs already.
-    needsResultRetptr := /* ... */
-    if needsResultRetptr {
-        retptr, err := f.realloc(0, 0, abi.AlignmentForResults(f.funcType.Results), abi.SizeForResults(f.funcType.Results))
-        if err != nil { return nil, err }
-        coreArgs = append(coreArgs, uint64(retptr))
-    }
-
-    // Step 8: Invoke core
-    coreResults, err := f.coreFunc.Call(ctx, coreArgs...)
+    // Step 7: Invoke core wasm.
+    _, err = f.coreFunc.Call(ctx, coreArgs...)
     if err != nil { return nil, err }
 
-    // Step 9: Workaround for Go/TinyGo retptr-as-result (KEEP)
-    if needsResultRetptr && len(coreResults) == 0 {
-        coreResults = []uint64{coreArgs[len(coreArgs)-1]}
-    }
-
-    // Step 10: Lift results via abi (replaces liftRecord/liftResolvedType
-    // and the legacy fallback at instance.go:450+)
+    // Step 8: Lift results via abi. LiftValues reads directly from
+    // memory via the LiftContext for retptr-spilled results — no
+    // synthesis hack needed because the lifter has memory access.
+    f.instance.SetMayLeave(false)
     lcx := abi.NewLiftContext(f.memory, f.options, f.instance.ResourceTable())
-    results, err := abi.LiftValues(lcx, abi.MaxFlatResults, coreResults, f.funcType.Results)
+    results, err := abi.LiftValues(lcx, abi.MaxFlatResults, coreArgs, f.funcType.Results)
+    f.instance.SetMayLeave(true)
     if err != nil { return nil, err }
 
-    // Step 11-12: post-return invocation (lifecycle, stays here)
+    // Step 9: post-return invocation (lifecycle, stays here, NOT in abi/).
     if f.options.PostReturnIdx != nil {
-        if err := f.invokePostReturn(ctx, coreResults); err != nil { return nil, err }
+        if err := f.invokePostReturn(ctx, coreArgs); err != nil { return nil, err }
     }
 
-    // Step 13: validate return
+    // Step 10: validate return
     if err := callCtx.ValidateReturn(); err != nil { return nil, err }
 
-    // Resolve subtask
+    // Step 11: Resolve subtask
     subtask.Resolve()
 
     return results, nil
@@ -617,28 +638,35 @@ func (f *ExportedFunc) Call(ctx context.Context, args ...runtime.Val) ([]runtime
 ```
 
 (Field accesses are illustrative. Read the actual structs first.
-The key point: every numbered step above is preserved; only the
-per-type lift/lower internals are replaced with `abi.LiftValues`/
-`abi.LowerValues`.)
+The key point: NO synthesis hacks, NO Go/TinyGo workarounds, NO
+legacy fallbacks. Per-type lift/lower is delegated entirely to
+`abi.LiftValues`/`abi.LowerValues`. The retptr allocation that
+currently lives at instance.go:305-322 moves into `abi.LowerValues`
+where the `out_param` argument of `lower_flat_values` belongs per
+spec.)
 
-`liftRecord` (instance.go:757-790) sorts field names alphabetically
-at line 765. This is the spec violation. After this item, the lift
-goes through `abi/` which does NOT sort — `definitions.py:1303`
-`load_record` iterates fields in declared order. Delete `liftRecord`.
-Delete `liftResolvedType` (line 794) — it was only called by
-`liftRecord` and its 3 production callers in
-`TestLiftResolvedType_*`.
+**On the deleted "Go/TinyGo retptr workaround":** Both Go and TinyGo
+components produce spec-compliant canonical ABI binaries — the same
+as Rust. The stale comment at instance.go:308 describes an abandoned
+approach the code never implemented. The synthesis hack at 335-338
+exists ONLY because the buggy `liftRecord`/`liftResolvedType` family
+can't read memory directly; once `abi.LiftValues` (which has direct
+memory access via `LiftContext`) replaces them, the hack is
+unnecessary. There is no toolchain-specific divergence.
 
 **Definition of done:**
-- `ExportedFunc.Call` body is a thin shim calling `abi.CanonLower` /
-  `abi.CanonLift`
-- `liftRecord`, `liftResolvedType`, and the retptr-as-return-value
-  heuristic at lines 305-322 are deleted
-- Tests asserting the alphabetical sort or the retptr heuristic are
-  deleted (they were testing wrong behavior)
+- `ExportedFunc.Call` body is the lifecycle wrapper above, calling
+  `abi.LowerValues` and `abi.LiftValues`
+- `liftRecord` (757), `liftResolvedType` (794), the retptr allocation
+  at 305-322, the synthesis hack at 335-338, the entire legacy
+  fallback at 450+, the TypeResolver path at 440-447, and the stale
+  "Some toolchains (Go)" comment at 308 are ALL deleted
+- Tests asserting the alphabetical sort, the synthesis hack, or the
+  legacy fallback's per-type behavior are deleted (they were testing
+  wrong behavior)
 - The previously-failing test `TestCalculatorPlugins/multi` now passes
-  (or, if it still fails, it must be for a documented reason traced to
-  a different item — escalate if so)
+  (or, if it still fails, it must be for a documented reason traced
+  to a different item — escalate if so)
 - `go test ./internal/component/wasip2test/...` shows the previously-
   broken tests passing
 
