@@ -5,6 +5,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/tetratelabs/wazero/experimental/wazerotest"
 	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
@@ -12,11 +13,13 @@ import (
 func TestLiftContext(t *testing.T) {
 	// Create a mock memory with some data
 	data := make([]byte, 64)
+	mem := wazerotest.NewMemory(64)
 	// Write u32 at offset 8
 	binary.LittleEndian.PutUint32(data[8:], 42)
 
+	mem.Bytes = data
 	ctx := &LiftContext{
-		Memory: &mockMemory{data: data},
+		Memory: mem,
 		Opts: &Options{
 			StringEncoding: StringEncodingUTF8,
 		},
@@ -30,8 +33,10 @@ func TestLiftContext(t *testing.T) {
 
 func TestLiftContextReadU8(t *testing.T) {
 	data := make([]byte, 64)
+	mem := wazerotest.NewMemory(64)
 	data[0] = 0x42
-	ctx := &LiftContext{Memory: &mockMemory{data: data}, Opts: &Options{}}
+	mem.Bytes = data
+	ctx := &LiftContext{Memory: mem, Opts: &Options{}}
 	val, err := ctx.ReadU8(0)
 	require.NoError(t, err)
 	require.Equal(t, uint8(0x42), val)
@@ -39,8 +44,10 @@ func TestLiftContextReadU8(t *testing.T) {
 
 func TestLiftContextReadU16(t *testing.T) {
 	data := make([]byte, 64)
+	mem := wazerotest.NewMemory(64)
+	mem.Bytes = data
 	binary.LittleEndian.PutUint16(data[0:], 0x1234)
-	ctx := &LiftContext{Memory: &mockMemory{data: data}, Opts: &Options{}}
+	ctx := &LiftContext{Memory: mem, Opts: &Options{}}
 	val, err := ctx.ReadU16(0)
 	require.NoError(t, err)
 	require.Equal(t, uint16(0x1234), val)
@@ -48,8 +55,10 @@ func TestLiftContextReadU16(t *testing.T) {
 
 func TestLiftContextReadU64(t *testing.T) {
 	data := make([]byte, 64)
+	mem := wazerotest.NewMemory(64)
+	mem.Bytes = data
 	binary.LittleEndian.PutUint64(data[0:], 0x123456789ABCDEF0)
-	ctx := &LiftContext{Memory: &mockMemory{data: data}, Opts: &Options{}}
+	ctx := &LiftContext{Memory: mem, Opts: &Options{}}
 	val, err := ctx.ReadU64(0)
 	require.NoError(t, err)
 	require.Equal(t, uint64(0x123456789ABCDEF0), val)
@@ -57,8 +66,10 @@ func TestLiftContextReadU64(t *testing.T) {
 
 func TestLiftContextReadF32(t *testing.T) {
 	data := make([]byte, 64)
+	mem := wazerotest.NewMemory(64)
+	mem.Bytes = data
 	binary.LittleEndian.PutUint32(data[0:], math.Float32bits(3.14))
-	ctx := &LiftContext{Memory: &mockMemory{data: data}, Opts: &Options{}}
+	ctx := &LiftContext{Memory: mem, Opts: &Options{}}
 	val, err := ctx.ReadF32(0)
 	require.NoError(t, err)
 	require.Equal(t, float32(3.14), val)
@@ -66,8 +77,10 @@ func TestLiftContextReadF32(t *testing.T) {
 
 func TestLiftContextReadF64(t *testing.T) {
 	data := make([]byte, 64)
+	mem := wazerotest.NewMemory(64)
+	mem.Bytes = data
 	binary.LittleEndian.PutUint64(data[0:], math.Float64bits(3.14159265359))
-	ctx := &LiftContext{Memory: &mockMemory{data: data}, Opts: &Options{}}
+	ctx := &LiftContext{Memory: mem, Opts: &Options{}}
 	val, err := ctx.ReadF64(0)
 	require.NoError(t, err)
 	require.Equal(t, 3.14159265359, val)
@@ -76,7 +89,7 @@ func TestLiftContextReadF64(t *testing.T) {
 // Bounds checking tests
 
 func TestLiftContextReadU8BoundsCheck(t *testing.T) {
-	mem := &mockMemory{data: make([]byte, 16)}
+	mem := wazerotest.NewMemory(16)
 	ctx := &LiftContext{Memory: mem}
 
 	// Valid read at offset 0
@@ -105,7 +118,7 @@ func TestLiftContextReadU8BoundsCheck(t *testing.T) {
 }
 
 func TestLiftContextReadU16BoundsCheck(t *testing.T) {
-	mem := &mockMemory{data: make([]byte, 16)}
+	mem := wazerotest.NewMemory(16)
 	ctx := &LiftContext{Memory: mem}
 
 	// Valid read
@@ -134,7 +147,7 @@ func TestLiftContextReadU16BoundsCheck(t *testing.T) {
 }
 
 func TestLiftContextReadU32BoundsCheck(t *testing.T) {
-	mem := &mockMemory{data: make([]byte, 16)}
+	mem := wazerotest.NewMemory(16)
 	ctx := &LiftContext{Memory: mem}
 
 	// Valid read
@@ -163,7 +176,7 @@ func TestLiftContextReadU32BoundsCheck(t *testing.T) {
 }
 
 func TestLiftContextReadU64BoundsCheck(t *testing.T) {
-	mem := &mockMemory{data: make([]byte, 16)}
+	mem := wazerotest.NewMemory(16)
 	ctx := &LiftContext{Memory: mem}
 
 	// Valid read
@@ -192,7 +205,7 @@ func TestLiftContextReadU64BoundsCheck(t *testing.T) {
 }
 
 func TestLiftContextReadF32BoundsCheck(t *testing.T) {
-	mem := &mockMemory{data: make([]byte, 16)}
+	mem := wazerotest.NewMemory(16)
 	ctx := &LiftContext{Memory: mem}
 
 	// Valid read
@@ -215,7 +228,7 @@ func TestLiftContextReadF32BoundsCheck(t *testing.T) {
 }
 
 func TestLiftContextReadF64BoundsCheck(t *testing.T) {
-	mem := &mockMemory{data: make([]byte, 16)}
+	mem := wazerotest.NewMemory(16)
 	ctx := &LiftContext{Memory: mem}
 
 	// Valid read
@@ -238,7 +251,7 @@ func TestLiftContextReadF64BoundsCheck(t *testing.T) {
 }
 
 func TestLiftContextReadBytesBoundsCheck(t *testing.T) {
-	mem := &mockMemory{data: make([]byte, 16)}
+	mem := wazerotest.NewMemory(16)
 	ctx := &LiftContext{Memory: mem}
 
 	// Valid read - full memory
@@ -306,31 +319,8 @@ func TestLiftContextNilMemory(t *testing.T) {
 	}
 }
 
-type mockMemory struct {
-	data []byte
-}
-
-func (m *mockMemory) Read(offset, size uint32) ([]byte, bool) {
-	if int(offset+size) > len(m.data) {
-		return nil, false
-	}
-	return m.data[offset : offset+size], true
-}
-
-func (m *mockMemory) Write(offset uint32, data []byte) bool {
-	if int(offset)+len(data) > len(m.data) {
-		return false
-	}
-	copy(m.data[offset:], data)
-	return true
-}
-
-func (m *mockMemory) Size() uint32 {
-	return uint32(len(m.data))
-}
-
 func TestLowerContext_WithSubtask(t *testing.T) {
-	mem := &mockMemory{data: make([]byte, 1024)}
+	mem := wazerotest.NewMemory(1024)
 	rt := runtime.NewResourceTable()
 	subtask := runtime.NewSubtask(rt)
 
@@ -346,7 +336,7 @@ func TestLowerContext_WithSubtask(t *testing.T) {
 
 func TestLowerContext_BorrowScope_NilSubtask(t *testing.T) {
 	ctx := &LowerContext{
-		Memory: &mockMemory{data: make([]byte, 64)},
+		Memory: wazerotest.NewMemory(64),
 		Opts:   &Options{StringEncoding: StringEncodingUTF8},
 		// Subtask is nil
 	}

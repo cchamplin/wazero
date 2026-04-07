@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tetratelabs/wazero/experimental/wazerotest"
 	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
@@ -199,10 +200,12 @@ func TestLiftFlatRecordEmpty(t *testing.T) {
 func TestLiftFlatRecordWithString(t *testing.T) {
 	// Record with a string field
 	data := make([]byte, 32)
+	mem := wazerotest.NewMemory(32)
+	mem.Bytes = data
 	copy(data[16:], "hello")
 
 	ctx := &LiftContext{
-		Memory: &mockMemory{data: data},
+		Memory: mem,
 		Opts:   &Options{StringEncoding: StringEncodingUTF8},
 	}
 	// Flat: [ptr=16, len=5]
@@ -601,11 +604,13 @@ func TestLiftFlatList(t *testing.T) {
 	// list<s32> with ptr=100, len=5
 	// Now requires memory context for non-empty lists
 	data := make([]byte, 200)
+	mem := wazerotest.NewMemory(200)
+	mem.Bytes = data
 	// Write 5 s32 elements at offset 100: [1, 2, 3, 4, 5]
 	for i := 0; i < 5; i++ {
 		binary.LittleEndian.PutUint32(data[100+i*4:], uint32(i+1))
 	}
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 
 	iter := NewFlatIter([]uint64{100, 5})
 	listType := types.List{Element: types.S32{}}
@@ -624,11 +629,13 @@ func TestLiftFlatListPtrAndLen(t *testing.T) {
 	// list<u64> with ptr=0x100, len=3
 	// Now requires memory context for non-empty lists
 	data := make([]byte, 512)
+	mem := wazerotest.NewMemory(512)
+	mem.Bytes = data
 	// Write 3 u64 elements at offset 0x100: [100, 200, 300]
 	binary.LittleEndian.PutUint64(data[0x100:], 100)
 	binary.LittleEndian.PutUint64(data[0x108:], 200)
 	binary.LittleEndian.PutUint64(data[0x110:], 300)
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 
 	iter := NewFlatIter([]uint64{0x100, 3})
 	listType := types.List{Element: types.U64{}}
@@ -657,8 +664,10 @@ func TestLiftFlatListEmpty(t *testing.T) {
 
 func TestLiftHeapBool(t *testing.T) {
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	data[4] = 1 // true at offset 4
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	val, err := LiftHeap(ctx, types.Bool{}, 4)
 	require.NoError(t, err)
 	require.True(t, val.Bool())
@@ -666,8 +675,10 @@ func TestLiftHeapBool(t *testing.T) {
 
 func TestLiftHeapBoolFalse(t *testing.T) {
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	data[8] = 0 // false at offset 8
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	val, err := LiftHeap(ctx, types.Bool{}, 8)
 	require.NoError(t, err)
 	require.False(t, val.Bool())
@@ -675,8 +686,10 @@ func TestLiftHeapBoolFalse(t *testing.T) {
 
 func TestLiftHeapU8(t *testing.T) {
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	data[3] = 0x42
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	val, err := LiftHeap(ctx, types.U8{}, 3)
 	require.NoError(t, err)
 	require.Equal(t, uint8(0x42), val.U8())
@@ -684,8 +697,10 @@ func TestLiftHeapU8(t *testing.T) {
 
 func TestLiftHeapS8(t *testing.T) {
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	data[5] = 0x80 // -128
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	val, err := LiftHeap(ctx, types.S8{}, 5)
 	require.NoError(t, err)
 	require.Equal(t, int8(-128), val.S8())
@@ -693,8 +708,10 @@ func TestLiftHeapS8(t *testing.T) {
 
 func TestLiftHeapU16(t *testing.T) {
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	binary.LittleEndian.PutUint16(data[2:], 0x1234)
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	val, err := LiftHeap(ctx, types.U16{}, 2)
 	require.NoError(t, err)
 	require.Equal(t, uint16(0x1234), val.U16())
@@ -702,8 +719,10 @@ func TestLiftHeapU16(t *testing.T) {
 
 func TestLiftHeapS16(t *testing.T) {
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	binary.LittleEndian.PutUint16(data[6:], 0x8000) // -32768
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	val, err := LiftHeap(ctx, types.S16{}, 6)
 	require.NoError(t, err)
 	require.Equal(t, int16(-32768), val.S16())
@@ -711,8 +730,10 @@ func TestLiftHeapS16(t *testing.T) {
 
 func TestLiftHeapU32(t *testing.T) {
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	binary.LittleEndian.PutUint32(data[4:], 0xDEADBEEF)
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	val, err := LiftHeap(ctx, types.U32{}, 4)
 	require.NoError(t, err)
 	require.Equal(t, uint32(0xDEADBEEF), val.U32())
@@ -720,17 +741,21 @@ func TestLiftHeapU32(t *testing.T) {
 
 func TestLiftHeapS32(t *testing.T) {
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	binary.LittleEndian.PutUint32(data[8:], 0xFFFFFFFF) // -1
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	val, err := LiftHeap(ctx, types.S32{}, 8)
 	require.NoError(t, err)
 	require.Equal(t, int32(-1), val.S32())
 }
 
 func TestLiftHeapU64(t *testing.T) {
-	data := make([]byte, 32)
+	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(32)
+	mem.Bytes = data
 	binary.LittleEndian.PutUint64(data[8:], 0x123456789ABCDEF0)
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	val, err := LiftHeap(ctx, types.U64{}, 8)
 	require.NoError(t, err)
 	require.Equal(t, uint64(0x123456789ABCDEF0), val.U64())
@@ -738,8 +763,10 @@ func TestLiftHeapU64(t *testing.T) {
 
 func TestLiftHeapS64(t *testing.T) {
 	data := make([]byte, 32)
+	mem := wazerotest.NewMemory(32)
+	mem.Bytes = data
 	binary.LittleEndian.PutUint64(data[16:], 0xFFFFFFFFFFFFFFFF) // -1
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	val, err := LiftHeap(ctx, types.S64{}, 16)
 	require.NoError(t, err)
 	require.Equal(t, int64(-1), val.S64())
@@ -747,8 +774,10 @@ func TestLiftHeapS64(t *testing.T) {
 
 func TestLiftHeapF32(t *testing.T) {
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	binary.LittleEndian.PutUint32(data[4:], math.Float32bits(3.14))
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	val, err := LiftHeap(ctx, types.F32{}, 4)
 	require.NoError(t, err)
 	require.Equal(t, float32(3.14), val.F32())
@@ -756,8 +785,10 @@ func TestLiftHeapF32(t *testing.T) {
 
 func TestLiftHeapF64(t *testing.T) {
 	data := make([]byte, 32)
+	mem := wazerotest.NewMemory(32)
+	mem.Bytes = data
 	binary.LittleEndian.PutUint64(data[8:], math.Float64bits(3.14159265359))
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	val, err := LiftHeap(ctx, types.F64{}, 8)
 	require.NoError(t, err)
 	require.Equal(t, 3.14159265359, val.F64())
@@ -765,8 +796,10 @@ func TestLiftHeapF64(t *testing.T) {
 
 func TestLiftHeapChar(t *testing.T) {
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	binary.LittleEndian.PutUint32(data[4:], 0x1F600) // Emoji code point
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	val, err := LiftHeap(ctx, types.Char{}, 4)
 	require.NoError(t, err)
 	require.Equal(t, rune(0x1F600), val.Char())
@@ -778,11 +811,13 @@ func TestLiftHeapRecord(t *testing.T) {
 	// Record { a: u8, b: u32, c: u16 } at offset 16
 	// Layout: u8@0, padding@1-3, u32@4, u16@8
 	data := make([]byte, 32)
+	mem := wazerotest.NewMemory(32)
+	mem.Bytes = data
 	data[16] = 0x42                                      // a = 0x42
 	binary.LittleEndian.PutUint32(data[20:], 0xDEADBEEF) // b at offset 16+4
 	binary.LittleEndian.PutUint16(data[24:], 0x1234)     // c at offset 16+8
 
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	recType := types.Record{
 		Fields: []types.Field{
 			{Name: "a", Type: types.U8{}},
@@ -802,7 +837,9 @@ func TestLiftHeapRecord(t *testing.T) {
 
 func TestLiftHeapRecordEmpty(t *testing.T) {
 	data := make([]byte, 16)
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
+	ctx := &LiftContext{Memory: mem}
 	recType := types.Record{Fields: []types.Field{}}
 
 	val, err := LiftHeap(ctx, recType, 0)
@@ -815,11 +852,13 @@ func TestLiftHeapRecordNested(t *testing.T) {
 	// Record { inner: Record { x: u32, y: u32 }, z: u16 }
 	// Layout: inner.x@0, inner.y@4, z@8
 	data := make([]byte, 32)
+	mem := wazerotest.NewMemory(32)
+	mem.Bytes = data
 	binary.LittleEndian.PutUint32(data[0:], 10)  // inner.x
 	binary.LittleEndian.PutUint32(data[4:], 20)  // inner.y
 	binary.LittleEndian.PutUint16(data[8:], 100) // z
 
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	innerType := types.Record{
 		Fields: []types.Field{
 			{Name: "x", Type: types.U32{}},
@@ -848,13 +887,15 @@ func TestLiftHeapRecordAllPrimitives(t *testing.T) {
 	// { a: bool, b: u8, c: u16, d: u32, e: u64 }
 	// Layout: bool@0, u8@1, u16@2, u32@4, u64@8
 	data := make([]byte, 32)
+	mem := wazerotest.NewMemory(32)
+	mem.Bytes = data
 	data[0] = 1                                                 // bool true
 	data[1] = 0xAB                                              // u8
 	binary.LittleEndian.PutUint16(data[2:], 0x1234)             // u16
 	binary.LittleEndian.PutUint32(data[4:], 0xDEADBEEF)         // u32
 	binary.LittleEndian.PutUint64(data[8:], 0x123456789ABCDEF0) // u64
 
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	recType := types.Record{
 		Fields: []types.Field{
 			{Name: "a", Type: types.Bool{}},
@@ -883,10 +924,12 @@ func TestLiftHeapRecordWithPadding(t *testing.T) {
 	// - a is at 4+0 = 4
 	// - b is at 4+8 = 12 (aligned to 8 bytes within the record)
 	data := make([]byte, 24)
+	mem := wazerotest.NewMemory(32)
+	mem.Bytes = data
 	data[4] = 0x42                                               // a at offset 4+0=4
 	binary.LittleEndian.PutUint64(data[12:], 0xDEADBEEFCAFEBABE) // b at offset 4+8=12
 
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	recType := types.Record{
 		Fields: []types.Field{
 			{Name: "a", Type: types.U8{}},
@@ -907,12 +950,14 @@ func TestLiftHeapStringInRecord(t *testing.T) {
 	// Record layout: string at offset 0 (ptr + len = 8 bytes)
 	// String ptr/len at record offset 0, actual string at memory offset 16
 	data := make([]byte, 32)
+	mem := wazerotest.NewMemory(32)
+	mem.Bytes = data
 	binary.LittleEndian.PutUint32(data[0:], 16) // ptr
 	binary.LittleEndian.PutUint32(data[4:], 5)  // len
 	copy(data[16:], "hello")
 
 	ctx := &LiftContext{
-		Memory: &mockMemory{data: data},
+		Memory: mem,
 		Opts:   &Options{StringEncoding: StringEncodingUTF8},
 	}
 	recType := types.Record{
@@ -933,10 +978,12 @@ func TestLiftHeapTuple(t *testing.T) {
 	// tuple<s32, u64> at offset 0
 	// Layout: s32@0, padding@4-7, u64@8
 	data := make([]byte, 32)
+	mem := wazerotest.NewMemory(32)
+	mem.Bytes = data
 	binary.LittleEndian.PutUint32(data[0:], 42)           // s32
 	binary.LittleEndian.PutUint64(data[8:], 0x1234567890) // u64 (aligned to 8)
 
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	tupleType := types.Tuple{Types: []types.ValType{types.S32{}, types.U64{}}}
 
 	val, err := LiftHeap(ctx, tupleType, 0)
@@ -951,7 +998,9 @@ func TestLiftHeapTuple(t *testing.T) {
 
 func TestLiftHeapTupleEmpty(t *testing.T) {
 	data := make([]byte, 16)
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
+	ctx := &LiftContext{Memory: mem}
 	tupleType := types.Tuple{Types: []types.ValType{}}
 
 	val, err := LiftHeap(ctx, tupleType, 0)
@@ -965,11 +1014,13 @@ func TestLiftHeapTupleNested(t *testing.T) {
 	// Inner tuple has alignment 4 (max of u16=2, u32=4)
 	// Layout: u8@0, padding@1-3, inner tuple@4 (u16@4, padding@6-7, u32@8)
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	data[0] = 0x11                                      // u8 at 0
 	binary.LittleEndian.PutUint16(data[4:], 0x2222)     // inner u16 at 4
 	binary.LittleEndian.PutUint32(data[8:], 0x33333333) // inner u32 at 8
 
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	innerType := types.Tuple{Types: []types.ValType{types.U16{}, types.U32{}}}
 	outerType := types.Tuple{Types: []types.ValType{types.U8{}, innerType}}
 
@@ -992,10 +1043,12 @@ func TestLiftHeapVariant(t *testing.T) {
 	// Layout: discriminant (1 byte), padding, s32 at aligned offset
 	// With s32 alignment of 4: disc@0, padding@1-3, payload@4
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	data[0] = 1                                 // discriminant = some
 	binary.LittleEndian.PutUint32(data[4:], 42) // payload
 
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	varType := types.Variant{
 		Cases: []types.Case{
 			{Name: "none", Type: nil},
@@ -1016,9 +1069,11 @@ func TestLiftHeapVariantNoPayload(t *testing.T) {
 	// variant { none, some(s32) }
 	// discriminant = 0 (none)
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	data[0] = 0 // discriminant = none
 
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	varType := types.Variant{
 		Cases: []types.Case{
 			{Name: "none", Type: nil},
@@ -1036,9 +1091,11 @@ func TestLiftHeapVariantNoPayload(t *testing.T) {
 
 func TestLiftHeapVariantInvalidDiscriminant(t *testing.T) {
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	data[0] = 5 // invalid discriminant
 
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	varType := types.Variant{
 		Cases: []types.Case{
 			{Name: "a", Type: nil},
@@ -1055,11 +1112,13 @@ func TestLiftHeapVariantWithRecord(t *testing.T) {
 	// variant { empty, pair(record { x: u16, y: u16 }) }
 	// Layout: disc@0, padding@1, record@2 (record has align 2)
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	data[0] = 1                                 // discriminant = pair
 	binary.LittleEndian.PutUint16(data[2:], 10) // x
 	binary.LittleEndian.PutUint16(data[4:], 20) // y
 
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	recType := types.Record{
 		Fields: []types.Field{
 			{Name: "x", Type: types.U16{}},
@@ -1094,10 +1153,12 @@ func TestLiftHeapVariantManyCase(t *testing.T) {
 
 	// Select case 256
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	binary.LittleEndian.PutUint16(data[0:], 256)        // 2-byte discriminant
 	binary.LittleEndian.PutUint32(data[4:], 0xDEADBEEF) // payload at offset 4 (aligned)
 
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	varType := types.Variant{Cases: cases}
 
 	val, err := LiftHeap(ctx, varType, 0)
@@ -1115,10 +1176,12 @@ func TestLiftHeapOptionSome(t *testing.T) {
 	// option<s32> as Some(42)
 	// Layout: disc@0 (1 byte), padding@1-3, payload@4
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	data[0] = 1 // Some
 	binary.LittleEndian.PutUint32(data[4:], 42)
 
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	optType := types.Option{Some: types.S32{}}
 
 	val, err := LiftHeap(ctx, optType, 0)
@@ -1133,9 +1196,11 @@ func TestLiftHeapOptionSome(t *testing.T) {
 func TestLiftHeapOptionNone(t *testing.T) {
 	// option<s32> as None
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	data[0] = 0 // None
 
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	optType := types.Option{Some: types.S32{}}
 
 	val, err := LiftHeap(ctx, optType, 0)
@@ -1147,9 +1212,11 @@ func TestLiftHeapOptionNone(t *testing.T) {
 func TestLiftHeapOptionUnit(t *testing.T) {
 	// option<> (unit) - Some has no type
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	data[0] = 1 // Some
 
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	optType := types.Option{Some: nil}
 
 	val, err := LiftHeap(ctx, optType, 0)
@@ -1162,11 +1229,13 @@ func TestLiftHeapOptionWithRecord(t *testing.T) {
 	// option<record { x: u8, y: u16 }>
 	// Layout: disc@0, y has align 2, so record at offset 2
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	data[0] = 1                                     // Some
 	data[2] = 0x11                                  // x
 	binary.LittleEndian.PutUint16(data[4:], 0x2222) // y at offset 4 within record (2+2)
 
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	recType := types.Record{
 		Fields: []types.Field{
 			{Name: "x", Type: types.U8{}},
@@ -1190,10 +1259,12 @@ func TestLiftHeapOptionWithRecord(t *testing.T) {
 func TestLiftHeapResultOk(t *testing.T) {
 	// result<s32, u32> as Ok(42)
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	data[0] = 0                                 // Ok
 	binary.LittleEndian.PutUint32(data[4:], 42) // payload at aligned offset
 
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	resType := types.Result{Ok: types.S32{}, Error: types.U32{}}
 
 	val, err := LiftHeap(ctx, resType, 0)
@@ -1210,10 +1281,12 @@ func TestLiftHeapResultOk(t *testing.T) {
 func TestLiftHeapResultError(t *testing.T) {
 	// result<s32, u32> as Err(99)
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	data[0] = 1                                 // Error
 	binary.LittleEndian.PutUint32(data[4:], 99) // payload at aligned offset
 
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	resType := types.Result{Ok: types.S32{}, Error: types.U32{}}
 
 	val, err := LiftHeap(ctx, resType, 0)
@@ -1229,9 +1302,11 @@ func TestLiftHeapResultError(t *testing.T) {
 func TestLiftHeapResultOkNoPayload(t *testing.T) {
 	// result<_, u32> as Ok (no ok payload)
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	data[0] = 0 // Ok
 
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	resType := types.Result{Ok: nil, Error: types.U32{}}
 
 	val, err := LiftHeap(ctx, resType, 0)
@@ -1246,9 +1321,11 @@ func TestLiftHeapResultOkNoPayload(t *testing.T) {
 func TestLiftHeapResultErrorNoPayload(t *testing.T) {
 	// result<s32, _> as Err (no error payload)
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	data[0] = 1 // Error
 
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	resType := types.Result{Ok: types.S32{}, Error: nil}
 
 	val, err := LiftHeap(ctx, resType, 0)
@@ -1264,10 +1341,12 @@ func TestLiftHeapResultDifferentPayloadSizes(t *testing.T) {
 	// result<u64, u8> - ok is larger
 	// Layout: disc@0, padding@1-7, payload@8 (u64 alignment)
 	data := make([]byte, 24)
+	mem := wazerotest.NewMemory(24)
+	mem.Bytes = data
 	data[0] = 0 // Ok
 	binary.LittleEndian.PutUint64(data[8:], 0x123456789ABCDEF0)
 
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	resType := types.Result{Ok: types.U64{}, Error: types.U8{}}
 
 	val, err := LiftHeap(ctx, resType, 0)
@@ -1283,9 +1362,11 @@ func TestLiftHeapResultDifferentPayloadSizes(t *testing.T) {
 func TestLiftHeapEnum(t *testing.T) {
 	// enum { a, b, c } - select b (index 1)
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	data[0] = 1 // discriminant = b
 
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	enumType := types.Enum{Cases: []string{"a", "b", "c"}}
 
 	val, err := LiftHeap(ctx, enumType, 0)
@@ -1296,9 +1377,11 @@ func TestLiftHeapEnum(t *testing.T) {
 
 func TestLiftHeapEnumFirst(t *testing.T) {
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	data[0] = 0
 
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	enumType := types.Enum{Cases: []string{"first", "second", "third"}}
 
 	val, err := LiftHeap(ctx, enumType, 0)
@@ -1308,9 +1391,11 @@ func TestLiftHeapEnumFirst(t *testing.T) {
 
 func TestLiftHeapEnumLast(t *testing.T) {
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	data[0] = 2
 
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	enumType := types.Enum{Cases: []string{"a", "b", "c"}}
 
 	val, err := LiftHeap(ctx, enumType, 0)
@@ -1320,9 +1405,11 @@ func TestLiftHeapEnumLast(t *testing.T) {
 
 func TestLiftHeapEnumInvalid(t *testing.T) {
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	data[0] = 10
 
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	enumType := types.Enum{Cases: []string{"a", "b", "c"}}
 
 	_, err := LiftHeap(ctx, enumType, 0)
@@ -1338,9 +1425,11 @@ func TestLiftHeapEnumManyCase(t *testing.T) {
 	}
 
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	binary.LittleEndian.PutUint16(data[0:], 256)
 
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	enumType := types.Enum{Cases: cases}
 
 	val, err := LiftHeap(ctx, enumType, 0)
@@ -1353,9 +1442,11 @@ func TestLiftHeapEnumManyCase(t *testing.T) {
 func TestLiftHeapFlags(t *testing.T) {
 	// flags { read, write, execute } with read|execute set
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	data[0] = 0b101 // bits 0 and 2
 
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	flagsType := types.Flags{Names: []string{"read", "write", "execute"}}
 
 	val, err := LiftHeap(ctx, flagsType, 0)
@@ -1370,9 +1461,11 @@ func TestLiftHeapFlags(t *testing.T) {
 
 func TestLiftHeapFlagsAllSet(t *testing.T) {
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	data[0] = 0b111
 
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	flagsType := types.Flags{Names: []string{"a", "b", "c"}}
 
 	val, err := LiftHeap(ctx, flagsType, 0)
@@ -1386,9 +1479,11 @@ func TestLiftHeapFlagsAllSet(t *testing.T) {
 
 func TestLiftHeapFlagsNone(t *testing.T) {
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	data[0] = 0
 
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	flagsType := types.Flags{Names: []string{"a", "b", "c"}}
 
 	val, err := LiftHeap(ctx, flagsType, 0)
@@ -1402,7 +1497,9 @@ func TestLiftHeapFlagsNone(t *testing.T) {
 
 func TestLiftHeapFlagsEmpty(t *testing.T) {
 	data := make([]byte, 16)
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
+	ctx := &LiftContext{Memory: mem}
 	flagsType := types.Flags{Names: []string{}}
 
 	val, err := LiftHeap(ctx, flagsType, 0)
@@ -1420,9 +1517,11 @@ func TestLiftHeapFlags16(t *testing.T) {
 	}
 
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	binary.LittleEndian.PutUint16(data[0:], 0b1000000000000001) // bits 0 and 15
 
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	flagsType := types.Flags{Names: names}
 
 	val, err := LiftHeap(ctx, flagsType, 0)
@@ -1442,9 +1541,11 @@ func TestLiftHeapFlags32(t *testing.T) {
 	}
 
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	binary.LittleEndian.PutUint32(data[0:], (1<<0)|(1<<15)|(1<<31))
 
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	flagsType := types.Flags{Names: names}
 
 	val, err := LiftHeap(ctx, flagsType, 0)
@@ -1465,10 +1566,12 @@ func TestLiftHeapFlagsMoreThan32(t *testing.T) {
 	}
 
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	binary.LittleEndian.PutUint32(data[0:], (1<<0)|(1<<31)) // first u32
 	binary.LittleEndian.PutUint32(data[4:], (1<<0)|(1<<31)) // second u32 (flags 32-63)
 
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	flagsType := types.Flags{Names: names}
 
 	val, err := LiftHeap(ctx, flagsType, 0)
@@ -1489,6 +1592,8 @@ func TestLiftHeapList(t *testing.T) {
 	// list<s32> with ptr=16, len=3
 	// At ptr 16: [10, 20, 30]
 	data := make([]byte, 64)
+	mem := wazerotest.NewMemory(64)
+	mem.Bytes = data
 	binary.LittleEndian.PutUint32(data[0:], 16) // ptr
 	binary.LittleEndian.PutUint32(data[4:], 3)  // len
 	// Elements at offset 16
@@ -1496,7 +1601,7 @@ func TestLiftHeapList(t *testing.T) {
 	binary.LittleEndian.PutUint32(data[20:], 20)
 	binary.LittleEndian.PutUint32(data[24:], 30)
 
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	listType := types.List{Element: types.S32{}}
 
 	val, err := LiftHeap(ctx, listType, 0)
@@ -1513,10 +1618,12 @@ func TestLiftHeapList(t *testing.T) {
 func TestLiftHeapListEmpty(t *testing.T) {
 	// list<s32> with ptr=16, len=0
 	data := make([]byte, 32)
+	mem := wazerotest.NewMemory(32)
+	mem.Bytes = data
 	binary.LittleEndian.PutUint32(data[0:], 16) // ptr (irrelevant for empty)
 	binary.LittleEndian.PutUint32(data[4:], 0)  // len
 
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	listType := types.List{Element: types.S32{}}
 
 	val, err := LiftHeap(ctx, listType, 0)
@@ -1529,6 +1636,8 @@ func TestLiftHeapListEmpty(t *testing.T) {
 func TestLiftHeapListU8(t *testing.T) {
 	// list<u8> with ptr=8, len=4
 	data := make([]byte, 32)
+	mem := wazerotest.NewMemory(32)
+	mem.Bytes = data
 	binary.LittleEndian.PutUint32(data[0:], 8) // ptr
 	binary.LittleEndian.PutUint32(data[4:], 4) // len
 	data[8] = 0x10
@@ -1536,7 +1645,7 @@ func TestLiftHeapListU8(t *testing.T) {
 	data[10] = 0x30
 	data[11] = 0x40
 
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	listType := types.List{Element: types.U8{}}
 
 	val, err := LiftHeap(ctx, listType, 0)
@@ -1554,6 +1663,8 @@ func TestLiftHeapListNested(t *testing.T) {
 	// list<record { a: u8, b: u16 }> with ptr=8, len=2
 	// Record layout: u8@0, u16@2, size=4
 	data := make([]byte, 32)
+	mem := wazerotest.NewMemory(32)
+	mem.Bytes = data
 	binary.LittleEndian.PutUint32(data[0:], 8) // ptr
 	binary.LittleEndian.PutUint32(data[4:], 2) // len
 	// First record at 8
@@ -1563,7 +1674,7 @@ func TestLiftHeapListNested(t *testing.T) {
 	data[12] = 0x22
 	binary.LittleEndian.PutUint16(data[14:], 0x2222)
 
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	recType := types.Record{
 		Fields: []types.Field{
 			{Name: "a", Type: types.U8{}},
@@ -1586,10 +1697,12 @@ func TestLiftHeapListNested(t *testing.T) {
 func TestLiftHeapListBoundsError(t *testing.T) {
 	// Create small memory with list pointing beyond bounds
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	binary.LittleEndian.PutUint32(data[0:], 100) // ptr = 100 (beyond memory)
 	binary.LittleEndian.PutUint32(data[4:], 10)  // len = 10
 
-	ctx := &LiftContext{Memory: &mockMemory{data: data}}
+	ctx := &LiftContext{Memory: mem}
 	listType := types.List{Element: types.S32{}}
 
 	_, err := LiftHeap(ctx, listType, 0)
@@ -1602,10 +1715,12 @@ func TestLiftHeapListBoundsError(t *testing.T) {
 func TestLiftFlatString(t *testing.T) {
 	// "hello" in UTF-8 at ptr=16
 	data := make([]byte, 32)
+	mem := wazerotest.NewMemory(32)
+	mem.Bytes = data
 	copy(data[16:], "hello")
 
 	ctx := &LiftContext{
-		Memory: &mockMemory{data: data},
+		Memory: mem,
 		Opts:   &Options{StringEncoding: StringEncodingUTF8},
 	}
 	// Flat: [ptr=16, len=5]
@@ -1619,8 +1734,10 @@ func TestLiftFlatString(t *testing.T) {
 
 func TestLiftFlatStringEmpty(t *testing.T) {
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	ctx := &LiftContext{
-		Memory: &mockMemory{data: data},
+		Memory: mem,
 		Opts:   &Options{StringEncoding: StringEncodingUTF8},
 	}
 	// Empty string: ptr=0, len=0
@@ -1634,10 +1751,12 @@ func TestLiftFlatStringEmpty(t *testing.T) {
 func TestLiftFlatStringUnicode(t *testing.T) {
 	// "日本語" (9 bytes in UTF-8)
 	data := make([]byte, 32)
+	mem := wazerotest.NewMemory(32)
+	mem.Bytes = data
 	copy(data[8:], "日本語")
 
 	ctx := &LiftContext{
-		Memory: &mockMemory{data: data},
+		Memory: mem,
 		Opts:   &Options{StringEncoding: StringEncodingUTF8},
 	}
 	iter := NewFlatIter([]uint64{8, 9})
@@ -1650,6 +1769,8 @@ func TestLiftFlatStringUnicode(t *testing.T) {
 func TestLiftFlatStringUTF16(t *testing.T) {
 	// "hello" in UTF-16 LE at ptr=16
 	data := make([]byte, 32)
+	mem := wazerotest.NewMemory(32)
+	mem.Bytes = data
 	binary.LittleEndian.PutUint16(data[16:], 0x0068) // h
 	binary.LittleEndian.PutUint16(data[18:], 0x0065) // e
 	binary.LittleEndian.PutUint16(data[20:], 0x006C) // l
@@ -1657,7 +1778,7 @@ func TestLiftFlatStringUTF16(t *testing.T) {
 	binary.LittleEndian.PutUint16(data[24:], 0x006F) // o
 
 	ctx := &LiftContext{
-		Memory: &mockMemory{data: data},
+		Memory: mem,
 		Opts:   &Options{StringEncoding: StringEncodingUTF16},
 	}
 	// Flat: [ptr=16, codeUnits=5]
@@ -1673,12 +1794,14 @@ func TestLiftFlatStringUTF16(t *testing.T) {
 func TestLiftHeapString(t *testing.T) {
 	// String stored as (ptr, len) at offset 0, actual string at offset 16
 	data := make([]byte, 32)
+	mem := wazerotest.NewMemory(32)
+	mem.Bytes = data
 	binary.LittleEndian.PutUint32(data[0:], 16) // ptr
 	binary.LittleEndian.PutUint32(data[4:], 5)  // len
 	copy(data[16:], "hello")
 
 	ctx := &LiftContext{
-		Memory: &mockMemory{data: data},
+		Memory: mem,
 		Opts:   &Options{StringEncoding: StringEncodingUTF8},
 	}
 
@@ -1691,12 +1814,14 @@ func TestLiftHeapString(t *testing.T) {
 func TestLiftHeapStringAtOffset(t *testing.T) {
 	// String ptr/len at offset 8, actual string at offset 24
 	data := make([]byte, 48)
+	mem := wazerotest.NewMemory(48)
+	mem.Bytes = data
 	binary.LittleEndian.PutUint32(data[8:], 24) // ptr at offset 8
 	binary.LittleEndian.PutUint32(data[12:], 4) // len at offset 12
 	copy(data[24:], "test")
 
 	ctx := &LiftContext{
-		Memory: &mockMemory{data: data},
+		Memory: mem,
 		Opts:   &Options{StringEncoding: StringEncodingUTF8},
 	}
 
@@ -1707,11 +1832,13 @@ func TestLiftHeapStringAtOffset(t *testing.T) {
 
 func TestLiftHeapStringEmpty(t *testing.T) {
 	data := make([]byte, 16)
+	mem := wazerotest.NewMemory(16)
+	mem.Bytes = data
 	binary.LittleEndian.PutUint32(data[0:], 0)
 	binary.LittleEndian.PutUint32(data[4:], 0)
 
 	ctx := &LiftContext{
-		Memory: &mockMemory{data: data},
+		Memory: mem,
 		Opts:   &Options{StringEncoding: StringEncodingUTF8},
 	}
 
@@ -1723,12 +1850,14 @@ func TestLiftHeapStringEmpty(t *testing.T) {
 func TestLiftHeapStringUnicode(t *testing.T) {
 	// "日本語" (9 bytes in UTF-8)
 	data := make([]byte, 32)
+	mem := wazerotest.NewMemory(32)
+	mem.Bytes = data
 	binary.LittleEndian.PutUint32(data[0:], 16)
 	binary.LittleEndian.PutUint32(data[4:], 9)
 	copy(data[16:], "日本語")
 
 	ctx := &LiftContext{
-		Memory: &mockMemory{data: data},
+		Memory: mem,
 		Opts:   &Options{StringEncoding: StringEncodingUTF8},
 	}
 
@@ -2141,8 +2270,8 @@ func TestLiftHeapF32NaNCanonicalization(t *testing.T) {
 
 	for _, pattern := range nanPatterns {
 		t.Run(fmt.Sprintf("pattern_0x%08x", pattern), func(t *testing.T) {
-			mem := &mockMemory{data: make([]byte, 8)}
-			binary.LittleEndian.PutUint32(mem.data[0:], pattern)
+			mem := wazerotest.NewMemory(8)
+			binary.LittleEndian.PutUint32(mem.Bytes[0:], pattern)
 
 			ctx := &LiftContext{Memory: mem, Opts: &Options{}}
 			val, err := LiftHeap(ctx, types.F32{}, 0)
@@ -2171,8 +2300,8 @@ func TestLiftHeapF64NaNCanonicalization(t *testing.T) {
 
 	for _, pattern := range nanPatterns {
 		t.Run(fmt.Sprintf("pattern_0x%016x", pattern), func(t *testing.T) {
-			mem := &mockMemory{data: make([]byte, 16)}
-			binary.LittleEndian.PutUint64(mem.data[0:], pattern)
+			mem := wazerotest.NewMemory(16)
+			binary.LittleEndian.PutUint64(mem.Bytes[0:], pattern)
 
 			ctx := &LiftContext{Memory: mem, Opts: &Options{}}
 			val, err := LiftHeap(ctx, types.F64{}, 0)
@@ -2257,8 +2386,8 @@ func TestLiftHeapF32NonNaNUnchanged(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(fmt.Sprintf("value_%v", tc), func(t *testing.T) {
-			mem := &mockMemory{data: make([]byte, 8)}
-			binary.LittleEndian.PutUint32(mem.data[0:], math.Float32bits(tc))
+			mem := wazerotest.NewMemory(8)
+			binary.LittleEndian.PutUint32(mem.Bytes[0:], math.Float32bits(tc))
 
 			ctx := &LiftContext{Memory: mem, Opts: &Options{}}
 			val, err := LiftHeap(ctx, types.F32{}, 0)
@@ -2282,8 +2411,8 @@ func TestLiftHeapF64NonNaNUnchanged(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(fmt.Sprintf("value_%v", tc), func(t *testing.T) {
-			mem := &mockMemory{data: make([]byte, 16)}
-			binary.LittleEndian.PutUint64(mem.data[0:], math.Float64bits(tc))
+			mem := wazerotest.NewMemory(16)
+			binary.LittleEndian.PutUint64(mem.Bytes[0:], math.Float64bits(tc))
 
 			ctx := &LiftContext{Memory: mem, Opts: &Options{}}
 			val, err := LiftHeap(ctx, types.F64{}, 0)
@@ -2297,16 +2426,16 @@ func TestLiftHeapF64NonNaNUnchanged(t *testing.T) {
 
 func TestLiftListAlignmentValidation(t *testing.T) {
 	// Create memory with list data at misaligned offset
-	mem := &mockMemory{data: make([]byte, 100)}
+	mem := wazerotest.NewMemory(100)
 
 	// Write u32 elements starting at offset 17 (misaligned - should be multiple of 4)
 	// Use offset 17 which doesn't overlap with the list header at offset 0-7
-	binary.LittleEndian.PutUint32(mem.data[17:], 42)
-	binary.LittleEndian.PutUint32(mem.data[21:], 43)
+	binary.LittleEndian.PutUint32(mem.Bytes[17:], 42)
+	binary.LittleEndian.PutUint32(mem.Bytes[21:], 43)
 
 	// Write list header at offset 0: ptr=17 (misaligned for u32), length=2
-	binary.LittleEndian.PutUint32(mem.data[0:], 17) // ptr - misaligned for 4-byte alignment!
-	binary.LittleEndian.PutUint32(mem.data[4:], 2)  // length
+	binary.LittleEndian.PutUint32(mem.Bytes[0:], 17) // ptr - misaligned for 4-byte alignment!
+	binary.LittleEndian.PutUint32(mem.Bytes[4:], 2)  // length
 
 	ctx := &LiftContext{Memory: mem, Opts: &Options{}}
 	listType := types.List{Element: types.U32{}}
@@ -2322,10 +2451,10 @@ func TestLiftListAlignmentValidation(t *testing.T) {
 
 func TestLiftFlatListAlignmentValidation(t *testing.T) {
 	// Test flat lifting with misaligned pointer
-	mem := &mockMemory{data: make([]byte, 100)}
+	mem := wazerotest.NewMemory(100)
 
 	// Write u32 element at offset 5 (misaligned)
-	binary.LittleEndian.PutUint32(mem.data[5:], 42)
+	binary.LittleEndian.PutUint32(mem.Bytes[5:], 42)
 
 	ctx := &LiftContext{Memory: mem, Opts: &Options{}}
 	listType := types.List{Element: types.U32{}}
@@ -2693,10 +2822,10 @@ func TestLiftFlatVariantSingleCaseSkipsPadding(t *testing.T) {
 
 func TestLiftHeapFixedLengthList(t *testing.T) {
 	// Create memory with 3 u32 values inline
-	mem := &mockMemory{data: make([]byte, 20)}
-	binary.LittleEndian.PutUint32(mem.data[0:], 10)
-	binary.LittleEndian.PutUint32(mem.data[4:], 20)
-	binary.LittleEndian.PutUint32(mem.data[8:], 30)
+	mem := wazerotest.NewMemory(20)
+	binary.LittleEndian.PutUint32(mem.Bytes[0:], 10)
+	binary.LittleEndian.PutUint32(mem.Bytes[4:], 20)
+	binary.LittleEndian.PutUint32(mem.Bytes[8:], 30)
 
 	ctx := &LiftContext{Memory: mem, Opts: &Options{}}
 	length := uint32(3)
@@ -2782,7 +2911,9 @@ func TestLiftAsyncTypesTraps(t *testing.T) {
 		})
 		t.Run("LiftHeap_"+tc.name, func(t *testing.T) {
 			data := make([]byte, 16)
-			ctx := &LiftContext{Memory: &mockMemory{data: data}}
+			mem := wazerotest.NewMemory(32)
+			mem.Bytes = data
+			ctx := &LiftContext{Memory: mem}
 			val, err := LiftHeap(ctx, tc.typ, 0)
 			require.Error(t, err)
 			require.Equal(t, types.Val{}, val)

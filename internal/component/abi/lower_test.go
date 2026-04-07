@@ -6,6 +6,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/tetratelabs/wazero/experimental/wazerotest"
 	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
@@ -120,11 +121,11 @@ func TestLowerFlatChar(t *testing.T) {
 // --- String Tests ---
 
 func TestLowerFlatString(t *testing.T) {
-	data := make([]byte, 64)
+	mem := wazerotest.NewMemory(64)
 	allocPtr := uint32(16)
 
 	ctx := &LowerContext{
-		Memory: &mockMemory{data: data},
+		Memory: mem,
 		Opts:   &Options{StringEncoding: StringEncodingUTF8},
 		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
 			return allocPtr, nil
@@ -137,13 +138,13 @@ func TestLowerFlatString(t *testing.T) {
 	require.Equal(t, 2, len(flat))
 	require.Equal(t, uint64(16), flat[0]) // ptr
 	require.Equal(t, uint64(5), flat[1])  // len
-	require.Equal(t, "hello", string(data[16:21]))
+	require.Equal(t, "hello", string(mem.Bytes[16:21]))
 }
 
 func TestLowerFlatStringEmpty(t *testing.T) {
-	data := make([]byte, 64)
+	mem := wazerotest.NewMemory(64)
 	ctx := &LowerContext{
-		Memory: &mockMemory{data: data},
+		Memory: mem,
 		Opts:   &Options{StringEncoding: StringEncodingUTF8},
 		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
 			t.Fatal("Realloc should not be called for empty string")
@@ -158,11 +159,11 @@ func TestLowerFlatStringEmpty(t *testing.T) {
 }
 
 func TestLowerFlatStringUnicode(t *testing.T) {
-	data := make([]byte, 64)
+	mem := wazerotest.NewMemory(64)
 	allocPtr := uint32(16)
 
 	ctx := &LowerContext{
-		Memory: &mockMemory{data: data},
+		Memory: mem,
 		Opts:   &Options{StringEncoding: StringEncodingUTF8},
 		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
 			return allocPtr, nil
@@ -174,7 +175,7 @@ func TestLowerFlatStringUnicode(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(16), flat[0]) // ptr
 	require.Equal(t, uint64(9), flat[1])  // 9 bytes for 3 UTF-8 chars
-	require.Equal(t, "日本語", string(data[16:25]))
+	require.Equal(t, "日本語", string(mem.Bytes[16:25]))
 }
 
 func TestLowerFlatRecord(t *testing.T) {
@@ -596,10 +597,10 @@ func TestLowerFlatFlagsMoreThan32(t *testing.T) {
 
 func TestLowerFlatList(t *testing.T) {
 	// Non-empty lists now require memory context for proper allocation
-	data := make([]byte, 1024)
+	mem := wazerotest.NewMemory(1024)
 	allocPtr := uint32(256)
 	ctx := &LowerContext{
-		Memory: &mockMemory{data: data},
+		Memory: mem,
 		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
 			result := allocPtr
 			allocPtr += newSize
@@ -623,7 +624,7 @@ func TestLowerFlatList(t *testing.T) {
 	// Verify elements were written to memory
 	for i := 0; i < 3; i++ {
 		offset := 256 + i*4
-		v := int32(binary.LittleEndian.Uint32(data[offset : offset+4]))
+		v := int32(binary.LittleEndian.Uint32(mem.Bytes[offset : offset+4]))
 		require.Equal(t, int32(i+1), v)
 	}
 }
@@ -847,11 +848,11 @@ func TestLowerFlatRoundTrip(t *testing.T) {
 // --- LowerHeap Tests ---
 
 func TestLowerHeapString(t *testing.T) {
-	data := make([]byte, 64)
+	mem := wazerotest.NewMemory(64)
 	allocPtr := uint32(24) // String data will be allocated at 24
 
 	ctx := &LowerContext{
-		Memory: &mockMemory{data: data},
+		Memory: mem,
 		Opts:   &Options{StringEncoding: StringEncodingUTF8},
 		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
 			return allocPtr, nil
@@ -863,19 +864,19 @@ func TestLowerHeapString(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify ptr and len were written at offset 0
-	ptr := binary.LittleEndian.Uint32(data[0:])
-	length := binary.LittleEndian.Uint32(data[4:])
+	ptr := binary.LittleEndian.Uint32(mem.Bytes[0:])
+	length := binary.LittleEndian.Uint32(mem.Bytes[4:])
 	require.Equal(t, uint32(24), ptr)
 	require.Equal(t, uint32(5), length)
-	require.Equal(t, "hello", string(data[24:29]))
+	require.Equal(t, "hello", string(mem.Bytes[24:29]))
 }
 
 func TestLowerHeapStringAtOffset(t *testing.T) {
-	data := make([]byte, 64)
+	mem := wazerotest.NewMemory(64)
 	allocPtr := uint32(32)
 
 	ctx := &LowerContext{
-		Memory: &mockMemory{data: data},
+		Memory: mem,
 		Opts:   &Options{StringEncoding: StringEncodingUTF8},
 		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
 			return allocPtr, nil
@@ -887,18 +888,18 @@ func TestLowerHeapStringAtOffset(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify ptr and len were written at offset 8
-	ptr := binary.LittleEndian.Uint32(data[8:])
-	length := binary.LittleEndian.Uint32(data[12:])
+	ptr := binary.LittleEndian.Uint32(mem.Bytes[8:])
+	length := binary.LittleEndian.Uint32(mem.Bytes[12:])
 	require.Equal(t, uint32(32), ptr)
 	require.Equal(t, uint32(4), length)
-	require.Equal(t, "test", string(data[32:36]))
+	require.Equal(t, "test", string(mem.Bytes[32:36]))
 }
 
 func TestLowerHeapStringEmpty(t *testing.T) {
-	data := make([]byte, 64)
+	mem := wazerotest.NewMemory(64)
 
 	ctx := &LowerContext{
-		Memory: &mockMemory{data: data},
+		Memory: mem,
 		Opts:   &Options{StringEncoding: StringEncodingUTF8},
 		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
 			t.Fatal("Realloc should not be called for empty string")
@@ -911,78 +912,78 @@ func TestLowerHeapStringEmpty(t *testing.T) {
 	require.NoError(t, err)
 
 	// Empty string: ptr=0, len=0
-	ptr := binary.LittleEndian.Uint32(data[0:])
-	length := binary.LittleEndian.Uint32(data[4:])
+	ptr := binary.LittleEndian.Uint32(mem.Bytes[0:])
+	length := binary.LittleEndian.Uint32(mem.Bytes[4:])
 	require.Equal(t, uint32(0), ptr)
 	require.Equal(t, uint32(0), length)
 }
 
 func TestLowerHeapPrimitives(t *testing.T) {
-	data := make([]byte, 64)
+	mem := wazerotest.NewMemory(64)
 	ctx := &LowerContext{
-		Memory: &mockMemory{data: data},
+		Memory: mem,
 		Opts:   &Options{StringEncoding: StringEncodingUTF8},
 	}
 
 	// Test Bool
 	err := LowerHeap(ctx, types.Bool{}, types.ValBool(true), 0)
 	require.NoError(t, err)
-	require.Equal(t, uint8(1), data[0])
+	require.Equal(t, uint8(1), mem.Bytes[0])
 
 	err = LowerHeap(ctx, types.Bool{}, types.ValBool(false), 1)
 	require.NoError(t, err)
-	require.Equal(t, uint8(0), data[1])
+	require.Equal(t, uint8(0), mem.Bytes[1])
 
 	// Test U8/S8
 	err = LowerHeap(ctx, types.U8{}, types.ValU8(0xAB), 2)
 	require.NoError(t, err)
-	require.Equal(t, uint8(0xAB), data[2])
+	require.Equal(t, uint8(0xAB), mem.Bytes[2])
 
 	err = LowerHeap(ctx, types.S8{}, types.ValS8(-1), 3)
 	require.NoError(t, err)
-	require.Equal(t, uint8(0xFF), data[3])
+	require.Equal(t, uint8(0xFF), mem.Bytes[3])
 
 	// Test U16/S16
 	err = LowerHeap(ctx, types.U16{}, types.ValU16(0x1234), 4)
 	require.NoError(t, err)
-	require.Equal(t, uint16(0x1234), binary.LittleEndian.Uint16(data[4:]))
+	require.Equal(t, uint16(0x1234), binary.LittleEndian.Uint16(mem.Bytes[4:]))
 
 	err = LowerHeap(ctx, types.S16{}, types.ValS16(-1), 6)
 	require.NoError(t, err)
-	require.Equal(t, uint16(0xFFFF), binary.LittleEndian.Uint16(data[6:]))
+	require.Equal(t, uint16(0xFFFF), binary.LittleEndian.Uint16(mem.Bytes[6:]))
 
 	// Test U32/S32
 	err = LowerHeap(ctx, types.U32{}, types.ValU32(0xDEADBEEF), 8)
 	require.NoError(t, err)
-	require.Equal(t, uint32(0xDEADBEEF), binary.LittleEndian.Uint32(data[8:]))
+	require.Equal(t, uint32(0xDEADBEEF), binary.LittleEndian.Uint32(mem.Bytes[8:]))
 
 	err = LowerHeap(ctx, types.S32{}, types.ValS32(-42), 12)
 	require.NoError(t, err)
-	require.Equal(t, int32(-42), int32(binary.LittleEndian.Uint32(data[12:])))
+	require.Equal(t, int32(-42), int32(binary.LittleEndian.Uint32(mem.Bytes[12:])))
 
 	// Test U64/S64
 	err = LowerHeap(ctx, types.U64{}, types.ValU64(0x123456789ABCDEF0), 16)
 	require.NoError(t, err)
-	require.Equal(t, uint64(0x123456789ABCDEF0), binary.LittleEndian.Uint64(data[16:]))
+	require.Equal(t, uint64(0x123456789ABCDEF0), binary.LittleEndian.Uint64(mem.Bytes[16:]))
 
 	err = LowerHeap(ctx, types.S64{}, types.ValS64(-1), 24)
 	require.NoError(t, err)
-	require.Equal(t, uint64(0xFFFFFFFFFFFFFFFF), binary.LittleEndian.Uint64(data[24:]))
+	require.Equal(t, uint64(0xFFFFFFFFFFFFFFFF), binary.LittleEndian.Uint64(mem.Bytes[24:]))
 
 	// Test F32
 	err = LowerHeap(ctx, types.F32{}, types.ValF32(3.14), 32)
 	require.NoError(t, err)
-	require.Equal(t, math.Float32bits(3.14), binary.LittleEndian.Uint32(data[32:]))
+	require.Equal(t, math.Float32bits(3.14), binary.LittleEndian.Uint32(mem.Bytes[32:]))
 
 	// Test F64
 	err = LowerHeap(ctx, types.F64{}, types.ValF64(3.14159), 40)
 	require.NoError(t, err)
-	require.Equal(t, math.Float64bits(3.14159), binary.LittleEndian.Uint64(data[40:]))
+	require.Equal(t, math.Float64bits(3.14159), binary.LittleEndian.Uint64(mem.Bytes[40:]))
 
 	// Test Char
 	err = LowerHeap(ctx, types.Char{}, types.ValChar(0x1F600), 48)
 	require.NoError(t, err)
-	require.Equal(t, uint32(0x1F600), binary.LittleEndian.Uint32(data[48:]))
+	require.Equal(t, uint32(0x1F600), binary.LittleEndian.Uint32(mem.Bytes[48:]))
 }
 
 // --- LowerOwn Tests ---
@@ -1603,7 +1604,7 @@ func TestLowerFlatVariantCoercionMatchesJoinedType(t *testing.T) {
 // --- Fixed-Length List Tests (Task 2.3) ---
 
 func TestLowerHeapFixedLengthList(t *testing.T) {
-	mem := &mockMemory{data: make([]byte, 20)}
+	mem := wazerotest.NewMemory(20)
 	ctx := &LowerContext{Memory: mem, Opts: &Options{}}
 
 	length := uint32(3)
@@ -1624,7 +1625,7 @@ func TestLowerHeapFixedLengthList(t *testing.T) {
 	// Verify elements written inline
 	expected := []uint32{10, 20, 30}
 	for i, exp := range expected {
-		got := binary.LittleEndian.Uint32(mem.data[i*4:])
+		got := binary.LittleEndian.Uint32(mem.Bytes[i*4:])
 		if got != exp {
 			t.Errorf("element[%d] = %d, want %d", i, got, exp)
 		}
@@ -1663,7 +1664,7 @@ func TestLowerFlatFixedLengthList(t *testing.T) {
 }
 
 func TestLowerHeapFixedLengthListLengthMismatch(t *testing.T) {
-	mem := &mockMemory{data: make([]byte, 20)}
+	mem := wazerotest.NewMemory(20)
 	ctx := &LowerContext{Memory: mem, Opts: &Options{}}
 
 	length := uint32(3)
@@ -1710,7 +1711,7 @@ func TestLowerFlatFixedLengthListLengthMismatch(t *testing.T) {
 }
 
 func TestLowerHeapFixedLengthListEmpty(t *testing.T) {
-	mem := &mockMemory{data: make([]byte, 20)}
+	mem := wazerotest.NewMemory(20)
 	ctx := &LowerContext{Memory: mem, Opts: &Options{}}
 
 	length := uint32(0)
@@ -1801,8 +1802,8 @@ func TestLowerAsyncTypesTraps(t *testing.T) {
 			}
 		})
 		t.Run("LowerHeap_"+tc.name, func(t *testing.T) {
-			data := make([]byte, 16)
-			ctx := &LowerContext{Memory: &mockMemory{data: data}}
+			mem := wazerotest.NewMemory(16)
+			ctx := &LowerContext{Memory: mem}
 			err := LowerHeap(ctx, tc.typ, zero, 0)
 			require.Error(t, err)
 			if !contains(err.Error(), "async not yet supported") {

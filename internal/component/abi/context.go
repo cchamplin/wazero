@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/internal/component/runtime"
 )
 
@@ -61,16 +62,9 @@ type Options struct {
 	PostReturnIdx  *uint32
 }
 
-// Memory interface for reading/writing linear memory.
-type Memory interface {
-	Read(offset, size uint32) ([]byte, bool)
-	Write(offset uint32, data []byte) bool
-	Size() uint32
-}
-
 // LiftContext provides context for lifting operations.
 type LiftContext struct {
-	Memory        Memory
+	Memory        api.Memory
 	Opts          *Options
 	ResourceTable *runtime.ResourceTable
 	BorrowScope   *runtime.BorrowScope
@@ -158,7 +152,7 @@ func (c *LiftContext) ReadBytes(offset, length uint32) ([]byte, error) {
 // For primitive types, the context is not used, but it will be required
 // for composite types (strings, lists, records) that need memory allocation.
 type LowerContext struct {
-	Memory        Memory
+	Memory        api.Memory
 	Opts          *Options
 	Realloc       func(oldPtr, oldSize, align, newSize uint32) (uint32, error)
 	ResourceTable *runtime.ResourceTable
@@ -181,26 +175,26 @@ func (c *LowerContext) BorrowScope() *runtime.BorrowScope {
 }
 
 // writeUint8 writes a uint8 to memory at the given offset.
-func writeUint8(m Memory, offset uint32, val uint8) {
+func writeUint8(m api.Memory, offset uint32, val uint8) {
 	m.Write(offset, []byte{val})
 }
 
 // writeUint16Le writes a uint16 to memory at the given offset in little-endian order.
-func writeUint16Le(m Memory, offset uint32, val uint16) {
+func writeUint16Le(m api.Memory, offset uint32, val uint16) {
 	buf := make([]byte, 2)
 	binary.LittleEndian.PutUint16(buf, val)
 	m.Write(offset, buf)
 }
 
 // writeUint32Le writes a uint32 to memory at the given offset in little-endian order.
-func writeUint32Le(m Memory, offset uint32, val uint32) {
+func writeUint32Le(m api.Memory, offset uint32, val uint32) {
 	buf := make([]byte, 4)
 	binary.LittleEndian.PutUint32(buf, val)
 	m.Write(offset, buf)
 }
 
 // writeUint64Le writes a uint64 to memory at the given offset in little-endian order.
-func writeUint64Le(m Memory, offset uint32, val uint64) {
+func writeUint64Le(m api.Memory, offset uint32, val uint64) {
 	buf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(buf, val)
 	m.Write(offset, buf)
