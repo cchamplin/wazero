@@ -308,10 +308,10 @@ pending → claimed → implementing → spec-review → code-review → done
 
 ## Loop driver, templates, and tracking
 
-Layout under `docs/plans/abi-unification/`:
+Layout under `docs/plans/projects/abi-unification/`:
 
 ```
-docs/plans/abi-unification/
+docs/plans/projects/abi-unification/
 ├── README.md                          # design summary, links to this file
 ├── spec-authorities.md                # mandatory reading list
 ├── loop-driver.md                     # universal session-start prompt
