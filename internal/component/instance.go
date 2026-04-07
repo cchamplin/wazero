@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
@@ -44,9 +45,9 @@ type Instance struct {
 	componentFuncs map[uint32]ComponentFunc
 
 	// Resource management fields
-	resourceTable *ResourceTable          // Table for tracking resource handles
-	destructors   map[uint32]func(any)    // Destructor functions by resource type index
-	callContext   *CallContext            // Current call context for borrow tracking
+	resourceTable *runtime.ResourceTable // Table for tracking resource handles
+	destructors   map[uint32]func(any)   // Destructor functions by resource type index
+	callContext   *runtime.CallContext   // Current call context for borrow tracking
 
 	// mayLeaveDisabled tracks whether the component cannot call out.
 	// Set to true during lowering and post-return to prevent reentrance.
@@ -58,7 +59,7 @@ type Instance struct {
 	activeCallDepth int32
 
 	// Value index space for start function support
-	values         []Val
+	values         []types.Val
 	valuesConsumed []bool
 
 	// Nested component support
@@ -82,7 +83,7 @@ type ComponentFunc struct {
 	// Implementation is the actual callable.
 	// For imports: the host-provided Definition
 	// For canon lift: the lifted core function
-	Impl func(ctx context.Context, args []Val) ([]Val, error)
+	Impl func(ctx context.Context, args []types.Val) ([]types.Val, error)
 }
 
 // GetComponentFunc looks up a component function by its index.
@@ -130,25 +131,25 @@ func (f *ExportedFunc) Name() string {
 // Call invokes the exported function with the given arguments.
 // Supports primitive types, records (flattened to their fields), and resource handles.
 // For resource handles (own/borrow), it uses the Canonical ABI lift/lower operations.
-func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
+func (f *ExportedFunc) Call(ctx context.Context, params ...types.Val) ([]types.Val, error) {
 	// Set up call context and subtask for resource tracking
-	callCtx := NewCallContext()
-	var subtask *Subtask
-	var borrowScope *BorrowScope
+	callCtx := runtime.NewCallContext()
+	var subtask *runtime.Subtask
+	var borrowScope *runtime.BorrowScope
 
 	// Initialize resource table if needed
 	if f.instance != nil {
 		if f.instance.resourceTable == nil {
-			f.instance.resourceTable = NewResourceTable()
+			f.instance.resourceTable = runtime.NewResourceTable()
 		}
 		// Create subtask which owns the borrow scope
-		subtask = NewSubtask(f.instance.resourceTable)
+		subtask = runtime.NewSubtask(f.instance.resourceTable)
 		borrowScope = subtask.BorrowScope()
 
 		// Defer subtask cleanup for error paths
 		// This ensures the borrow scope is released even if we return early
 		defer func() {
-			if subtask != nil && subtask.State() == SubtaskStatePending {
+			if subtask != nil && subtask.State() == runtime.SubtaskStatePending {
 				// If we're returning early (error), resolve with nil result
 				subtask.DeliverResolve(nil)
 				subtask.StartFinish()
@@ -374,7 +375,7 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 			// Return the representation as the handle value
 			// The rep is any, so we extract uint32 if it's a handle index
 			if handleVal, ok := rep.(uint32); ok {
-				result := []Val{ValOwn(handleVal)}
+				result := []types.Val{types.ValOwn(handleVal)}
 				// Complete subtask before return
 				if subtask != nil {
 					subtask.DeliverResolve(result)
@@ -387,7 +388,7 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 			}
 			// If rep is not uint32, return it wrapped in ValOwn with index 0
 			// This is a simplification; proper implementation would track the actual handle
-			result := []Val{ValOwn(0)}
+			result := []types.Val{types.ValOwn(0)}
 			// Complete subtask before return
 			if subtask != nil {
 				subtask.DeliverResolve(result)
@@ -412,7 +413,7 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 				return nil, err
 			}
 			if handleVal, ok := rep.(uint32); ok {
-				result := []Val{ValBorrow(handleVal)}
+				result := []types.Val{types.ValBorrow(handleVal)}
 				// Complete subtask before return
 				if subtask != nil {
 					subtask.DeliverResolve(result)
@@ -423,7 +424,7 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 				}
 				return result, nil
 			}
-			result := []Val{ValBorrow(0)}
+			result := []types.Val{types.ValBorrow(0)}
 			// Complete subtask before return
 			if subtask != nil {
 				subtask.DeliverResolve(result)
@@ -461,8 +462,7 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 			}
 			if typeDef == nil {
 				// Type not found in Types array - skip legacy handling
-			} else
-			if typeDef.Option != nil && len(coreResults) == 2 {
+			} else if typeDef.Option != nil && len(coreResults) == 2 {
 				// Option type: first result is discriminant, second is payload
 				discriminant := coreResults[0]
 				if discriminant == 0 {
@@ -470,7 +470,7 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 					if err := callCtx.ValidateReturn(); err != nil {
 						return nil, err
 					}
-					result := []Val{ValOption(nil)}
+					result := []types.Val{types.ValOption(nil)}
 					// Complete subtask before return
 					if subtask != nil {
 						subtask.DeliverResolve(result)
@@ -486,7 +486,7 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 				if err := callCtx.ValidateReturn(); err != nil {
 					return nil, err
 				}
-				result := []Val{ValOption(&payload)}
+				result := []types.Val{types.ValOption(&payload)}
 				// Complete subtask before return
 				if subtask != nil {
 					subtask.DeliverResolve(result)
@@ -502,7 +502,7 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 				if err := callCtx.ValidateReturn(); err != nil {
 					return nil, err
 				}
-				result := []Val{ValRecord(rec)}
+				result := []types.Val{types.ValRecord(rec)}
 				// Complete subtask before return
 				if subtask != nil {
 					subtask.DeliverResolve(result)
@@ -524,7 +524,7 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 						if err := callCtx.ValidateReturn(); err != nil {
 							return nil, err
 						}
-						result := []Val{ValResultOk(&payload)}
+						result := []types.Val{types.ValResultOk(&payload)}
 						// Complete subtask before return
 						if subtask != nil {
 							subtask.DeliverResolve(result)
@@ -539,7 +539,7 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 					if err := callCtx.ValidateReturn(); err != nil {
 						return nil, err
 					}
-					result := []Val{ValResultOk(nil)}
+					result := []types.Val{types.ValResultOk(nil)}
 					// Complete subtask before return
 					if subtask != nil {
 						subtask.DeliverResolve(result)
@@ -557,7 +557,7 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 					if err := callCtx.ValidateReturn(); err != nil {
 						return nil, err
 					}
-					result := []Val{ValResultError(&errVal)}
+					result := []types.Val{types.ValResultError(&errVal)}
 					// Complete subtask before return
 					if subtask != nil {
 						subtask.DeliverResolve(result)
@@ -572,7 +572,7 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 				if err := callCtx.ValidateReturn(); err != nil {
 					return nil, err
 				}
-				result := []Val{ValResultError(nil)}
+				result := []types.Val{types.ValResultError(nil)}
 				// Complete subtask before return
 				if subtask != nil {
 					subtask.DeliverResolve(result)
@@ -604,7 +604,7 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 				if err := callCtx.ValidateReturn(); err != nil {
 					return nil, err
 				}
-				result := []Val{ValString(str)}
+				result := []types.Val{types.ValString(str)}
 				// Complete subtask before return
 				if subtask != nil {
 					subtask.DeliverResolve(result)
@@ -620,7 +620,7 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 				if err := callCtx.ValidateReturn(); err != nil {
 					return nil, err
 				}
-				result := []Val{val}
+				result := []types.Val{val}
 				// Complete subtask before return
 				if subtask != nil {
 					subtask.DeliverResolve(result)
@@ -641,7 +641,7 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 
 	// Handle multiple results or fallback: use TypeResolver when available
 	if f.funcType != nil && len(f.funcType.Results) == len(coreResults) {
-		results := make([]Val, len(coreResults))
+		results := make([]types.Val, len(coreResults))
 		for i, r := range coreResults {
 			results[i] = f.liftPrimitiveVal(r, f.funcType.Results[i].ValType)
 		}
@@ -657,9 +657,9 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 	}
 
 	// Final fallback: treat results as s32 (for backwards compatibility)
-	results := make([]Val, len(coreResults))
+	results := make([]types.Val, len(coreResults))
 	for i, r := range coreResults {
-		results[i] = ValS32(int32(r))
+		results[i] = types.ValS32(int32(r))
 	}
 
 	// Complete subtask before return
@@ -676,40 +676,40 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...Val) ([]Val, error) {
 
 // liftPrimitiveVal converts a core wasm value to a component Val based on the ValTypeRef.
 // Uses TypeResolver logic to determine the correct primitive type.
-func (f *ExportedFunc) liftPrimitiveVal(coreVal uint64, typeRef ValTypeRef) Val {
+func (f *ExportedFunc) liftPrimitiveVal(coreVal uint64, typeRef ValTypeRef) types.Val {
 	if typeRef.IsPrimitive {
 		switch typeRef.Primitive {
 		case 0x7f: // bool
 			if coreVal != 0 {
-				return ValBool(true)
+				return types.ValBool(true)
 			}
-			return ValBool(false)
+			return types.ValBool(false)
 		case 0x7e: // s8
-			return ValS8(int8(coreVal))
+			return types.ValS8(int8(coreVal))
 		case 0x7d: // u8
-			return ValU8(uint8(coreVal))
+			return types.ValU8(uint8(coreVal))
 		case 0x7c: // s16
-			return ValS16(int16(coreVal))
+			return types.ValS16(int16(coreVal))
 		case 0x7b: // u16
-			return ValU16(uint16(coreVal))
+			return types.ValU16(uint16(coreVal))
 		case 0x7a: // s32
-			return ValS32(int32(coreVal))
+			return types.ValS32(int32(coreVal))
 		case 0x79: // u32
-			return ValU32(uint32(coreVal))
+			return types.ValU32(uint32(coreVal))
 		case 0x78: // s64
-			return ValS64(int64(coreVal))
+			return types.ValS64(int64(coreVal))
 		case 0x77: // u64
-			return ValU64(coreVal)
+			return types.ValU64(coreVal)
 		case 0x76: // f32
-			return ValF32(math.Float32frombits(uint32(coreVal)))
+			return types.ValF32(math.Float32frombits(uint32(coreVal)))
 		case 0x75: // f64
-			return ValF64(math.Float64frombits(coreVal))
+			return types.ValF64(math.Float64frombits(coreVal))
 		case 0x74: // char
-			return ValChar(rune(coreVal))
+			return types.ValChar(rune(coreVal))
 		}
 	}
 	// Default fallback to s32
-	return ValS32(int32(coreVal))
+	return types.ValS32(int32(coreVal))
 }
 
 // liftStringFromRetptr reads a string from a return pointer.
@@ -754,8 +754,8 @@ func (f *ExportedFunc) liftStringFromRetptr(retptr uint32) (string, error) {
 
 // liftRecord reconstructs a record Val from flattened core values.
 // Uses field names from the record type definition instead of hardcoded names.
-func (f *ExportedFunc) liftRecord(recordDef *RecordTypeDef, coreResults []uint64) map[string]Val {
-	rec := make(map[string]Val)
+func (f *ExportedFunc) liftRecord(recordDef *RecordTypeDef, coreResults []uint64) map[string]types.Val {
+	rec := make(map[string]types.Val)
 
 	// Get sorted field names (component model spec requires alphabetical order)
 	fieldNames := make([]string, len(recordDef.Fields))
@@ -781,7 +781,7 @@ func (f *ExportedFunc) liftRecord(recordDef *RecordTypeDef, coreResults []uint64
 			rec[name] = f.liftPrimitiveVal(coreResults[coreIdx], field.ValType)
 		} else {
 			// Fallback for missing field definition
-			rec[name] = ValS32(int32(coreResults[coreIdx]))
+			rec[name] = types.ValS32(int32(coreResults[coreIdx]))
 		}
 		coreIdx++
 	}
@@ -791,10 +791,10 @@ func (f *ExportedFunc) liftRecord(recordDef *RecordTypeDef, coreResults []uint64
 
 // liftResolvedType lifts core values to a component Val using a resolved type.
 // This is the type-resolver-driven path for lifting complex types.
-func (f *ExportedFunc) liftResolvedType(resolvedType types.ValType, coreResults []uint64, subtask *Subtask, callCtx *CallContext) ([]Val, error) {
+func (f *ExportedFunc) liftResolvedType(resolvedType types.ValType, coreResults []uint64, subtask *runtime.Subtask, callCtx *runtime.CallContext) ([]types.Val, error) {
 	switch t := resolvedType.(type) {
 	case types.Record:
-		rec := make(map[string]Val)
+		rec := make(map[string]types.Val)
 		if len(coreResults) < len(t.Fields) && len(coreResults) == 1 && f.memory != nil {
 			// Retptr case: the record's flat count exceeds MAX_FLAT_RESULTS=1,
 			// so the core function returns a pointer to the record in linear memory.
@@ -815,7 +815,7 @@ func (f *ExportedFunc) liftResolvedType(resolvedType types.ValType, coreResults 
 		if err := callCtx.ValidateReturn(); err != nil {
 			return nil, err
 		}
-		result := []Val{ValRecord(rec)}
+		result := []types.Val{types.ValRecord(rec)}
 		// Complete subtask before return
 		if subtask != nil {
 			subtask.DeliverResolve(result)
@@ -836,7 +836,7 @@ func (f *ExportedFunc) liftResolvedType(resolvedType types.ValType, coreResults 
 			if err := callCtx.ValidateReturn(); err != nil {
 				return nil, err
 			}
-			result := []Val{ValOption(nil)}
+			result := []types.Val{types.ValOption(nil)}
 			// Complete subtask before return
 			if subtask != nil {
 				subtask.DeliverResolve(result)
@@ -852,7 +852,7 @@ func (f *ExportedFunc) liftResolvedType(resolvedType types.ValType, coreResults 
 		if err := callCtx.ValidateReturn(); err != nil {
 			return nil, err
 		}
-		result := []Val{ValOption(&payload)}
+		result := []types.Val{types.ValOption(&payload)}
 		// Complete subtask before return
 		if subtask != nil {
 			subtask.DeliverResolve(result)
@@ -883,7 +883,7 @@ func (f *ExportedFunc) liftResolvedType(resolvedType types.ValType, coreResults 
 				if err := callCtx.ValidateReturn(); err != nil {
 					return nil, err
 				}
-				result := []Val{ValResultOk(&payload)}
+				result := []types.Val{types.ValResultOk(&payload)}
 				// Complete subtask before return
 				if subtask != nil {
 					subtask.DeliverResolve(result)
@@ -897,7 +897,7 @@ func (f *ExportedFunc) liftResolvedType(resolvedType types.ValType, coreResults 
 			if err := callCtx.ValidateReturn(); err != nil {
 				return nil, err
 			}
-			result := []Val{ValResultOk(nil)}
+			result := []types.Val{types.ValResultOk(nil)}
 			// Complete subtask before return
 			if subtask != nil {
 				subtask.DeliverResolve(result)
@@ -914,7 +914,7 @@ func (f *ExportedFunc) liftResolvedType(resolvedType types.ValType, coreResults 
 			if err := callCtx.ValidateReturn(); err != nil {
 				return nil, err
 			}
-			result := []Val{ValResultError(&errVal)}
+			result := []types.Val{types.ValResultError(&errVal)}
 			// Complete subtask before return
 			if subtask != nil {
 				subtask.DeliverResolve(result)
@@ -928,7 +928,7 @@ func (f *ExportedFunc) liftResolvedType(resolvedType types.ValType, coreResults 
 		if err := callCtx.ValidateReturn(); err != nil {
 			return nil, err
 		}
-		result := []Val{ValResultError(nil)}
+		result := []types.Val{types.ValResultError(nil)}
 		// Complete subtask before return
 		if subtask != nil {
 			subtask.DeliverResolve(result)
@@ -956,7 +956,7 @@ func (f *ExportedFunc) liftResolvedType(resolvedType types.ValType, coreResults 
 		if err := callCtx.ValidateReturn(); err != nil {
 			return nil, err
 		}
-		result := []Val{ValString(str)}
+		result := []types.Val{types.ValString(str)}
 		// Complete subtask before return
 		if subtask != nil {
 			subtask.DeliverResolve(result)
@@ -978,7 +978,7 @@ func (f *ExportedFunc) liftResolvedType(resolvedType types.ValType, coreResults 
 		if err := callCtx.ValidateReturn(); err != nil {
 			return nil, err
 		}
-		result := []Val{ValEnum(t.Cases[discriminant])}
+		result := []types.Val{types.ValEnum(t.Cases[discriminant])}
 		if subtask != nil {
 			subtask.DeliverResolve(result)
 			subtask.StartFinish()
@@ -1017,7 +1017,7 @@ func (f *ExportedFunc) liftResolvedType(resolvedType types.ValType, coreResults 
 		if err := callCtx.ValidateReturn(); err != nil {
 			return nil, err
 		}
-		result := []Val{ValFlags(flagMap)}
+		result := []types.Val{types.ValFlags(flagMap)}
 		if subtask != nil {
 			subtask.DeliverResolve(result)
 			subtask.StartFinish()
@@ -1031,7 +1031,7 @@ func (f *ExportedFunc) liftResolvedType(resolvedType types.ValType, coreResults 
 		flatCount := t.FlattenCount()
 		if flatCount <= 1 && len(coreResults) >= flatCount {
 			// Flat case: lift elements from core results
-			elems := make([]Val, len(t.Types))
+			elems := make([]types.Val, len(t.Types))
 			idx := 0
 			for i, elemType := range t.Types {
 				if idx < len(coreResults) {
@@ -1042,7 +1042,7 @@ func (f *ExportedFunc) liftResolvedType(resolvedType types.ValType, coreResults 
 			if err := callCtx.ValidateReturn(); err != nil {
 				return nil, err
 			}
-			result := []Val{ValTuple(elems)}
+			result := []types.Val{types.ValTuple(elems)}
 			if subtask != nil {
 				subtask.DeliverResolve(result)
 				subtask.StartFinish()
@@ -1055,7 +1055,7 @@ func (f *ExportedFunc) liftResolvedType(resolvedType types.ValType, coreResults 
 		// Retptr case
 		if len(coreResults) >= 1 && f.memory != nil {
 			retptr := uint32(coreResults[0])
-			elems := make([]Val, len(t.Types))
+			elems := make([]types.Val, len(t.Types))
 			offset := retptr
 			for i, elemType := range t.Types {
 				align := elemType.Align()
@@ -1069,7 +1069,7 @@ func (f *ExportedFunc) liftResolvedType(resolvedType types.ValType, coreResults 
 			if err := callCtx.ValidateReturn(); err != nil {
 				return nil, err
 			}
-			result := []Val{ValTuple(elems)}
+			result := []types.Val{types.ValTuple(elems)}
 			if subtask != nil {
 				subtask.DeliverResolve(result)
 				subtask.StartFinish()
@@ -1093,7 +1093,7 @@ func (f *ExportedFunc) liftResolvedType(resolvedType types.ValType, coreResults 
 				return nil, fmt.Errorf("variant discriminant %d out of range", discriminant)
 			}
 			c := t.Cases[discriminant]
-			var payload *Val
+			var payload *types.Val
 			if c.Type != nil && len(coreResults) > 1 {
 				v := f.liftResolvedPrimitiveVal(coreResults[1], c.Type)
 				payload = &v
@@ -1101,7 +1101,7 @@ func (f *ExportedFunc) liftResolvedType(resolvedType types.ValType, coreResults 
 			if err := callCtx.ValidateReturn(); err != nil {
 				return nil, err
 			}
-			result := []Val{ValVariant(c.Name, payload)}
+			result := []types.Val{types.ValVariant(c.Name, payload)}
 			if subtask != nil {
 				subtask.DeliverResolve(result)
 				subtask.StartFinish()
@@ -1140,7 +1140,7 @@ func (f *ExportedFunc) liftResolvedType(resolvedType types.ValType, coreResults 
 				return nil, fmt.Errorf("variant discriminant %d out of range", discriminant)
 			}
 			c := t.Cases[discriminant]
-			var payload *Val
+			var payload *types.Val
 			if c.Type != nil {
 				payloadOffset := t.PayloadOffset()
 				v, _ := f.liftFieldFromMemory(retptr+payloadOffset, c.Type)
@@ -1149,7 +1149,7 @@ func (f *ExportedFunc) liftResolvedType(resolvedType types.ValType, coreResults 
 			if err := callCtx.ValidateReturn(); err != nil {
 				return nil, err
 			}
-			result := []Val{ValVariant(c.Name, payload)}
+			result := []types.Val{types.ValVariant(c.Name, payload)}
 			if subtask != nil {
 				subtask.DeliverResolve(result)
 				subtask.StartFinish()
@@ -1175,7 +1175,7 @@ func (f *ExportedFunc) liftResolvedType(resolvedType types.ValType, coreResults 
 		if !ok {
 			return nil, fmt.Errorf("failed to read list len from memory")
 		}
-		elems := make([]Val, length)
+		elems := make([]types.Val, length)
 		elemSize := t.Element.Size()
 		for i := uint32(0); i < length; i++ {
 			elemOffset := ptr + i*elemSize
@@ -1185,7 +1185,7 @@ func (f *ExportedFunc) liftResolvedType(resolvedType types.ValType, coreResults 
 		if err := callCtx.ValidateReturn(); err != nil {
 			return nil, err
 		}
-		result := []Val{ValList(elems)}
+		result := []types.Val{types.ValList(elems)}
 		if subtask != nil {
 			subtask.DeliverResolve(result)
 			subtask.StartFinish()
@@ -1202,208 +1202,208 @@ func (f *ExportedFunc) liftResolvedType(resolvedType types.ValType, coreResults 
 }
 
 // liftResolvedPrimitiveVal converts a core value to a Val using a resolved types.ValType.
-func (f *ExportedFunc) liftResolvedPrimitiveVal(coreVal uint64, valType types.ValType) Val {
+func (f *ExportedFunc) liftResolvedPrimitiveVal(coreVal uint64, valType types.ValType) types.Val {
 	switch valType.(type) {
 	case types.Bool:
 		if coreVal != 0 {
-			return ValBool(true)
+			return types.ValBool(true)
 		}
-		return ValBool(false)
+		return types.ValBool(false)
 	case types.S8:
-		return ValS8(int8(coreVal))
+		return types.ValS8(int8(coreVal))
 	case types.U8:
-		return ValU8(uint8(coreVal))
+		return types.ValU8(uint8(coreVal))
 	case types.S16:
-		return ValS16(int16(coreVal))
+		return types.ValS16(int16(coreVal))
 	case types.U16:
-		return ValU16(uint16(coreVal))
+		return types.ValU16(uint16(coreVal))
 	case types.S32:
-		return ValS32(int32(coreVal))
+		return types.ValS32(int32(coreVal))
 	case types.U32:
-		return ValU32(uint32(coreVal))
+		return types.ValU32(uint32(coreVal))
 	case types.S64:
-		return ValS64(int64(coreVal))
+		return types.ValS64(int64(coreVal))
 	case types.U64:
-		return ValU64(coreVal)
+		return types.ValU64(coreVal)
 	case types.F32:
-		return ValF32(math.Float32frombits(uint32(coreVal)))
+		return types.ValF32(math.Float32frombits(uint32(coreVal)))
 	case types.F64:
-		return ValF64(math.Float64frombits(coreVal))
+		return types.ValF64(math.Float64frombits(coreVal))
 	case types.Char:
-		return ValChar(rune(coreVal))
+		return types.ValChar(rune(coreVal))
 	default:
 		// Default fallback to s32
-		return ValS32(int32(coreVal))
+		return types.ValS32(int32(coreVal))
 	}
 }
 
 // liftFieldFromMemory reads a typed value from linear memory at the given offset.
 // Returns the lifted Val and the number of bytes consumed (for advancing the offset).
-func (f *ExportedFunc) liftFieldFromMemory(offset uint32, valType types.ValType) (Val, uint32) {
+func (f *ExportedFunc) liftFieldFromMemory(offset uint32, valType types.ValType) (types.Val, uint32) {
 	switch t := valType.(type) {
 	case types.Bool:
 		_ = t
 		b, ok := f.memory.ReadByteAt(offset)
 		if !ok {
-			return ValBool(false), 1
+			return types.ValBool(false), 1
 		}
-		return ValBool(b != 0), 1
+		return types.ValBool(b != 0), 1
 	case types.S8:
 		b, ok := f.memory.ReadByteAt(offset)
 		if !ok {
-			return ValS8(0), 1
+			return types.ValS8(0), 1
 		}
-		return ValS8(int8(b)), 1
+		return types.ValS8(int8(b)), 1
 	case types.U8:
 		b, ok := f.memory.ReadByteAt(offset)
 		if !ok {
-			return ValU8(0), 1
+			return types.ValU8(0), 1
 		}
-		return ValU8(b), 1
+		return types.ValU8(b), 1
 	case types.S16:
 		v, ok := f.memory.ReadUint16Le(offset)
 		if !ok {
-			return ValS16(0), 2
+			return types.ValS16(0), 2
 		}
-		return ValS16(int16(v)), 2
+		return types.ValS16(int16(v)), 2
 	case types.U16:
 		v, ok := f.memory.ReadUint16Le(offset)
 		if !ok {
-			return ValU16(0), 2
+			return types.ValU16(0), 2
 		}
-		return ValU16(v), 2
+		return types.ValU16(v), 2
 	case types.S32:
 		v, ok := f.memory.ReadUint32Le(offset)
 		if !ok {
-			return ValS32(0), 4
+			return types.ValS32(0), 4
 		}
-		return ValS32(int32(v)), 4
+		return types.ValS32(int32(v)), 4
 	case types.U32:
 		v, ok := f.memory.ReadUint32Le(offset)
 		if !ok {
-			return ValU32(0), 4
+			return types.ValU32(0), 4
 		}
-		return ValU32(v), 4
+		return types.ValU32(v), 4
 	case types.S64:
 		v, ok := f.memory.ReadUint64Le(offset)
 		if !ok {
-			return ValS64(0), 8
+			return types.ValS64(0), 8
 		}
-		return ValS64(int64(v)), 8
+		return types.ValS64(int64(v)), 8
 	case types.U64:
 		v, ok := f.memory.ReadUint64Le(offset)
 		if !ok {
-			return ValU64(0), 8
+			return types.ValU64(0), 8
 		}
-		return ValU64(v), 8
+		return types.ValU64(v), 8
 	case types.F32:
 		v, ok := f.memory.ReadUint32Le(offset)
 		if !ok {
-			return ValF32(0), 4
+			return types.ValF32(0), 4
 		}
-		return ValF32(math.Float32frombits(v)), 4
+		return types.ValF32(math.Float32frombits(v)), 4
 	case types.F64:
 		v, ok := f.memory.ReadUint64Le(offset)
 		if !ok {
-			return ValF64(0), 8
+			return types.ValF64(0), 8
 		}
-		return ValF64(math.Float64frombits(v)), 8
+		return types.ValF64(math.Float64frombits(v)), 8
 	case types.Char:
 		v, ok := f.memory.ReadUint32Le(offset)
 		if !ok {
-			return ValChar(0), 4
+			return types.ValChar(0), 4
 		}
-		return ValChar(rune(v)), 4
+		return types.ValChar(rune(v)), 4
 	case types.String:
 		// String in memory: (ptr: i32, len: i32) = 8 bytes
 		ptr, ok := f.memory.ReadUint32Le(offset)
 		if !ok {
-			return ValString(""), 8
+			return types.ValString(""), 8
 		}
 		length, ok := f.memory.ReadUint32Le(offset + 4)
 		if !ok {
-			return ValString(""), 8
+			return types.ValString(""), 8
 		}
 		if length == 0 {
-			return ValString(""), 8
+			return types.ValString(""), 8
 		}
 		data, ok := f.memory.Read(ptr, length)
 		if !ok {
-			return ValString(""), 8
+			return types.ValString(""), 8
 		}
-		return ValString(string(data)), 8
+		return types.ValString(string(data)), 8
 	case types.Enum:
 		v, ok := f.memory.ReadUint32Le(offset)
 		if !ok {
-			return ValEnum(""), 4
+			return types.ValEnum(""), 4
 		}
 		idx := int(v)
 		if idx >= 0 && idx < len(t.Cases) {
-			return ValEnum(t.Cases[idx]), 4
+			return types.ValEnum(t.Cases[idx]), 4
 		}
-		return ValEnum(""), 4
+		return types.ValEnum(""), 4
 	case types.Flags:
 		v, ok := f.memory.ReadUint32Le(offset)
 		if !ok {
-			return ValFlags(nil), 4
+			return types.ValFlags(nil), 4
 		}
 		flagMap := make(map[string]bool)
 		for i, name := range t.Names {
 			flagMap[name] = (v & (1 << uint(i))) != 0
 		}
-		return ValFlags(flagMap), 4
+		return types.ValFlags(flagMap), 4
 	case types.Option:
 		disc, ok := f.memory.ReadUint32Le(offset)
 		if !ok {
-			return ValOption(nil), 4
+			return types.ValOption(nil), 4
 		}
 		innerSize := t.Some.Size()
 		if disc == 0 {
-			return ValOption(nil), 4 + innerSize
+			return types.ValOption(nil), 4 + innerSize
 		}
 		val, _ := f.liftFieldFromMemory(offset+4, t.Some)
-		return ValOption(&val), 4 + innerSize
+		return types.ValOption(&val), 4 + innerSize
 	case types.List:
 		ptr, ok := f.memory.ReadUint32Le(offset)
 		if !ok {
-			return ValList(nil), 8
+			return types.ValList(nil), 8
 		}
 		length, ok := f.memory.ReadUint32Le(offset + 4)
 		if !ok {
-			return ValList(nil), 8
+			return types.ValList(nil), 8
 		}
 		if length == 0 {
-			return ValList(nil), 8
+			return types.ValList(nil), 8
 		}
 		elemSize := t.Element.Size()
-		vals := make([]Val, length)
+		vals := make([]types.Val, length)
 		for i := uint32(0); i < length; i++ {
 			val, _ := f.liftFieldFromMemory(ptr+i*elemSize, t.Element)
 			vals[i] = val
 		}
-		return ValList(vals), 8
+		return types.ValList(vals), 8
 	case types.Record:
-		rec := make(map[string]Val)
+		rec := make(map[string]types.Val)
 		totalSize := uint32(0)
 		for _, field := range t.Fields {
 			val, size := f.liftFieldFromMemory(offset+totalSize, field.Type)
 			rec[field.Name] = val
 			totalSize += size
 		}
-		return ValRecord(rec), totalSize
+		return types.ValRecord(rec), totalSize
 	default:
 		// Fallback: read as u32
 		v, ok := f.memory.ReadUint32Le(offset)
 		if !ok {
-			return ValU32(0), 4
+			return types.ValU32(0), 4
 		}
-		return ValU32(v), 4
+		return types.ValU32(v), 4
 	}
 }
 
 // liftResultFromMemory reads a result type from linear memory at the given retptr.
 // The memory layout is: discriminant (i32) at offset 0, payload at aligned offset.
-func (f *ExportedFunc) liftResultFromMemory(t types.Result, retptr uint32, subtask *Subtask, callCtx *CallContext) ([]Val, error) {
+func (f *ExportedFunc) liftResultFromMemory(t types.Result, retptr uint32, subtask *runtime.Subtask, callCtx *runtime.CallContext) ([]types.Val, error) {
 	if f.memory == nil {
 		return nil, fmt.Errorf("result lifting from memory requires memory")
 	}
@@ -1436,7 +1436,7 @@ func (f *ExportedFunc) liftResultFromMemory(t types.Result, retptr uint32, subta
 			if err := callCtx.ValidateReturn(); err != nil {
 				return nil, err
 			}
-			result := []Val{ValResultOk(&payload)}
+			result := []types.Val{types.ValResultOk(&payload)}
 			if subtask != nil {
 				subtask.DeliverResolve(result)
 				subtask.StartFinish()
@@ -1449,7 +1449,7 @@ func (f *ExportedFunc) liftResultFromMemory(t types.Result, retptr uint32, subta
 		if err := callCtx.ValidateReturn(); err != nil {
 			return nil, err
 		}
-		result := []Val{ValResultOk(nil)}
+		result := []types.Val{types.ValResultOk(nil)}
 		if subtask != nil {
 			subtask.DeliverResolve(result)
 			subtask.StartFinish()
@@ -1466,7 +1466,7 @@ func (f *ExportedFunc) liftResultFromMemory(t types.Result, retptr uint32, subta
 		if err := callCtx.ValidateReturn(); err != nil {
 			return nil, err
 		}
-		result := []Val{ValResultError(&errPayload)}
+		result := []types.Val{types.ValResultError(&errPayload)}
 		if subtask != nil {
 			subtask.DeliverResolve(result)
 			subtask.StartFinish()
@@ -1479,7 +1479,7 @@ func (f *ExportedFunc) liftResultFromMemory(t types.Result, retptr uint32, subta
 	if err := callCtx.ValidateReturn(); err != nil {
 		return nil, err
 	}
-	result := []Val{ValResultError(nil)}
+	result := []types.Val{types.ValResultError(nil)}
 	if subtask != nil {
 		subtask.DeliverResolve(result)
 		subtask.StartFinish()
@@ -1496,13 +1496,13 @@ func alignTo(offset, align uint32) uint32 {
 }
 
 // estimateFlatCount estimates the flat parameter count for a Val without type info.
-func estimateFlatCount(val Val) int {
+func estimateFlatCount(val types.Val) int {
 	switch val.Kind() {
-	case ValKindString:
+	case types.ValKindString:
 		return 2 // ptr + len
-	case ValKindList:
+	case types.ValKindList:
 		return 2 // ptr + len
-	case ValKindRecord:
+	case types.ValKindRecord:
 		count := 0
 		for _, v := range val.Record() {
 			count += estimateFlatCount(v)
@@ -1515,7 +1515,7 @@ func estimateFlatCount(val Val) int {
 
 // lowerParam dispatches parameter lowering to lowerTyped (when type info is available)
 // or lowerByKind (kind-based fallback for primitives).
-func (f *ExportedFunc) lowerParam(ctx context.Context, val Val, resolvedType types.ValType, callCtx *CallContext) ([]uint64, error) {
+func (f *ExportedFunc) lowerParam(ctx context.Context, val types.Val, resolvedType types.ValType, callCtx *runtime.CallContext) ([]uint64, error) {
 	if resolvedType != nil && (typeMatchesKind(resolvedType, val.Kind()) || typeCanCoerce(resolvedType, val)) {
 		return f.lowerTyped(ctx, val, resolvedType, callCtx)
 	}
@@ -1524,17 +1524,17 @@ func (f *ExportedFunc) lowerParam(ctx context.Context, val Val, resolvedType typ
 
 // typeCanCoerce returns true if lowerTyped can coerce the Val to the expected type
 // even when the kinds don't match directly.
-func typeCanCoerce(typ types.ValType, val Val) bool {
+func typeCanCoerce(typ types.ValType, val types.Val) bool {
 	switch typ.(type) {
 	case types.Enum:
 		// String can be used as enum case name
-		return val.Kind() == ValKindString
+		return val.Kind() == types.ValKindString
 	case types.Option:
 		// Any value can be coerced to option (nil→None, other→Some)
 		return true
 	case types.Variant:
 		// Record with "case" field can be coerced to variant
-		return val.Kind() == ValKindRecord
+		return val.Kind() == types.ValKindRecord
 	default:
 		return false
 	}
@@ -1543,54 +1543,54 @@ func typeCanCoerce(typ types.ValType, val Val) bool {
 // typeMatchesKind checks if a resolved type is compatible with a Val's runtime kind.
 // When they don't match (e.g., funcType says u64 but caller passes a list),
 // we fall back to kind-based lowering to avoid panics.
-func typeMatchesKind(typ types.ValType, kind ValKind) bool {
+func typeMatchesKind(typ types.ValType, kind types.ValKind) bool {
 	switch typ.(type) {
 	case types.Bool:
-		return kind == ValKindBool
+		return kind == types.ValKindBool
 	case types.S8:
-		return kind == ValKindS8
+		return kind == types.ValKindS8
 	case types.U8:
-		return kind == ValKindU8
+		return kind == types.ValKindU8
 	case types.S16:
-		return kind == ValKindS16
+		return kind == types.ValKindS16
 	case types.U16:
-		return kind == ValKindU16
+		return kind == types.ValKindU16
 	case types.S32:
-		return kind == ValKindS32
+		return kind == types.ValKindS32
 	case types.U32:
-		return kind == ValKindU32
+		return kind == types.ValKindU32
 	case types.S64:
-		return kind == ValKindS64
+		return kind == types.ValKindS64
 	case types.U64:
-		return kind == ValKindU64
+		return kind == types.ValKindU64
 	case types.F32:
-		return kind == ValKindF32
+		return kind == types.ValKindF32
 	case types.F64:
-		return kind == ValKindF64
+		return kind == types.ValKindF64
 	case types.Char:
-		return kind == ValKindChar
+		return kind == types.ValKindChar
 	case types.String:
-		return kind == ValKindString
+		return kind == types.ValKindString
 	case types.Record:
-		return kind == ValKindRecord
+		return kind == types.ValKindRecord
 	case types.List:
-		return kind == ValKindList
+		return kind == types.ValKindList
 	case types.Tuple:
-		return kind == ValKindTuple
+		return kind == types.ValKindTuple
 	case types.Variant:
-		return kind == ValKindVariant
+		return kind == types.ValKindVariant
 	case types.Enum:
-		return kind == ValKindEnum
+		return kind == types.ValKindEnum
 	case types.Option:
-		return kind == ValKindOption
+		return kind == types.ValKindOption
 	case types.Result:
-		return kind == ValKindResult
+		return kind == types.ValKindResult
 	case types.Flags:
-		return kind == ValKindFlags
+		return kind == types.ValKindFlags
 	case types.Own:
-		return kind == ValKindOwn
+		return kind == types.ValKindOwn
 	case types.Borrow:
-		return kind == ValKindBorrow
+		return kind == types.ValKindBorrow
 	default:
 		return false
 	}
@@ -1598,7 +1598,7 @@ func typeMatchesKind(typ types.ValType, kind ValKind) bool {
 
 // lowerTyped performs type-driven lowering for all component model value types.
 // It uses the resolved type information to correctly flatten composite types.
-func (f *ExportedFunc) lowerTyped(ctx context.Context, val Val, typ types.ValType, callCtx *CallContext) ([]uint64, error) {
+func (f *ExportedFunc) lowerTyped(ctx context.Context, val types.Val, typ types.ValType, callCtx *runtime.CallContext) ([]uint64, error) {
 	switch t := typ.(type) {
 	case types.Bool:
 		if val.Bool() {
@@ -1661,7 +1661,7 @@ func (f *ExportedFunc) lowerTyped(ctx context.Context, val Val, typ types.ValTyp
 	case types.Enum:
 		// Coerce: if caller passed a string (e.g. from map[string]any), use it as enum case name
 		var caseName string
-		if val.Kind() == ValKindString {
+		if val.Kind() == types.ValKindString {
 			caseName = val.StringVal()
 		} else {
 			caseName = val.Enum()
@@ -1688,8 +1688,8 @@ func (f *ExportedFunc) lowerTyped(ctx context.Context, val Val, typ types.ValTyp
 	case types.Option:
 		// Coerce: if the value is not an option kind (e.g. zero Val from nil conversion),
 		// treat it as None when v is nil, or wrap as Some otherwise
-		if val.Kind() != ValKindOption {
-			if val.v == nil {
+		if val.Kind() != types.ValKindOption {
+			if val == (types.Val{}) {
 				// Zero Val (nil) → Option None
 				payloadCount := t.Some.FlattenCount()
 				flat := make([]uint64, 1+payloadCount)
@@ -1758,10 +1758,10 @@ func (f *ExportedFunc) lowerTyped(ctx context.Context, val Val, typ types.ValTyp
 		// Coerce: if caller passed a record with "case" (and optional "payload") fields,
 		// treat it as a variant
 		var caseName string
-		var payload *Val
-		if val.Kind() == ValKindRecord {
+		var payload *types.Val
+		if val.Kind() == types.ValKindRecord {
 			rec := val.Record()
-			if caseVal, ok := rec["case"]; ok && caseVal.Kind() == ValKindString {
+			if caseVal, ok := rec["case"]; ok && caseVal.Kind() == types.ValKindString {
 				caseName = caseVal.StringVal()
 				if payloadVal, ok := rec["payload"]; ok {
 					payload = &payloadVal
@@ -1853,45 +1853,45 @@ func (f *ExportedFunc) lowerTyped(ctx context.Context, val Val, typ types.ValTyp
 
 // lowerByKind performs kind-based fallback lowering for primitives, strings,
 // and resource handles when no resolved type information is available.
-func (f *ExportedFunc) lowerByKind(ctx context.Context, val Val, callCtx *CallContext) ([]uint64, error) {
+func (f *ExportedFunc) lowerByKind(ctx context.Context, val types.Val, callCtx *runtime.CallContext) ([]uint64, error) {
 	switch val.Kind() {
-	case ValKindBool:
+	case types.ValKindBool:
 		if val.Bool() {
 			return []uint64{1}, nil
 		}
 		return []uint64{0}, nil
-	case ValKindS8:
+	case types.ValKindS8:
 		return []uint64{uint64(uint32(uint8(val.S8())))}, nil
-	case ValKindU8:
+	case types.ValKindU8:
 		return []uint64{uint64(val.U8())}, nil
-	case ValKindS16:
+	case types.ValKindS16:
 		return []uint64{uint64(uint32(uint16(val.S16())))}, nil
-	case ValKindU16:
+	case types.ValKindU16:
 		return []uint64{uint64(val.U16())}, nil
-	case ValKindS32:
+	case types.ValKindS32:
 		return []uint64{uint64(uint32(val.S32()))}, nil
-	case ValKindU32:
+	case types.ValKindU32:
 		return []uint64{uint64(val.U32())}, nil
-	case ValKindS64:
+	case types.ValKindS64:
 		return []uint64{uint64(val.S64())}, nil
-	case ValKindU64:
+	case types.ValKindU64:
 		return []uint64{val.U64()}, nil
-	case ValKindF32:
+	case types.ValKindF32:
 		return []uint64{uint64(math.Float32bits(val.F32()))}, nil
-	case ValKindF64:
+	case types.ValKindF64:
 		return []uint64{math.Float64bits(val.F64())}, nil
-	case ValKindChar:
+	case types.ValKindChar:
 		return []uint64{uint64(val.Char())}, nil
-	case ValKindString:
+	case types.ValKindString:
 		return f.lowerStringParam(ctx, val.StringVal())
-	case ValKindOwn:
+	case types.ValKindOwn:
 		rep := val.Own()
 		if f.instance == nil || f.instance.resourceTable == nil {
 			return nil, fmt.Errorf("lower own: no resource table available")
 		}
 		h := f.instance.resourceTable.New(rep, true)
 		return []uint64{uint64(h.Index())}, nil
-	case ValKindBorrow:
+	case types.ValKindBorrow:
 		rep := val.Borrow()
 		if f.instance == nil || f.instance.resourceTable == nil {
 			return nil, fmt.Errorf("lower borrow: no resource table available")
@@ -1901,7 +1901,7 @@ func (f *ExportedFunc) lowerByKind(ctx context.Context, val Val, callCtx *CallCo
 			callCtx.IncrementBorrows()
 		}
 		return []uint64{uint64(h.Index())}, nil
-	case ValKindList:
+	case types.ValKindList:
 		// List lowering without type info: infer element size from first element's kind
 		list := val.List()
 		mem := f.memory
@@ -1937,7 +1937,7 @@ func (f *ExportedFunc) lowerByKind(ctx context.Context, val Val, callCtx *CallCo
 			}
 		}
 		return []uint64{uint64(ptr), uint64(listLen)}, nil
-	case ValKindRecord:
+	case types.ValKindRecord:
 		// Record lowering without type info: flatten fields in alphabetical order
 		rec := val.Record()
 		fieldNames := make([]string, 0, len(rec))
@@ -2006,7 +2006,7 @@ func alignTo32(offset, align uint32) uint32 {
 
 // lowerToMemory writes a val to linear memory at the given offset using the type information.
 // Used for list elements and other cases where values must be stored in memory.
-func (f *ExportedFunc) lowerToMemory(ctx context.Context, val Val, typ types.ValType, offset uint32) error {
+func (f *ExportedFunc) lowerToMemory(ctx context.Context, val types.Val, typ types.ValType, offset uint32) error {
 	if f.memory == nil {
 		return fmt.Errorf("lowerToMemory: no memory available")
 	}
@@ -2088,7 +2088,7 @@ func (f *ExportedFunc) lowerToMemory(ctx context.Context, val Val, typ types.Val
 		}
 	case types.Enum:
 		var caseName string
-		if val.Kind() == ValKindString {
+		if val.Kind() == types.ValKindString {
 			caseName = val.StringVal()
 		} else {
 			caseName = val.Enum()
@@ -2116,8 +2116,8 @@ func (f *ExportedFunc) lowerToMemory(ctx context.Context, val Val, typ types.Val
 		return fmt.Errorf("unknown enum case %q", caseName)
 	case types.Option:
 		// Coerce: handle non-option Val kinds
-		if val.Kind() != ValKindOption {
-			if val.v == nil {
+		if val.Kind() != types.ValKindOption {
+			if val == (types.Val{}) {
 				// Zero Val (nil) → Option None
 				if !f.memory.WriteByteAt(offset, 0) {
 					return fmt.Errorf("failed to write option discriminant at offset %d", offset)
@@ -2160,10 +2160,10 @@ func (f *ExportedFunc) lowerToMemory(ctx context.Context, val Val, typ types.Val
 	case types.Variant:
 		// Coerce: record with "case"/"payload" → variant
 		var caseName string
-		var payload *Val
-		if val.Kind() == ValKindRecord {
+		var payload *types.Val
+		if val.Kind() == types.ValKindRecord {
 			rec := val.Record()
-			if caseVal, ok := rec["case"]; ok && caseVal.Kind() == ValKindString {
+			if caseVal, ok := rec["case"]; ok && caseVal.Kind() == types.ValKindString {
 				caseName = caseVal.StringVal()
 				if payloadVal, ok := rec["payload"]; ok {
 					payload = &payloadVal
@@ -2309,20 +2309,20 @@ func (f *ExportedFunc) resultVariantPayloadCount(r types.Result) int {
 // It removes the handle from the table and returns the representation value.
 // Traps if the handle has active borrows (NumLends > 0).
 // Traps if the handle is not owned (i.e., it's a borrowed handle).
-func (f *ExportedFunc) liftOwn(handleIdx uint32, borrowScope *BorrowScope) (any, error) {
+func (f *ExportedFunc) liftOwn(handleIdx uint32, borrowScope *runtime.BorrowScope) (any, error) {
 	if f.instance == nil || f.instance.resourceTable == nil {
 		return nil, fmt.Errorf("lift_own: no resource table available")
 	}
 
 	// Construct handle from index - try to find the valid generation
-	h := Handle(handleIdx)
+	h := runtime.Handle(handleIdx)
 
 	// Get the entry first to check ownership
 	entry, err := f.instance.resourceTable.Get(h)
 	if err != nil {
 		// Try to find the entry by scanning generations
 		for gen := uint32(1); gen < 1000; gen++ {
-			h = MakeHandle(handleIdx, gen)
+			h = runtime.MakeHandle(handleIdx, gen)
 			entry, err = f.instance.resourceTable.Get(h)
 			if err == nil {
 				break
@@ -2349,21 +2349,21 @@ func (f *ExportedFunc) liftOwn(handleIdx uint32, borrowScope *BorrowScope) (any,
 
 // liftBorrow reads a resource representation for borrowing.
 // Unlike liftOwn, it does NOT remove the handle from the table.
-// It tracks the lend in the BorrowScope to prevent ownership transfer while borrowed.
-func (f *ExportedFunc) liftBorrow(handleIdx uint32, borrowScope *BorrowScope) (any, error) {
+// It tracks the lend in the runtime.BorrowScope to prevent ownership transfer while borrowed.
+func (f *ExportedFunc) liftBorrow(handleIdx uint32, borrowScope *runtime.BorrowScope) (any, error) {
 	if f.instance == nil || f.instance.resourceTable == nil {
 		return nil, fmt.Errorf("lift_borrow: no resource table available")
 	}
 
 	// Construct handle from index
-	h := Handle(handleIdx)
+	h := runtime.Handle(handleIdx)
 
 	// Try to get the entry
 	entry, err := f.instance.resourceTable.Get(h)
 	if err != nil {
 		// Try to find the entry by scanning generations
 		for gen := uint32(1); gen < 1000; gen++ {
-			h = MakeHandle(handleIdx, gen)
+			h = runtime.MakeHandle(handleIdx, gen)
 			entry, err = f.instance.resourceTable.Get(h)
 			if err == nil {
 				break
@@ -2388,7 +2388,7 @@ func (f *ExportedFunc) liftBorrow(handleIdx uint32, borrowScope *BorrowScope) (a
 // Creates an owned handle from a representation value.
 func (i *Instance) ResourceNew(rep any) (uint32, error) {
 	if i.resourceTable == nil {
-		i.resourceTable = NewResourceTable()
+		i.resourceTable = runtime.NewResourceTable()
 	}
 	h := i.resourceTable.New(rep, true)
 	return uint32(h), nil
@@ -2398,9 +2398,9 @@ func (i *Instance) ResourceNew(rep any) (uint32, error) {
 // Extracts the representation from a handle without removing it.
 func (i *Instance) ResourceRep(handleIdx uint32) (any, error) {
 	if i.resourceTable == nil {
-		return nil, fmt.Errorf("resource.rep: %w", ErrInvalidHandle)
+		return nil, fmt.Errorf("resource.rep: %w", runtime.ErrInvalidHandle)
 	}
-	h := Handle(handleIdx)
+	h := runtime.Handle(handleIdx)
 	entry, err := i.resourceTable.Get(h)
 	if err != nil {
 		return nil, fmt.Errorf("resource.rep: %w", err)
@@ -2413,9 +2413,9 @@ func (i *Instance) ResourceRep(handleIdx uint32) (any, error) {
 // For borrowed handles, decrements the call context borrow count instead.
 func (i *Instance) ResourceDrop(handleIdx uint32, resourceTypeIdx uint32) error {
 	if i.resourceTable == nil {
-		return fmt.Errorf("resource.drop: %w", ErrInvalidHandle)
+		return fmt.Errorf("resource.drop: %w", runtime.ErrInvalidHandle)
 	}
-	h := Handle(handleIdx)
+	h := runtime.Handle(handleIdx)
 	entry, err := i.resourceTable.Remove(h)
 	if err != nil {
 		return fmt.Errorf("resource.drop: %w", err)
@@ -2448,12 +2448,12 @@ func (i *Instance) SetDestructor(resourceTypeIdx uint32, dtor func(any)) {
 }
 
 // SetCallContext sets the current call context for borrow tracking.
-func (i *Instance) SetCallContext(ctx *CallContext) {
+func (i *Instance) SetCallContext(ctx *runtime.CallContext) {
 	i.callContext = ctx
 }
 
 // CallContext returns the current call context.
-func (i *Instance) CallContext() *CallContext {
+func (i *Instance) CallContext() *runtime.CallContext {
 	return i.callContext
 }
 
@@ -2539,9 +2539,9 @@ func (i *Instance) ValidateNotRecursive(caller *Instance) error {
 
 // AddValue adds a value to the instance's value index space.
 // Returns the index of the added value.
-func (i *Instance) AddValue(v Val) uint32 {
+func (i *Instance) AddValue(v types.Val) uint32 {
 	if i.values == nil {
-		i.values = make([]Val, 0)
+		i.values = make([]types.Val, 0)
 		i.valuesConsumed = make([]bool, 0)
 	}
 	idx := uint32(len(i.values))
@@ -2551,21 +2551,21 @@ func (i *Instance) AddValue(v Val) uint32 {
 }
 
 // GetValue retrieves a value from the value index space.
-func (i *Instance) GetValue(idx uint32) (Val, error) {
+func (i *Instance) GetValue(idx uint32) (types.Val, error) {
 	if idx >= uint32(len(i.values)) {
-		return Val{}, fmt.Errorf("value index %d out of range (have %d)", idx, len(i.values))
+		return types.Val{}, fmt.Errorf("value index %d out of range (have %d)", idx, len(i.values))
 	}
 	return i.values[idx], nil
 }
 
 // ConsumeValue retrieves and marks a value as consumed.
 // Returns error if value already consumed or index out of range.
-func (i *Instance) ConsumeValue(idx uint32) (Val, error) {
+func (i *Instance) ConsumeValue(idx uint32) (types.Val, error) {
 	if idx >= uint32(len(i.values)) {
-		return Val{}, fmt.Errorf("value index %d out of range (have %d)", idx, len(i.values))
+		return types.Val{}, fmt.Errorf("value index %d out of range (have %d)", idx, len(i.values))
 	}
 	if i.valuesConsumed[idx] {
-		return Val{}, fmt.Errorf("value %d already consumed", idx)
+		return types.Val{}, fmt.Errorf("value %d already consumed", idx)
 	}
 	i.valuesConsumed[idx] = true
 	return i.values[idx], nil
@@ -2670,37 +2670,37 @@ func (i *Instance) GetExportedInstance(name string) *Instance {
 }
 
 // liftEnum converts a discriminant to an enum Val.
-func liftEnum(discriminant uint64, enumType *EnumType) (Val, error) {
+func liftEnum(discriminant uint64, enumType *EnumType) (types.Val, error) {
 	idx := int(discriminant)
 	if idx < 0 || idx >= len(enumType.Cases) {
-		return Val{}, fmt.Errorf("invalid enum discriminant %d for type with %d cases",
+		return types.Val{}, fmt.Errorf("invalid enum discriminant %d for type with %d cases",
 			discriminant, len(enumType.Cases))
 	}
-	return ValEnum(enumType.Cases[idx]), nil
+	return types.ValEnum(enumType.Cases[idx]), nil
 }
 
 // liftFlags converts a bitvector to a flags Val.
-func liftFlags(bitvector uint64, flagsType *FlagsType) (Val, error) {
+func liftFlags(bitvector uint64, flagsType *FlagsType) (types.Val, error) {
 	flags := make(map[string]bool)
 	for i, name := range flagsType.Flags {
 		if bitvector&(1<<i) != 0 {
 			flags[name] = true
 		}
 	}
-	return ValFlags(flags), nil
+	return types.ValFlags(flags), nil
 }
 
 // liftVariant converts flat representation to a variant Val.
 // The flat representation consists of a discriminant followed by the payload values.
 // This is the inverse of lowerVariantToFlat in canon_lower.go.
-func liftVariant(flat []uint64, variantType *VariantType) (Val, error) {
+func liftVariant(flat []uint64, variantType *VariantType) (types.Val, error) {
 	if len(flat) < 1 {
-		return Val{}, fmt.Errorf("variant requires at least discriminant")
+		return types.Val{}, fmt.Errorf("variant requires at least discriminant")
 	}
 
 	disc := int(flat[0])
 	if disc < 0 || disc >= len(variantType.Cases) {
-		return Val{}, fmt.Errorf("invalid variant discriminant %d for type with %d cases",
+		return types.Val{}, fmt.Errorf("invalid variant discriminant %d for type with %d cases",
 			disc, len(variantType.Cases))
 	}
 
@@ -2708,73 +2708,73 @@ func liftVariant(flat []uint64, variantType *VariantType) (Val, error) {
 
 	// If the case has no payload type, return variant with nil payload
 	if variantCase.Type == nil {
-		return ValVariant(variantCase.Name, nil), nil
+		return types.ValVariant(variantCase.Name, nil), nil
 	}
 
 	// Case has a payload - we need to lift it from the remaining flat values
 	if len(flat) < 2 {
-		return Val{}, fmt.Errorf("variant case %q requires payload but none provided", variantCase.Name)
+		return types.Val{}, fmt.Errorf("variant case %q requires payload but none provided", variantCase.Name)
 	}
 
 	// Lift the payload based on its type
 	payload, err := liftVariantPayload(flat[1], variantCase.Type)
 	if err != nil {
-		return Val{}, fmt.Errorf("lifting variant payload for case %q: %w", variantCase.Name, err)
+		return types.Val{}, fmt.Errorf("lifting variant payload for case %q: %w", variantCase.Name, err)
 	}
 
-	return ValVariant(variantCase.Name, &payload), nil
+	return types.ValVariant(variantCase.Name, &payload), nil
 }
 
 // liftVariantPayload lifts a single payload value based on its PayloadType.
-func liftVariantPayload(flatVal uint64, payloadType PayloadType) (Val, error) {
+func liftVariantPayload(flatVal uint64, payloadType PayloadType) (types.Val, error) {
 	// Handle PrimitiveType payloads
 	if prim, ok := payloadType.(*PrimitiveType); ok {
 		switch prim.Name {
 		case "bool":
-			return ValBool(flatVal != 0), nil
+			return types.ValBool(flatVal != 0), nil
 		case "s8":
-			return ValS8(int8(flatVal)), nil
+			return types.ValS8(int8(flatVal)), nil
 		case "u8":
-			return ValU8(uint8(flatVal)), nil
+			return types.ValU8(uint8(flatVal)), nil
 		case "s16":
-			return ValS16(int16(flatVal)), nil
+			return types.ValS16(int16(flatVal)), nil
 		case "u16":
-			return ValU16(uint16(flatVal)), nil
+			return types.ValU16(uint16(flatVal)), nil
 		case "s32":
-			return ValS32(int32(flatVal)), nil
+			return types.ValS32(int32(flatVal)), nil
 		case "u32":
-			return ValU32(uint32(flatVal)), nil
+			return types.ValU32(uint32(flatVal)), nil
 		case "s64":
-			return ValS64(int64(flatVal)), nil
+			return types.ValS64(int64(flatVal)), nil
 		case "u64":
-			return ValU64(flatVal), nil
+			return types.ValU64(flatVal), nil
 		case "f32":
-			return ValF32(math.Float32frombits(uint32(flatVal))), nil
+			return types.ValF32(math.Float32frombits(uint32(flatVal))), nil
 		case "f64":
-			return ValF64(math.Float64frombits(flatVal)), nil
+			return types.ValF64(math.Float64frombits(flatVal)), nil
 		case "char":
-			return ValChar(rune(flatVal)), nil
+			return types.ValChar(rune(flatVal)), nil
 		default:
 			// For unknown primitive types, default to s32
-			return ValS32(int32(flatVal)), nil
+			return types.ValS32(int32(flatVal)), nil
 		}
 	}
 
 	// For non-primitive types, default to s32 (simplified handling)
 	// A full implementation would recursively handle composite types
-	return ValS32(int32(flatVal)), nil
+	return types.ValS32(int32(flatVal)), nil
 }
 
 // elementSizeForKind returns the size in bytes for a ValKind per the Canonical ABI.
-func elementSizeForKind(kind ValKind) uint32 {
+func elementSizeForKind(kind types.ValKind) uint32 {
 	switch kind {
-	case ValKindS8, ValKindU8, ValKindBool:
+	case types.ValKindS8, types.ValKindU8, types.ValKindBool:
 		return 1
-	case ValKindS16, ValKindU16:
+	case types.ValKindS16, types.ValKindU16:
 		return 2
-	case ValKindS32, ValKindU32, ValKindF32, ValKindChar:
+	case types.ValKindS32, types.ValKindU32, types.ValKindF32, types.ValKindChar:
 		return 4
-	case ValKindS64, ValKindU64, ValKindF64:
+	case types.ValKindS64, types.ValKindU64, types.ValKindF64:
 		return 8
 	default:
 		return 4 // Default to 4 for unknown types
@@ -2782,15 +2782,15 @@ func elementSizeForKind(kind ValKind) uint32 {
 }
 
 // alignmentForKind returns the alignment in bytes for a ValKind per the Canonical ABI.
-func alignmentForKind(kind ValKind) uint32 {
+func alignmentForKind(kind types.ValKind) uint32 {
 	switch kind {
-	case ValKindS8, ValKindU8, ValKindBool:
+	case types.ValKindS8, types.ValKindU8, types.ValKindBool:
 		return 1
-	case ValKindS16, ValKindU16:
+	case types.ValKindS16, types.ValKindU16:
 		return 2
-	case ValKindS32, ValKindU32, ValKindF32, ValKindChar:
+	case types.ValKindS32, types.ValKindU32, types.ValKindF32, types.ValKindChar:
 		return 4
-	case ValKindS64, ValKindU64, ValKindF64:
+	case types.ValKindS64, types.ValKindU64, types.ValKindF64:
 		return 8
 	default:
 		return 4 // Default to 4 for unknown types
@@ -2799,19 +2799,19 @@ func alignmentForKind(kind ValKind) uint32 {
 
 // sizeOfVal returns the size in bytes needed to store a Val in memory.
 // For composite types, this returns an estimate suitable for result/variant lowering.
-func sizeOfVal(v Val) uint32 {
+func sizeOfVal(v types.Val) uint32 {
 	switch v.Kind() {
-	case ValKindS8, ValKindU8, ValKindBool:
+	case types.ValKindS8, types.ValKindU8, types.ValKindBool:
 		return 1
-	case ValKindS16, ValKindU16:
+	case types.ValKindS16, types.ValKindU16:
 		return 2
-	case ValKindS32, ValKindU32, ValKindF32, ValKindChar, ValKindOwn, ValKindBorrow:
+	case types.ValKindS32, types.ValKindU32, types.ValKindF32, types.ValKindChar, types.ValKindOwn, types.ValKindBorrow:
 		return 4
-	case ValKindS64, ValKindU64, ValKindF64:
+	case types.ValKindS64, types.ValKindU64, types.ValKindF64:
 		return 8
-	case ValKindString, ValKindList:
+	case types.ValKindString, types.ValKindList:
 		return 8 // ptr + len
-	case ValKindResult:
+	case types.ValKindResult:
 		// discriminant (4 bytes aligned) + max payload size
 		_, okVal, errVal := v.Result()
 		var payloadSize uint32 = 0
@@ -2824,14 +2824,14 @@ func sizeOfVal(v Val) uint32 {
 			}
 		}
 		return 4 + payloadSize
-	case ValKindVariant:
+	case types.ValKindVariant:
 		// discriminant (4 bytes) + payload
 		_, payload := v.Variant()
 		if payload != nil {
 			return 4 + sizeOfVal(*payload)
 		}
 		return 4
-	case ValKindOption:
+	case types.ValKindOption:
 		// discriminant (4 bytes) + payload
 		payload := v.Option()
 		if payload != nil {
@@ -2845,17 +2845,17 @@ func sizeOfVal(v Val) uint32 {
 
 // writeListElement writes a Val to memory at the given offset.
 // Returns an error if the write fails or the element type is not supported.
-func writeListElement(mem api.Memory, offset uint32, elem Val) error {
+func writeListElement(mem api.Memory, offset uint32, elem types.Val) error {
 	switch elem.Kind() {
-	case ValKindS8:
+	case types.ValKindS8:
 		if !mem.WriteByteAt(offset, byte(elem.S8())) {
 			return fmt.Errorf("failed to write s8 at offset %d", offset)
 		}
-	case ValKindU8:
+	case types.ValKindU8:
 		if !mem.WriteByteAt(offset, elem.U8()) {
 			return fmt.Errorf("failed to write u8 at offset %d", offset)
 		}
-	case ValKindBool:
+	case types.ValKindBool:
 		var b byte
 		if elem.Bool() {
 			b = 1
@@ -2863,40 +2863,40 @@ func writeListElement(mem api.Memory, offset uint32, elem Val) error {
 		if !mem.WriteByteAt(offset, b) {
 			return fmt.Errorf("failed to write bool at offset %d", offset)
 		}
-	case ValKindS16:
+	case types.ValKindS16:
 		if !mem.WriteUint16Le(offset, uint16(elem.S16())) {
 			return fmt.Errorf("failed to write s16 at offset %d", offset)
 		}
-	case ValKindU16:
+	case types.ValKindU16:
 		if !mem.WriteUint16Le(offset, elem.U16()) {
 			return fmt.Errorf("failed to write u16 at offset %d", offset)
 		}
-	case ValKindS32:
+	case types.ValKindS32:
 		if !mem.WriteUint32Le(offset, uint32(elem.S32())) {
 			return fmt.Errorf("failed to write s32 at offset %d", offset)
 		}
-	case ValKindU32:
+	case types.ValKindU32:
 		if !mem.WriteUint32Le(offset, elem.U32()) {
 			return fmt.Errorf("failed to write u32 at offset %d", offset)
 		}
-	case ValKindChar:
+	case types.ValKindChar:
 		if !mem.WriteUint32Le(offset, uint32(elem.Char())) {
 			return fmt.Errorf("failed to write char at offset %d", offset)
 		}
-	case ValKindF32:
+	case types.ValKindF32:
 		bits := math.Float32bits(elem.F32())
 		if !mem.WriteUint32Le(offset, bits) {
 			return fmt.Errorf("failed to write f32 at offset %d", offset)
 		}
-	case ValKindS64:
+	case types.ValKindS64:
 		if !mem.WriteUint64Le(offset, uint64(elem.S64())) {
 			return fmt.Errorf("failed to write s64 at offset %d", offset)
 		}
-	case ValKindU64:
+	case types.ValKindU64:
 		if !mem.WriteUint64Le(offset, elem.U64()) {
 			return fmt.Errorf("failed to write u64 at offset %d", offset)
 		}
-	case ValKindF64:
+	case types.ValKindF64:
 		bits := math.Float64bits(elem.F64())
 		if !mem.WriteUint64Le(offset, bits) {
 			return fmt.Errorf("failed to write f64 at offset %d", offset)
