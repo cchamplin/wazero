@@ -7,6 +7,7 @@ import (
 
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/component/testdata"
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -43,7 +44,7 @@ func TestDemoComponentExecution(t *testing.T) {
 	}
 
 	// Call it: add(2, 3) = 5
-	results, err := addFunc.Call(ctx, component.ValS32(2), component.ValS32(3))
+	results, err := addFunc.Call(ctx, types.ValS32(2), types.ValS32(3))
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results))
 	require.Equal(t, int32(5), results[0].S32())

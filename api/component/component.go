@@ -39,6 +39,8 @@ import (
 	"context"
 
 	internalcomponent "github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 // HostFunc is a host function that can be called from a component.
@@ -47,72 +49,72 @@ import (
 type HostFunc = internalcomponent.HostFunc
 
 // Val represents a dynamically-typed component model value.
-type Val = internalcomponent.Val
+type Val = types.Val
 
 // ValKind identifies the type of a Val.
-type ValKind = internalcomponent.ValKind
+type ValKind = types.ValKind
 
 // ValKind constants for all component model value types.
 const (
-	ValKindBool    = internalcomponent.ValKindBool
-	ValKindS8      = internalcomponent.ValKindS8
-	ValKindU8      = internalcomponent.ValKindU8
-	ValKindS16     = internalcomponent.ValKindS16
-	ValKindU16     = internalcomponent.ValKindU16
-	ValKindS32     = internalcomponent.ValKindS32
-	ValKindU32     = internalcomponent.ValKindU32
-	ValKindS64     = internalcomponent.ValKindS64
-	ValKindU64     = internalcomponent.ValKindU64
-	ValKindF32     = internalcomponent.ValKindF32
-	ValKindF64     = internalcomponent.ValKindF64
-	ValKindChar    = internalcomponent.ValKindChar
-	ValKindString  = internalcomponent.ValKindString
-	ValKindList    = internalcomponent.ValKindList
-	ValKindRecord  = internalcomponent.ValKindRecord
-	ValKindTuple   = internalcomponent.ValKindTuple
-	ValKindVariant = internalcomponent.ValKindVariant
-	ValKindEnum    = internalcomponent.ValKindEnum
-	ValKindOption  = internalcomponent.ValKindOption
-	ValKindResult  = internalcomponent.ValKindResult
-	ValKindFlags   = internalcomponent.ValKindFlags
-	ValKindOwn     = internalcomponent.ValKindOwn
-	ValKindBorrow  = internalcomponent.ValKindBorrow
+	ValKindBool    = types.ValKindBool
+	ValKindS8      = types.ValKindS8
+	ValKindU8      = types.ValKindU8
+	ValKindS16     = types.ValKindS16
+	ValKindU16     = types.ValKindU16
+	ValKindS32     = types.ValKindS32
+	ValKindU32     = types.ValKindU32
+	ValKindS64     = types.ValKindS64
+	ValKindU64     = types.ValKindU64
+	ValKindF32     = types.ValKindF32
+	ValKindF64     = types.ValKindF64
+	ValKindChar    = types.ValKindChar
+	ValKindString  = types.ValKindString
+	ValKindList    = types.ValKindList
+	ValKindRecord  = types.ValKindRecord
+	ValKindTuple   = types.ValKindTuple
+	ValKindVariant = types.ValKindVariant
+	ValKindEnum    = types.ValKindEnum
+	ValKindOption  = types.ValKindOption
+	ValKindResult  = types.ValKindResult
+	ValKindFlags   = types.ValKindFlags
+	ValKindOwn     = types.ValKindOwn
+	ValKindBorrow  = types.ValKindBorrow
 )
 
 // Val constructors create Val instances of specific types.
 var (
-	ValBool        = internalcomponent.ValBool
-	ValS8          = internalcomponent.ValS8
-	ValU8          = internalcomponent.ValU8
-	ValS16         = internalcomponent.ValS16
-	ValU16         = internalcomponent.ValU16
-	ValS32         = internalcomponent.ValS32
-	ValU32         = internalcomponent.ValU32
-	ValS64         = internalcomponent.ValS64
-	ValU64         = internalcomponent.ValU64
-	ValF32         = internalcomponent.ValF32
-	ValF64         = internalcomponent.ValF64
-	ValChar        = internalcomponent.ValChar
-	ValString      = internalcomponent.ValString
-	ValRecord      = internalcomponent.ValRecord
-	ValList        = internalcomponent.ValList
-	ValTuple       = internalcomponent.ValTuple
-	ValVariant     = internalcomponent.ValVariant
-	ValEnum        = internalcomponent.ValEnum
-	ValOption      = internalcomponent.ValOption
-	ValResultOk    = internalcomponent.ValResultOk
-	ValResultError = internalcomponent.ValResultError
-	ValFlags       = internalcomponent.ValFlags
-	ValOwn         = internalcomponent.ValOwn
-	ValBorrow      = internalcomponent.ValBorrow
+	ValBool        = types.ValBool
+	ValS8          = types.ValS8
+	ValU8          = types.ValU8
+	ValS16         = types.ValS16
+	ValU16         = types.ValU16
+	ValS32         = types.ValS32
+	ValU32         = types.ValU32
+	ValS64         = types.ValS64
+	ValU64         = types.ValU64
+	ValF32         = types.ValF32
+	ValF64         = types.ValF64
+	ValChar        = types.ValChar
+	ValString      = types.ValString
+	ValRecord      = types.ValRecord
+	ValList        = types.ValList
+	ValTuple       = types.ValTuple
+	ValVariant     = types.ValVariant
+	ValEnum        = types.ValEnum
+	ValOption      = types.ValOption
+	ValResultOk    = types.ValResultOk
+	ValResultError = types.ValResultError
+	ValFlags       = types.ValFlags
+	ValOwn         = types.ValOwn
+	ValBorrow      = types.ValBorrow
 )
 
 // ResourceTable manages resource handles with generation counting.
 // It implements the Component Model's handle table semantics.
-type ResourceTable = internalcomponent.ResourceTable
+type ResourceTable = runtime.ResourceTable
 
 // NewResourceTable creates an empty resource table.
-var NewResourceTable = internalcomponent.NewResourceTable
+var NewResourceTable = runtime.NewResourceTable
 
 // WithResourceTable returns a new context with the given ResourceTable stored.
 // The table can later be retrieved using ResourceTableFromContext on the
