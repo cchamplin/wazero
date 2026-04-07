@@ -43,6 +43,11 @@ const (
 // Kind returns the type of this value.
 func (v Val) Kind() ValKind { return v.kind }
 
+// IsZero reports whether v is the zero Val (kind == ValKindBool with no
+// payload set). Callers use this to detect a Val that was passed by zero
+// value rather than constructed with one of the Val* constructors.
+func (v Val) IsZero() bool { return v == Val{} }
+
 // Constructors
 
 // ValBool creates a boolean Val.

@@ -1689,7 +1689,7 @@ func (f *ExportedFunc) lowerTyped(ctx context.Context, val types.Val, typ types.
 		// Coerce: if the value is not an option kind (e.g. zero Val from nil conversion),
 		// treat it as None when v is nil, or wrap as Some otherwise
 		if val.Kind() != types.ValKindOption {
-			if val == (types.Val{}) {
+			if val.IsZero() {
 				// Zero Val (nil) → Option None
 				payloadCount := t.Some.FlattenCount()
 				flat := make([]uint64, 1+payloadCount)
@@ -2117,7 +2117,7 @@ func (f *ExportedFunc) lowerToMemory(ctx context.Context, val types.Val, typ typ
 	case types.Option:
 		// Coerce: handle non-option Val kinds
 		if val.Kind() != types.ValKindOption {
-			if val == (types.Val{}) {
+			if val.IsZero() {
 				// Zero Val (nil) → Option None
 				if !f.memory.WriteByteAt(offset, 0) {
 					return fmt.Errorf("failed to write option discriminant at offset %d", offset)
