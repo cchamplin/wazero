@@ -28,8 +28,8 @@ func TestPrimitivesIntegers(t *testing.T) {
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
 				// Test Val constructor and accessor
-				val := component.ValS8(tc.value)
-				require.Equal(t, component.ValKindS8, val.Kind())
+				val := types.ValS8(tc.value)
+				require.Equal(t, types.ValKindS8, val.Kind())
 				require.Equal(t, tc.value, val.S8())
 
 				// Test LowerFlat/LiftFlat roundtrip
@@ -56,8 +56,8 @@ func TestPrimitivesIntegers(t *testing.T) {
 		}
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
-				val := component.ValU8(tc.value)
-				require.Equal(t, component.ValKindU8, val.Kind())
+				val := types.ValU8(tc.value)
+				require.Equal(t, types.ValKindU8, val.Kind())
 				require.Equal(t, tc.value, val.U8())
 
 				flat, err := abi.LowerFlat(nil, types.U8{}, val)
@@ -84,8 +84,8 @@ func TestPrimitivesIntegers(t *testing.T) {
 		}
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
-				val := component.ValS16(tc.value)
-				require.Equal(t, component.ValKindS16, val.Kind())
+				val := types.ValS16(tc.value)
+				require.Equal(t, types.ValKindS16, val.Kind())
 				require.Equal(t, tc.value, val.S16())
 
 				flat, err := abi.LowerFlat(nil, types.S16{}, val)
@@ -110,8 +110,8 @@ func TestPrimitivesIntegers(t *testing.T) {
 		}
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
-				val := component.ValU16(tc.value)
-				require.Equal(t, component.ValKindU16, val.Kind())
+				val := types.ValU16(tc.value)
+				require.Equal(t, types.ValKindU16, val.Kind())
 				require.Equal(t, tc.value, val.U16())
 
 				flat, err := abi.LowerFlat(nil, types.U16{}, val)
@@ -138,8 +138,8 @@ func TestPrimitivesIntegers(t *testing.T) {
 		}
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
-				val := component.ValS32(tc.value)
-				require.Equal(t, component.ValKindS32, val.Kind())
+				val := types.ValS32(tc.value)
+				require.Equal(t, types.ValKindS32, val.Kind())
 				require.Equal(t, tc.value, val.S32())
 
 				flat, err := abi.LowerFlat(nil, types.S32{}, val)
@@ -164,8 +164,8 @@ func TestPrimitivesIntegers(t *testing.T) {
 		}
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
-				val := component.ValU32(tc.value)
-				require.Equal(t, component.ValKindU32, val.Kind())
+				val := types.ValU32(tc.value)
+				require.Equal(t, types.ValKindU32, val.Kind())
 				require.Equal(t, tc.value, val.U32())
 
 				flat, err := abi.LowerFlat(nil, types.U32{}, val)
@@ -192,8 +192,8 @@ func TestPrimitivesIntegers(t *testing.T) {
 		}
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
-				val := component.ValS64(tc.value)
-				require.Equal(t, component.ValKindS64, val.Kind())
+				val := types.ValS64(tc.value)
+				require.Equal(t, types.ValKindS64, val.Kind())
 				require.Equal(t, tc.value, val.S64())
 
 				flat, err := abi.LowerFlat(nil, types.S64{}, val)
@@ -219,8 +219,8 @@ func TestPrimitivesIntegers(t *testing.T) {
 		}
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
-				val := component.ValU64(tc.value)
-				require.Equal(t, component.ValKindU64, val.Kind())
+				val := types.ValU64(tc.value)
+				require.Equal(t, types.ValKindU64, val.Kind())
 				require.Equal(t, tc.value, val.U64())
 
 				flat, err := abi.LowerFlat(nil, types.U64{}, val)
@@ -258,8 +258,8 @@ func TestPrimitivesFloats(t *testing.T) {
 			}
 			for _, tc := range tests {
 				t.Run(tc.name, func(t *testing.T) {
-					val := component.ValF32(tc.value)
-					require.Equal(t, component.ValKindF32, val.Kind())
+					val := types.ValF32(tc.value)
+					require.Equal(t, types.ValKindF32, val.Kind())
 
 					// Use bit comparison for exact equality (handles -0 vs +0)
 					require.Equal(t, math.Float32bits(tc.value), math.Float32bits(val.F32()))
@@ -279,7 +279,7 @@ func TestPrimitivesFloats(t *testing.T) {
 
 		t.Run("infinity", func(t *testing.T) {
 			// Positive infinity
-			val := component.ValF32(float32(math.Inf(1)))
+			val := types.ValF32(float32(math.Inf(1)))
 			require.True(t, math.IsInf(float64(val.F32()), 1))
 
 			flat, err := abi.LowerFlat(nil, types.F32{}, val)
@@ -290,7 +290,7 @@ func TestPrimitivesFloats(t *testing.T) {
 			require.True(t, math.IsInf(float64(lifted.F32()), 1))
 
 			// Negative infinity
-			val = component.ValF32(float32(math.Inf(-1)))
+			val = types.ValF32(float32(math.Inf(-1)))
 			require.True(t, math.IsInf(float64(val.F32()), -1))
 
 			flat, err = abi.LowerFlat(nil, types.F32{}, val)
@@ -303,7 +303,7 @@ func TestPrimitivesFloats(t *testing.T) {
 
 		t.Run("nan", func(t *testing.T) {
 			// Standard NaN
-			val := component.ValF32(float32(math.NaN()))
+			val := types.ValF32(float32(math.NaN()))
 			require.True(t, math.IsNaN(float64(val.F32())))
 
 			flat, err := abi.LowerFlat(nil, types.F32{}, val)
@@ -325,7 +325,7 @@ func TestPrimitivesFloats(t *testing.T) {
 				0xFFC00000, // Negative quiet NaN
 			}
 			for _, payload := range nanPayloads {
-				val := component.ValF32(math.Float32frombits(payload))
+				val := types.ValF32(math.Float32frombits(payload))
 				require.True(t, math.IsNaN(float64(val.F32())), "expected NaN for payload 0x%X", payload)
 
 				flat, err := abi.LowerFlat(nil, types.F32{}, val)
@@ -357,8 +357,8 @@ func TestPrimitivesFloats(t *testing.T) {
 			}
 			for _, tc := range tests {
 				t.Run(tc.name, func(t *testing.T) {
-					val := component.ValF64(tc.value)
-					require.Equal(t, component.ValKindF64, val.Kind())
+					val := types.ValF64(tc.value)
+					require.Equal(t, types.ValKindF64, val.Kind())
 
 					// Use bit comparison for exact equality
 					require.Equal(t, math.Float64bits(tc.value), math.Float64bits(val.F64()))
@@ -377,7 +377,7 @@ func TestPrimitivesFloats(t *testing.T) {
 
 		t.Run("infinity", func(t *testing.T) {
 			// Positive infinity
-			val := component.ValF64(math.Inf(1))
+			val := types.ValF64(math.Inf(1))
 			require.True(t, math.IsInf(val.F64(), 1))
 
 			flat, err := abi.LowerFlat(nil, types.F64{}, val)
@@ -388,7 +388,7 @@ func TestPrimitivesFloats(t *testing.T) {
 			require.True(t, math.IsInf(lifted.F64(), 1))
 
 			// Negative infinity
-			val = component.ValF64(math.Inf(-1))
+			val = types.ValF64(math.Inf(-1))
 			require.True(t, math.IsInf(val.F64(), -1))
 
 			flat, err = abi.LowerFlat(nil, types.F64{}, val)
@@ -400,7 +400,7 @@ func TestPrimitivesFloats(t *testing.T) {
 		})
 
 		t.Run("nan", func(t *testing.T) {
-			val := component.ValF64(math.NaN())
+			val := types.ValF64(math.NaN())
 			require.True(t, math.IsNaN(val.F64()))
 
 			flat, err := abi.LowerFlat(nil, types.F64{}, val)
@@ -420,7 +420,7 @@ func TestPrimitivesFloats(t *testing.T) {
 				0xFFF8000000000000, // Negative quiet NaN
 			}
 			for _, payload := range nanPayloads {
-				val := component.ValF64(math.Float64frombits(payload))
+				val := types.ValF64(math.Float64frombits(payload))
 				require.True(t, math.IsNaN(val.F64()), "expected NaN for payload 0x%X", payload)
 
 				flat, err := abi.LowerFlat(nil, types.F64{}, val)
@@ -438,8 +438,8 @@ func TestPrimitivesFloats(t *testing.T) {
 // Ported from wasmtime func.rs bools tests.
 func TestPrimitivesBools(t *testing.T) {
 	t.Run("true", func(t *testing.T) {
-		val := component.ValBool(true)
-		require.Equal(t, component.ValKindBool, val.Kind())
+		val := types.ValBool(true)
+		require.Equal(t, types.ValKindBool, val.Kind())
 		require.True(t, val.Bool())
 
 		flat, err := abi.LowerFlat(nil, types.Bool{}, val)
@@ -453,8 +453,8 @@ func TestPrimitivesBools(t *testing.T) {
 	})
 
 	t.Run("false", func(t *testing.T) {
-		val := component.ValBool(false)
-		require.Equal(t, component.ValKindBool, val.Kind())
+		val := types.ValBool(false)
+		require.Equal(t, types.ValKindBool, val.Kind())
 		require.False(t, val.Bool())
 
 		flat, err := abi.LowerFlat(nil, types.Bool{}, val)
@@ -494,19 +494,19 @@ func TestPrimitivesChars(t *testing.T) {
 			{"newline", '\n'},
 			{"space", ' '},
 			{"tilde", '~'},
-			{"latin_extended", '\u00E9'},      // e with accent
-			{"greek", '\u03B1'},               // alpha
-			{"cjk", '\u4E2D'},                 // Chinese character
-			{"emoji", '\U0001F600'},           // grinning face
-			{"emoji_rocket", '\U0001F680'},    // rocket
-			{"max_bmp", '\uFFFF'},             // max BMP
+			{"latin_extended", '\u00E9'},        // e with accent
+			{"greek", '\u03B1'},                 // alpha
+			{"cjk", '\u4E2D'},                   // Chinese character
+			{"emoji", '\U0001F600'},             // grinning face
+			{"emoji_rocket", '\U0001F680'},      // rocket
+			{"max_bmp", '\uFFFF'},               // max BMP
 			{"min_supplementary", '\U00010000'}, // min supplementary
-			{"max_unicode", '\U0010FFFF'},     // max valid Unicode scalar
+			{"max_unicode", '\U0010FFFF'},       // max valid Unicode scalar
 		}
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
-				val := component.ValChar(tc.value)
-				require.Equal(t, component.ValKindChar, val.Kind())
+				val := types.ValChar(tc.value)
+				require.Equal(t, types.ValKindChar, val.Kind())
 				require.Equal(t, tc.value, val.Char())
 
 				flat, err := abi.LowerFlat(nil, types.Char{}, val)
@@ -539,7 +539,7 @@ func TestPrimitivesChars(t *testing.T) {
 		// The ABI must reject surrogates per the Component Model spec
 		for _, tc := range surrogates {
 			t.Run(tc.name, func(t *testing.T) {
-				val := component.ValChar(tc.value)
+				val := types.ValChar(tc.value)
 
 				// LowerFlat must reject surrogate values
 				_, err := abi.LowerFlat(nil, types.Char{}, val)
@@ -568,7 +568,7 @@ func TestPrimitivesChars(t *testing.T) {
 
 		for _, tc := range invalidValues {
 			t.Run(tc.name, func(t *testing.T) {
-				val := component.ValChar(tc.value)
+				val := types.ValChar(tc.value)
 
 				// LowerFlat must reject values above U+10FFFF
 				_, err := abi.LowerFlat(nil, types.Char{}, val)
@@ -600,7 +600,7 @@ func TestPrimitivesChars(t *testing.T) {
 		for _, tc := range boundaries {
 			if tc.valid {
 				t.Run(tc.name, func(t *testing.T) {
-					val := component.ValChar(tc.value)
+					val := types.ValChar(tc.value)
 					require.Equal(t, tc.value, val.Char())
 
 					flat, err := abi.LowerFlat(nil, types.Char{}, val)
@@ -654,7 +654,7 @@ func TestPrimitivesTypeProperties(t *testing.T) {
 func TestPrimitivesSignExtension(t *testing.T) {
 	t.Run("s8_sign_extension", func(t *testing.T) {
 		// -1 as s8 is 0xFF, which should sign-extend properly
-		val := component.ValS8(-1)
+		val := types.ValS8(-1)
 		flat, err := abi.LowerFlat(nil, types.S8{}, val)
 		require.NoError(t, err)
 
@@ -664,7 +664,7 @@ func TestPrimitivesSignExtension(t *testing.T) {
 		require.Equal(t, int8(-1), lifted.S8())
 
 		// -128 as s8 is 0x80
-		val = component.ValS8(-128)
+		val = types.ValS8(-128)
 		flat, err = abi.LowerFlat(nil, types.S8{}, val)
 		require.NoError(t, err)
 
@@ -675,7 +675,7 @@ func TestPrimitivesSignExtension(t *testing.T) {
 	})
 
 	t.Run("s16_sign_extension", func(t *testing.T) {
-		val := component.ValS16(-1)
+		val := types.ValS16(-1)
 		flat, err := abi.LowerFlat(nil, types.S16{}, val)
 		require.NoError(t, err)
 
@@ -684,7 +684,7 @@ func TestPrimitivesSignExtension(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, int16(-1), lifted.S16())
 
-		val = component.ValS16(-32768)
+		val = types.ValS16(-32768)
 		flat, err = abi.LowerFlat(nil, types.S16{}, val)
 		require.NoError(t, err)
 
@@ -695,7 +695,7 @@ func TestPrimitivesSignExtension(t *testing.T) {
 	})
 
 	t.Run("s32_sign_extension", func(t *testing.T) {
-		val := component.ValS32(-1)
+		val := types.ValS32(-1)
 		flat, err := abi.LowerFlat(nil, types.S32{}, val)
 		require.NoError(t, err)
 
@@ -704,7 +704,7 @@ func TestPrimitivesSignExtension(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, int32(-1), lifted.S32())
 
-		val = component.ValS32(math.MinInt32)
+		val = types.ValS32(math.MinInt32)
 		flat, err = abi.LowerFlat(nil, types.S32{}, val)
 		require.NoError(t, err)
 
@@ -715,7 +715,7 @@ func TestPrimitivesSignExtension(t *testing.T) {
 	})
 
 	t.Run("s64_sign_extension", func(t *testing.T) {
-		val := component.ValS64(-1)
+		val := types.ValS64(-1)
 		flat, err := abi.LowerFlat(nil, types.S64{}, val)
 		require.NoError(t, err)
 		require.Equal(t, []uint64{0xFFFFFFFFFFFFFFFF}, flat)
@@ -725,7 +725,7 @@ func TestPrimitivesSignExtension(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, int64(-1), lifted.S64())
 
-		val = component.ValS64(math.MinInt64)
+		val = types.ValS64(math.MinInt64)
 		flat, err = abi.LowerFlat(nil, types.S64{}, val)
 		require.NoError(t, err)
 
@@ -742,139 +742,139 @@ func TestPrimitivesAllTypesRoundtrip(t *testing.T) {
 	type testCase struct {
 		name string
 		typ  types.ValType
-		val  component.Val
+		val  types.Val
 		// check is a function that verifies the lifted value matches the original
-		check func(t *testing.T, original, lifted component.Val)
+		check func(t *testing.T, original, lifted types.Val)
 	}
 
 	tests := []testCase{
 		// Bool
-		{"bool_true", types.Bool{}, component.ValBool(true),
-			func(t *testing.T, orig, lifted component.Val) {
+		{"bool_true", types.Bool{}, types.ValBool(true),
+			func(t *testing.T, orig, lifted types.Val) {
 				require.Equal(t, orig.Bool(), lifted.Bool())
 			}},
-		{"bool_false", types.Bool{}, component.ValBool(false),
-			func(t *testing.T, orig, lifted component.Val) {
+		{"bool_false", types.Bool{}, types.ValBool(false),
+			func(t *testing.T, orig, lifted types.Val) {
 				require.Equal(t, orig.Bool(), lifted.Bool())
 			}},
 
 		// Signed integers
-		{"s8_min", types.S8{}, component.ValS8(math.MinInt8),
-			func(t *testing.T, orig, lifted component.Val) {
+		{"s8_min", types.S8{}, types.ValS8(math.MinInt8),
+			func(t *testing.T, orig, lifted types.Val) {
 				require.Equal(t, orig.S8(), lifted.S8())
 			}},
-		{"s8_max", types.S8{}, component.ValS8(math.MaxInt8),
-			func(t *testing.T, orig, lifted component.Val) {
+		{"s8_max", types.S8{}, types.ValS8(math.MaxInt8),
+			func(t *testing.T, orig, lifted types.Val) {
 				require.Equal(t, orig.S8(), lifted.S8())
 			}},
-		{"s16_min", types.S16{}, component.ValS16(math.MinInt16),
-			func(t *testing.T, orig, lifted component.Val) {
+		{"s16_min", types.S16{}, types.ValS16(math.MinInt16),
+			func(t *testing.T, orig, lifted types.Val) {
 				require.Equal(t, orig.S16(), lifted.S16())
 			}},
-		{"s16_max", types.S16{}, component.ValS16(math.MaxInt16),
-			func(t *testing.T, orig, lifted component.Val) {
+		{"s16_max", types.S16{}, types.ValS16(math.MaxInt16),
+			func(t *testing.T, orig, lifted types.Val) {
 				require.Equal(t, orig.S16(), lifted.S16())
 			}},
-		{"s32_min", types.S32{}, component.ValS32(math.MinInt32),
-			func(t *testing.T, orig, lifted component.Val) {
+		{"s32_min", types.S32{}, types.ValS32(math.MinInt32),
+			func(t *testing.T, orig, lifted types.Val) {
 				require.Equal(t, orig.S32(), lifted.S32())
 			}},
-		{"s32_max", types.S32{}, component.ValS32(math.MaxInt32),
-			func(t *testing.T, orig, lifted component.Val) {
+		{"s32_max", types.S32{}, types.ValS32(math.MaxInt32),
+			func(t *testing.T, orig, lifted types.Val) {
 				require.Equal(t, orig.S32(), lifted.S32())
 			}},
-		{"s64_min", types.S64{}, component.ValS64(math.MinInt64),
-			func(t *testing.T, orig, lifted component.Val) {
+		{"s64_min", types.S64{}, types.ValS64(math.MinInt64),
+			func(t *testing.T, orig, lifted types.Val) {
 				require.Equal(t, orig.S64(), lifted.S64())
 			}},
-		{"s64_max", types.S64{}, component.ValS64(math.MaxInt64),
-			func(t *testing.T, orig, lifted component.Val) {
+		{"s64_max", types.S64{}, types.ValS64(math.MaxInt64),
+			func(t *testing.T, orig, lifted types.Val) {
 				require.Equal(t, orig.S64(), lifted.S64())
 			}},
 
 		// Unsigned integers
-		{"u8_zero", types.U8{}, component.ValU8(0),
-			func(t *testing.T, orig, lifted component.Val) {
+		{"u8_zero", types.U8{}, types.ValU8(0),
+			func(t *testing.T, orig, lifted types.Val) {
 				require.Equal(t, orig.U8(), lifted.U8())
 			}},
-		{"u8_max", types.U8{}, component.ValU8(math.MaxUint8),
-			func(t *testing.T, orig, lifted component.Val) {
+		{"u8_max", types.U8{}, types.ValU8(math.MaxUint8),
+			func(t *testing.T, orig, lifted types.Val) {
 				require.Equal(t, orig.U8(), lifted.U8())
 			}},
-		{"u16_zero", types.U16{}, component.ValU16(0),
-			func(t *testing.T, orig, lifted component.Val) {
+		{"u16_zero", types.U16{}, types.ValU16(0),
+			func(t *testing.T, orig, lifted types.Val) {
 				require.Equal(t, orig.U16(), lifted.U16())
 			}},
-		{"u16_max", types.U16{}, component.ValU16(math.MaxUint16),
-			func(t *testing.T, orig, lifted component.Val) {
+		{"u16_max", types.U16{}, types.ValU16(math.MaxUint16),
+			func(t *testing.T, orig, lifted types.Val) {
 				require.Equal(t, orig.U16(), lifted.U16())
 			}},
-		{"u32_zero", types.U32{}, component.ValU32(0),
-			func(t *testing.T, orig, lifted component.Val) {
+		{"u32_zero", types.U32{}, types.ValU32(0),
+			func(t *testing.T, orig, lifted types.Val) {
 				require.Equal(t, orig.U32(), lifted.U32())
 			}},
-		{"u32_max", types.U32{}, component.ValU32(math.MaxUint32),
-			func(t *testing.T, orig, lifted component.Val) {
+		{"u32_max", types.U32{}, types.ValU32(math.MaxUint32),
+			func(t *testing.T, orig, lifted types.Val) {
 				require.Equal(t, orig.U32(), lifted.U32())
 			}},
-		{"u64_zero", types.U64{}, component.ValU64(0),
-			func(t *testing.T, orig, lifted component.Val) {
+		{"u64_zero", types.U64{}, types.ValU64(0),
+			func(t *testing.T, orig, lifted types.Val) {
 				require.Equal(t, orig.U64(), lifted.U64())
 			}},
-		{"u64_max", types.U64{}, component.ValU64(math.MaxUint64),
-			func(t *testing.T, orig, lifted component.Val) {
+		{"u64_max", types.U64{}, types.ValU64(math.MaxUint64),
+			func(t *testing.T, orig, lifted types.Val) {
 				require.Equal(t, orig.U64(), lifted.U64())
 			}},
 
 		// Floats
-		{"f32_zero", types.F32{}, component.ValF32(0.0),
-			func(t *testing.T, orig, lifted component.Val) {
+		{"f32_zero", types.F32{}, types.ValF32(0.0),
+			func(t *testing.T, orig, lifted types.Val) {
 				require.Equal(t, math.Float32bits(orig.F32()), math.Float32bits(lifted.F32()))
 			}},
-		{"f32_max", types.F32{}, component.ValF32(math.MaxFloat32),
-			func(t *testing.T, orig, lifted component.Val) {
+		{"f32_max", types.F32{}, types.ValF32(math.MaxFloat32),
+			func(t *testing.T, orig, lifted types.Val) {
 				require.Equal(t, math.Float32bits(orig.F32()), math.Float32bits(lifted.F32()))
 			}},
-		{"f32_inf", types.F32{}, component.ValF32(float32(math.Inf(1))),
-			func(t *testing.T, orig, lifted component.Val) {
+		{"f32_inf", types.F32{}, types.ValF32(float32(math.Inf(1))),
+			func(t *testing.T, orig, lifted types.Val) {
 				require.True(t, math.IsInf(float64(lifted.F32()), 1))
 			}},
-		{"f32_nan", types.F32{}, component.ValF32(float32(math.NaN())),
-			func(t *testing.T, orig, lifted component.Val) {
+		{"f32_nan", types.F32{}, types.ValF32(float32(math.NaN())),
+			func(t *testing.T, orig, lifted types.Val) {
 				require.True(t, math.IsNaN(float64(lifted.F32())))
 			}},
-		{"f64_zero", types.F64{}, component.ValF64(0.0),
-			func(t *testing.T, orig, lifted component.Val) {
+		{"f64_zero", types.F64{}, types.ValF64(0.0),
+			func(t *testing.T, orig, lifted types.Val) {
 				require.Equal(t, math.Float64bits(orig.F64()), math.Float64bits(lifted.F64()))
 			}},
-		{"f64_max", types.F64{}, component.ValF64(math.MaxFloat64),
-			func(t *testing.T, orig, lifted component.Val) {
+		{"f64_max", types.F64{}, types.ValF64(math.MaxFloat64),
+			func(t *testing.T, orig, lifted types.Val) {
 				require.Equal(t, math.Float64bits(orig.F64()), math.Float64bits(lifted.F64()))
 			}},
-		{"f64_inf", types.F64{}, component.ValF64(math.Inf(1)),
-			func(t *testing.T, orig, lifted component.Val) {
+		{"f64_inf", types.F64{}, types.ValF64(math.Inf(1)),
+			func(t *testing.T, orig, lifted types.Val) {
 				require.True(t, math.IsInf(lifted.F64(), 1))
 			}},
-		{"f64_nan", types.F64{}, component.ValF64(math.NaN()),
-			func(t *testing.T, orig, lifted component.Val) {
+		{"f64_nan", types.F64{}, types.ValF64(math.NaN()),
+			func(t *testing.T, orig, lifted types.Val) {
 				require.True(t, math.IsNaN(lifted.F64()))
 			}},
 
 		// Char
-		{"char_null", types.Char{}, component.ValChar(0),
-			func(t *testing.T, orig, lifted component.Val) {
+		{"char_null", types.Char{}, types.ValChar(0),
+			func(t *testing.T, orig, lifted types.Val) {
 				require.Equal(t, orig.Char(), lifted.Char())
 			}},
-		{"char_ascii", types.Char{}, component.ValChar('A'),
-			func(t *testing.T, orig, lifted component.Val) {
+		{"char_ascii", types.Char{}, types.ValChar('A'),
+			func(t *testing.T, orig, lifted types.Val) {
 				require.Equal(t, orig.Char(), lifted.Char())
 			}},
-		{"char_emoji", types.Char{}, component.ValChar('\U0001F600'),
-			func(t *testing.T, orig, lifted component.Val) {
+		{"char_emoji", types.Char{}, types.ValChar('\U0001F600'),
+			func(t *testing.T, orig, lifted types.Val) {
 				require.Equal(t, orig.Char(), lifted.Char())
 			}},
-		{"char_max", types.Char{}, component.ValChar('\U0010FFFF'),
-			func(t *testing.T, orig, lifted component.Val) {
+		{"char_max", types.Char{}, types.ValChar('\U0010FFFF'),
+			func(t *testing.T, orig, lifted types.Val) {
 				require.Equal(t, orig.Char(), lifted.Char())
 			}},
 	}

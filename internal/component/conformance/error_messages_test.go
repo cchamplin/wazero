@@ -11,6 +11,7 @@ import (
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/component/abi"
 	compbinary "github.com/tetratelabs/wazero/internal/component/binary"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
@@ -116,8 +117,8 @@ func TestErrorMessages_UnknownCase(t *testing.T) {
 				{Name: "known", Type: types.U32{}},
 			},
 		}
-		payload := component.ValU32(0)
-		val := component.ValVariant("unknown_case", &payload)
+		payload := types.ValU32(0)
+		val := types.ValVariant("unknown_case", &payload)
 
 		_, err := abi.LowerFlat(nil, variantType, val)
 		require.Error(t, err)
@@ -131,7 +132,7 @@ func TestErrorMessages_UnknownCase(t *testing.T) {
 
 	t.Run("unknown_enum_case", func(t *testing.T) {
 		enumType := types.Enum{Cases: []string{"a", "b", "c"}}
-		val := component.ValEnum("nonexistent")
+		val := types.ValEnum("nonexistent")
 
 		_, err := abi.LowerFlat(nil, enumType, val)
 		require.Error(t, err)
@@ -154,8 +155,8 @@ func TestErrorMessages_RecordField(t *testing.T) {
 	}
 
 	t.Run("missing_field", func(t *testing.T) {
-		val := component.ValRecord(map[string]component.Val{
-			"wrong_field": component.ValU32(42),
+		val := types.ValRecord(map[string]types.Val{
+			"wrong_field": types.ValU32(42),
 		})
 
 		_, err := abi.LowerFlat(nil, recordType, val)
@@ -176,8 +177,8 @@ func TestErrorMessages_TupleLength(t *testing.T) {
 	}
 
 	t.Run("too_few_elements", func(t *testing.T) {
-		val := component.ValTuple([]component.Val{
-			component.ValU32(1),
+		val := types.ValTuple([]types.Val{
+			types.ValU32(1),
 		})
 
 		_, err := abi.LowerFlat(nil, tupleType, val)
@@ -189,9 +190,9 @@ func TestErrorMessages_TupleLength(t *testing.T) {
 	})
 
 	t.Run("too_many_elements", func(t *testing.T) {
-		val := component.ValTuple([]component.Val{
-			component.ValU32(1), component.ValU32(2), component.ValU32(3),
-			component.ValU32(4), component.ValU32(5),
+		val := types.ValTuple([]types.Val{
+			types.ValU32(1), types.ValU32(2), types.ValU32(3),
+			types.ValU32(4), types.ValU32(5),
 		})
 
 		_, err := abi.LowerFlat(nil, tupleType, val)
@@ -272,7 +273,7 @@ func TestErrorMessages_ReallocFailure(t *testing.T) {
 		}
 
 		listType := types.List{Element: types.U32{}}
-		val := component.ValList([]component.Val{component.ValU32(1)})
+		val := types.ValList([]types.Val{types.ValU32(1)})
 
 		_, err := abi.LowerFlat(ctx, listType, val)
 		require.Error(t, err)
@@ -285,8 +286,8 @@ func TestErrorMessages_ReallocFailure(t *testing.T) {
 // TestErrorMessages_ResourceTable tests resource table error messages.
 func TestErrorMessages_ResourceTable(t *testing.T) {
 	t.Run("invalid_handle", func(t *testing.T) {
-		table := component.NewResourceTable()
-		h := component.MakeHandle(100, 0)
+		table := runtime.NewResourceTable()
+		h := runtime.MakeHandle(100, 0)
 
 		_, err := table.Get(h)
 		require.Error(t, err)
@@ -297,7 +298,7 @@ func TestErrorMessages_ResourceTable(t *testing.T) {
 	})
 
 	t.Run("generation_mismatch", func(t *testing.T) {
-		table := component.NewResourceTable()
+		table := runtime.NewResourceTable()
 		h1 := table.New("resource", true)
 		table.Remove(h1)
 		table.New("new_resource", true) // Reuses slot with new generation
@@ -310,7 +311,7 @@ func TestErrorMessages_ResourceTable(t *testing.T) {
 	})
 
 	t.Run("resource_in_use", func(t *testing.T) {
-		table := component.NewResourceTable()
+		table := runtime.NewResourceTable()
 		h := table.New("resource", true)
 		table.IncrementLends(h)
 
@@ -402,7 +403,7 @@ func TestErrorMessages_ContextRequired(t *testing.T) {
 
 	t.Run("list_lower_without_realloc", func(t *testing.T) {
 		listType := types.List{Element: types.U32{}}
-		val := component.ValList([]component.Val{component.ValU32(1)})
+		val := types.ValList([]types.Val{types.ValU32(1)})
 
 		// No realloc function provided
 		ctx := &abi.LowerContext{

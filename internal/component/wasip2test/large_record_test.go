@@ -9,6 +9,8 @@ import (
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/imports/wasip2"
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 func TestLargeRecordPlugin_RetptrLifting(t *testing.T) {
@@ -46,13 +48,13 @@ func TestLargeRecordPlugin_RetptrLifting(t *testing.T) {
 
 	// host-data import - returns coordinates {x: 10, y: 20, z: 30}
 	err = hostLinker.DefineInstance("test:large-record/host-data").
-		FuncNoType("get-position", func(ctx context.Context, args []component.Val) ([]component.Val, error) {
-			rec := map[string]component.Val{
-				"x": component.ValS32(10),
-				"y": component.ValS32(20),
-				"z": component.ValS32(30),
+		FuncNoType("get-position", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+			rec := map[string]types.Val{
+				"x": types.ValS32(10),
+				"y": types.ValS32(20),
+				"z": types.ValS32(30),
 			}
-			return []component.Val{component.ValRecord(rec)}, nil
+			return []types.Val{types.ValRecord(rec)}, nil
 		}).
 		SkipValidation().
 		Build()
@@ -68,7 +70,7 @@ func TestLargeRecordPlugin_RetptrLifting(t *testing.T) {
 		WithStderr(&stderr).
 		WithArgs([]string{"test"}).
 		WithEnviron([]string{})
-	resourceTable := component.NewResourceTable()
+	resourceTable := runtime.NewResourceTable()
 	testCtx := wasip2.WithConfig(ctx, wasiConfig)
 	testCtx = component.WithResourceTable(testCtx, resourceTable)
 

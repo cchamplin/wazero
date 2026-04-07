@@ -8,6 +8,7 @@ import (
 
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/component/abi"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
@@ -17,18 +18,18 @@ import (
 // verify it doesn't corrupt data under sequential operations from different goroutines.
 func TestConcurrent_ResourceTableOperations(t *testing.T) {
 	t.Run("sequential_from_goroutines", func(t *testing.T) {
-		table := component.NewResourceTable()
+		table := runtime.NewResourceTable()
 		var mu sync.Mutex
 		var wg sync.WaitGroup
 
 		numGoroutines := 10
 		handlesPerGoroutine := 100
 
-		handles := make([][]component.Handle, numGoroutines)
+		handles := make([][]runtime.Handle, numGoroutines)
 
 		// Create handles from multiple goroutines (sequentially with mutex)
 		for g := 0; g < numGoroutines; g++ {
-			handles[g] = make([]component.Handle, handlesPerGoroutine)
+			handles[g] = make([]runtime.Handle, handlesPerGoroutine)
 			wg.Add(1)
 			go func(gIdx int) {
 				defer wg.Done()
@@ -108,9 +109,9 @@ func TestConcurrent_LowerFlat(t *testing.T) {
 		go func(gIdx int) {
 			defer wg.Done()
 			for i := 0; i < iterations; i++ {
-				val := component.ValRecord(map[string]component.Val{
-					"x": component.ValU32(uint32(gIdx)),
-					"y": component.ValU32(uint32(i)),
+				val := types.ValRecord(map[string]types.Val{
+					"x": types.ValU32(uint32(gIdx)),
+					"y": types.ValU32(uint32(i)),
 				})
 
 				flat, err := abi.LowerFlat(nil, recordType, val)
@@ -280,15 +281,15 @@ func TestConcurrent_ValConstruction(t *testing.T) {
 			defer wg.Done()
 			for i := 0; i < iterations; i++ {
 				// Construct various Val types
-				_ = component.ValU32(uint32(gIdx + i))
-				_ = component.ValString("test")
-				_ = component.ValBool(i%2 == 0)
-				_ = component.ValRecord(map[string]component.Val{
-					"x": component.ValU32(uint32(i)),
+				_ = types.ValU32(uint32(gIdx + i))
+				_ = types.ValString("test")
+				_ = types.ValBool(i%2 == 0)
+				_ = types.ValRecord(map[string]types.Val{
+					"x": types.ValU32(uint32(i)),
 				})
-				_ = component.ValTuple([]component.Val{
-					component.ValU32(uint32(gIdx)),
-					component.ValU32(uint32(i)),
+				_ = types.ValTuple([]types.Val{
+					types.ValU32(uint32(gIdx)),
+					types.ValU32(uint32(i)),
 				})
 			}
 		}(g)
@@ -307,7 +308,7 @@ func TestConcurrent_HandleConstruction(t *testing.T) {
 		go func(gIdx int) {
 			defer wg.Done()
 			for i := 0; i < iterations; i++ {
-				h := component.MakeHandle(uint32(i), uint32(gIdx))
+				h := runtime.MakeHandle(uint32(i), uint32(gIdx))
 				require.Equal(t, uint32(i), h.Index())
 				require.Equal(t, uint32(gIdx), h.Generation())
 			}
@@ -334,13 +335,13 @@ func TestConcurrent_VariantTypes(t *testing.T) {
 		go func(gIdx int) {
 			defer wg.Done()
 			for i := 0; i < iterations; i++ {
-				var val component.Val
+				var val types.Val
 				if i%2 == 0 {
-					payload := component.ValU32(uint32(gIdx + i))
-					val = component.ValVariant("num", &payload)
+					payload := types.ValU32(uint32(gIdx + i))
+					val = types.ValVariant("num", &payload)
 				} else {
-					payload := component.ValBool(gIdx%2 == 0)
-					val = component.ValVariant("flag", &payload)
+					payload := types.ValBool(gIdx%2 == 0)
+					val = types.ValVariant("flag", &payload)
 				}
 
 				flat, err := abi.LowerFlat(nil, variantType, val)
@@ -394,11 +395,11 @@ func TestConcurrent_ListOperations(t *testing.T) {
 			for i := 0; i < iterations; i++ {
 				// Create a list with varying size
 				listSize := (i % 10) + 1
-				elements := make([]component.Val, listSize)
+				elements := make([]types.Val, listSize)
 				for j := 0; j < listSize; j++ {
-					elements[j] = component.ValU32(uint32(gIdx*1000 + i*100 + j))
+					elements[j] = types.ValU32(uint32(gIdx*1000 + i*100 + j))
 				}
-				val := component.ValList(elements)
+				val := types.ValList(elements)
 
 				flat, err := abi.LowerFlat(ctx, listType, val)
 				require.NoError(t, err)
@@ -446,7 +447,7 @@ func TestConcurrent_NoRace(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for i := 0; i < 100; i++ {
-				val := component.ValU32(uint32(i))
+				val := types.ValU32(uint32(i))
 				_ = val.U32()
 			}
 		}()
@@ -455,7 +456,7 @@ func TestConcurrent_NoRace(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for i := 0; i < 100; i++ {
-				h := component.MakeHandle(uint32(i), uint32(i))
+				h := runtime.MakeHandle(uint32(i), uint32(i))
 				_ = h.Index()
 				_ = h.Generation()
 			}

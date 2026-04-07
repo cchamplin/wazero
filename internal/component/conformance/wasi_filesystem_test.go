@@ -9,6 +9,8 @@ import (
 
 	"github.com/tetratelabs/wazero/imports/wasip2"
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -33,7 +35,7 @@ func TestWASI_Filesystem_Preopens(t *testing.T) {
 
 	ctx := context.Background()
 	ctx = wasip2.WithConfig(ctx, config)
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	// Get the preopens interface
@@ -50,7 +52,7 @@ func TestWASI_Filesystem_Preopens(t *testing.T) {
 	require.True(t, ok, "should be a FuncDef")
 
 	// Call get-directories
-	result, err := funcDef.Callback(ctx, []component.Val{})
+	result, err := funcDef.Callback(ctx, []types.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result), "get-directories should return exactly one value")
 
@@ -83,14 +85,14 @@ func TestWASI_Filesystem_PreopensEmpty(t *testing.T) {
 
 	ctx := context.Background()
 	ctx = wasip2.WithConfig(ctx, config)
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	preopensDef, _ := linker.Get("wasi:filesystem/preopens@0.2.0")
 	instDef := preopensDef.(*component.InstanceDef)
 	funcDef := instDef.Exports["get-directories"].(*component.FuncDef)
 
-	result, err := funcDef.Callback(ctx, []component.Val{})
+	result, err := funcDef.Callback(ctx, []types.Val{})
 	require.NoError(t, err)
 
 	dirList := result[0].List()
@@ -213,7 +215,7 @@ func TestWASI_Filesystem_StatOnPreopen(t *testing.T) {
 
 	ctx := context.Background()
 	ctx = wasip2.WithConfig(ctx, config)
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	// Get the preopen descriptor
@@ -221,7 +223,7 @@ func TestWASI_Filesystem_StatOnPreopen(t *testing.T) {
 	preInst := preopensDef.(*component.InstanceDef)
 	getDirsFunc := preInst.Exports["get-directories"].(*component.FuncDef)
 
-	result, err := getDirsFunc.Callback(ctx, []component.Val{})
+	result, err := getDirsFunc.Callback(ctx, []types.Val{})
 	require.NoError(t, err)
 
 	dirList := result[0].List()
@@ -237,7 +239,7 @@ func TestWASI_Filesystem_StatOnPreopen(t *testing.T) {
 	statFunc := typesInst.Exports["[method]descriptor.stat"].(*component.FuncDef)
 
 	// Call stat with borrow<descriptor>
-	statResult, err := statFunc.Callback(ctx, []component.Val{component.ValBorrow(descHandle)})
+	statResult, err := statFunc.Callback(ctx, []types.Val{types.ValBorrow(descHandle)})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(statResult), "stat should return exactly one value")
 
@@ -300,14 +302,14 @@ func TestWASI_Filesystem_MultiplePreopens(t *testing.T) {
 
 	ctx := context.Background()
 	ctx = wasip2.WithConfig(ctx, config)
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	preopensDef, _ := linker.Get("wasi:filesystem/preopens@0.2.0")
 	instDef := preopensDef.(*component.InstanceDef)
 	funcDef := instDef.Exports["get-directories"].(*component.FuncDef)
 
-	result, err := funcDef.Callback(ctx, []component.Val{})
+	result, err := funcDef.Callback(ctx, []types.Val{})
 	require.NoError(t, err)
 
 	dirList := result[0].List()
@@ -337,14 +339,14 @@ func TestWASI_Filesystem_InvalidPreopenPath(t *testing.T) {
 
 	ctx := context.Background()
 	ctx = wasip2.WithConfig(ctx, config)
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	preopensDef, _ := linker.Get("wasi:filesystem/preopens@0.2.0")
 	instDef := preopensDef.(*component.InstanceDef)
 	funcDef := instDef.Exports["get-directories"].(*component.FuncDef)
 
-	result, err := funcDef.Callback(ctx, []component.Val{})
+	result, err := funcDef.Callback(ctx, []types.Val{})
 	require.NoError(t, err)
 
 	// Invalid paths should be skipped, so should return empty list

@@ -15,7 +15,9 @@ import (
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/component/testutil"
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 // TestComponentLinking_ProviderConsumer tests linking a provider component's
@@ -111,7 +113,7 @@ func TestComponentLinking_ProviderConsumer(t *testing.T) {
 	defer compiledConsumer.Close(ctx)
 
 	// Set up resource table for instantiation
-	resourceTable := component.NewResourceTable()
+	resourceTable := runtime.NewResourceTable()
 	testCtx := component.WithResourceTable(ctx, resourceTable)
 
 	// Create a linker for the provider (no imports needed)
@@ -130,7 +132,7 @@ func TestComponentLinking_ProviderConsumer(t *testing.T) {
 	}
 
 	// Verify the provider's add function works directly
-	providerResult, err := providerAddFunc.Call(testCtx, component.ValS32(10), component.ValS32(5))
+	providerResult, err := providerAddFunc.Call(testCtx, types.ValS32(10), types.ValS32(5))
 	if err != nil {
 		t.Fatalf("provider add(10, 5): %v", err)
 	}
@@ -143,7 +145,7 @@ func TestComponentLinking_ProviderConsumer(t *testing.T) {
 	// by wrapping the provider's exported add function
 	linker := component.NewLinker()
 	err = linker.DefineInstance("math").
-		FuncNoType("add", func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+		FuncNoType("add", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			// Forward the call to the provider's add function
 			return providerAddFunc.Call(ctx, args...)
 		}).
@@ -170,7 +172,7 @@ func TestComponentLinking_ProviderConsumer(t *testing.T) {
 	}
 
 	// Test double-add(3, 4) = add(3,4) + add(3,4) = 7 + 7 = 14
-	result, err := doubleAddFunc.Call(testCtx, component.ValS32(3), component.ValS32(4))
+	result, err := doubleAddFunc.Call(testCtx, types.ValS32(3), types.ValS32(4))
 	if err != nil {
 		t.Fatalf("double-add(3, 4): %v", err)
 	}
@@ -267,7 +269,7 @@ func TestComponentLinking_MultipleValues(t *testing.T) {
 	}
 	defer compiledConsumer.Close(ctx)
 
-	resourceTable := component.NewResourceTable()
+	resourceTable := runtime.NewResourceTable()
 	testCtx := component.WithResourceTable(ctx, resourceTable)
 
 	providerLinker := component.NewComponentLinker(providerRT)
@@ -283,7 +285,7 @@ func TestComponentLinking_MultipleValues(t *testing.T) {
 
 	linker := component.NewLinker()
 	err = linker.DefineInstance("math").
-		FuncNoType("add", func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+		FuncNoType("add", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			return providerAddFunc.Call(ctx, args...)
 		}).
 		SkipValidation().
@@ -320,7 +322,7 @@ func TestComponentLinking_MultipleValues(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		result, err := doubleAddFunc.Call(testCtx, component.ValS32(tc.a), component.ValS32(tc.b))
+		result, err := doubleAddFunc.Call(testCtx, types.ValS32(tc.a), types.ValS32(tc.b))
 		if err != nil {
 			t.Fatalf("double-add(%d, %d): %v", tc.a, tc.b, err)
 		}
@@ -380,7 +382,7 @@ func TestComponentLinking_ExportDiscovery(t *testing.T) {
 	}
 	defer compiledProvider.Close(ctx)
 
-	resourceTable := component.NewResourceTable()
+	resourceTable := runtime.NewResourceTable()
 	testCtx := component.WithResourceTable(ctx, resourceTable)
 
 	providerLinker := component.NewComponentLinker(rt)
@@ -402,7 +404,7 @@ func TestComponentLinking_ExportDiscovery(t *testing.T) {
 
 	// Verify they work
 	if addFunc != nil {
-		result, err := addFunc.Call(testCtx, component.ValS32(10), component.ValS32(3))
+		result, err := addFunc.Call(testCtx, types.ValS32(10), types.ValS32(3))
 		if err != nil {
 			t.Fatalf("add(10, 3): %v", err)
 		}
@@ -412,7 +414,7 @@ func TestComponentLinking_ExportDiscovery(t *testing.T) {
 	}
 
 	if subFunc != nil {
-		result, err := subFunc.Call(testCtx, component.ValS32(10), component.ValS32(3))
+		result, err := subFunc.Call(testCtx, types.ValS32(10), types.ValS32(3))
 		if err != nil {
 			t.Fatalf("sub(10, 3): %v", err)
 		}
@@ -512,7 +514,7 @@ func TestComponentLinking_ProviderCallCount(t *testing.T) {
 	}
 	defer compiledConsumer.Close(ctx)
 
-	resourceTable := component.NewResourceTable()
+	resourceTable := runtime.NewResourceTable()
 	testCtx := component.WithResourceTable(ctx, resourceTable)
 
 	providerLinker := component.NewComponentLinker(providerRT)
@@ -530,7 +532,7 @@ func TestComponentLinking_ProviderCallCount(t *testing.T) {
 	var callCount int
 	linker := component.NewLinker()
 	err = linker.DefineInstance("math").
-		FuncNoType("add", func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+		FuncNoType("add", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			callCount++
 			return providerAddFunc.Call(ctx, args...)
 		}).
@@ -557,7 +559,7 @@ func TestComponentLinking_ProviderCallCount(t *testing.T) {
 	callCount = 0
 
 	// Call double-add which should call add twice
-	_, err = doubleAddFunc.Call(testCtx, component.ValS32(3), component.ValS32(4))
+	_, err = doubleAddFunc.Call(testCtx, types.ValS32(3), types.ValS32(4))
 	if err != nil {
 		t.Fatalf("double-add(3, 4): %v", err)
 	}

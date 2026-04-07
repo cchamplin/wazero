@@ -17,14 +17,14 @@ import (
 func TestABI_ExactlyMaxFlatParams(t *testing.T) {
 	// Create a record with exactly 16 u32 fields
 	fields := make([]types.Field, abi.MaxFlatParams)
-	fieldVals := make(map[string]component.Val)
+	fieldVals := make(map[string]types.Val)
 	for i := 0; i < abi.MaxFlatParams; i++ {
 		name := string(rune('a' + i))
 		fields[i] = types.Field{Name: name, Type: types.U32{}}
-		fieldVals[name] = component.ValU32(uint32(i + 1))
+		fieldVals[name] = types.ValU32(uint32(i + 1))
 	}
 	recordType := types.Record{Fields: fields}
-	val := component.ValRecord(fieldVals)
+	val := types.ValRecord(fieldVals)
 
 	t.Run("type_properties", func(t *testing.T) {
 		require.Equal(t, abi.MaxFlatParams, recordType.FlattenCount())
@@ -67,11 +67,11 @@ func TestABI_ExactlyMaxPlusOne(t *testing.T) {
 	// Create a record with 17 u32 fields
 	numFields := abi.MaxFlatParams + 1
 	fields := make([]types.Field, numFields)
-	fieldVals := make(map[string]component.Val)
+	fieldVals := make(map[string]types.Val)
 	for i := 0; i < numFields; i++ {
 		name := string(rune('a' + i))
 		fields[i] = types.Field{Name: name, Type: types.U32{}}
-		fieldVals[name] = component.ValU32(uint32(i + 1))
+		fieldVals[name] = types.ValU32(uint32(i + 1))
 	}
 	recordType := types.Record{Fields: fields}
 
@@ -133,7 +133,7 @@ func TestABI_MaxStringLength(t *testing.T) {
 // TestABI_ZeroLengthList tests that empty lists don't call realloc.
 func TestABI_ZeroLengthList(t *testing.T) {
 	listType := types.List{Element: types.U32{}}
-	emptyList := component.ValList([]component.Val{})
+	emptyList := types.ValList([]types.Val{})
 
 	reallocCalled := false
 	ctx := &abi.LowerContext{
@@ -174,7 +174,7 @@ func TestABI_AlignmentBoundary(t *testing.T) {
 		offset uint32
 		typ    types.ValType
 		setup  func(mem *mockMemory, offset uint32)
-		verify func(t *testing.T, lifted component.Val)
+		verify func(t *testing.T, lifted types.Val)
 	}{
 		{
 			name:   "u32_at_aligned_offset",
@@ -183,7 +183,7 @@ func TestABI_AlignmentBoundary(t *testing.T) {
 			setup: func(mem *mockMemory, offset uint32) {
 				binary.LittleEndian.PutUint32(mem.data[offset:], 0xDEADBEEF)
 			},
-			verify: func(t *testing.T, lifted component.Val) {
+			verify: func(t *testing.T, lifted types.Val) {
 				require.Equal(t, uint32(0xDEADBEEF), lifted.U32())
 			},
 		},
@@ -194,7 +194,7 @@ func TestABI_AlignmentBoundary(t *testing.T) {
 			setup: func(mem *mockMemory, offset uint32) {
 				binary.LittleEndian.PutUint32(mem.data[offset:], 0xCAFEBABE)
 			},
-			verify: func(t *testing.T, lifted component.Val) {
+			verify: func(t *testing.T, lifted types.Val) {
 				require.Equal(t, uint32(0xCAFEBABE), lifted.U32())
 			},
 		},
@@ -205,7 +205,7 @@ func TestABI_AlignmentBoundary(t *testing.T) {
 			setup: func(mem *mockMemory, offset uint32) {
 				binary.LittleEndian.PutUint64(mem.data[offset:], 0x123456789ABCDEF0)
 			},
-			verify: func(t *testing.T, lifted component.Val) {
+			verify: func(t *testing.T, lifted types.Val) {
 				require.Equal(t, uint64(0x123456789ABCDEF0), lifted.U64())
 			},
 		},
@@ -216,7 +216,7 @@ func TestABI_AlignmentBoundary(t *testing.T) {
 			setup: func(mem *mockMemory, offset uint32) {
 				binary.LittleEndian.PutUint16(mem.data[offset:], 0xABCD)
 			},
-			verify: func(t *testing.T, lifted component.Val) {
+			verify: func(t *testing.T, lifted types.Val) {
 				require.Equal(t, uint16(0xABCD), lifted.U16())
 			},
 		},
@@ -227,7 +227,7 @@ func TestABI_AlignmentBoundary(t *testing.T) {
 			setup: func(mem *mockMemory, offset uint32) {
 				mem.data[offset] = 0x42
 			},
-			verify: func(t *testing.T, lifted component.Val) {
+			verify: func(t *testing.T, lifted types.Val) {
 				require.Equal(t, uint8(0x42), lifted.U8())
 			},
 		},
@@ -311,7 +311,7 @@ func TestABI_FlatIterExhaustion(t *testing.T) {
 
 	t.Run("float_values", func(t *testing.T) {
 		// Store float bits in uint64
-		f32Bits := uint64(0x40490FDB) // approximately pi as f32
+		f32Bits := uint64(0x40490FDB)         // approximately pi as f32
 		f64Bits := uint64(0x400921FB54442D18) // approximately pi as f64
 
 		iter := abi.NewFlatIter([]uint64{f32Bits, f64Bits})
@@ -334,10 +334,10 @@ func TestABI_RecordFieldOrder(t *testing.T) {
 		},
 	}
 
-	val := component.ValRecord(map[string]component.Val{
-		"first":  component.ValU32(100),
-		"second": component.ValU32(200),
-		"third":  component.ValU32(300),
+	val := types.ValRecord(map[string]types.Val{
+		"first":  types.ValU32(100),
+		"second": types.ValU32(200),
+		"third":  types.ValU32(300),
 	})
 
 	flat, err := abi.LowerFlat(nil, recordType, val)
@@ -360,8 +360,8 @@ func TestABI_VariantPadding(t *testing.T) {
 	}
 
 	t.Run("small_case_padded", func(t *testing.T) {
-		payload := component.ValU8(42)
-		val := component.ValVariant("small", &payload)
+		payload := types.ValU8(42)
+		val := types.ValVariant("small", &payload)
 
 		flat, err := abi.LowerFlat(nil, variantType, val)
 		require.NoError(t, err)
@@ -372,8 +372,8 @@ func TestABI_VariantPadding(t *testing.T) {
 	})
 
 	t.Run("large_case", func(t *testing.T) {
-		payload := component.ValU64(0x123456789ABCDEF0)
-		val := component.ValVariant("large", &payload)
+		payload := types.ValU64(0x123456789ABCDEF0)
+		val := types.ValVariant("large", &payload)
 
 		flat, err := abi.LowerFlat(nil, variantType, val)
 		require.NoError(t, err)
@@ -387,7 +387,7 @@ func TestABI_VariantPadding(t *testing.T) {
 func TestABI_OptionNone(t *testing.T) {
 	optionType := types.Option{Some: types.U32{}}
 
-	val := component.ValOption(nil)
+	val := types.ValOption(nil)
 	flat, err := abi.LowerFlat(nil, optionType, val)
 	require.NoError(t, err)
 	require.Equal(t, 2, len(flat), "option has discriminant + padded payload")
@@ -407,7 +407,7 @@ func TestABI_ResultOkNil(t *testing.T) {
 		Error: types.String{},
 	}
 
-	val := component.ValResultOk(nil)
+	val := types.ValResultOk(nil)
 	flat, err := abi.LowerFlat(nil, resultType, val)
 	require.NoError(t, err)
 	require.Equal(t, uint64(0), flat[0], "Ok discriminant is 0")
@@ -420,7 +420,7 @@ func TestABI_ResultErrorNil(t *testing.T) {
 		Error: nil, // unit error
 	}
 
-	val := component.ValResultError(nil)
+	val := types.ValResultError(nil)
 	flat, err := abi.LowerFlat(nil, resultType, val)
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), flat[0], "Error discriminant is 1")
@@ -436,7 +436,7 @@ func TestABI_FlagsAllSet(t *testing.T) {
 	for _, name := range flagsType.Names {
 		flags[name] = true
 	}
-	val := component.ValFlags(flags)
+	val := types.ValFlags(flags)
 
 	flat, err := abi.LowerFlat(nil, flagsType, val)
 	require.NoError(t, err)
@@ -451,7 +451,7 @@ func TestABI_FlagsNoneSet(t *testing.T) {
 	}
 
 	flags := make(map[string]bool)
-	val := component.ValFlags(flags)
+	val := types.ValFlags(flags)
 
 	flat, err := abi.LowerFlat(nil, flagsType, val)
 	require.NoError(t, err)
@@ -476,7 +476,7 @@ func TestABI_EnumRoundtrip(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			val := component.ValEnum(tc.name)
+			val := types.ValEnum(tc.name)
 
 			flat, err := abi.LowerFlat(nil, enumType, val)
 			require.NoError(t, err)
@@ -493,7 +493,7 @@ func TestABI_EnumRoundtrip(t *testing.T) {
 // TestABI_TupleEmpty tests empty tuple handling.
 func TestABI_TupleEmpty(t *testing.T) {
 	tupleType := types.Tuple{Types: []types.ValType{}}
-	val := component.ValTuple([]component.Val{})
+	val := types.ValTuple([]types.Val{})
 
 	flat, err := abi.LowerFlat(nil, tupleType, val)
 	require.NoError(t, err)

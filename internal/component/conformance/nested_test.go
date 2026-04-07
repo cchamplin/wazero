@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -29,12 +30,12 @@ func TestNested_TwoLevelInstantiation(t *testing.T) {
 		Results: []component.NamedValType{{Name: "result", ValType: component.ValTypeRef{IsPrimitive: true, Primitive: 0x7f}}},
 	}
 
-	hostFn := func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+	hostFn := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		hostFnCalled = true
 		if len(args) > 0 {
 			hostValue = args[0].S32()
 		}
-		return []component.Val{component.ValS32(hostValue * 2)}, nil
+		return []types.Val{types.ValS32(hostValue * 2)}, nil
 	}
 
 	// Define host function at v1.0.0
@@ -93,7 +94,7 @@ func TestNested_TwoLevelInstantiation(t *testing.T) {
 	funcDef, ok := def.(*component.FuncDef)
 	require.True(t, ok)
 
-	result, err := funcDef.Callback(ctx, []component.Val{component.ValS32(21)})
+	result, err := funcDef.Callback(ctx, []types.Val{types.ValS32(21)})
 	require.NoError(t, err)
 	require.True(t, hostFnCalled)
 	require.Equal(t, int32(21), hostValue)
@@ -109,7 +110,7 @@ func TestNested_MaxDepth(t *testing.T) {
 	funcType := &component.FuncType{}
 	baseCallCount := 0
 
-	baseFn := func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+	baseFn := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		baseCallCount++
 		return nil, nil
 	}
@@ -171,14 +172,14 @@ func TestNested_IndependentLinkers(t *testing.T) {
 	fn1Called := false
 	fn2Called := false
 
-	fn1 := func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+	fn1 := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		fn1Called = true
-		return []component.Val{component.ValS32(1)}, nil
+		return []types.Val{types.ValS32(1)}, nil
 	}
 
-	fn2 := func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+	fn2 := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		fn2Called = true
-		return []component.Val{component.ValS32(2)}, nil
+		return []types.Val{types.ValS32(2)}, nil
 	}
 
 	// Define same-named function with different implementations
@@ -221,17 +222,17 @@ func TestNested_ComponentWithMultipleImports(t *testing.T) {
 	funcType := &component.FuncType{}
 
 	// Define multiple host functions
-	err := linker.DefineFunc("wasi:io@1.0.0", "read", funcType, func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+	err := linker.DefineFunc("wasi:io@1.0.0", "read", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		return nil, nil
 	})
 	require.NoError(t, err)
 
-	err = linker.DefineFunc("wasi:io@1.0.0", "write", funcType, func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+	err = linker.DefineFunc("wasi:io@1.0.0", "write", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		return nil, nil
 	})
 	require.NoError(t, err)
 
-	err = linker.DefineFunc("wasi:clocks@1.0.0", "now", funcType, func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+	err = linker.DefineFunc("wasi:clocks@1.0.0", "now", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		return nil, nil
 	})
 	require.NoError(t, err)
@@ -258,12 +259,12 @@ func TestNested_ComponentWithMissingOneImport(t *testing.T) {
 	funcType := &component.FuncType{}
 
 	// Define only two of three required imports
-	err := linker.DefineFunc("wasi:io@1.0.0", "read", funcType, func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+	err := linker.DefineFunc("wasi:io@1.0.0", "read", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		return nil, nil
 	})
 	require.NoError(t, err)
 
-	err = linker.DefineFunc("wasi:io@1.0.0", "write", funcType, func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+	err = linker.DefineFunc("wasi:io@1.0.0", "write", funcType, func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		return nil, nil
 	})
 	require.NoError(t, err)

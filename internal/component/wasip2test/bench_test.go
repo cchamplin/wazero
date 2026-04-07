@@ -20,6 +20,8 @@ import (
 	"github.com/tetratelabs/wazero/api"
 	apicomponent "github.com/tetratelabs/wazero/api/component"
 	"github.com/tetratelabs/wazero/imports/wasip2"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 // newBenchInstance creates a component instance for benchmarks, panicking on error.
@@ -56,8 +58,8 @@ func newBenchInstance(b *testing.B) (api.Component, context.Context, func()) {
 	_ = builder.Build()
 
 	_ = linker.DefineInstance("test:repro/host-rng").SkipValidation().
-		Func("get-random-bytes", apicomponent.HostFunc(func(ctx context.Context, args []apicomponent.Val) ([]apicomponent.Val, error) {
-			return []apicomponent.Val{apicomponent.ValList(nil)}, nil
+		Func("get-random-bytes", apicomponent.HostFunc(func(ctx context.Context, args []apitypes.Val) ([]apitypes.Val, error) {
+			return []apitypes.Val{apitypes.ValList(nil)}, nil
 		})).
 		Build()
 
@@ -67,7 +69,7 @@ func newBenchInstance(b *testing.B) (api.Component, context.Context, func()) {
 		WithStderr(&stderr).
 		WithArgs([]string{"test"}).
 		WithEnviron([]string{})
-	resourceTable := apicomponent.NewResourceTable()
+	resourceTable := apiruntime.NewResourceTable()
 	testCtx := wasip2.WithConfig(ctx, wasiConfig)
 	testCtx = apicomponent.WithResourceTable(testCtx, resourceTable)
 

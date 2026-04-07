@@ -61,10 +61,10 @@ func TestRealloc_StringLowerFailure(t *testing.T) {
 // TestRealloc_ListLowerFailure tests that list lowering fails gracefully when realloc fails.
 func TestRealloc_ListLowerFailure(t *testing.T) {
 	listType := types.List{Element: types.U32{}}
-	listVal := component.ValList([]component.Val{
-		component.ValU32(1),
-		component.ValU32(2),
-		component.ValU32(3),
+	listVal := types.ValList([]types.Val{
+		types.ValU32(1),
+		types.ValU32(2),
+		types.ValU32(3),
 	})
 
 	t.Run("realloc_returns_error", func(t *testing.T) {
@@ -120,7 +120,7 @@ func TestRealloc_EmptyAllocationsNoRealloc(t *testing.T) {
 	t.Run("empty_list", func(t *testing.T) {
 		reallocCalled = false
 		listType := types.List{Element: types.U32{}}
-		emptyList := component.ValList([]component.Val{})
+		emptyList := types.ValList([]types.Val{})
 		_, err := abi.LowerFlat(ctx, listType, emptyList)
 		require.NoError(t, err)
 		require.False(t, reallocCalled, "realloc should not be called for empty list")
@@ -134,9 +134,9 @@ func TestRealloc_PartialFailure(t *testing.T) {
 	// Nested list type that requires multiple allocations
 	// list<string> - each string needs allocation, then the list itself
 	nestedType := types.List{Element: types.String{}}
-	nestedVal := component.ValList([]component.Val{
-		component.ValString("hello"),
-		component.ValString("world"),
+	nestedVal := types.ValList([]types.Val{
+		types.ValString("hello"),
+		types.ValString("world"),
 	})
 
 	t.Run("fail_after_first_allocation", func(t *testing.T) {
@@ -192,7 +192,7 @@ func TestRealloc_AlignmentRequests(t *testing.T) {
 	t.Run("list_u32_alignment", func(t *testing.T) {
 		allocPtr = 256
 		listType := types.List{Element: types.U32{}}
-		listVal := component.ValList([]component.Val{component.ValU32(1)})
+		listVal := types.ValList([]types.Val{types.ValU32(1)})
 		_, err := abi.LowerFlat(ctx, listType, listVal)
 		require.NoError(t, err)
 		// u32 elements have alignment 4
@@ -202,7 +202,7 @@ func TestRealloc_AlignmentRequests(t *testing.T) {
 	t.Run("list_u64_alignment", func(t *testing.T) {
 		allocPtr = 256
 		listType := types.List{Element: types.U64{}}
-		listVal := component.ValList([]component.Val{component.ValU64(1)})
+		listVal := types.ValList([]types.Val{types.ValU64(1)})
 		_, err := abi.LowerFlat(ctx, listType, listVal)
 		require.NoError(t, err)
 		// u64 elements have alignment 8
@@ -238,10 +238,10 @@ func TestRealloc_SizeRequests(t *testing.T) {
 	t.Run("list_u32_size", func(t *testing.T) {
 		allocPtr = 256
 		listType := types.List{Element: types.U32{}}
-		listVal := component.ValList([]component.Val{
-			component.ValU32(1),
-			component.ValU32(2),
-			component.ValU32(3),
+		listVal := types.ValList([]types.Val{
+			types.ValU32(1),
+			types.ValU32(2),
+			types.ValU32(3),
 		})
 		_, err := abi.LowerFlat(ctx, listType, listVal)
 		require.NoError(t, err)
@@ -339,7 +339,7 @@ func TestRealloc_LowerHeapStringFailure(t *testing.T) {
 		},
 	}
 
-	val := component.ValString("hello")
+	val := types.ValString("hello")
 	err := abi.LowerHeap(ctx, types.String{}, val, 0)
 	require.Error(t, err)
 }
@@ -356,7 +356,7 @@ func TestRealloc_LowerHeapListFailure(t *testing.T) {
 	}
 
 	listType := types.List{Element: types.U32{}}
-	val := component.ValList([]component.Val{component.ValU32(1), component.ValU32(2)})
+	val := types.ValList([]types.Val{types.ValU32(1), types.ValU32(2)})
 	err := abi.LowerHeap(ctx, listType, val, 0)
 	require.Error(t, err)
 }

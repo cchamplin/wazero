@@ -17,7 +17,9 @@ import (
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/component/testutil"
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 // KVStore is a simple key-value store resource for testing.
@@ -62,7 +64,7 @@ func TestResourceLifecycle_Basic(t *testing.T) {
 	}
 
 	// Create resource table
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	// Verify we can retrieve the table from context
@@ -201,7 +203,7 @@ func TestResourceLifecycle_TableWithDestructor(t *testing.T) {
 		mu.Unlock()
 	}
 
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 
 	// Create resources using the helper that tracks destructor calls
 	resourceTypeIdx := uint32(0)
@@ -240,7 +242,7 @@ func TestResourceLifecycle_TableWithDestructor(t *testing.T) {
 
 // TestResourceLifecycle_BorrowSemantics tests borrow vs own handle semantics.
 func TestResourceLifecycle_BorrowSemantics(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 
 	// Create an owned resource
 	kvStore := NewKVStore(1)
@@ -297,7 +299,7 @@ func TestResourceLifecycle_BorrowSemantics(t *testing.T) {
 // TestResourceLifecycle_LendTracking tests the lend count tracking
 // which prevents owned resources from being dropped while borrowed.
 func TestResourceLifecycle_LendTracking(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 
 	// Create an owned resource
 	kvStore := NewKVStore(1)
@@ -323,7 +325,7 @@ func TestResourceLifecycle_LendTracking(t *testing.T) {
 	if err == nil {
 		t.Error("Remove should fail when resource has active lends")
 	}
-	if err != component.ErrResourceInUse {
+	if err != runtime.ErrResourceInUse {
 		t.Errorf("Expected ErrResourceInUse, got %v", err)
 	}
 
@@ -345,7 +347,7 @@ func TestResourceLifecycle_LendTracking(t *testing.T) {
 // TestResourceLifecycle_HandleGeneration tests that generation counting
 // prevents use of stale handles.
 func TestResourceLifecycle_HandleGeneration(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 
 	// Create a resource
 	handle1 := table.New(uint32(100), true)
@@ -499,7 +501,7 @@ func TestResourceLifecycle_ComponentWithResource(t *testing.T) {
 	defer compiled.Close(ctx)
 
 	// Set up resource table
-	resourceTable := component.NewResourceTable()
+	resourceTable := runtime.NewResourceTable()
 	testCtx := component.WithResourceTable(ctx, resourceTable)
 
 	// Try to instantiate
@@ -531,11 +533,11 @@ func TestResourceLifecycle_ResourceConstructorCallback(t *testing.T) {
 	var constructorCalls []string
 	var mu sync.Mutex
 
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	// Simulate a host resource constructor
-	constructor := func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+	constructor := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		mu.Lock()
 		constructorCalls = append(constructorCalls, "constructor")
 		mu.Unlock()
@@ -552,7 +554,7 @@ func TestResourceLifecycle_ResourceConstructorCallback(t *testing.T) {
 		handle := rt.New(kvStore, true)
 
 		// Return the handle as an own value
-		return []component.Val{component.ValOwn(uint32(handle))}, nil
+		return []types.Val{types.ValOwn(uint32(handle))}, nil
 	}
 
 	// Simulate a host destructor
@@ -573,7 +575,7 @@ func TestResourceLifecycle_ResourceConstructorCallback(t *testing.T) {
 
 	// Note: The constructor would typically be defined on a separate interface
 	// For this test, we call it directly
-	result, err := constructor(ctx, []component.Val{})
+	result, err := constructor(ctx, []types.Val{})
 	if err != nil {
 		t.Fatalf("Constructor failed: %v", err)
 	}
@@ -582,7 +584,7 @@ func TestResourceLifecycle_ResourceConstructorCallback(t *testing.T) {
 	t.Logf("Constructor returned handle: %d", handle)
 
 	// Verify resource was created
-	entry, err := table.Get(component.Handle(handle))
+	entry, err := table.Get(runtime.Handle(handle))
 	if err != nil {
 		t.Fatalf("Get handle failed: %v", err)
 	}
@@ -617,7 +619,7 @@ func TestResourceLifecycle_ResourceConstructorCallback(t *testing.T) {
 func TestResourceLifecycle_ResourceMethodCallback(t *testing.T) {
 	ctx := context.Background()
 
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	// Create a KV store resource
@@ -625,7 +627,7 @@ func TestResourceLifecycle_ResourceMethodCallback(t *testing.T) {
 	handle := table.New(kvStore, true)
 
 	// Simulate a resource method: [method]store.set(key: string, value: string)
-	setMethod := func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+	setMethod := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		// First arg is borrow handle
 		borrowHandle := args[0].Borrow()
 
@@ -635,7 +637,7 @@ func TestResourceLifecycle_ResourceMethodCallback(t *testing.T) {
 			return nil, nil
 		}
 
-		entry, err := rt.Get(component.Handle(borrowHandle))
+		entry, err := rt.Get(runtime.Handle(borrowHandle))
 		if err != nil {
 			t.Errorf("Get borrow handle failed: %v", err)
 			return nil, err
@@ -651,15 +653,15 @@ func TestResourceLifecycle_ResourceMethodCallback(t *testing.T) {
 		value := args[2].StringVal()
 		kv.Set(key, value)
 
-		return []component.Val{}, nil
+		return []types.Val{}, nil
 	}
 
 	// Simulate a resource method: [method]store.get(key: string) -> option<string>
-	getMethod := func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+	getMethod := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		borrowHandle := args[0].Borrow()
 
 		rt := component.ResourceTableFromContext(ctx)
-		entry, err := rt.Get(component.Handle(borrowHandle))
+		entry, err := rt.Get(runtime.Handle(borrowHandle))
 		if err != nil {
 			return nil, err
 		}
@@ -669,26 +671,26 @@ func TestResourceLifecycle_ResourceMethodCallback(t *testing.T) {
 		value, found := kv.Get(key)
 
 		if found {
-			strVal := component.ValString(value)
-			return []component.Val{component.ValOption(&strVal)}, nil
+			strVal := types.ValString(value)
+			return []types.Val{types.ValOption(&strVal)}, nil
 		}
-		return []component.Val{component.ValOption(nil)}, nil
+		return []types.Val{types.ValOption(nil)}, nil
 	}
 
 	// Call set method
-	_, err := setMethod(ctx, []component.Val{
-		component.ValBorrow(uint32(handle)),
-		component.ValString("greeting"),
-		component.ValString("hello"),
+	_, err := setMethod(ctx, []types.Val{
+		types.ValBorrow(uint32(handle)),
+		types.ValString("greeting"),
+		types.ValString("hello"),
 	})
 	if err != nil {
 		t.Fatalf("set method failed: %v", err)
 	}
 
 	// Call get method
-	result, err := getMethod(ctx, []component.Val{
-		component.ValBorrow(uint32(handle)),
-		component.ValString("greeting"),
+	result, err := getMethod(ctx, []types.Val{
+		types.ValBorrow(uint32(handle)),
+		types.ValString("greeting"),
 	})
 	if err != nil {
 		t.Fatalf("get method failed: %v", err)
@@ -702,9 +704,9 @@ func TestResourceLifecycle_ResourceMethodCallback(t *testing.T) {
 	}
 
 	// Test get for non-existent key
-	result, err = getMethod(ctx, []component.Val{
-		component.ValBorrow(uint32(handle)),
-		component.ValString("nonexistent"),
+	result, err = getMethod(ctx, []types.Val{
+		types.ValBorrow(uint32(handle)),
+		types.ValString("nonexistent"),
 	})
 	if err != nil {
 		t.Fatalf("get method failed: %v", err)
@@ -721,14 +723,14 @@ func TestResourceLifecycle_ResourceMethodCallback(t *testing.T) {
 // TestResourceLifecycle_TypedResources tests resource type tracking
 // using ResourceTypeID.
 func TestResourceLifecycle_TypedResources(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 
 	// Define two resource types
 	storeTypeIdx := uint32(0)
 	bucketTypeIdx := uint32(1)
 
-	storeRT := component.NewResourceTypeID(storeTypeIdx)
-	bucketRT := component.NewResourceTypeID(bucketTypeIdx)
+	storeRT := runtime.NewResourceTypeID(storeTypeIdx)
+	bucketRT := runtime.NewResourceTypeID(bucketTypeIdx)
 
 	// Create resources with types
 	storeHandle := table.NewWithType(uint32(100), true, storeRT)

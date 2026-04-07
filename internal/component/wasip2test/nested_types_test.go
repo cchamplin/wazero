@@ -9,6 +9,8 @@ import (
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/imports/wasip2"
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 func TestNestedTypesPlugin_OptionResultSharedRecords(t *testing.T) {
@@ -46,10 +48,10 @@ func TestNestedTypesPlugin_OptionResultSharedRecords(t *testing.T) {
 
 	// store import - returns some(item) for id=1, none for others
 	err = hostLinker.DefineInstance("test:nested-types/store").
-		FuncNoType("get-item", func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+		FuncNoType("get-item", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			// For now, return a simple option<item> as none
 			// The exact ABI encoding of option<record> depends on the lowering
-			return []component.Val{component.ValOption(nil)}, nil
+			return []types.Val{types.ValOption(nil)}, nil
 		}).
 		SkipValidation().
 		Build()
@@ -65,7 +67,7 @@ func TestNestedTypesPlugin_OptionResultSharedRecords(t *testing.T) {
 		WithStderr(&stderr).
 		WithArgs([]string{"test"}).
 		WithEnviron([]string{})
-	resourceTable := component.NewResourceTable()
+	resourceTable := runtime.NewResourceTable()
 	testCtx := wasip2.WithConfig(ctx, wasiConfig)
 	testCtx = component.WithResourceTable(testCtx, resourceTable)
 

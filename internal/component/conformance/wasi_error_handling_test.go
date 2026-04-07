@@ -10,6 +10,8 @@ import (
 	"github.com/tetratelabs/wazero/imports/wasip2"
 	wasip2io "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -25,7 +27,7 @@ func TestWASI_ErrorHandling_StreamClosedError(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	// Create an input stream and close it
@@ -41,9 +43,9 @@ func TestWASI_ErrorHandling_StreamClosedError(t *testing.T) {
 	readFunc := instDef.Exports["[method]input-stream.read"].(*component.FuncDef)
 
 	// Try to read from closed stream
-	result, err := readFunc.Callback(ctx, []component.Val{
-		component.ValBorrow(uint32(handle)),
-		component.ValU64(10),
+	result, err := readFunc.Callback(ctx, []types.Val{
+		types.ValBorrow(uint32(handle)),
+		types.ValU64(10),
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result), "read should return exactly one value")
@@ -101,7 +103,7 @@ func TestWASI_ErrorHandling_ResultOkPattern(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	// Create an input stream with data
@@ -116,9 +118,9 @@ func TestWASI_ErrorHandling_ResultOkPattern(t *testing.T) {
 	readFunc := instDef.Exports["[method]input-stream.read"].(*component.FuncDef)
 
 	// Read from stream (should succeed)
-	result, err := readFunc.Callback(ctx, []component.Val{
-		component.ValBorrow(uint32(handle)),
-		component.ValU64(4),
+	result, err := readFunc.Callback(ctx, []types.Val{
+		types.ValBorrow(uint32(handle)),
+		types.ValU64(4),
 	})
 	require.NoError(t, err)
 
@@ -140,7 +142,7 @@ func TestWASI_ErrorHandling_ResultErrorPattern(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	// Create and close a stream to trigger error
@@ -156,9 +158,9 @@ func TestWASI_ErrorHandling_ResultErrorPattern(t *testing.T) {
 	writeFunc := instDef.Exports["[method]output-stream.write"].(*component.FuncDef)
 
 	// Try to write to closed stream
-	result, err := writeFunc.Callback(ctx, []component.Val{
-		component.ValBorrow(uint32(handle)),
-		component.ValList([]component.Val{component.ValU8('a')}),
+	result, err := writeFunc.Callback(ctx, []types.Val{
+		types.ValBorrow(uint32(handle)),
+		types.ValList([]types.Val{types.ValU8('a')}),
 	})
 	require.NoError(t, err)
 
@@ -183,7 +185,7 @@ func TestWASI_ErrorHandling_OptionSomePattern(t *testing.T) {
 
 	initialCwdFunc := instDef.Exports["initial-cwd"].(*component.FuncDef)
 
-	result, err := initialCwdFunc.Callback(ctx, []component.Val{})
+	result, err := initialCwdFunc.Callback(ctx, []types.Val{})
 	require.NoError(t, err)
 
 	// Result should be option<string>
@@ -200,7 +202,7 @@ func TestWASI_ErrorHandling_OptionNonePattern(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	// Get an HTTP request-options and query connect-timeout which is initially None
@@ -209,15 +211,15 @@ func TestWASI_ErrorHandling_OptionNonePattern(t *testing.T) {
 
 	// Create request options
 	constructorFunc := instDef.Exports["[constructor]request-options"].(*component.FuncDef)
-	createResult, err := constructorFunc.Callback(ctx, []component.Val{})
+	createResult, err := constructorFunc.Callback(ctx, []types.Val{})
 	require.NoError(t, err)
 
 	optsHandle := createResult[0].Own()
 
 	// Get connect-timeout (should be None by default)
 	connectTimeoutFunc := instDef.Exports["[method]request-options.connect-timeout"].(*component.FuncDef)
-	result, err := connectTimeoutFunc.Callback(ctx, []component.Val{
-		component.ValBorrow(optsHandle),
+	result, err := connectTimeoutFunc.Callback(ctx, []types.Val{
+		types.ValBorrow(optsHandle),
 	})
 	require.NoError(t, err)
 
@@ -242,9 +244,9 @@ func TestWASI_ErrorHandling_ExitCodeSuccess(t *testing.T) {
 	exitFunc := instDef.Exports["exit"].(*component.FuncDef)
 
 	// Call exit with success (result ok variant, discriminant 0)
-	okVal := component.ValTuple([]component.Val{})
-	_, exitErr := exitFunc.Callback(ctx, []component.Val{
-		component.ValResultOk(&okVal),
+	okVal := types.ValTuple([]types.Val{})
+	_, exitErr := exitFunc.Callback(ctx, []types.Val{
+		types.ValResultOk(&okVal),
 	})
 
 	// Exit should return an error (ExitError) to signal termination
@@ -274,7 +276,7 @@ func TestWASI_ErrorHandling_SocketsErrors(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	// Create a TCP socket and verify error handling on bad operations
@@ -284,9 +286,9 @@ func TestWASI_ErrorHandling_SocketsErrors(t *testing.T) {
 	createTcpFunc := instDef.Exports["create-tcp-socket"].(*component.FuncDef)
 
 	// Create socket with IPv4
-	result, err := createTcpFunc.Callback(ctx, []component.Val{
-		component.ValBorrow(0), // network handle
-		component.ValEnum("ipv4"),
+	result, err := createTcpFunc.Callback(ctx, []types.Val{
+		types.ValBorrow(0), // network handle
+		types.ValEnum("ipv4"),
 	})
 	require.NoError(t, err)
 
@@ -327,7 +329,7 @@ func TestWASI_ErrorHandling_StreamErrorVariants(t *testing.T) {
 		require.NoError(t, err)
 
 		ctx := context.Background()
-		table := component.NewResourceTable()
+		table := runtime.NewResourceTable()
 		ctx = component.WithResourceTable(ctx, table)
 
 		// Create and close a stream
@@ -342,9 +344,9 @@ func TestWASI_ErrorHandling_StreamErrorVariants(t *testing.T) {
 
 		readFunc := instDef.Exports["[method]input-stream.read"].(*component.FuncDef)
 
-		result, err := readFunc.Callback(ctx, []component.Val{
-			component.ValBorrow(uint32(handle)),
-			component.ValU64(10),
+		result, err := readFunc.Callback(ctx, []types.Val{
+			types.ValBorrow(uint32(handle)),
+			types.ValU64(10),
 		})
 		require.NoError(t, err)
 
@@ -362,7 +364,7 @@ func TestWASI_ErrorHandling_CheckWritePermission(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	// Create a valid output stream
@@ -376,8 +378,8 @@ func TestWASI_ErrorHandling_CheckWritePermission(t *testing.T) {
 
 	checkWriteFunc := instDef.Exports["[method]output-stream.check-write"].(*component.FuncDef)
 
-	result, err := checkWriteFunc.Callback(ctx, []component.Val{
-		component.ValBorrow(uint32(handle)),
+	result, err := checkWriteFunc.Callback(ctx, []types.Val{
+		types.ValBorrow(uint32(handle)),
 	})
 	require.NoError(t, err)
 

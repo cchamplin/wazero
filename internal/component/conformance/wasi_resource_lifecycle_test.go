@@ -11,6 +11,8 @@ import (
 	"github.com/tetratelabs/wazero/imports/wasip2"
 	wasip2io "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -32,7 +34,7 @@ func TestWASI_ResourceLifecycle_StreamCreation(t *testing.T) {
 
 	ctx := context.Background()
 	ctx = wasip2.WithConfig(ctx, config)
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	// Get stdin stream
@@ -40,7 +42,7 @@ func TestWASI_ResourceLifecycle_StreamCreation(t *testing.T) {
 	instDef := stdinDef.(*component.InstanceDef)
 	getStdinFunc := instDef.Exports["get-stdin"].(*component.FuncDef)
 
-	result, err := getStdinFunc.Callback(ctx, []component.Val{})
+	result, err := getStdinFunc.Callback(ctx, []types.Val{})
 	require.NoError(t, err)
 
 	// Verify we got a valid handle
@@ -51,7 +53,7 @@ func TestWASI_ResourceLifecycle_StreamCreation(t *testing.T) {
 	// Only verify resource table if we got a real handle (not placeholder 0)
 	if handle > 0 {
 		// Verify handle is in resource table
-		entry, err := table.Get(component.Handle(handle))
+		entry, err := table.Get(runtime.Handle(handle))
 		require.NoError(t, err, "handle should be in resource table")
 		require.NotNil(t, entry.Rep, "resource representation should not be nil")
 
@@ -63,7 +65,7 @@ func TestWASI_ResourceLifecycle_StreamCreation(t *testing.T) {
 
 // TestWASI_ResourceLifecycle_StreamDestruction tests stream resource cleanup.
 func TestWASI_ResourceLifecycle_StreamDestruction(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 
 	// Create a stream resource
 	reader := bytes.NewBufferString("test data")
@@ -106,7 +108,7 @@ func TestWASI_ResourceLifecycle_DescriptorCreation(t *testing.T) {
 
 	ctx := context.Background()
 	ctx = wasip2.WithConfig(ctx, config)
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	// Get preopens
@@ -114,7 +116,7 @@ func TestWASI_ResourceLifecycle_DescriptorCreation(t *testing.T) {
 	instDef := preopensDef.(*component.InstanceDef)
 	getDirsFunc := instDef.Exports["get-directories"].(*component.FuncDef)
 
-	result, err := getDirsFunc.Callback(ctx, []component.Val{})
+	result, err := getDirsFunc.Callback(ctx, []types.Val{})
 	require.NoError(t, err)
 
 	dirList := result[0].List()
@@ -125,7 +127,7 @@ func TestWASI_ResourceLifecycle_DescriptorCreation(t *testing.T) {
 	descHandle := tuple[0].Own()
 
 	// Verify handle is in resource table
-	entry, err := table.Get(component.Handle(descHandle))
+	entry, err := table.Get(runtime.Handle(descHandle))
 	require.NoError(t, err, "descriptor handle should be in resource table")
 	require.NotNil(t, entry.Rep, "descriptor representation should not be nil")
 }
@@ -148,14 +150,14 @@ func TestWASI_ResourceLifecycle_MultipleHandles(t *testing.T) {
 
 	ctx := context.Background()
 	ctx = wasip2.WithConfig(ctx, config)
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	// Get stdin handle
 	stdinDef, _ := linker.Get("wasi:cli/stdin@0.2.0")
 	stdinInst := stdinDef.(*component.InstanceDef)
 	getStdinFunc := stdinInst.Exports["get-stdin"].(*component.FuncDef)
-	stdinResult, err := getStdinFunc.Callback(ctx, []component.Val{})
+	stdinResult, err := getStdinFunc.Callback(ctx, []types.Val{})
 	require.NoError(t, err)
 	stdinHandle := stdinResult[0].Own()
 
@@ -163,7 +165,7 @@ func TestWASI_ResourceLifecycle_MultipleHandles(t *testing.T) {
 	stdoutDef, _ := linker.Get("wasi:cli/stdout@0.2.0")
 	stdoutInst := stdoutDef.(*component.InstanceDef)
 	getStdoutFunc := stdoutInst.Exports["get-stdout"].(*component.FuncDef)
-	stdoutResult, err := getStdoutFunc.Callback(ctx, []component.Val{})
+	stdoutResult, err := getStdoutFunc.Callback(ctx, []types.Val{})
 	require.NoError(t, err)
 	stdoutHandle := stdoutResult[0].Own()
 
@@ -171,7 +173,7 @@ func TestWASI_ResourceLifecycle_MultipleHandles(t *testing.T) {
 	stderrDef, _ := linker.Get("wasi:cli/stderr@0.2.0")
 	stderrInst := stderrDef.(*component.InstanceDef)
 	getStderrFunc := stderrInst.Exports["get-stderr"].(*component.FuncDef)
-	stderrResult, err := getStderrFunc.Callback(ctx, []component.Val{})
+	stderrResult, err := getStderrFunc.Callback(ctx, []types.Val{})
 	require.NoError(t, err)
 	stderrHandle := stderrResult[0].Own()
 
@@ -181,13 +183,13 @@ func TestWASI_ResourceLifecycle_MultipleHandles(t *testing.T) {
 	require.NotEqual(t, stdoutHandle, stderrHandle, "stdout and stderr handles should be different")
 
 	// Verify all handles are in the resource table
-	_, err = table.Get(component.Handle(stdinHandle))
+	_, err = table.Get(runtime.Handle(stdinHandle))
 	require.NoError(t, err, "stdin handle should be valid")
 
-	_, err = table.Get(component.Handle(stdoutHandle))
+	_, err = table.Get(runtime.Handle(stdoutHandle))
 	require.NoError(t, err, "stdout handle should be valid")
 
-	_, err = table.Get(component.Handle(stderrHandle))
+	_, err = table.Get(runtime.Handle(stderrHandle))
 	require.NoError(t, err, "stderr handle should be valid")
 }
 
@@ -199,7 +201,7 @@ func TestWASI_ResourceLifecycle_PollableFromStream(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	// Create an input stream
@@ -213,8 +215,8 @@ func TestWASI_ResourceLifecycle_PollableFromStream(t *testing.T) {
 	subscribeFunc := instDef.Exports["[method]input-stream.subscribe"].(*component.FuncDef)
 
 	// Subscribe to get a pollable
-	result, err := subscribeFunc.Callback(ctx, []component.Val{
-		component.ValBorrow(uint32(streamHandle)),
+	result, err := subscribeFunc.Callback(ctx, []types.Val{
+		types.ValBorrow(uint32(streamHandle)),
 	})
 	require.NoError(t, err)
 
@@ -222,7 +224,7 @@ func TestWASI_ResourceLifecycle_PollableFromStream(t *testing.T) {
 	require.True(t, pollableHandle > 0, "should return a valid pollable handle")
 
 	// Verify pollable handle is in resource table
-	entry, err := table.Get(component.Handle(pollableHandle))
+	entry, err := table.Get(runtime.Handle(pollableHandle))
 	require.NoError(t, err, "pollable handle should be in resource table")
 	require.NotNil(t, entry.Rep, "pollable representation should not be nil")
 
@@ -233,7 +235,7 @@ func TestWASI_ResourceLifecycle_PollableFromStream(t *testing.T) {
 
 // TestWASI_ResourceLifecycle_HandleReuse tests that handles are not reused immediately.
 func TestWASI_ResourceLifecycle_HandleReuse(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 
 	// Create first resource
 	reader1 := bytes.NewBufferString("first")
@@ -271,7 +273,7 @@ func TestWASI_ResourceLifecycle_BorrowVsOwn(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	// Create an output stream
@@ -286,8 +288,8 @@ func TestWASI_ResourceLifecycle_BorrowVsOwn(t *testing.T) {
 	checkWriteFunc := instDef.Exports["[method]output-stream.check-write"].(*component.FuncDef)
 
 	// Call with borrow
-	_, err = checkWriteFunc.Callback(ctx, []component.Val{
-		component.ValBorrow(uint32(handle)),
+	_, err = checkWriteFunc.Callback(ctx, []types.Val{
+		types.ValBorrow(uint32(handle)),
 	})
 	require.NoError(t, err)
 
@@ -305,7 +307,7 @@ func TestWASI_ResourceLifecycle_HTTPFieldsResource(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	typesDef, _ := linker.Get("wasi:http/types@0.2.0")
@@ -313,7 +315,7 @@ func TestWASI_ResourceLifecycle_HTTPFieldsResource(t *testing.T) {
 
 	// Create fields resource
 	constructorFunc := instDef.Exports["[constructor]fields"].(*component.FuncDef)
-	result, err := constructorFunc.Callback(ctx, []component.Val{})
+	result, err := constructorFunc.Callback(ctx, []types.Val{})
 	require.NoError(t, err)
 
 	fieldsHandle := result[0].Own()
@@ -323,14 +325,14 @@ func TestWASI_ResourceLifecycle_HTTPFieldsResource(t *testing.T) {
 	// Only verify resource table operations if we got a real handle
 	if fieldsHandle > 0 {
 		// Verify handle is in resource table
-		entry, err := table.Get(component.Handle(fieldsHandle))
+		entry, err := table.Get(runtime.Handle(fieldsHandle))
 		require.NoError(t, err, "fields handle should be in resource table")
 		require.NotNil(t, entry.Rep)
 
 		// Clone the fields (should create new resource)
 		cloneFunc := instDef.Exports["[method]fields.clone"].(*component.FuncDef)
-		cloneResult, err := cloneFunc.Callback(ctx, []component.Val{
-			component.ValBorrow(fieldsHandle),
+		cloneResult, err := cloneFunc.Callback(ctx, []types.Val{
+			types.ValBorrow(fieldsHandle),
 		})
 		require.NoError(t, err)
 
@@ -339,10 +341,10 @@ func TestWASI_ResourceLifecycle_HTTPFieldsResource(t *testing.T) {
 		require.NotEqual(t, fieldsHandle, clonedHandle, "cloned handle should be different")
 
 		// Both handles should be valid
-		_, err = table.Get(component.Handle(fieldsHandle))
+		_, err = table.Get(runtime.Handle(fieldsHandle))
 		require.NoError(t, err, "original handle should still be valid")
 
-		_, err = table.Get(component.Handle(clonedHandle))
+		_, err = table.Get(runtime.Handle(clonedHandle))
 		require.NoError(t, err, "cloned handle should be valid")
 	}
 }
@@ -355,7 +357,7 @@ func TestWASI_ResourceLifecycle_SocketResource(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	tcpCreateDef, _ := linker.Get("wasi:sockets/tcp-create-socket@0.2.0")
@@ -364,9 +366,9 @@ func TestWASI_ResourceLifecycle_SocketResource(t *testing.T) {
 	createTcpFunc := instDef.Exports["create-tcp-socket"].(*component.FuncDef)
 
 	// Create TCP socket
-	result, err := createTcpFunc.Callback(ctx, []component.Val{
-		component.ValBorrow(0),
-		component.ValEnum("ipv4"),
+	result, err := createTcpFunc.Callback(ctx, []types.Val{
+		types.ValBorrow(0),
+		types.ValEnum("ipv4"),
 	})
 	require.NoError(t, err)
 
@@ -378,7 +380,7 @@ func TestWASI_ResourceLifecycle_SocketResource(t *testing.T) {
 
 	// Verify handle is in resource table (if handle > 0)
 	if socketHandle > 0 {
-		entry, err := table.Get(component.Handle(socketHandle))
+		entry, err := table.Get(runtime.Handle(socketHandle))
 		require.NoError(t, err, "socket handle should be in resource table")
 		require.NotNil(t, entry.Rep)
 	}
@@ -392,7 +394,7 @@ func TestWASI_ResourceLifecycle_RequestOptionsResource(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	typesDef, _ := linker.Get("wasi:http/types@0.2.0")
@@ -400,7 +402,7 @@ func TestWASI_ResourceLifecycle_RequestOptionsResource(t *testing.T) {
 
 	// Create request options
 	constructorFunc := instDef.Exports["[constructor]request-options"].(*component.FuncDef)
-	result, err := constructorFunc.Callback(ctx, []component.Val{})
+	result, err := constructorFunc.Callback(ctx, []types.Val{})
 	require.NoError(t, err)
 
 	optsHandle := result[0].Own()
@@ -413,17 +415,17 @@ func TestWASI_ResourceLifecycle_RequestOptionsResource(t *testing.T) {
 		setTimeoutFunc := instDef.Exports["[method]request-options.set-connect-timeout"].(*component.FuncDef)
 
 		timeout := uint64(5000000000) // 5 seconds in nanoseconds
-		timeoutVal := component.ValU64(timeout)
-		_, err = setTimeoutFunc.Callback(ctx, []component.Val{
-			component.ValBorrow(optsHandle),
-			component.ValOption(&timeoutVal),
+		timeoutVal := types.ValU64(timeout)
+		_, err = setTimeoutFunc.Callback(ctx, []types.Val{
+			types.ValBorrow(optsHandle),
+			types.ValOption(&timeoutVal),
 		})
 		require.NoError(t, err)
 
 		// Read back the timeout
 		getTimeoutFunc := instDef.Exports["[method]request-options.connect-timeout"].(*component.FuncDef)
-		getResult, err := getTimeoutFunc.Callback(ctx, []component.Val{
-			component.ValBorrow(optsHandle),
+		getResult, err := getTimeoutFunc.Callback(ctx, []types.Val{
+			types.ValBorrow(optsHandle),
 		})
 		require.NoError(t, err)
 

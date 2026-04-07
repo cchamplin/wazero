@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -17,7 +18,7 @@ import (
 // TestResourceLifecycle_DropTwice tests that dropping a resource twice should error.
 // This is the "drop host resource twice" test from wasmtime.
 func TestResourceLifecycle_DropTwice(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 
 	// Create an owned resource
 	h := table.New("my-resource", true)
@@ -31,13 +32,13 @@ func TestResourceLifecycle_DropTwice(t *testing.T) {
 	// Second drop should error (resource already freed)
 	_, err = table.Remove(h)
 	require.Error(t, err)
-	require.ErrorIs(t, err, component.ErrInvalidHandle)
+	require.ErrorIs(t, err, runtime.ErrInvalidHandle)
 }
 
 // TestResourceLifecycle_DropGuestResourceTwice tests double drop for guest resources.
 // Guest resources behave the same as host resources for drop semantics.
 func TestResourceLifecycle_DropGuestResourceTwice(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 
 	// Simulate a guest resource (owned)
 	h := table.New(42, true) // Using an int as the rep
@@ -55,8 +56,8 @@ func TestResourceLifecycle_DropGuestResourceTwice(t *testing.T) {
 // Even with the same rep value, different resources should have distinct handles.
 func TestResourceLifecycle_TypeIdentity(t *testing.T) {
 	// Each resource type has its own table in a real component
-	table1 := component.NewResourceTable() // Resource type A
-	table2 := component.NewResourceTable() // Resource type B
+	table1 := runtime.NewResourceTable() // Resource type A
+	table2 := runtime.NewResourceTable() // Resource type B
 
 	// Create resources with the same representation in different tables
 	h1 := table1.New("same-rep", true)
@@ -78,11 +79,11 @@ func TestResourceLifecycle_TypeIdentity(t *testing.T) {
 // TestResourceLifecycle_GenerationWrap tests that generation counting works correctly
 // when creating and dropping many resources. This verifies use-after-free protection.
 func TestResourceLifecycle_GenerationWrap(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 
 	// Create and drop many resources to cycle through generations
 	const iterations = 100
-	var lastHandle component.Handle
+	var lastHandle runtime.Handle
 
 	for i := 0; i < iterations; i++ {
 		h := table.New(i, true)
@@ -99,7 +100,7 @@ func TestResourceLifecycle_GenerationWrap(t *testing.T) {
 	}
 
 	// Old handles with stale generations should fail
-	staleHandle := component.MakeHandle(0, 0)
+	staleHandle := runtime.MakeHandle(0, 0)
 	_, err := table.Get(staleHandle)
 	require.Error(t, err, "stale generation should fail")
 
@@ -111,7 +112,7 @@ func TestResourceLifecycle_GenerationWrap(t *testing.T) {
 // TestResourceLifecycle_ActiveBorrowsPreventDrop tests that you cannot drop a resource
 // while it has active borrows.
 func TestResourceLifecycle_ActiveBorrowsPreventDrop(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	h := table.New("resource", true)
 
 	// Create a borrow (increment lends)
@@ -120,7 +121,7 @@ func TestResourceLifecycle_ActiveBorrowsPreventDrop(t *testing.T) {
 
 	// Cannot drop while borrowed
 	_, err = table.Remove(h)
-	require.ErrorIs(t, err, component.ErrResourceInUse)
+	require.ErrorIs(t, err, runtime.ErrResourceInUse)
 
 	// Release the borrow
 	err = table.DecrementLends(h)
@@ -134,7 +135,7 @@ func TestResourceLifecycle_ActiveBorrowsPreventDrop(t *testing.T) {
 
 // TestResourceLifecycle_MultipleBorrows tests tracking multiple concurrent borrows.
 func TestResourceLifecycle_MultipleBorrows(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	h := table.New("resource", true)
 
 	// Create multiple borrows
@@ -150,7 +151,7 @@ func TestResourceLifecycle_MultipleBorrows(t *testing.T) {
 
 	// Cannot drop with borrows
 	_, err = table.Remove(h)
-	require.ErrorIs(t, err, component.ErrResourceInUse)
+	require.ErrorIs(t, err, runtime.ErrResourceInUse)
 
 	// Release all borrows one by one
 	for i := 0; i < 5; i++ {
@@ -166,7 +167,7 @@ func TestResourceLifecycle_MultipleBorrows(t *testing.T) {
 // TestResourceLifecycle_CannotUseBorrowForOwn tests that a borrowed handle
 // is not an owned handle - they have different semantics.
 func TestResourceLifecycle_CannotUseBorrowForOwn(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 
 	// Create an owned handle
 	ownedHandle := table.New("resource", true)
@@ -196,7 +197,7 @@ func TestResourceLifecycle_CannotUseBorrowForOwn(t *testing.T) {
 // TestResourceLifecycle_CanUseOwnForBorrow tests that an owned handle can satisfy
 // a borrow parameter. The owner keeps ownership but allows temporary borrowing.
 func TestResourceLifecycle_CanUseOwnForBorrow(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 
 	// Create an owned resource
 	ownedHandle := table.New("resource", true)
@@ -213,7 +214,7 @@ func TestResourceLifecycle_CanUseOwnForBorrow(t *testing.T) {
 
 	// Cannot drop while borrowed
 	_, err = table.Remove(ownedHandle)
-	require.ErrorIs(t, err, component.ErrResourceInUse)
+	require.ErrorIs(t, err, runtime.ErrResourceInUse)
 
 	// End the borrow
 	err = table.DecrementLends(ownedHandle)
@@ -239,7 +240,7 @@ func TestResourceLifecycle_HandleComponents(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		h := component.MakeHandle(tc.idx, tc.gen)
+		h := runtime.MakeHandle(tc.idx, tc.gen)
 		require.Equal(t, tc.idx, h.Index())
 		require.Equal(t, tc.gen, h.Generation())
 	}
@@ -247,7 +248,7 @@ func TestResourceLifecycle_HandleComponents(t *testing.T) {
 
 // TestResourceLifecycle_SlotReuse tests that slots are properly reused in LIFO order.
 func TestResourceLifecycle_SlotReuse(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 
 	// Create three resources
 	h0 := table.New("r0", true)
@@ -284,12 +285,12 @@ func TestResourceLifecycle_SlotReuse(t *testing.T) {
 
 // TestBorrowScope_TrackLenders tests that a scope tracks which handles are borrowed.
 func TestBorrowScope_TrackLenders(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	h1 := table.New("resource1", true)
 	h2 := table.New("resource2", true)
 	h3 := table.New("resource3", true)
 
-	scope := component.NewBorrowScope(table)
+	scope := runtime.NewBorrowScope(table)
 
 	// Initially no outstanding borrows
 	require.False(t, scope.HasOutstandingBorrows())
@@ -313,11 +314,11 @@ func TestBorrowScope_TrackLenders(t *testing.T) {
 
 // TestBorrowScope_EndScopeReturnsTrackedBorrows tests that ending a scope releases all borrows.
 func TestBorrowScope_EndScopeReturnsTrackedBorrows(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	h1 := table.New("resource1", true)
 	h2 := table.New("resource2", true)
 
-	scope := component.NewBorrowScope(table)
+	scope := runtime.NewBorrowScope(table)
 
 	// Borrow from both handles
 	require.NoError(t, scope.AddLender(h1))
@@ -344,8 +345,8 @@ func TestBorrowScope_EndScopeReturnsTrackedBorrows(t *testing.T) {
 
 // TestBorrowScope_EmptyScope tests that an empty scope behaves correctly.
 func TestBorrowScope_EmptyScope(t *testing.T) {
-	table := component.NewResourceTable()
-	scope := component.NewBorrowScope(table)
+	table := runtime.NewResourceTable()
+	scope := runtime.NewBorrowScope(table)
 
 	// Empty scope has no outstanding borrows
 	require.False(t, scope.HasOutstandingBorrows())
@@ -359,15 +360,15 @@ func TestBorrowScope_EmptyScope(t *testing.T) {
 
 // TestBorrowScope_NestedScopesWorkIndependently tests that nested scopes work independently.
 func TestBorrowScope_NestedScopesWorkIndependently(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	h := table.New("resource", true)
 
 	// Create outer scope
-	outerScope := component.NewBorrowScope(table)
+	outerScope := runtime.NewBorrowScope(table)
 	require.NoError(t, outerScope.AddLender(h))
 
 	// Create inner scope
-	innerScope := component.NewBorrowScope(table)
+	innerScope := runtime.NewBorrowScope(table)
 	require.NoError(t, innerScope.AddLender(h))
 
 	// Handle has 2 borrows now
@@ -391,10 +392,10 @@ func TestBorrowScope_NestedScopesWorkIndependently(t *testing.T) {
 
 // TestBorrowScope_MultipleBorrowsSameHandle tests borrowing the same handle multiple times.
 func TestBorrowScope_MultipleBorrowsSameHandle(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	h := table.New("resource", true)
 
-	scope := component.NewBorrowScope(table)
+	scope := runtime.NewBorrowScope(table)
 
 	// Borrow the same handle multiple times within one scope
 	require.NoError(t, scope.AddLender(h))
@@ -415,22 +416,22 @@ func TestBorrowScope_MultipleBorrowsSameHandle(t *testing.T) {
 
 // TestBorrowScope_AddLenderInvalidHandle tests adding an invalid handle as a lender.
 func TestBorrowScope_AddLenderInvalidHandle(t *testing.T) {
-	table := component.NewResourceTable()
-	scope := component.NewBorrowScope(table)
+	table := runtime.NewResourceTable()
+	scope := runtime.NewBorrowScope(table)
 
 	// Try to add a non-existent handle
-	invalidHandle := component.MakeHandle(999, 0)
+	invalidHandle := runtime.MakeHandle(999, 0)
 	err := scope.AddLender(invalidHandle)
 	require.Error(t, err)
-	require.ErrorIs(t, err, component.ErrInvalidHandle)
+	require.ErrorIs(t, err, runtime.ErrInvalidHandle)
 }
 
 // TestBorrowScope_AddLenderAfterRelease tests adding a lender after release.
 func TestBorrowScope_AddLenderAfterRelease(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	h := table.New("resource", true)
 
-	scope := component.NewBorrowScope(table)
+	scope := runtime.NewBorrowScope(table)
 	require.NoError(t, scope.AddLender(h))
 	require.NoError(t, scope.Release())
 
@@ -447,15 +448,15 @@ func TestBorrowScope_AddLenderAfterRelease(t *testing.T) {
 
 // TestBorrowScope_InteractionWithRemove tests that borrowed handles cannot be removed.
 func TestBorrowScope_InteractionWithRemove(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	h := table.New("resource", true)
 
-	scope := component.NewBorrowScope(table)
+	scope := runtime.NewBorrowScope(table)
 	require.NoError(t, scope.AddLender(h))
 
 	// Cannot remove while borrowed
 	_, err := table.Remove(h)
-	require.ErrorIs(t, err, component.ErrResourceInUse)
+	require.ErrorIs(t, err, runtime.ErrResourceInUse)
 
 	// After release, can remove
 	require.NoError(t, scope.Release())
@@ -470,7 +471,7 @@ func TestBorrowScope_InteractionWithRemove(t *testing.T) {
 // TestCallContext_EnterExitCallTracksBorrows tests that entering and exiting a call
 // properly tracks borrowed handles.
 func TestCallContext_EnterExitCallTracksBorrows(t *testing.T) {
-	ctx := component.NewCallContext()
+	ctx := runtime.NewCallContext()
 
 	// Initially no borrows
 	require.Equal(t, 0, ctx.NumBorrows())
@@ -493,7 +494,7 @@ func TestCallContext_EnterExitCallTracksBorrows(t *testing.T) {
 
 // TestCallContext_ExitReleasesAllBorrows simulates releasing all borrows on exit.
 func TestCallContext_ExitReleasesAllBorrows(t *testing.T) {
-	ctx := component.NewCallContext()
+	ctx := runtime.NewCallContext()
 
 	// Receive multiple borrowed handles
 	ctx.IncrementBorrows()
@@ -513,7 +514,7 @@ func TestCallContext_ExitReleasesAllBorrows(t *testing.T) {
 
 // TestCallContext_MultipleBorrowsInSingleCall tests tracking multiple borrows in one call.
 func TestCallContext_MultipleBorrowsInSingleCall(t *testing.T) {
-	ctx := component.NewCallContext()
+	ctx := runtime.NewCallContext()
 
 	// A function that receives multiple borrow parameters
 	// e.g., func(a: borrow<X>, b: borrow<Y>, c: borrow<Z>)
@@ -537,7 +538,7 @@ func TestCallContext_MultipleBorrowsInSingleCall(t *testing.T) {
 // TestCallContext_ValidatesReturn_ErrorsIfBorrowsActive tests that ValidateReturn
 // errors if borrows are still active.
 func TestCallContext_ValidatesReturn_ErrorsIfBorrowsActive(t *testing.T) {
-	ctx := component.NewCallContext()
+	ctx := runtime.NewCallContext()
 
 	// Receive a borrowed handle
 	ctx.IncrementBorrows()
@@ -545,7 +546,7 @@ func TestCallContext_ValidatesReturn_ErrorsIfBorrowsActive(t *testing.T) {
 	// ValidateReturn should error
 	err := ctx.ValidateReturn()
 	require.Error(t, err)
-	require.ErrorIs(t, err, component.ErrOutstandingBorrows)
+	require.ErrorIs(t, err, runtime.ErrOutstandingBorrows)
 
 	// After releasing the borrow, ValidateReturn succeeds
 	ctx.DecrementBorrows()
@@ -555,7 +556,7 @@ func TestCallContext_ValidatesReturn_ErrorsIfBorrowsActive(t *testing.T) {
 
 // TestCallContext_ValidatesReturn_Success tests successful return validation.
 func TestCallContext_ValidatesReturn_Success(t *testing.T) {
-	ctx := component.NewCallContext()
+	ctx := runtime.NewCallContext()
 
 	// No borrows - can return
 	require.NoError(t, ctx.ValidateReturn())
@@ -572,15 +573,15 @@ func TestCallContext_ValidatesReturn_Success(t *testing.T) {
 
 // TestCallContext_FreshContextCanReturn tests that a fresh context can return immediately.
 func TestCallContext_FreshContextCanReturn(t *testing.T) {
-	ctx := component.NewCallContext()
+	ctx := runtime.NewCallContext()
 	require.True(t, ctx.CanReturn())
 	require.NoError(t, ctx.ValidateReturn())
 }
 
 // TestCallContext_MultipleCallContexts tests that multiple call contexts are independent.
 func TestCallContext_MultipleCallContexts(t *testing.T) {
-	ctx1 := component.NewCallContext()
-	ctx2 := component.NewCallContext()
+	ctx1 := runtime.NewCallContext()
+	ctx2 := runtime.NewCallContext()
 
 	// Add borrows to ctx1
 	ctx1.IncrementBorrows()
@@ -601,18 +602,18 @@ func TestCallContext_MultipleCallContexts(t *testing.T) {
 // TestResourceIntegration_FullLifecycle tests a complete resource lifecycle.
 func TestResourceIntegration_FullLifecycle(t *testing.T) {
 	// Simulate a component with a resource table
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 
 	// Host creates a resource
 	rep := "host-resource-data"
 	handle := table.New(rep, true)
 
 	// Pass to guest via borrow (create borrow scope)
-	scope := component.NewBorrowScope(table)
+	scope := runtime.NewBorrowScope(table)
 	require.NoError(t, scope.AddLender(handle))
 
 	// Guest has a call context tracking the borrowed handle
-	ctx := component.NewCallContext()
+	ctx := runtime.NewCallContext()
 	ctx.IncrementBorrows()
 
 	// Guest cannot return until it drops the borrow
@@ -620,7 +621,7 @@ func TestResourceIntegration_FullLifecycle(t *testing.T) {
 
 	// Host cannot drop the resource while borrowed
 	_, err := table.Remove(handle)
-	require.ErrorIs(t, err, component.ErrResourceInUse)
+	require.ErrorIs(t, err, runtime.ErrResourceInUse)
 
 	// Guest finishes using the borrow
 	ctx.DecrementBorrows()
@@ -639,7 +640,7 @@ func TestResourceIntegration_FullLifecycle(t *testing.T) {
 // TestResourceIntegration_GuestToHostCall simulates a guest calling a host function.
 func TestResourceIntegration_GuestToHostCall(t *testing.T) {
 	// Guest's resource table
-	guestTable := component.NewResourceTable()
+	guestTable := runtime.NewResourceTable()
 
 	// Guest creates a resource
 	guestHandle := guestTable.New("guest-resource", true)
@@ -649,7 +650,7 @@ func TestResourceIntegration_GuestToHostCall(t *testing.T) {
 	require.NoError(t, guestTable.IncrementLends(guestHandle))
 
 	// Host receives the borrow and tracks it in call context
-	hostCtx := component.NewCallContext()
+	hostCtx := runtime.NewCallContext()
 	hostCtx.IncrementBorrows()
 
 	// Host does some work with the borrowed resource...
@@ -671,7 +672,7 @@ func TestResourceIntegration_GuestToHostCall(t *testing.T) {
 // TestResourceIntegration_OwnershipTransfer tests transferring ownership of a resource.
 func TestResourceIntegration_OwnershipTransfer(t *testing.T) {
 	// Source component's table
-	sourceTable := component.NewResourceTable()
+	sourceTable := runtime.NewResourceTable()
 
 	// Create resource in source
 	sourceHandle := sourceTable.New("transferable-resource", true)
@@ -685,7 +686,7 @@ func TestResourceIntegration_OwnershipTransfer(t *testing.T) {
 	rep := entry.Rep
 
 	// Destination component creates a new handle for the resource
-	destTable := component.NewResourceTable()
+	destTable := runtime.NewResourceTable()
 	destHandle := destTable.New(rep, true)
 
 	// Destination now owns the resource
@@ -701,13 +702,13 @@ func TestResourceIntegration_OwnershipTransfer(t *testing.T) {
 
 // TestResourceIntegration_ConcurrentBorrows tests multiple concurrent borrows.
 func TestResourceIntegration_ConcurrentBorrows(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	handle := table.New("shared-resource", true)
 
 	// Multiple call scopes can borrow the same resource
-	scope1 := component.NewBorrowScope(table)
-	scope2 := component.NewBorrowScope(table)
-	scope3 := component.NewBorrowScope(table)
+	scope1 := runtime.NewBorrowScope(table)
+	scope2 := runtime.NewBorrowScope(table)
+	scope3 := runtime.NewBorrowScope(table)
 
 	require.NoError(t, scope1.AddLender(handle))
 	require.NoError(t, scope2.AddLender(handle))
@@ -719,7 +720,7 @@ func TestResourceIntegration_ConcurrentBorrows(t *testing.T) {
 
 	// Cannot drop while any scope has it borrowed
 	_, err := table.Remove(handle)
-	require.ErrorIs(t, err, component.ErrResourceInUse)
+	require.ErrorIs(t, err, runtime.ErrResourceInUse)
 
 	// Release scopes in any order
 	require.NoError(t, scope2.Release())

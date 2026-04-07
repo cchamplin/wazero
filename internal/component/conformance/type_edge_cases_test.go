@@ -28,9 +28,9 @@ func TestType_DeeplyNestedRecord(t *testing.T) {
 	}
 
 	// Build the corresponding value
-	innerVal := component.ValU32(42)
+	innerVal := types.ValU32(42)
 	for i := 0; i < depth; i++ {
-		innerVal = component.ValRecord(map[string]component.Val{
+		innerVal = types.ValRecord(map[string]types.Val{
 			"inner": innerVal,
 		})
 	}
@@ -62,7 +62,7 @@ func TestType_DeeplyNestedRecord(t *testing.T) {
 		iter := abi.NewFlatIter([]uint64{42})
 		lifted, err := abi.LiftFlat(nil, innerType, iter)
 		require.NoError(t, err)
-		require.Equal(t, component.ValKindRecord, lifted.Kind())
+		require.Equal(t, types.ValKindRecord, lifted.Kind())
 
 		// Navigate to innermost value
 		current := lifted
@@ -93,9 +93,9 @@ func TestType_ZeroSizeRecord(t *testing.T) {
 	})
 
 	t.Run("roundtrip", func(t *testing.T) {
-		val := component.ValRecord(map[string]component.Val{
-			"a": component.ValRecord(map[string]component.Val{}),
-			"b": component.ValRecord(map[string]component.Val{}),
+		val := types.ValRecord(map[string]types.Val{
+			"a": types.ValRecord(map[string]types.Val{}),
+			"b": types.ValRecord(map[string]types.Val{}),
 		})
 
 		flat, err := abi.LowerFlat(nil, outerRecord, val)
@@ -105,7 +105,7 @@ func TestType_ZeroSizeRecord(t *testing.T) {
 		iter := abi.NewFlatIter(flat)
 		lifted, err := abi.LiftFlat(nil, outerRecord, iter)
 		require.NoError(t, err)
-		require.Equal(t, component.ValKindRecord, lifted.Kind())
+		require.Equal(t, types.ValKindRecord, lifted.Kind())
 	})
 }
 
@@ -155,8 +155,8 @@ func TestType_SingleCaseVariant(t *testing.T) {
 	})
 
 	t.Run("roundtrip", func(t *testing.T) {
-		payload := component.ValU32(123)
-		val := component.ValVariant("only-case", &payload)
+		payload := types.ValU32(123)
+		val := types.ValVariant("only-case", &payload)
 
 		flat, err := abi.LowerFlat(nil, singleVariant, val)
 		require.NoError(t, err)
@@ -326,7 +326,7 @@ func TestType_ListOfEmptyRecord(t *testing.T) {
 	})
 
 	t.Run("empty_list", func(t *testing.T) {
-		val := component.ValList([]component.Val{})
+		val := types.ValList([]types.Val{})
 
 		flat, err := abi.LowerFlat(nil, listType, val)
 		require.NoError(t, err)
@@ -357,7 +357,7 @@ func TestType_OptionOfEmptyRecord(t *testing.T) {
 	})
 
 	t.Run("none_case", func(t *testing.T) {
-		val := component.ValOption(nil)
+		val := types.ValOption(nil)
 
 		flat, err := abi.LowerFlat(nil, optionType, val)
 		require.NoError(t, err)
@@ -370,8 +370,8 @@ func TestType_OptionOfEmptyRecord(t *testing.T) {
 	})
 
 	t.Run("some_case", func(t *testing.T) {
-		emptyVal := component.ValRecord(map[string]component.Val{})
-		val := component.ValOption(&emptyVal)
+		emptyVal := types.ValRecord(map[string]types.Val{})
+		val := types.ValOption(&emptyVal)
 
 		flat, err := abi.LowerFlat(nil, optionType, val)
 		require.NoError(t, err)

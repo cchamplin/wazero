@@ -233,8 +233,8 @@ func TestBinary_MaximumSectionSize(t *testing.T) {
 			// Section claiming 1MB (reasonable but still truncated)
 			data: []byte{
 				0x00, 0x61, 0x73, 0x6d, 0x0d, 0x00, 0x01, 0x00, // valid header
-				0x07,                   // type section ID
-				0x80, 0x80, 0x40,       // size = 0x100000 (1MB, LEB128)
+				0x07,             // type section ID
+				0x80, 0x80, 0x40, // size = 0x100000 (1MB, LEB128)
 				0x01, 0x02, 0x03, 0x04, // only 4 bytes provided
 			},
 		},
@@ -336,9 +336,9 @@ func TestBinary_InvalidSectionID(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			data := []byte{
 				0x00, 0x61, 0x73, 0x6d, 0x0d, 0x00, 0x01, 0x00, // valid header
-				tc.sectionID,   // unknown section ID
-				0x05,           // size = 5
-				0, 0, 0, 0, 0,  // 5 bytes of content
+				tc.sectionID,  // unknown section ID
+				0x05,          // size = 5
+				0, 0, 0, 0, 0, // 5 bytes of content
 			}
 			// Unknown sections should be skipped (not error) per the decoder
 			// This tests that we don't crash on unknown section IDs

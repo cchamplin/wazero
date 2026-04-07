@@ -9,6 +9,8 @@ import (
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/imports/wasip2"
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 func TestVariantPlugin_EnumTypeResolution(t *testing.T) {
@@ -48,9 +50,9 @@ func TestVariantPlugin_EnumTypeResolution(t *testing.T) {
 
 	// host-logger import
 	err = hostLinker.DefineInstance("test:variantlog/host-logger").
-		FuncNoType("get-default-severity", func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+		FuncNoType("get-default-severity", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			// Return severity::warning (enum index 1)
-			return []component.Val{component.ValU32(1)}, nil
+			return []types.Val{types.ValU32(1)}, nil
 		}).
 		SkipValidation().
 		Build()
@@ -66,7 +68,7 @@ func TestVariantPlugin_EnumTypeResolution(t *testing.T) {
 		WithStderr(&stderr).
 		WithArgs([]string{"test"}).
 		WithEnviron([]string{})
-	resourceTable := component.NewResourceTable()
+	resourceTable := runtime.NewResourceTable()
 	testCtx := wasip2.WithConfig(ctx, wasiConfig)
 	testCtx = component.WithResourceTable(testCtx, resourceTable)
 

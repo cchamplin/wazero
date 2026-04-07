@@ -9,6 +9,8 @@ import (
 
 	"github.com/tetratelabs/wazero/imports/wasip2"
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -29,7 +31,7 @@ func TestWASI_CLI_Environment(t *testing.T) {
 
 	ctx := context.Background()
 	ctx = wasip2.WithConfig(ctx, config)
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	// Get the environment interface
@@ -46,7 +48,7 @@ func TestWASI_CLI_Environment(t *testing.T) {
 	require.True(t, ok, "should be a FuncDef")
 
 	// Call get-environment
-	result, err := funcDef.Callback(ctx, []component.Val{})
+	result, err := funcDef.Callback(ctx, []types.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result), "get-environment should return exactly one value")
 
@@ -82,7 +84,7 @@ func TestWASI_CLI_GetArguments(t *testing.T) {
 
 	ctx := context.Background()
 	ctx = wasip2.WithConfig(ctx, config)
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	// Get the environment interface
@@ -97,7 +99,7 @@ func TestWASI_CLI_GetArguments(t *testing.T) {
 	funcDef := getArgsFunc.(*component.FuncDef)
 
 	// Call get-arguments
-	result, err := funcDef.Callback(ctx, []component.Val{})
+	result, err := funcDef.Callback(ctx, []types.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result), "get-arguments should return exactly one value")
 
@@ -132,7 +134,7 @@ func TestWASI_CLI_InitialCwd(t *testing.T) {
 	funcDef := initialCwdFunc.(*component.FuncDef)
 
 	// Call initial-cwd
-	result, err := funcDef.Callback(ctx, []component.Val{})
+	result, err := funcDef.Callback(ctx, []types.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result), "initial-cwd should return exactly one value")
 
@@ -178,7 +180,7 @@ func TestWASI_CLI_Stdin(t *testing.T) {
 
 	ctx := context.Background()
 	ctx = wasip2.WithConfig(ctx, config)
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	// Get the stdin interface
@@ -193,7 +195,7 @@ func TestWASI_CLI_Stdin(t *testing.T) {
 	funcDef := getStdinFunc.(*component.FuncDef)
 
 	// Call get-stdin
-	result, err := funcDef.Callback(ctx, []component.Val{})
+	result, err := funcDef.Callback(ctx, []types.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result), "get-stdin should return exactly one value")
 
@@ -216,7 +218,7 @@ func TestWASI_CLI_Stdout(t *testing.T) {
 
 	ctx := context.Background()
 	ctx = wasip2.WithConfig(ctx, config)
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	// Get the stdout interface
@@ -231,7 +233,7 @@ func TestWASI_CLI_Stdout(t *testing.T) {
 	funcDef := getStdoutFunc.(*component.FuncDef)
 
 	// Call get-stdout
-	result, err := funcDef.Callback(ctx, []component.Val{})
+	result, err := funcDef.Callback(ctx, []types.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result), "get-stdout should return exactly one value")
 
@@ -254,7 +256,7 @@ func TestWASI_CLI_Stderr(t *testing.T) {
 
 	ctx := context.Background()
 	ctx = wasip2.WithConfig(ctx, config)
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	// Get the stderr interface
@@ -269,7 +271,7 @@ func TestWASI_CLI_Stderr(t *testing.T) {
 	funcDef := getStderrFunc.(*component.FuncDef)
 
 	// Call get-stderr
-	result, err := funcDef.Callback(ctx, []component.Val{})
+	result, err := funcDef.Callback(ctx, []types.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result), "get-stderr should return exactly one value")
 
@@ -291,14 +293,14 @@ func TestWASI_CLI_EmptyEnvironment(t *testing.T) {
 
 	ctx := context.Background()
 	ctx = wasip2.WithConfig(ctx, config)
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	envDef, _ := linker.Get("wasi:cli/environment@0.2.0")
 	instDef := envDef.(*component.InstanceDef)
 	funcDef := instDef.Exports["get-environment"].(*component.FuncDef)
 
-	result, err := funcDef.Callback(ctx, []component.Val{})
+	result, err := funcDef.Callback(ctx, []types.Val{})
 	require.NoError(t, err)
 
 	envList := result[0].List()

@@ -248,8 +248,8 @@ func TestFlatABIVariousCounts(t *testing.T) {
 		name         string
 		typ          types.ValType
 		expectedFlat int
-		canFlatParam bool  // flatCount <= MaxFlatParams
-		canFlatRes   bool  // flatCount <= MaxFlatResults
+		canFlatParam bool // flatCount <= MaxFlatParams
+		canFlatRes   bool // flatCount <= MaxFlatResults
 	}{
 		// Primitives - all have FlattenCount 1
 		{"bool", types.Bool{}, 1, true, true},

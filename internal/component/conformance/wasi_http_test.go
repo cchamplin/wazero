@@ -8,6 +8,8 @@ import (
 
 	"github.com/tetratelabs/wazero/imports/wasip2"
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -60,7 +62,7 @@ func TestWASI_HTTP_FieldsConstructor(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	typesDef, _ := linker.Get("wasi:http/types@0.2.0")
@@ -68,7 +70,7 @@ func TestWASI_HTTP_FieldsConstructor(t *testing.T) {
 
 	fieldsConstructor := instDef.Exports["[constructor]fields"].(*component.FuncDef)
 
-	result, err := fieldsConstructor.Callback(ctx, []component.Val{})
+	result, err := fieldsConstructor.Callback(ctx, []types.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result), "[constructor]fields should return exactly one value")
 
@@ -272,7 +274,7 @@ func TestWASI_HTTP_RequestOptionsConstructor(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	typesDef, _ := linker.Get("wasi:http/types@0.2.0")
@@ -280,7 +282,7 @@ func TestWASI_HTTP_RequestOptionsConstructor(t *testing.T) {
 
 	reqOptsConstructor := instDef.Exports["[constructor]request-options"].(*component.FuncDef)
 
-	result, err := reqOptsConstructor.Callback(ctx, []component.Val{})
+	result, err := reqOptsConstructor.Callback(ctx, []types.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result), "[constructor]request-options should return exactly one value")
 

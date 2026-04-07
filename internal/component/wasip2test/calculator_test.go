@@ -11,6 +11,8 @@ import (
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/imports/wasip2"
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 func TestCalculatorPlugins(t *testing.T) {
@@ -73,7 +75,7 @@ func TestCalculatorPlugins(t *testing.T) {
 				WithStderr(&stderr).
 				WithArgs([]string{"test"}).
 				WithEnviron([]string{})
-			resourceTable := component.NewResourceTable()
+			resourceTable := runtime.NewResourceTable()
 			testCtx := wasip2.WithConfig(ctx, wasiConfig)
 			testCtx = component.WithResourceTable(testCtx, resourceTable)
 
@@ -103,8 +105,8 @@ func TestCalculatorPlugins(t *testing.T) {
 			}
 			start := time.Now()
 			evalResult, err := evalFunc.Call(testCtx,
-				component.ValS32(28),
-				component.ValS32(3),
+				types.ValS32(28),
+				types.ValS32(3),
 			)
 			t.Logf("First call took %v", time.Since(start))
 			if err != nil {
@@ -117,8 +119,8 @@ func TestCalculatorPlugins(t *testing.T) {
 			// Call again with incremented first argument
 			start = time.Now()
 			evalResult, err = evalFunc.Call(testCtx,
-				component.ValS32(29),
-				component.ValS32(3),
+				types.ValS32(29),
+				types.ValS32(3),
 			)
 			t.Logf("Second call took %v", time.Since(start))
 			if err != nil {

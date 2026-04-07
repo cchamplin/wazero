@@ -6,12 +6,13 @@ import (
 	"testing"
 
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
 // TestResourceGeneration_Basic tests basic handle creation and generation.
 func TestResourceGeneration_Basic(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 
 	t.Run("first_handle_generation_zero", func(t *testing.T) {
 		h := table.New("resource1", true)
@@ -28,7 +29,7 @@ func TestResourceGeneration_Basic(t *testing.T) {
 
 // TestResourceGeneration_Reuse tests generation increment on slot reuse.
 func TestResourceGeneration_Reuse(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 
 	// Create and remove a handle
 	h1 := table.New("resource1", true)
@@ -54,7 +55,7 @@ func TestResourceGeneration_Reuse(t *testing.T) {
 
 // TestResourceGeneration_MultipleSlots tests generation tracking across multiple slots.
 func TestResourceGeneration_MultipleSlots(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 
 	// Create multiple handles
 	h0 := table.New("r0", true)
@@ -86,7 +87,7 @@ func TestResourceGeneration_MultipleSlots(t *testing.T) {
 
 // TestResourceGeneration_StaleHandleRejection tests that stale handles are rejected.
 func TestResourceGeneration_StaleHandleRejection(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 
 	// Create handle
 	h1 := table.New("resource1", true)
@@ -127,7 +128,7 @@ func TestResourceGeneration_HandleComponents(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			h := component.MakeHandle(tc.index, tc.generation)
+			h := runtime.MakeHandle(tc.index, tc.generation)
 			require.Equal(t, tc.index, h.Index())
 			require.Equal(t, tc.generation, h.Generation())
 		})
@@ -136,7 +137,7 @@ func TestResourceGeneration_HandleComponents(t *testing.T) {
 
 // TestResourceGeneration_BorrowTracking tests borrow count tracking.
 func TestResourceGeneration_BorrowTracking(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 
 	h := table.New("resource", true)
 
@@ -172,7 +173,7 @@ func TestResourceGeneration_BorrowTracking(t *testing.T) {
 
 // TestResourceGeneration_BorrowUnderflow tests decrementing borrows below zero.
 func TestResourceGeneration_BorrowUnderflow(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 
 	h := table.New("resource", true)
 
@@ -183,28 +184,28 @@ func TestResourceGeneration_BorrowUnderflow(t *testing.T) {
 
 // TestResourceGeneration_InvalidHandle tests operations on invalid handles.
 func TestResourceGeneration_InvalidHandle(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 
 	t.Run("get_nonexistent", func(t *testing.T) {
-		h := component.MakeHandle(100, 0)
+		h := runtime.MakeHandle(100, 0)
 		_, err := table.Get(h)
 		require.Error(t, err)
 	})
 
 	t.Run("remove_nonexistent", func(t *testing.T) {
-		h := component.MakeHandle(100, 0)
+		h := runtime.MakeHandle(100, 0)
 		_, err := table.Remove(h)
 		require.Error(t, err)
 	})
 
 	t.Run("increment_lends_nonexistent", func(t *testing.T) {
-		h := component.MakeHandle(100, 0)
+		h := runtime.MakeHandle(100, 0)
 		err := table.IncrementLends(h)
 		require.Error(t, err)
 	})
 
 	t.Run("decrement_lends_nonexistent", func(t *testing.T) {
-		h := component.MakeHandle(100, 0)
+		h := runtime.MakeHandle(100, 0)
 		err := table.DecrementLends(h)
 		require.Error(t, err)
 	})
@@ -212,10 +213,10 @@ func TestResourceGeneration_InvalidHandle(t *testing.T) {
 
 // TestResourceGeneration_FreeListBehavior tests free list ordering.
 func TestResourceGeneration_FreeListBehavior(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 
 	// Create 5 handles
-	handles := make([]component.Handle, 5)
+	handles := make([]runtime.Handle, 5)
 	for i := 0; i < 5; i++ {
 		handles[i] = table.New(i, true)
 	}
@@ -243,7 +244,7 @@ func TestResourceGeneration_FreeListBehavior(t *testing.T) {
 
 // TestResourceGeneration_OwnVsBorrow tests ownership flag tracking.
 func TestResourceGeneration_OwnVsBorrow(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 
 	t.Run("owned_handle", func(t *testing.T) {
 		h := table.New("owned", true)
@@ -262,7 +263,7 @@ func TestResourceGeneration_OwnVsBorrow(t *testing.T) {
 
 // TestResourceGeneration_RepresentationValue tests storing different rep values.
 func TestResourceGeneration_RepresentationValue(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 
 	testCases := []struct {
 		name string
@@ -287,7 +288,7 @@ func TestResourceGeneration_RepresentationValue(t *testing.T) {
 
 // TestResourceGeneration_RemoveReturnsEntry tests that Remove returns the entry.
 func TestResourceGeneration_RemoveReturnsEntry(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 
 	h := table.New("my_resource", true)
 
@@ -301,7 +302,7 @@ func TestResourceGeneration_RemoveReturnsEntry(t *testing.T) {
 
 // TestResourceGeneration_DoubleRemove tests that removing twice fails.
 func TestResourceGeneration_DoubleRemove(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 
 	h := table.New("resource", true)
 
@@ -316,7 +317,7 @@ func TestResourceGeneration_DoubleRemove(t *testing.T) {
 
 // TestResourceGeneration_ManyOperations tests many create/remove cycles.
 func TestResourceGeneration_ManyOperations(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	iterations := 1000
 
 	for i := 0; i < iterations; i++ {
@@ -335,10 +336,10 @@ func TestResourceGeneration_ManyOperations(t *testing.T) {
 
 // TestResourceGeneration_ManyActiveHandles tests having many active handles.
 func TestResourceGeneration_ManyActiveHandles(t *testing.T) {
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	count := 1000
 
-	handles := make([]component.Handle, count)
+	handles := make([]runtime.Handle, count)
 	for i := 0; i < count; i++ {
 		handles[i] = table.New(i, true)
 	}

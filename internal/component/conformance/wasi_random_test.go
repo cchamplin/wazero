@@ -8,6 +8,7 @@ import (
 
 	"github.com/tetratelabs/wazero/imports/wasip2"
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -43,7 +44,7 @@ func TestWASI_Random_GetRandomBytes(t *testing.T) {
 
 	for _, size := range testSizes {
 		t.Run("Size_"+string(rune('0'+size%10)), func(t *testing.T) {
-			result, err := funcDef.Callback(ctx, []component.Val{component.ValU64(size)})
+			result, err := funcDef.Callback(ctx, []types.Val{types.ValU64(size)})
 			require.NoError(t, err)
 			require.Equal(t, 1, len(result), "get-random-bytes should return exactly one value")
 
@@ -77,10 +78,10 @@ func TestWASI_Random_GetRandomBytesNonDeterministic(t *testing.T) {
 	funcDef := instDef.Exports["get-random-bytes"].(*component.FuncDef)
 
 	// Get two sets of random bytes
-	result1, err := funcDef.Callback(ctx, []component.Val{component.ValU64(32)})
+	result1, err := funcDef.Callback(ctx, []types.Val{types.ValU64(32)})
 	require.NoError(t, err)
 
-	result2, err := funcDef.Callback(ctx, []component.Val{component.ValU64(32)})
+	result2, err := funcDef.Callback(ctx, []types.Val{types.ValU64(32)})
 	require.NoError(t, err)
 
 	list1 := result1[0].List()
@@ -128,7 +129,7 @@ func TestWASI_Random_GetRandomU64(t *testing.T) {
 	require.True(t, ok, "should be a FuncDef")
 
 	// Call the function
-	result, err := funcDef.Callback(ctx, []component.Val{})
+	result, err := funcDef.Callback(ctx, []types.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result), "get-random-u64 should return exactly one value")
 
@@ -154,7 +155,7 @@ func TestWASI_Random_GetRandomU64NonDeterministic(t *testing.T) {
 	// Get multiple random values
 	values := make([]uint64, 10)
 	for i := 0; i < 10; i++ {
-		result, err := funcDef.Callback(ctx, []component.Val{})
+		result, err := funcDef.Callback(ctx, []types.Val{})
 		require.NoError(t, err)
 		values[i] = result[0].U64()
 	}
@@ -195,7 +196,7 @@ func TestWASI_Random_Insecure(t *testing.T) {
 		funcDef, ok := getInsecureFunc.(*component.FuncDef)
 		require.True(t, ok, "should be a FuncDef")
 
-		result, err := funcDef.Callback(ctx, []component.Val{component.ValU64(16)})
+		result, err := funcDef.Callback(ctx, []types.Val{types.ValU64(16)})
 		require.NoError(t, err)
 		require.Equal(t, 1, len(result), "get-insecure-random-bytes should return exactly one value")
 
@@ -211,7 +212,7 @@ func TestWASI_Random_Insecure(t *testing.T) {
 		funcDef, ok := getInsecureU64Func.(*component.FuncDef)
 		require.True(t, ok, "should be a FuncDef")
 
-		result, err := funcDef.Callback(ctx, []component.Val{})
+		result, err := funcDef.Callback(ctx, []types.Val{})
 		require.NoError(t, err)
 		require.Equal(t, 1, len(result), "get-insecure-random-u64 should return exactly one value")
 
@@ -243,7 +244,7 @@ func TestWASI_Random_InsecureSeed(t *testing.T) {
 	require.True(t, ok, "should be a FuncDef")
 
 	// Call insecure-seed
-	result, err := funcDef.Callback(ctx, []component.Val{})
+	result, err := funcDef.Callback(ctx, []types.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result), "insecure-seed should return exactly one value")
 
@@ -255,7 +256,7 @@ func TestWASI_Random_InsecureSeed(t *testing.T) {
 	seed2 := tuple[1].U64()
 
 	// Per WASI spec, the same seed should be returned within a component instance
-	result2, err := funcDef.Callback(ctx, []component.Val{})
+	result2, err := funcDef.Callback(ctx, []types.Val{})
 	require.NoError(t, err)
 
 	tuple2 := result2[0].Tuple()

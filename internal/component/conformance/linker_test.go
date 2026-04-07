@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -24,8 +25,8 @@ func TestLinker_OldImportNewItem(t *testing.T) {
 		Params:  []component.NamedValType{{Name: "x", ValType: component.ValTypeRef{IsPrimitive: true, Primitive: 0x7f}}},
 		Results: []component.NamedValType{{Name: "result", ValType: component.ValTypeRef{IsPrimitive: true, Primitive: 0x7f}}},
 	}
-	hostFn := func(ctx context.Context, args []component.Val) ([]component.Val, error) {
-		return []component.Val{component.ValS32(42)}, nil
+	hostFn := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		return []types.Val{types.ValS32(42)}, nil
 	}
 
 	err := linker.DefineFunc("test:api@1.0.1", "greet", funcType, hostFn)
@@ -52,7 +53,7 @@ func TestLinker_NewImportOldItem(t *testing.T) {
 		Params:  []component.NamedValType{},
 		Results: []component.NamedValType{},
 	}
-	hostFn := func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+	hostFn := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		return nil, nil
 	}
 
@@ -78,9 +79,9 @@ func TestLinker_SelectsMaxVersion(t *testing.T) {
 	for _, ver := range versions {
 		// Use a closure to capture the version
 		v := ver
-		hostFn := func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+		hostFn := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			// Return different value based on version for testing
-			return []component.Val{component.ValS32(int32(len(v)))}, nil
+			return []types.Val{types.ValS32(int32(len(v)))}, nil
 		}
 		err := linker.DefineFunc("test:api@"+ver, "fn", funcType, hostFn)
 		require.NoError(t, err)
@@ -103,7 +104,7 @@ func TestLinker_MajorVersionMismatch(t *testing.T) {
 	linker := component.NewLinker()
 
 	funcType := &component.FuncType{}
-	hostFn := func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+	hostFn := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		return nil, nil
 	}
 
@@ -133,7 +134,7 @@ func TestLinker_Pre1_0_SemverRules(t *testing.T) {
 	linker := component.NewLinker()
 
 	funcType := &component.FuncType{}
-	hostFn := func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+	hostFn := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		return nil, nil
 	}
 
@@ -170,7 +171,7 @@ func TestLinker_MinorVersionBump(t *testing.T) {
 	linker := component.NewLinker()
 
 	funcType := &component.FuncType{}
-	hostFn := func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+	hostFn := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		return nil, nil
 	}
 
@@ -211,14 +212,14 @@ func TestImport_FunctionsInInstances(t *testing.T) {
 	addCalled := false
 	mulCalled := false
 
-	addFn := func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+	addFn := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		addCalled = true
-		return []component.Val{component.ValS32(10)}, nil
+		return []types.Val{types.ValS32(10)}, nil
 	}
 
-	mulFn := func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+	mulFn := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		mulCalled = true
-		return []component.Val{component.ValS32(20)}, nil
+		return []types.Val{types.ValS32(20)}, nil
 	}
 
 	// Define an instance with multiple functions
@@ -244,7 +245,7 @@ func TestImport_FunctionsInInstances(t *testing.T) {
 
 	// Call the function
 	ctx := context.Background()
-	_, err = addFuncDef.Callback(ctx, []component.Val{component.ValS32(5)})
+	_, err = addFuncDef.Callback(ctx, []types.Val{types.ValS32(5)})
 	require.NoError(t, err)
 	require.True(t, addCalled)
 
@@ -253,7 +254,7 @@ func TestImport_FunctionsInInstances(t *testing.T) {
 	mulFuncDef, ok := mulDef.(*component.FuncDef)
 	require.True(t, ok)
 
-	_, err = mulFuncDef.Callback(ctx, []component.Val{component.ValS32(3)})
+	_, err = mulFuncDef.Callback(ctx, []types.Val{types.ValS32(3)})
 	require.NoError(t, err)
 	require.True(t, mulCalled)
 }
@@ -352,7 +353,7 @@ func TestImport_DuplicateDefinition(t *testing.T) {
 	linker := component.NewLinker()
 
 	funcType := &component.FuncType{}
-	hostFn := func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+	hostFn := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		return nil, nil
 	}
 
@@ -385,7 +386,7 @@ func TestImport_NoVersion(t *testing.T) {
 	linker := component.NewLinker()
 
 	funcType := &component.FuncType{}
-	hostFn := func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+	hostFn := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		return nil, nil
 	}
 
@@ -410,7 +411,7 @@ func TestImport_InstantiateWithResolvedImports(t *testing.T) {
 	linker := component.NewLinker()
 
 	funcType := &component.FuncType{}
-	hostFn := func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+	hostFn := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		return nil, nil
 	}
 
@@ -442,7 +443,7 @@ func TestImport_FuncNoType(t *testing.T) {
 	linker := component.NewLinker()
 
 	called := false
-	dynamicFn := func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+	dynamicFn := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		called = true
 		return args, nil // Echo back args
 	}
@@ -462,7 +463,7 @@ func TestImport_FuncNoType(t *testing.T) {
 	require.Nil(t, funcDef.Type) // No type info
 
 	ctx := context.Background()
-	result, err := funcDef.Callback(ctx, []component.Val{component.ValS32(123)})
+	result, err := funcDef.Callback(ctx, []types.Val{types.ValS32(123)})
 	require.NoError(t, err)
 	require.True(t, called)
 	require.Equal(t, 1, len(result))

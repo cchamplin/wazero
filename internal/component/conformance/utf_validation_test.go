@@ -172,14 +172,14 @@ func TestUTF8_ValidSequences(t *testing.T) {
 	}{
 		{"empty", []byte{}, ""},
 		{"ascii", []byte("hello"), "hello"},
-		{"2byte_char", []byte{0xC2, 0xA9}, "\u00A9"}, // Copyright symbol
-		{"3byte_char", []byte{0xE2, 0x82, 0xAC}, "\u20AC"}, // Euro sign
+		{"2byte_char", []byte{0xC2, 0xA9}, "\u00A9"},                 // Copyright symbol
+		{"3byte_char", []byte{0xE2, 0x82, 0xAC}, "\u20AC"},           // Euro sign
 		{"4byte_char", []byte{0xF0, 0x9F, 0x98, 0x80}, "\U0001F600"}, // Grinning face
 		{"mixed", []byte("Hello\xC2\xA9World"), "Hello\u00A9World"},
 		{"bom", []byte{0xEF, 0xBB, 0xBF}, "\uFEFF"}, // BOM
 		{"null_char", []byte{0x00}, "\x00"},
-		{"max_valid_3byte", []byte{0xED, 0x9F, 0xBF}, "\uD7FF"}, // Just before surrogates
-		{"min_after_surrogates", []byte{0xEE, 0x80, 0x80}, "\uE000"}, // Just after surrogates
+		{"max_valid_3byte", []byte{0xED, 0x9F, 0xBF}, "\uD7FF"},       // Just before surrogates
+		{"min_after_surrogates", []byte{0xEE, 0x80, 0x80}, "\uE000"},  // Just after surrogates
 		{"max_unicode", []byte{0xF4, 0x8F, 0xBF, 0xBF}, "\U0010FFFF"}, // Max valid
 	}
 
@@ -289,7 +289,7 @@ func TestUTF16_ValidSequences(t *testing.T) {
 	}{
 		{"empty", []uint16{}, ""},
 		{"ascii", []uint16{0x0048, 0x0069}, "Hi"},
-		{"bmp_char", []uint16{0x20AC}, "\u20AC"}, // Euro sign
+		{"bmp_char", []uint16{0x20AC}, "\u20AC"},                         // Euro sign
 		{"valid_surrogate_pair", []uint16{0xD83D, 0xDE00}, "\U0001F600"}, // Grinning face
 		{"mixed", []uint16{0x0041, 0xD83D, 0xDE00, 0x0042}, "A\U0001F600B"},
 		{"null", []uint16{0x0000}, "\x00"},

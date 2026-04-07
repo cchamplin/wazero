@@ -15,7 +15,9 @@ import (
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/component/testutil"
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 func TestComponentConvert(t *testing.T) {
@@ -83,11 +85,11 @@ func TestComponentConvert(t *testing.T) {
 
 	var multiplyCallCount int
 	err = linker.DefineInstance("host:math/ops").
-		FuncNoType("multiply", func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+		FuncNoType("multiply", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			multiplyCallCount++
 			a := args[0].S32()
 			b := args[1].S32()
-			return []component.Val{component.ValS32(a * b)}, nil
+			return []types.Val{types.ValS32(a * b)}, nil
 		}).
 		SkipValidation().
 		Build()
@@ -104,7 +106,7 @@ func TestComponentConvert(t *testing.T) {
 	componentLinker := component.NewComponentLinker(rt)
 	componentLinker.MergeFrom(linker)
 
-	resourceTable := component.NewResourceTable()
+	resourceTable := runtime.NewResourceTable()
 	testCtx := component.WithResourceTable(ctx, resourceTable)
 
 	instance, err := componentLinker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
@@ -118,7 +120,7 @@ func TestComponentConvert(t *testing.T) {
 		t.Fatal("convert-celsius-to-fahrenheit function not found")
 	}
 
-	result, err := fn.Call(testCtx, component.ValS32(100))
+	result, err := fn.Call(testCtx, types.ValS32(100))
 	if err != nil {
 		t.Fatalf("Call: %v", err)
 	}
@@ -181,10 +183,10 @@ func TestComponentConvert_NegativeTemperature(t *testing.T) {
 
 	linker := component.NewLinker()
 	err = linker.DefineInstance("host:math/ops").
-		FuncNoType("multiply", func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+		FuncNoType("multiply", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			a := args[0].S32()
 			b := args[1].S32()
-			return []component.Val{component.ValS32(a * b)}, nil
+			return []types.Val{types.ValS32(a * b)}, nil
 		}).
 		SkipValidation().
 		Build()
@@ -201,7 +203,7 @@ func TestComponentConvert_NegativeTemperature(t *testing.T) {
 	componentLinker := component.NewComponentLinker(rt)
 	componentLinker.MergeFrom(linker)
 
-	resourceTable := component.NewResourceTable()
+	resourceTable := runtime.NewResourceTable()
 	testCtx := component.WithResourceTable(ctx, resourceTable)
 
 	instance, err := componentLinker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
@@ -216,7 +218,7 @@ func TestComponentConvert_NegativeTemperature(t *testing.T) {
 
 	// Test -40C = -40F (the crossover point)
 	// Formula: -40 * 9 / 5 + 32 = -360 / 5 + 32 = -72 + 32 = -40
-	result, err := fn.Call(testCtx, component.ValS32(-40))
+	result, err := fn.Call(testCtx, types.ValS32(-40))
 	if err != nil {
 		t.Fatalf("Call: %v", err)
 	}
@@ -277,10 +279,10 @@ func TestComponentConvert_Zero(t *testing.T) {
 
 	linker := component.NewLinker()
 	err = linker.DefineInstance("host:math/ops").
-		FuncNoType("multiply", func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+		FuncNoType("multiply", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			a := args[0].S32()
 			b := args[1].S32()
-			return []component.Val{component.ValS32(a * b)}, nil
+			return []types.Val{types.ValS32(a * b)}, nil
 		}).
 		SkipValidation().
 		Build()
@@ -297,7 +299,7 @@ func TestComponentConvert_Zero(t *testing.T) {
 	componentLinker := component.NewComponentLinker(rt)
 	componentLinker.MergeFrom(linker)
 
-	resourceTable := component.NewResourceTable()
+	resourceTable := runtime.NewResourceTable()
 	testCtx := component.WithResourceTable(ctx, resourceTable)
 
 	instance, err := componentLinker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
@@ -312,7 +314,7 @@ func TestComponentConvert_Zero(t *testing.T) {
 
 	// Test 0C = 32F (freezing point of water)
 	// Formula: 0 * 9 / 5 + 32 = 0 + 32 = 32
-	result, err := fn.Call(testCtx, component.ValS32(0))
+	result, err := fn.Call(testCtx, types.ValS32(0))
 	if err != nil {
 		t.Fatalf("Call: %v", err)
 	}
@@ -381,12 +383,12 @@ func TestComponentConvert_HostFunctionCalled(t *testing.T) {
 	var multiplyCallCount int
 	var lastMultiplyArgs [2]int32
 	err = linker.DefineInstance("host:math/ops").
-		FuncNoType("multiply", func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+		FuncNoType("multiply", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			multiplyCallCount++
 			a := args[0].S32()
 			b := args[1].S32()
 			lastMultiplyArgs = [2]int32{a, b}
-			return []component.Val{component.ValS32(a * b)}, nil
+			return []types.Val{types.ValS32(a * b)}, nil
 		}).
 		SkipValidation().
 		Build()
@@ -403,7 +405,7 @@ func TestComponentConvert_HostFunctionCalled(t *testing.T) {
 	componentLinker := component.NewComponentLinker(rt)
 	componentLinker.MergeFrom(linker)
 
-	resourceTable := component.NewResourceTable()
+	resourceTable := runtime.NewResourceTable()
 	testCtx := component.WithResourceTable(ctx, resourceTable)
 
 	instance, err := componentLinker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
@@ -419,7 +421,7 @@ func TestComponentConvert_HostFunctionCalled(t *testing.T) {
 	// Reset counter before call
 	multiplyCallCount = 0
 
-	result, err := fn.Call(testCtx, component.ValS32(100))
+	result, err := fn.Call(testCtx, types.ValS32(100))
 	if err != nil {
 		t.Fatalf("Call: %v", err)
 	}
@@ -491,10 +493,10 @@ func TestComponentConvert_MultipleConversions(t *testing.T) {
 
 	linker := component.NewLinker()
 	err = linker.DefineInstance("host:math/ops").
-		FuncNoType("multiply", func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+		FuncNoType("multiply", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			a := args[0].S32()
 			b := args[1].S32()
-			return []component.Val{component.ValS32(a * b)}, nil
+			return []types.Val{types.ValS32(a * b)}, nil
 		}).
 		SkipValidation().
 		Build()
@@ -511,7 +513,7 @@ func TestComponentConvert_MultipleConversions(t *testing.T) {
 	componentLinker := component.NewComponentLinker(rt)
 	componentLinker.MergeFrom(linker)
 
-	resourceTable := component.NewResourceTable()
+	resourceTable := runtime.NewResourceTable()
 	testCtx := component.WithResourceTable(ctx, resourceTable)
 
 	instance, err := componentLinker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
@@ -537,7 +539,7 @@ func TestComponentConvert_MultipleConversions(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		result, err := fn.Call(testCtx, component.ValS32(tc.celsius))
+		result, err := fn.Call(testCtx, types.ValS32(tc.celsius))
 		if err != nil {
 			t.Fatalf("Call(%d): %v", tc.celsius, err)
 		}

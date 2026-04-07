@@ -9,6 +9,7 @@ import (
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/imports/wasip2"
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
 )
 
 // wasiExerciseExports lists the test functions exported by the wasi-exercise
@@ -71,7 +72,7 @@ func runWasiExercise(t *testing.T, wasmFile string) {
 		WithArgs([]string{"wasi-exercise"}).
 		WithEnviron([]string{})
 
-	resourceTable := component.NewResourceTable()
+	resourceTable := runtime.NewResourceTable()
 	testCtx := wasip2.WithConfig(ctx, wasiConfig)
 	testCtx = component.WithResourceTable(testCtx, resourceTable)
 

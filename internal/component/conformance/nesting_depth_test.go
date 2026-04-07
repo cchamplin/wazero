@@ -22,9 +22,9 @@ func TestNesting_DeeplyNestedTuples(t *testing.T) {
 	}
 
 	// Build corresponding value
-	innerVal := component.ValU32(12345)
+	innerVal := types.ValU32(12345)
 	for i := 0; i < depth; i++ {
-		innerVal = component.ValTuple([]component.Val{innerVal})
+		innerVal = types.ValTuple([]types.Val{innerVal})
 	}
 
 	t.Run("type_properties", func(t *testing.T) {
@@ -79,13 +79,13 @@ func TestNesting_DeeplyNestedOptions(t *testing.T) {
 	t.Run("lower_lift_roundtrip", func(t *testing.T) {
 		// Build value: Some(Some(Some(...(42)...)))
 		// Use a recursive function to properly build nested options
-		var buildNestedOption func(depth int) component.Val
-		buildNestedOption = func(d int) component.Val {
+		var buildNestedOption func(depth int) types.Val
+		buildNestedOption = func(d int) types.Val {
 			if d == 0 {
-				return component.ValU32(42)
+				return types.ValU32(42)
 			}
 			inner := buildNestedOption(d - 1)
-			return component.ValOption(&inner)
+			return types.ValOption(&inner)
 		}
 		innerVal := buildNestedOption(depth)
 
@@ -127,13 +127,13 @@ func TestNesting_DeeplyNestedResults(t *testing.T) {
 	t.Run("ok_path_roundtrip", func(t *testing.T) {
 		// Build value: Ok(Ok(Ok(...(42)...)))
 		// Use a recursive function to properly build nested results
-		var buildNestedResult func(depth int) component.Val
-		buildNestedResult = func(d int) component.Val {
+		var buildNestedResult func(depth int) types.Val
+		buildNestedResult = func(d int) types.Val {
 			if d == 0 {
-				return component.ValU32(42)
+				return types.ValU32(42)
 			}
 			inner := buildNestedResult(d - 1)
-			return component.ValResultOk(&inner)
+			return types.ValResultOk(&inner)
 		}
 		innerVal := buildNestedResult(depth)
 
@@ -180,13 +180,13 @@ func TestNesting_DeeplyNestedVariants(t *testing.T) {
 
 	t.Run("roundtrip", func(t *testing.T) {
 		// Build value using recursive function to properly nest
-		var buildNestedVariant func(depth int) component.Val
-		buildNestedVariant = func(d int) component.Val {
+		var buildNestedVariant func(depth int) types.Val
+		buildNestedVariant = func(d int) types.Val {
 			if d == 0 {
-				return component.ValU32(999)
+				return types.ValU32(999)
 			}
 			inner := buildNestedVariant(d - 1)
-			return component.ValVariant("inner", &inner)
+			return types.ValVariant("inner", &inner)
 		}
 		innerVal := buildNestedVariant(depth)
 
@@ -214,15 +214,15 @@ func TestNesting_WideRecord(t *testing.T) {
 	const numFields = 100
 
 	fields := make([]types.Field, numFields)
-	fieldVals := make(map[string]component.Val)
+	fieldVals := make(map[string]types.Val)
 	for i := 0; i < numFields; i++ {
-		name := string(rune('a' + i%26)) + string(rune('0'+i/26))
+		name := string(rune('a'+i%26)) + string(rune('0'+i/26))
 		fields[i] = types.Field{Name: name, Type: types.U8{}}
-		fieldVals[name] = component.ValU8(uint8(i))
+		fieldVals[name] = types.ValU8(uint8(i))
 	}
 
 	recordType := types.Record{Fields: fields}
-	val := component.ValRecord(fieldVals)
+	val := types.ValRecord(fieldVals)
 
 	t.Run("type_properties", func(t *testing.T) {
 		size := recordType.Size()
@@ -242,7 +242,7 @@ func TestNesting_WideRecord(t *testing.T) {
 
 		// Verify all fields
 		for i := 0; i < numFields; i++ {
-			name := string(rune('a' + i%26)) + string(rune('0'+i/26))
+			name := string(rune('a'+i%26)) + string(rune('0'+i/26))
 			fieldVal, ok := lifted.RecordField(name)
 			require.True(t, ok)
 			require.Equal(t, uint8(i), fieldVal.U8())
@@ -255,14 +255,14 @@ func TestNesting_WideTuple(t *testing.T) {
 	const numElements = 100
 
 	elementTypes := make([]types.ValType, numElements)
-	elementVals := make([]component.Val, numElements)
+	elementVals := make([]types.Val, numElements)
 	for i := 0; i < numElements; i++ {
 		elementTypes[i] = types.U8{}
-		elementVals[i] = component.ValU8(uint8(i))
+		elementVals[i] = types.ValU8(uint8(i))
 	}
 
 	tupleType := types.Tuple{Types: elementTypes}
-	val := component.ValTuple(elementVals)
+	val := types.ValTuple(elementVals)
 
 	t.Run("type_properties", func(t *testing.T) {
 		require.Equal(t, uint32(numElements), tupleType.Size())
@@ -309,7 +309,7 @@ func TestNesting_LargeFlags(t *testing.T) {
 		for _, name := range names {
 			flags[name] = true
 		}
-		val := component.ValFlags(flags)
+		val := types.ValFlags(flags)
 
 		flat, err := abi.LowerFlat(nil, flagsType, val)
 		require.NoError(t, err)
@@ -327,7 +327,7 @@ func TestNesting_LargeFlags(t *testing.T) {
 		for i, name := range names {
 			flags[name] = (i % 2) == 0
 		}
-		val := component.ValFlags(flags)
+		val := types.ValFlags(flags)
 
 		flat, err := abi.LowerFlat(nil, flagsType, val)
 		require.NoError(t, err)
@@ -362,14 +362,14 @@ func TestNesting_LargeEnum(t *testing.T) {
 	})
 
 	t.Run("first_case", func(t *testing.T) {
-		val := component.ValEnum(cases[0])
+		val := types.ValEnum(cases[0])
 		flat, err := abi.LowerFlat(nil, enumType, val)
 		require.NoError(t, err)
 		require.Equal(t, uint64(0), flat[0])
 	})
 
 	t.Run("last_case", func(t *testing.T) {
-		val := component.ValEnum(cases[numCases-1])
+		val := types.ValEnum(cases[numCases-1])
 		flat, err := abi.LowerFlat(nil, enumType, val)
 		require.NoError(t, err)
 		require.Equal(t, uint64(numCases-1), flat[0])
@@ -377,7 +377,7 @@ func TestNesting_LargeEnum(t *testing.T) {
 
 	t.Run("roundtrip_mid_case", func(t *testing.T) {
 		midIdx := numCases / 2
-		val := component.ValEnum(cases[midIdx])
+		val := types.ValEnum(cases[midIdx])
 
 		flat, err := abi.LowerFlat(nil, enumType, val)
 		require.NoError(t, err)
@@ -413,8 +413,8 @@ func TestNesting_LargeVariant(t *testing.T) {
 	})
 
 	t.Run("first_case", func(t *testing.T) {
-		payload := component.ValU8(42)
-		val := component.ValVariant(cases[0].Name, &payload)
+		payload := types.ValU8(42)
+		val := types.ValVariant(cases[0].Name, &payload)
 
 		flat, err := abi.LowerFlat(nil, variantType, val)
 		require.NoError(t, err)
@@ -423,13 +423,13 @@ func TestNesting_LargeVariant(t *testing.T) {
 
 	t.Run("last_case", func(t *testing.T) {
 		lastIdx := numCases - 1
-		var payload component.Val
+		var payload types.Val
 		if lastIdx%2 == 0 {
-			payload = component.ValU8(42)
+			payload = types.ValU8(42)
 		} else {
-			payload = component.ValU32(12345)
+			payload = types.ValU32(12345)
 		}
-		val := component.ValVariant(cases[lastIdx].Name, &payload)
+		val := types.ValVariant(cases[lastIdx].Name, &payload)
 
 		flat, err := abi.LowerFlat(nil, variantType, val)
 		require.NoError(t, err)
@@ -463,11 +463,11 @@ func TestNesting_MixedDeep(t *testing.T) {
 	})
 
 	t.Run("roundtrip_a_case", func(t *testing.T) {
-		payload := component.ValU32(12345)
-		variantVal := component.ValVariant("a", &payload)
-		tupleVal := component.ValTuple([]component.Val{variantVal})
-		optionVal := component.ValOption(&tupleVal)
-		recordVal := component.ValRecord(map[string]component.Val{
+		payload := types.ValU32(12345)
+		variantVal := types.ValVariant("a", &payload)
+		tupleVal := types.ValTuple([]types.Val{variantVal})
+		optionVal := types.ValOption(&tupleVal)
+		recordVal := types.ValRecord(map[string]types.Val{
 			"opt": optionVal,
 		})
 
@@ -491,12 +491,12 @@ func TestNesting_MixedDeep(t *testing.T) {
 	})
 
 	t.Run("roundtrip_b_case_ok", func(t *testing.T) {
-		okVal := component.ValU8(42)
-		resultVal := component.ValResultOk(&okVal)
-		variantVal := component.ValVariant("b", &resultVal)
-		tupleVal := component.ValTuple([]component.Val{variantVal})
-		optionVal := component.ValOption(&tupleVal)
-		recordVal := component.ValRecord(map[string]component.Val{
+		okVal := types.ValU8(42)
+		resultVal := types.ValResultOk(&okVal)
+		variantVal := types.ValVariant("b", &resultVal)
+		tupleVal := types.ValTuple([]types.Val{variantVal})
+		optionVal := types.ValOption(&tupleVal)
+		recordVal := types.ValRecord(map[string]types.Val{
 			"opt": optionVal,
 		})
 

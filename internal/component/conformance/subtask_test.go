@@ -4,47 +4,49 @@ import (
 	"testing"
 
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
 func TestSubtask_Creation(t *testing.T) {
-	rt := component.NewResourceTable()
-	subtask := component.NewSubtask(rt)
+	rt := runtime.NewResourceTable()
+	subtask := runtime.NewSubtask(rt)
 
 	require.NotNil(t, subtask)
 	require.NotNil(t, subtask.BorrowScope())
-	require.Equal(t, component.SubtaskStatePending, subtask.State())
+	require.Equal(t, runtime.SubtaskStatePending, subtask.State())
 }
 
 func TestSubtask_StateTransitions(t *testing.T) {
-	rt := component.NewResourceTable()
-	subtask := component.NewSubtask(rt)
+	rt := runtime.NewResourceTable()
+	subtask := runtime.NewSubtask(rt)
 
 	t.Run("pending_to_resolved", func(t *testing.T) {
-		result := []component.Val{component.ValU32(42)}
+		result := []types.Val{types.ValU32(42)}
 		err := subtask.DeliverResolve(result)
 		require.NoError(t, err)
-		require.Equal(t, component.SubtaskStateResolved, subtask.State())
+		require.Equal(t, runtime.SubtaskStateResolved, subtask.State())
 	})
 
 	t.Run("resolved_to_finishing", func(t *testing.T) {
 		err := subtask.StartFinish()
 		require.NoError(t, err)
-		require.Equal(t, component.SubtaskStateFinishing, subtask.State())
+		require.Equal(t, runtime.SubtaskStateFinishing, subtask.State())
 	})
 
 	t.Run("finishing_to_done", func(t *testing.T) {
 		err := subtask.Finish()
 		require.NoError(t, err)
-		require.Equal(t, component.SubtaskStateDone, subtask.State())
+		require.Equal(t, runtime.SubtaskStateDone, subtask.State())
 	})
 }
 
 func TestSubtask_InvalidTransitions(t *testing.T) {
-	rt := component.NewResourceTable()
+	rt := runtime.NewResourceTable()
 
 	t.Run("cannot_resolve_twice", func(t *testing.T) {
-		subtask := component.NewSubtask(rt)
+		subtask := runtime.NewSubtask(rt)
 		_ = subtask.DeliverResolve(nil)
 
 		err := subtask.DeliverResolve(nil)
@@ -52,7 +54,7 @@ func TestSubtask_InvalidTransitions(t *testing.T) {
 	})
 
 	t.Run("cannot_finish_before_resolve", func(t *testing.T) {
-		subtask := component.NewSubtask(rt)
+		subtask := runtime.NewSubtask(rt)
 
 		err := subtask.Finish()
 		require.Error(t, err, "should not finish before resolve")
@@ -60,12 +62,12 @@ func TestSubtask_InvalidTransitions(t *testing.T) {
 }
 
 func TestSubtask_LendTracking(t *testing.T) {
-	rt := component.NewResourceTable()
+	rt := runtime.NewResourceTable()
 
 	// Create a resource to borrow
 	handle := rt.New("test-resource", true)
 
-	subtask := component.NewSubtask(rt)
+	subtask := runtime.NewSubtask(rt)
 
 	t.Run("track_lend", func(t *testing.T) {
 		err := subtask.TrackLend(handle)
@@ -85,38 +87,38 @@ func TestSubtask_LendTracking(t *testing.T) {
 		subtask.StartFinish()
 		err := subtask.Finish()
 		require.NoError(t, err)
-		require.Equal(t, component.SubtaskStateDone, subtask.State())
+		require.Equal(t, runtime.SubtaskStateDone, subtask.State())
 	})
 }
 
 func TestSubtask_FullLifecycle(t *testing.T) {
-	rt := component.NewResourceTable()
+	rt := runtime.NewResourceTable()
 
 	t.Run("simple_call", func(t *testing.T) {
-		subtask := component.NewSubtask(rt)
+		subtask := runtime.NewSubtask(rt)
 
 		// Pending state
-		require.Equal(t, component.SubtaskStatePending, subtask.State())
+		require.Equal(t, runtime.SubtaskStatePending, subtask.State())
 
 		// Call completes
-		result := []component.Val{component.ValU32(42)}
+		result := []types.Val{types.ValU32(42)}
 		err := subtask.DeliverResolve(result)
 		require.NoError(t, err)
-		require.Equal(t, component.SubtaskStateResolved, subtask.State())
+		require.Equal(t, runtime.SubtaskStateResolved, subtask.State())
 		require.Equal(t, result, subtask.Result())
 
 		// Cleanup
 		err = subtask.StartFinish()
 		require.NoError(t, err)
-		require.Equal(t, component.SubtaskStateFinishing, subtask.State())
+		require.Equal(t, runtime.SubtaskStateFinishing, subtask.State())
 
 		err = subtask.Finish()
 		require.NoError(t, err)
-		require.Equal(t, component.SubtaskStateDone, subtask.State())
+		require.Equal(t, runtime.SubtaskStateDone, subtask.State())
 	})
 
 	t.Run("call_with_borrows", func(t *testing.T) {
-		subtask := component.NewSubtask(rt)
+		subtask := runtime.NewSubtask(rt)
 
 		// Create resources and track lends
 		h1 := rt.New("resource-1", true)
@@ -136,13 +138,13 @@ func TestSubtask_FullLifecycle(t *testing.T) {
 		require.NoError(t, err)
 
 		// Lends should be released
-		require.Equal(t, component.SubtaskStateDone, subtask.State())
+		require.Equal(t, runtime.SubtaskStateDone, subtask.State())
 	})
 }
 
 func TestSubtask_NilResult(t *testing.T) {
-	rt := component.NewResourceTable()
-	subtask := component.NewSubtask(rt)
+	rt := runtime.NewResourceTable()
+	subtask := runtime.NewSubtask(rt)
 
 	err := subtask.DeliverResolve(nil)
 	require.NoError(t, err)
@@ -150,22 +152,22 @@ func TestSubtask_NilResult(t *testing.T) {
 }
 
 func TestSubtask_EmptyResult(t *testing.T) {
-	rt := component.NewResourceTable()
-	subtask := component.NewSubtask(rt)
+	rt := runtime.NewResourceTable()
+	subtask := runtime.NewSubtask(rt)
 
-	err := subtask.DeliverResolve([]component.Val{})
+	err := subtask.DeliverResolve([]types.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 0, len(subtask.Result()))
 }
 
 func TestSubtask_MultipleResults(t *testing.T) {
-	rt := component.NewResourceTable()
-	subtask := component.NewSubtask(rt)
+	rt := runtime.NewResourceTable()
+	subtask := runtime.NewSubtask(rt)
 
-	results := []component.Val{
-		component.ValU32(1),
-		component.ValU32(2),
-		component.ValU32(3),
+	results := []types.Val{
+		types.ValU32(1),
+		types.ValU32(2),
+		types.ValU32(3),
 	}
 	err := subtask.DeliverResolve(results)
 	require.NoError(t, err)
@@ -173,10 +175,10 @@ func TestSubtask_MultipleResults(t *testing.T) {
 }
 
 func TestSubtask_StateErrors(t *testing.T) {
-	rt := component.NewResourceTable()
+	rt := runtime.NewResourceTable()
 
 	t.Run("double_resolve", func(t *testing.T) {
-		subtask := component.NewSubtask(rt)
+		subtask := runtime.NewSubtask(rt)
 		_ = subtask.DeliverResolve(nil)
 
 		err := subtask.DeliverResolve(nil)
@@ -184,14 +186,14 @@ func TestSubtask_StateErrors(t *testing.T) {
 	})
 
 	t.Run("finish_without_resolve", func(t *testing.T) {
-		subtask := component.NewSubtask(rt)
+		subtask := runtime.NewSubtask(rt)
 
 		err := subtask.Finish()
 		require.Error(t, err)
 	})
 
 	t.Run("start_finish_twice", func(t *testing.T) {
-		subtask := component.NewSubtask(rt)
+		subtask := runtime.NewSubtask(rt)
 		_ = subtask.DeliverResolve(nil)
 		_ = subtask.StartFinish()
 
@@ -200,7 +202,7 @@ func TestSubtask_StateErrors(t *testing.T) {
 	})
 
 	t.Run("double_finish", func(t *testing.T) {
-		subtask := component.NewSubtask(rt)
+		subtask := runtime.NewSubtask(rt)
 		_ = subtask.DeliverResolve(nil)
 		_ = subtask.StartFinish()
 		_ = subtask.Finish()
@@ -212,7 +214,7 @@ func TestSubtask_StateErrors(t *testing.T) {
 
 func TestSubtask_NilResourceTable(t *testing.T) {
 	// Subtask with nil resource table should still work
-	subtask := component.NewSubtask(nil)
+	subtask := runtime.NewSubtask(nil)
 	require.NotNil(t, subtask)
 
 	// BorrowScope is still created, just with nil resource table

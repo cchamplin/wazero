@@ -8,6 +8,8 @@ import (
 
 	"github.com/tetratelabs/wazero/imports/wasip2"
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -63,7 +65,7 @@ func TestWASI_Sockets_InstanceNetworkCall(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	instNetDef, _ := linker.Get("wasi:sockets/instance-network@0.2.0")
@@ -71,7 +73,7 @@ func TestWASI_Sockets_InstanceNetworkCall(t *testing.T) {
 
 	instNetFunc := instDef.Exports["instance-network"].(*component.FuncDef)
 
-	result, err := instNetFunc.Callback(ctx, []component.Val{})
+	result, err := instNetFunc.Callback(ctx, []types.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result), "instance-network should return exactly one value")
 
@@ -328,7 +330,7 @@ func TestWASI_Sockets_CreateTCPSocket(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	tcpCreateDef, _ := linker.Get("wasi:sockets/tcp-create-socket@0.2.0")
@@ -337,9 +339,9 @@ func TestWASI_Sockets_CreateTCPSocket(t *testing.T) {
 	createTcpFunc := instDef.Exports["create-tcp-socket"].(*component.FuncDef)
 
 	// Create TCP socket with IPv4 (enum "ipv4")
-	result, err := createTcpFunc.Callback(ctx, []component.Val{
-		component.ValBorrow(0), // network handle (placeholder)
-		component.ValEnum("ipv4"), // address family
+	result, err := createTcpFunc.Callback(ctx, []types.Val{
+		types.ValBorrow(0),    // network handle (placeholder)
+		types.ValEnum("ipv4"), // address family
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result), "create-tcp-socket should return exactly one value")
@@ -360,7 +362,7 @@ func TestWASI_Sockets_CreateUDPSocket(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	udpCreateDef, _ := linker.Get("wasi:sockets/udp-create-socket@0.2.0")
@@ -369,9 +371,9 @@ func TestWASI_Sockets_CreateUDPSocket(t *testing.T) {
 	createUdpFunc := instDef.Exports["create-udp-socket"].(*component.FuncDef)
 
 	// Create UDP socket with IPv4 (enum "ipv4")
-	result, err := createUdpFunc.Callback(ctx, []component.Val{
-		component.ValBorrow(0), // network handle (placeholder)
-		component.ValEnum("ipv4"), // address family
+	result, err := createUdpFunc.Callback(ctx, []types.Val{
+		types.ValBorrow(0),    // network handle (placeholder)
+		types.ValEnum("ipv4"), // address family
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result), "create-udp-socket should return exactly one value")

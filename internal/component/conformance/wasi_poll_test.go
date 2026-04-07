@@ -9,6 +9,8 @@ import (
 	"github.com/tetratelabs/wazero/imports/wasip2"
 	wasip2io "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -62,7 +64,7 @@ func TestWASI_Poll_PollableReady(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	// Create a ready pollable
@@ -77,8 +79,8 @@ func TestWASI_Poll_PollableReady(t *testing.T) {
 
 	funcDef := readyFunc.(*component.FuncDef)
 
-	result, err := funcDef.Callback(ctx, []component.Val{
-		component.ValBorrow(uint32(handle)),
+	result, err := funcDef.Callback(ctx, []types.Val{
+		types.ValBorrow(uint32(handle)),
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result), "ready should return exactly one value")
@@ -95,7 +97,7 @@ func TestWASI_Poll_PollableBlock(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	// Create a ready pollable (block should return immediately)
@@ -111,8 +113,8 @@ func TestWASI_Poll_PollableBlock(t *testing.T) {
 	funcDef := blockFunc.(*component.FuncDef)
 
 	// Block should return without hanging for a ready pollable
-	result, err := funcDef.Callback(ctx, []component.Val{
-		component.ValBorrow(uint32(handle)),
+	result, err := funcDef.Callback(ctx, []types.Val{
+		types.ValBorrow(uint32(handle)),
 	})
 	require.NoError(t, err)
 	require.Equal(t, 0, len(result), "block should return no values")
@@ -126,7 +128,7 @@ func TestWASI_Poll_PollList(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	// Create multiple ready pollables
@@ -144,14 +146,14 @@ func TestWASI_Poll_PollList(t *testing.T) {
 	pollFunc := instDef.Exports["poll"].(*component.FuncDef)
 
 	// Create list of borrow<pollable>
-	pollableList := []component.Val{
-		component.ValBorrow(uint32(handle1)),
-		component.ValBorrow(uint32(handle2)),
-		component.ValBorrow(uint32(handle3)),
+	pollableList := []types.Val{
+		types.ValBorrow(uint32(handle1)),
+		types.ValBorrow(uint32(handle2)),
+		types.ValBorrow(uint32(handle3)),
 	}
 
-	result, err := pollFunc.Callback(ctx, []component.Val{
-		component.ValList(pollableList),
+	result, err := pollFunc.Callback(ctx, []types.Val{
+		types.ValList(pollableList),
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result), "poll should return exactly one value")
@@ -172,7 +174,7 @@ func TestWASI_Poll_PollEmptyList(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	pollDef, _ := linker.Get("wasi:io/poll@0.2.0")
@@ -181,8 +183,8 @@ func TestWASI_Poll_PollEmptyList(t *testing.T) {
 	pollFunc := instDef.Exports["poll"].(*component.FuncDef)
 
 	// Call poll with empty list
-	result, err := pollFunc.Callback(ctx, []component.Val{
-		component.ValList([]component.Val{}),
+	result, err := pollFunc.Callback(ctx, []types.Val{
+		types.ValList([]types.Val{}),
 	})
 	require.NoError(t, err)
 
@@ -199,7 +201,7 @@ func TestWASI_Poll_PollSinglePollable(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	// Create a single ready pollable
@@ -211,12 +213,12 @@ func TestWASI_Poll_PollSinglePollable(t *testing.T) {
 
 	pollFunc := instDef.Exports["poll"].(*component.FuncDef)
 
-	pollableList := []component.Val{
-		component.ValBorrow(uint32(handle)),
+	pollableList := []types.Val{
+		types.ValBorrow(uint32(handle)),
 	}
 
-	result, err := pollFunc.Callback(ctx, []component.Val{
-		component.ValList(pollableList),
+	result, err := pollFunc.Callback(ctx, []types.Val{
+		types.ValList(pollableList),
 	})
 	require.NoError(t, err)
 
@@ -252,10 +254,10 @@ func TestWASI_Poll_AllExportsExist(t *testing.T) {
 
 	// Expected exports
 	expectedExports := []string{
-		"pollable",                  // resource
-		"[method]pollable.ready",    // method
-		"[method]pollable.block",    // method
-		"poll",                      // function
+		"pollable",               // resource
+		"[method]pollable.ready", // method
+		"[method]pollable.block", // method
+		"poll",                   // function
 	}
 
 	for _, export := range expectedExports {
@@ -273,7 +275,7 @@ func TestWASI_Poll_PollableWithCustomReadyFunction(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	// Create a pollable with custom ready function that returns false initially
@@ -293,15 +295,15 @@ func TestWASI_Poll_PollableWithCustomReadyFunction(t *testing.T) {
 	readyFunc := instDef.Exports["[method]pollable.ready"].(*component.FuncDef)
 
 	// First call - not ready
-	result1, err := readyFunc.Callback(ctx, []component.Val{
-		component.ValBorrow(uint32(handle)),
+	result1, err := readyFunc.Callback(ctx, []types.Val{
+		types.ValBorrow(uint32(handle)),
 	})
 	require.NoError(t, err)
 	require.False(t, result1[0].Bool(), "first check should return false")
 
 	// Second call - ready
-	result2, err := readyFunc.Callback(ctx, []component.Val{
-		component.ValBorrow(uint32(handle)),
+	result2, err := readyFunc.Callback(ctx, []types.Val{
+		types.ValBorrow(uint32(handle)),
 	})
 	require.NoError(t, err)
 	require.True(t, result2[0].Bool(), "second check should return true")
@@ -315,7 +317,7 @@ func TestWASI_Poll_MixedReadyStates(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	// Create pollables with different ready states
@@ -332,14 +334,14 @@ func TestWASI_Poll_MixedReadyStates(t *testing.T) {
 
 	pollFunc := instDef.Exports["poll"].(*component.FuncDef)
 
-	pollableList := []component.Val{
-		component.ValBorrow(uint32(handle1)),
-		component.ValBorrow(uint32(handle2)),
-		component.ValBorrow(uint32(handle3)),
+	pollableList := []types.Val{
+		types.ValBorrow(uint32(handle1)),
+		types.ValBorrow(uint32(handle2)),
+		types.ValBorrow(uint32(handle3)),
 	}
 
-	result, err := pollFunc.Callback(ctx, []component.Val{
-		component.ValList(pollableList),
+	result, err := pollFunc.Callback(ctx, []types.Val{
+		types.ValList(pollableList),
 	})
 	require.NoError(t, err)
 

@@ -10,6 +10,8 @@ import (
 	"github.com/tetratelabs/wazero/imports/wasip2"
 	wasip2io "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -25,7 +27,7 @@ func TestWASI_Streams_InputStreamRead(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	// Create an input stream with test data
@@ -49,9 +51,9 @@ func TestWASI_Streams_InputStreamRead(t *testing.T) {
 	funcDef := readFunc.(*component.FuncDef)
 
 	// Call read
-	result, err := funcDef.Callback(ctx, []component.Val{
-		component.ValBorrow(uint32(handle)),
-		component.ValU64(uint64(len(testData))),
+	result, err := funcDef.Callback(ctx, []types.Val{
+		types.ValBorrow(uint32(handle)),
+		types.ValU64(uint64(len(testData))),
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result), "read should return exactly one value")
@@ -80,7 +82,7 @@ func TestWASI_Streams_InputStreamBlockingRead(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	// Create an input stream with test data
@@ -95,9 +97,9 @@ func TestWASI_Streams_InputStreamBlockingRead(t *testing.T) {
 
 	blockingReadFunc := instDef.Exports["[method]input-stream.blocking-read"].(*component.FuncDef)
 
-	result, err := blockingReadFunc.Callback(ctx, []component.Val{
-		component.ValBorrow(uint32(handle)),
-		component.ValU64(uint64(len(testData))),
+	result, err := blockingReadFunc.Callback(ctx, []types.Val{
+		types.ValBorrow(uint32(handle)),
+		types.ValU64(uint64(len(testData))),
 	})
 	require.NoError(t, err)
 
@@ -116,7 +118,7 @@ func TestWASI_Streams_OutputStreamWrite(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	// Create an output stream
@@ -132,14 +134,14 @@ func TestWASI_Streams_OutputStreamWrite(t *testing.T) {
 
 	// Prepare data to write as list<u8>
 	testData := "Hello, Output Stream!"
-	dataVals := make([]component.Val, len(testData))
+	dataVals := make([]types.Val, len(testData))
 	for i, b := range []byte(testData) {
-		dataVals[i] = component.ValU8(b)
+		dataVals[i] = types.ValU8(b)
 	}
 
-	result, err := writeFunc.Callback(ctx, []component.Val{
-		component.ValBorrow(uint32(handle)),
-		component.ValList(dataVals),
+	result, err := writeFunc.Callback(ctx, []types.Val{
+		types.ValBorrow(uint32(handle)),
+		types.ValList(dataVals),
 	})
 	require.NoError(t, err)
 
@@ -159,7 +161,7 @@ func TestWASI_Streams_OutputStreamCheckWrite(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	var buf bytes.Buffer
@@ -172,8 +174,8 @@ func TestWASI_Streams_OutputStreamCheckWrite(t *testing.T) {
 
 	checkWriteFunc := instDef.Exports["[method]output-stream.check-write"].(*component.FuncDef)
 
-	result, err := checkWriteFunc.Callback(ctx, []component.Val{
-		component.ValBorrow(uint32(handle)),
+	result, err := checkWriteFunc.Callback(ctx, []types.Val{
+		types.ValBorrow(uint32(handle)),
 	})
 	require.NoError(t, err)
 
@@ -193,7 +195,7 @@ func TestWASI_Streams_OutputStreamFlush(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	var buf bytes.Buffer
@@ -206,8 +208,8 @@ func TestWASI_Streams_OutputStreamFlush(t *testing.T) {
 
 	flushFunc := instDef.Exports["[method]output-stream.flush"].(*component.FuncDef)
 
-	result, err := flushFunc.Callback(ctx, []component.Val{
-		component.ValBorrow(uint32(handle)),
+	result, err := flushFunc.Callback(ctx, []types.Val{
+		types.ValBorrow(uint32(handle)),
 	})
 	require.NoError(t, err)
 
@@ -224,7 +226,7 @@ func TestWASI_Streams_InputStreamSkip(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	testData := "Skip these bytes and read this"
@@ -238,9 +240,9 @@ func TestWASI_Streams_InputStreamSkip(t *testing.T) {
 
 	skipFunc := instDef.Exports["[method]input-stream.skip"].(*component.FuncDef)
 
-	result, err := skipFunc.Callback(ctx, []component.Val{
-		component.ValBorrow(uint32(handle)),
-		component.ValU64(10), // Skip 10 bytes
+	result, err := skipFunc.Callback(ctx, []types.Val{
+		types.ValBorrow(uint32(handle)),
+		types.ValU64(10), // Skip 10 bytes
 	})
 	require.NoError(t, err)
 
@@ -259,7 +261,7 @@ func TestWASI_Streams_InputStreamSubscribe(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	reader := bytes.NewBufferString("test data")
@@ -272,8 +274,8 @@ func TestWASI_Streams_InputStreamSubscribe(t *testing.T) {
 
 	subscribeFunc := instDef.Exports["[method]input-stream.subscribe"].(*component.FuncDef)
 
-	result, err := subscribeFunc.Callback(ctx, []component.Val{
-		component.ValBorrow(uint32(handle)),
+	result, err := subscribeFunc.Callback(ctx, []types.Val{
+		types.ValBorrow(uint32(handle)),
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result), "subscribe should return exactly one value")
@@ -291,7 +293,7 @@ func TestWASI_Streams_OutputStreamSubscribe(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	var buf bytes.Buffer
@@ -304,8 +306,8 @@ func TestWASI_Streams_OutputStreamSubscribe(t *testing.T) {
 
 	subscribeFunc := instDef.Exports["[method]output-stream.subscribe"].(*component.FuncDef)
 
-	result, err := subscribeFunc.Callback(ctx, []component.Val{
-		component.ValBorrow(uint32(handle)),
+	result, err := subscribeFunc.Callback(ctx, []types.Val{
+		types.ValBorrow(uint32(handle)),
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result), "subscribe should return exactly one value")
@@ -398,7 +400,7 @@ func TestWASI_Streams_WriteZeroes(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	var buf bytes.Buffer
@@ -411,9 +413,9 @@ func TestWASI_Streams_WriteZeroes(t *testing.T) {
 
 	writeZeroesFunc := instDef.Exports["[method]output-stream.write-zeroes"].(*component.FuncDef)
 
-	result, err := writeZeroesFunc.Callback(ctx, []component.Val{
-		component.ValBorrow(uint32(handle)),
-		component.ValU64(10), // Write 10 zero bytes
+	result, err := writeZeroesFunc.Callback(ctx, []types.Val{
+		types.ValBorrow(uint32(handle)),
+		types.ValU64(10), // Write 10 zero bytes
 	})
 	require.NoError(t, err)
 
@@ -437,7 +439,7 @@ func TestWASI_Streams_BlockingWriteAndFlush(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	var buf bytes.Buffer
@@ -451,14 +453,14 @@ func TestWASI_Streams_BlockingWriteAndFlush(t *testing.T) {
 	blockingWriteFunc := instDef.Exports["[method]output-stream.blocking-write-and-flush"].(*component.FuncDef)
 
 	testData := "Blocking write test"
-	dataVals := make([]component.Val, len(testData))
+	dataVals := make([]types.Val, len(testData))
 	for i, b := range []byte(testData) {
-		dataVals[i] = component.ValU8(b)
+		dataVals[i] = types.ValU8(b)
 	}
 
-	result, err := blockingWriteFunc.Callback(ctx, []component.Val{
-		component.ValBorrow(uint32(handle)),
-		component.ValList(dataVals),
+	result, err := blockingWriteFunc.Callback(ctx, []types.Val{
+		types.ValBorrow(uint32(handle)),
+		types.ValList(dataVals),
 	})
 	require.NoError(t, err)
 

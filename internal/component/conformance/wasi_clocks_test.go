@@ -9,6 +9,8 @@ import (
 
 	"github.com/tetratelabs/wazero/imports/wasip2"
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -25,7 +27,7 @@ func TestWASI_MonotonicClock_Now(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	// Get the monotonic clock interface
@@ -44,7 +46,7 @@ func TestWASI_MonotonicClock_Now(t *testing.T) {
 	// Call now() multiple times and verify values are monotonically increasing
 	var lastInstant uint64
 	for i := 0; i < 5; i++ {
-		result, err := funcDef.Callback(ctx, []component.Val{})
+		result, err := funcDef.Callback(ctx, []types.Val{})
 		require.NoError(t, err)
 		require.Equal(t, 1, len(result), "now() should return exactly one value")
 
@@ -89,7 +91,7 @@ func TestWASI_MonotonicClock_Resolution(t *testing.T) {
 	require.True(t, ok, "should be a FuncDef")
 
 	// Call resolution()
-	result, err := funcDef.Callback(ctx, []component.Val{})
+	result, err := funcDef.Callback(ctx, []types.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result), "resolution() should return exactly one value")
 
@@ -107,7 +109,7 @@ func TestWASI_MonotonicClock_SubscribeDuration(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	// Get the monotonic clock interface
@@ -124,7 +126,7 @@ func TestWASI_MonotonicClock_SubscribeDuration(t *testing.T) {
 	require.True(t, ok, "should be a FuncDef")
 
 	// Subscribe to a duration of 0 (immediately ready)
-	result, err := funcDef.Callback(ctx, []component.Val{component.ValU64(0)})
+	result, err := funcDef.Callback(ctx, []types.Val{types.ValU64(0)})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result), "subscribe-duration should return exactly one value")
 
@@ -141,7 +143,7 @@ func TestWASI_MonotonicClock_SubscribeInstant(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := component.NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	// Get the monotonic clock interface
@@ -153,7 +155,7 @@ func TestWASI_MonotonicClock_SubscribeInstant(t *testing.T) {
 
 	// Get current instant first
 	nowFunc := instDef.Exports["now"].(*component.FuncDef)
-	nowResult, err := nowFunc.Callback(ctx, []component.Val{})
+	nowResult, err := nowFunc.Callback(ctx, []types.Val{})
 	require.NoError(t, err)
 	currentInstant := nowResult[0].U64()
 
@@ -164,7 +166,7 @@ func TestWASI_MonotonicClock_SubscribeInstant(t *testing.T) {
 	require.True(t, ok, "should be a FuncDef")
 
 	// Subscribe to the current instant (should be immediately ready)
-	result, err := funcDef.Callback(ctx, []component.Val{component.ValU64(currentInstant)})
+	result, err := funcDef.Callback(ctx, []types.Val{types.ValU64(currentInstant)})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result), "subscribe-instant should return exactly one value")
 
@@ -197,7 +199,7 @@ func TestWASI_WallClock_Now(t *testing.T) {
 	require.True(t, ok, "should be a FuncDef")
 
 	// Call now() and verify it returns a datetime record
-	result, err := funcDef.Callback(ctx, []component.Val{})
+	result, err := funcDef.Callback(ctx, []types.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result), "now() should return exactly one value")
 
@@ -247,7 +249,7 @@ func TestWASI_WallClock_Resolution(t *testing.T) {
 	require.True(t, ok, "should be a FuncDef")
 
 	// Call resolution()
-	result, err := funcDef.Callback(ctx, []component.Val{})
+	result, err := funcDef.Callback(ctx, []types.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result), "resolution() should return exactly one value")
 

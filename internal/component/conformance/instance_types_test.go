@@ -30,7 +30,7 @@ func TestInstanceResultTypes(t *testing.T) {
 		}
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
-				val := component.ValS64(tc.value)
+				val := types.ValS64(tc.value)
 				flat, err := abi.LowerFlat(nil, types.S64{}, val)
 				require.NoError(t, err)
 				require.Equal(t, 1, len(flat))
@@ -55,7 +55,7 @@ func TestInstanceResultTypes(t *testing.T) {
 		}
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
-				val := component.ValU64(tc.value)
+				val := types.ValU64(tc.value)
 				flat, err := abi.LowerFlat(nil, types.U64{}, val)
 				require.NoError(t, err)
 				require.Equal(t, 1, len(flat))
@@ -80,7 +80,7 @@ func TestInstanceResultTypes(t *testing.T) {
 		}
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
-				val := component.ValF32(tc.value)
+				val := types.ValF32(tc.value)
 				flat, err := abi.LowerFlat(nil, types.F32{}, val)
 				require.NoError(t, err)
 				require.Equal(t, 1, len(flat))
@@ -93,7 +93,7 @@ func TestInstanceResultTypes(t *testing.T) {
 		}
 
 		t.Run("infinity", func(t *testing.T) {
-			val := component.ValF32(float32(math.Inf(1)))
+			val := types.ValF32(float32(math.Inf(1)))
 			flat, err := abi.LowerFlat(nil, types.F32{}, val)
 			require.NoError(t, err)
 
@@ -104,7 +104,7 @@ func TestInstanceResultTypes(t *testing.T) {
 		})
 
 		t.Run("nan", func(t *testing.T) {
-			val := component.ValF32(float32(math.NaN()))
+			val := types.ValF32(float32(math.NaN()))
 			flat, err := abi.LowerFlat(nil, types.F32{}, val)
 			require.NoError(t, err)
 
@@ -127,7 +127,7 @@ func TestInstanceResultTypes(t *testing.T) {
 		}
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
-				val := component.ValF64(tc.value)
+				val := types.ValF64(tc.value)
 				flat, err := abi.LowerFlat(nil, types.F64{}, val)
 				require.NoError(t, err)
 				require.Equal(t, 1, len(flat))
@@ -140,7 +140,7 @@ func TestInstanceResultTypes(t *testing.T) {
 		}
 
 		t.Run("infinity", func(t *testing.T) {
-			val := component.ValF64(math.Inf(1))
+			val := types.ValF64(math.Inf(1))
 			flat, err := abi.LowerFlat(nil, types.F64{}, val)
 			require.NoError(t, err)
 
@@ -151,7 +151,7 @@ func TestInstanceResultTypes(t *testing.T) {
 		})
 
 		t.Run("nan", func(t *testing.T) {
-			val := component.ValF64(math.NaN())
+			val := types.ValF64(math.NaN())
 			flat, err := abi.LowerFlat(nil, types.F64{}, val)
 			require.NoError(t, err)
 
@@ -172,7 +172,7 @@ func TestInstanceResultTypes(t *testing.T) {
 		}
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
-				val := component.ValBool(tc.value)
+				val := types.ValBool(tc.value)
 				flat, err := abi.LowerFlat(nil, types.Bool{}, val)
 				require.NoError(t, err)
 				require.Equal(t, 1, len(flat))
@@ -198,10 +198,10 @@ func TestRecordFieldNames(t *testing.T) {
 			},
 		}
 
-		val := component.ValRecord(map[string]component.Val{
-			"first-name": component.ValS32(100),
-			"lastName":   component.ValS32(200),
-			"age_value":  component.ValS32(30),
+		val := types.ValRecord(map[string]types.Val{
+			"first-name": types.ValS32(100),
+			"lastName":   types.ValS32(200),
+			"age_value":  types.ValS32(30),
 		})
 
 		flat, err := abi.LowerFlat(nil, recordType, val)
@@ -235,10 +235,10 @@ func TestRecordFieldNames(t *testing.T) {
 			},
 		}
 
-		val := component.ValRecord(map[string]component.Val{
-			"http-status":  component.ValU16(200),
-			"content-type": component.ValS32(1),
-			"is-valid":     component.ValBool(true),
+		val := types.ValRecord(map[string]types.Val{
+			"http-status":  types.ValU16(200),
+			"content-type": types.ValS32(1),
+			"is-valid":     types.ValBool(true),
 		})
 
 		flat, err := abi.LowerFlat(nil, recordType, val)
@@ -270,10 +270,10 @@ func TestRecordFieldNames(t *testing.T) {
 			},
 		}
 
-		val := component.ValRecord(map[string]component.Val{
-			"a": component.ValS32(1),
-			"b": component.ValS32(2),
-			"c": component.ValS32(3),
+		val := types.ValRecord(map[string]types.Val{
+			"a": types.ValS32(1),
+			"b": types.ValS32(2),
+			"c": types.ValS32(3),
 		})
 
 		flat, err := abi.LowerFlat(nil, recordType, val)
@@ -299,9 +299,9 @@ func TestRecordFieldNames(t *testing.T) {
 			},
 		}
 
-		val := component.ValRecord(map[string]component.Val{
-			"this-is-a-very-long-field-name-for-testing": component.ValS32(42),
-			"another-extremely-long-field-name-value":    component.ValU64(12345678901234),
+		val := types.ValRecord(map[string]types.Val{
+			"this-is-a-very-long-field-name-for-testing": types.ValS32(42),
+			"another-extremely-long-field-name-value":    types.ValU64(12345678901234),
 		})
 
 		flat, err := abi.LowerFlat(nil, recordType, val)
@@ -327,7 +327,7 @@ func TestRecordFieldNames(t *testing.T) {
 func TestListElementEdgeCases(t *testing.T) {
 	t.Run("empty_list", func(t *testing.T) {
 		listType := types.List{Element: types.S32{}}
-		val := component.ValList([]component.Val{})
+		val := types.ValList([]types.Val{})
 
 		flat, err := abi.LowerFlat(nil, listType, val)
 		require.NoError(t, err)
@@ -356,8 +356,8 @@ func TestListElementEdgeCases(t *testing.T) {
 			},
 		}
 
-		val := component.ValList([]component.Val{
-			component.ValS32(42),
+		val := types.ValList([]types.Val{
+			types.ValS32(42),
 		})
 
 		flat, err := abi.LowerFlat(ctx, listType, val)
@@ -381,10 +381,10 @@ func TestListElementEdgeCases(t *testing.T) {
 			},
 		}
 
-		val := component.ValList([]component.Val{
-			component.ValBool(true),
-			component.ValBool(false),
-			component.ValBool(true),
+		val := types.ValList([]types.Val{
+			types.ValBool(true),
+			types.ValBool(false),
+			types.ValBool(true),
 		})
 
 		flat, err := abi.LowerFlat(ctx, listType, val)
@@ -407,9 +407,9 @@ func TestListElementEdgeCases(t *testing.T) {
 			},
 		}
 
-		val := component.ValList([]component.Val{
-			component.ValU64(math.MaxUint64),
-			component.ValU64(0),
+		val := types.ValList([]types.Val{
+			types.ValU64(math.MaxUint64),
+			types.ValU64(0),
 		})
 
 		flat, err := abi.LowerFlat(ctx, listType, val)
@@ -432,9 +432,9 @@ func TestListElementEdgeCases(t *testing.T) {
 			},
 		}
 
-		val := component.ValList([]component.Val{
-			component.ValF32(3.14159),
-			component.ValF32(-2.71828),
+		val := types.ValList([]types.Val{
+			types.ValF32(3.14159),
+			types.ValF32(-2.71828),
 		})
 
 		flat, err := abi.LowerFlat(ctx, listType, val)
@@ -445,11 +445,11 @@ func TestListElementEdgeCases(t *testing.T) {
 	t.Run("list_type_properties", func(t *testing.T) {
 		// Verify list properties for various element types
 		tests := []struct {
-			name        string
-			elemType    types.ValType
-			elemSize    uint32
-			elemAlign   uint32
-			flattenCnt  int
+			name       string
+			elemType   types.ValType
+			elemSize   uint32
+			elemAlign  uint32
+			flattenCnt int
 		}{
 			{"list<bool>", types.Bool{}, 1, 1, 2},
 			{"list<u8>", types.U8{}, 1, 1, 2},
@@ -483,7 +483,7 @@ func TestVariantPayloadTypes(t *testing.T) {
 		}
 
 		t.Run("none_case", func(t *testing.T) {
-			val := component.ValVariant("none", nil)
+			val := types.ValVariant("none", nil)
 			flat, err := abi.LowerFlat(nil, variantType, val)
 			require.NoError(t, err)
 			require.Equal(t, uint64(0), flat[0], "discriminant should be 0")
@@ -497,8 +497,8 @@ func TestVariantPayloadTypes(t *testing.T) {
 		})
 
 		t.Run("some_case", func(t *testing.T) {
-			payload := component.ValU64(0xDEADBEEF12345678)
-			val := component.ValVariant("some-u64", &payload)
+			payload := types.ValU64(0xDEADBEEF12345678)
+			val := types.ValVariant("some-u64", &payload)
 
 			flat, err := abi.LowerFlat(nil, variantType, val)
 			require.NoError(t, err)
@@ -523,8 +523,8 @@ func TestVariantPayloadTypes(t *testing.T) {
 		}
 
 		t.Run("float_case", func(t *testing.T) {
-			payload := component.ValF64(3.14159265358979)
-			val := component.ValVariant("float-val", &payload)
+			payload := types.ValF64(3.14159265358979)
+			val := types.ValVariant("float-val", &payload)
 
 			flat, err := abi.LowerFlat(nil, variantType, val)
 			require.NoError(t, err)
@@ -554,11 +554,11 @@ func TestVariantPayloadTypes(t *testing.T) {
 			},
 		}
 
-		recordPayload := component.ValRecord(map[string]component.Val{
-			"x": component.ValS32(10),
-			"y": component.ValS32(20),
+		recordPayload := types.ValRecord(map[string]types.Val{
+			"x": types.ValS32(10),
+			"y": types.ValS32(20),
 		})
-		val := component.ValVariant("point", &recordPayload)
+		val := types.ValVariant("point", &recordPayload)
 
 		flat, err := abi.LowerFlat(nil, variantType, val)
 		require.NoError(t, err)
@@ -590,8 +590,8 @@ func TestVariantPayloadTypes(t *testing.T) {
 
 		// Test smallest payload
 		t.Run("byte_case", func(t *testing.T) {
-			payload := component.ValU8(255)
-			val := component.ValVariant("byte", &payload)
+			payload := types.ValU8(255)
+			val := types.ValVariant("byte", &payload)
 
 			flat, err := abi.LowerFlat(nil, variantType, val)
 			require.NoError(t, err)
@@ -606,8 +606,8 @@ func TestVariantPayloadTypes(t *testing.T) {
 
 		// Test largest payload
 		t.Run("qword_case", func(t *testing.T) {
-			payload := component.ValU64(math.MaxUint64)
-			val := component.ValVariant("qword", &payload)
+			payload := types.ValU64(math.MaxUint64)
+			val := types.ValVariant("qword", &payload)
 
 			flat, err := abi.LowerFlat(nil, variantType, val)
 			require.NoError(t, err)
@@ -633,8 +633,8 @@ func TestResultErrorTypes(t *testing.T) {
 		}
 
 		t.Run("ok_case", func(t *testing.T) {
-			okVal := component.ValU32(42)
-			val := component.ValResultOk(&okVal)
+			okVal := types.ValU32(42)
+			val := types.ValResultOk(&okVal)
 
 			flat, err := abi.LowerFlat(nil, resultType, val)
 			require.NoError(t, err)
@@ -665,8 +665,8 @@ func TestResultErrorTypes(t *testing.T) {
 		}
 
 		t.Run("ok_case", func(t *testing.T) {
-			okVal := component.ValBool(true)
-			val := component.ValResultOk(&okVal)
+			okVal := types.ValBool(true)
+			val := types.ValResultOk(&okVal)
 
 			flat, err := abi.LowerFlat(nil, resultType, val)
 			require.NoError(t, err)
@@ -680,11 +680,11 @@ func TestResultErrorTypes(t *testing.T) {
 		})
 
 		t.Run("error_case", func(t *testing.T) {
-			errVal := component.ValRecord(map[string]component.Val{
-				"code": component.ValS32(-1),
-				"line": component.ValU32(100),
+			errVal := types.ValRecord(map[string]types.Val{
+				"code": types.ValS32(-1),
+				"line": types.ValU32(100),
 			})
-			val := component.ValResultError(&errVal)
+			val := types.ValResultError(&errVal)
 
 			flat, err := abi.LowerFlat(nil, resultType, val)
 			require.NoError(t, err)
@@ -712,8 +712,8 @@ func TestResultErrorTypes(t *testing.T) {
 		}
 
 		t.Run("error_not_found", func(t *testing.T) {
-			errVal := component.ValEnum("not-found")
-			val := component.ValResultError(&errVal)
+			errVal := types.ValEnum("not-found")
+			val := types.ValResultError(&errVal)
 
 			flat, err := abi.LowerFlat(nil, resultType, val)
 			require.NoError(t, err)
@@ -727,8 +727,8 @@ func TestResultErrorTypes(t *testing.T) {
 		})
 
 		t.Run("error_timeout", func(t *testing.T) {
-			errVal := component.ValEnum("timeout")
-			val := component.ValResultError(&errVal)
+			errVal := types.ValEnum("timeout")
+			val := types.ValResultError(&errVal)
 
 			flat, err := abi.LowerFlat(nil, resultType, val)
 			require.NoError(t, err)
@@ -750,7 +750,7 @@ func TestResultErrorTypes(t *testing.T) {
 		}
 
 		t.Run("ok_case", func(t *testing.T) {
-			val := component.ValResultOk(nil)
+			val := types.ValResultOk(nil)
 
 			flat, err := abi.LowerFlat(nil, resultType, val)
 			require.NoError(t, err)
@@ -764,8 +764,8 @@ func TestResultErrorTypes(t *testing.T) {
 		})
 
 		t.Run("error_case", func(t *testing.T) {
-			errVal := component.ValS32(-42)
-			val := component.ValResultError(&errVal)
+			errVal := types.ValS32(-42)
+			val := types.ValResultError(&errVal)
 
 			flat, err := abi.LowerFlat(nil, resultType, val)
 			require.NoError(t, err)
@@ -790,10 +790,10 @@ func TestDeepTypeResolution(t *testing.T) {
 		level3 := types.Option{Some: level2}
 
 		t.Run("all_some", func(t *testing.T) {
-			innerVal := component.ValS32(42)
-			level1Val := component.ValOption(&innerVal)
-			level2Val := component.ValOption(&level1Val)
-			level3Val := component.ValOption(&level2Val)
+			innerVal := types.ValS32(42)
+			level1Val := types.ValOption(&innerVal)
+			level2Val := types.ValOption(&level1Val)
+			level3Val := types.ValOption(&level2Val)
 
 			flat, err := abi.LowerFlat(nil, level3, level3Val)
 			require.NoError(t, err)
@@ -813,7 +813,7 @@ func TestDeepTypeResolution(t *testing.T) {
 		})
 
 		t.Run("outer_none", func(t *testing.T) {
-			val := component.ValOption(nil)
+			val := types.ValOption(nil)
 
 			flat, err := abi.LowerFlat(nil, level3, val)
 			require.NoError(t, err)
@@ -831,9 +831,9 @@ func TestDeepTypeResolution(t *testing.T) {
 		outerResult := types.Result{Ok: innerResult, Error: types.Bool{}}
 
 		t.Run("outer_ok_inner_ok", func(t *testing.T) {
-			innerOk := component.ValS32(100)
-			innerResultVal := component.ValResultOk(&innerOk)
-			outerVal := component.ValResultOk(&innerResultVal)
+			innerOk := types.ValS32(100)
+			innerResultVal := types.ValResultOk(&innerOk)
+			outerVal := types.ValResultOk(&innerResultVal)
 
 			flat, err := abi.LowerFlat(nil, outerResult, outerVal)
 			require.NoError(t, err)
@@ -850,9 +850,9 @@ func TestDeepTypeResolution(t *testing.T) {
 		})
 
 		t.Run("outer_ok_inner_error", func(t *testing.T) {
-			innerErr := component.ValU32(404)
-			innerResultVal := component.ValResultError(&innerErr)
-			outerVal := component.ValResultOk(&innerResultVal)
+			innerErr := types.ValU32(404)
+			innerResultVal := types.ValResultError(&innerErr)
+			outerVal := types.ValResultOk(&innerResultVal)
 
 			flat, err := abi.LowerFlat(nil, outerResult, outerVal)
 			require.NoError(t, err)
@@ -880,9 +880,9 @@ func TestDeepTypeResolution(t *testing.T) {
 			Types: []types.ValType{variantType, types.Bool{}},
 		}
 
-		payload := component.ValU64(12345)
-		variantVal := component.ValVariant("b", &payload)
-		tupleVal := component.ValTuple([]component.Val{variantVal, component.ValBool(true)})
+		payload := types.ValU64(12345)
+		variantVal := types.ValVariant("b", &payload)
+		tupleVal := types.ValTuple([]types.Val{variantVal, types.ValBool(true)})
 
 		flat, err := abi.LowerFlat(nil, tupleType, tupleVal)
 		require.NoError(t, err)
@@ -911,12 +911,12 @@ func TestDeepTypeResolution(t *testing.T) {
 			},
 		}
 
-		innerVal := component.ValS32(42)
-		optionVal := component.ValOption(&innerVal)
-		recordVal := component.ValRecord(map[string]component.Val{
-			"id":     component.ValU64(123),
+		innerVal := types.ValS32(42)
+		optionVal := types.ValOption(&innerVal)
+		recordVal := types.ValRecord(map[string]types.Val{
+			"id":     types.ValU64(123),
 			"value":  optionVal,
-			"active": component.ValBool(true),
+			"active": types.ValBool(true),
 		})
 
 		flat, err := abi.LowerFlat(nil, recordType, recordVal)
@@ -959,10 +959,10 @@ func TestReallocIntegration(t *testing.T) {
 		}
 
 		listType := types.List{Element: types.S32{}}
-		listVal := component.ValList([]component.Val{
-			component.ValS32(1),
-			component.ValS32(2),
-			component.ValS32(3),
+		listVal := types.ValList([]types.Val{
+			types.ValS32(1),
+			types.ValS32(2),
+			types.ValS32(3),
 		})
 
 		_, err := abi.LowerFlat(ctx, listType, listVal)
@@ -982,15 +982,15 @@ func TestReallocIntegration(t *testing.T) {
 		}
 
 		// Primitives don't need realloc
-		_, err := abi.LowerFlat(ctx, types.S32{}, component.ValS32(42))
+		_, err := abi.LowerFlat(ctx, types.S32{}, types.ValS32(42))
 		require.NoError(t, err)
 		require.False(t, reallocCalled, "realloc should not be called for primitives")
 
-		_, err = abi.LowerFlat(ctx, types.U64{}, component.ValU64(123))
+		_, err = abi.LowerFlat(ctx, types.U64{}, types.ValU64(123))
 		require.NoError(t, err)
 		require.False(t, reallocCalled, "realloc should not be called for primitives")
 
-		_, err = abi.LowerFlat(ctx, types.F64{}, component.ValF64(3.14))
+		_, err = abi.LowerFlat(ctx, types.F64{}, types.ValF64(3.14))
 		require.NoError(t, err)
 		require.False(t, reallocCalled, "realloc should not be called for primitives")
 	})
@@ -1010,9 +1010,9 @@ func TestReallocIntegration(t *testing.T) {
 		}
 
 		listType := types.List{Element: types.U64{}}
-		listVal := component.ValList([]component.Val{
-			component.ValU64(1),
-			component.ValU64(2),
+		listVal := types.ValList([]types.Val{
+			types.ValU64(1),
+			types.ValU64(2),
 		})
 
 		_, err := abi.LowerFlat(ctx, listType, listVal)

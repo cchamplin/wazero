@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -18,7 +19,7 @@ import (
 // TestPostReturn_BorrowsReleasedBeforeReturn tests that borrows must be released
 // (numBorrows==0) before returning. This is a fundamental invariant of the Canonical ABI.
 func TestPostReturn_BorrowsReleasedBeforeReturn(t *testing.T) {
-	ctx := component.NewCallContext()
+	ctx := runtime.NewCallContext()
 
 	// Initially, no borrows - can return
 	require.True(t, ctx.CanReturn())
@@ -30,7 +31,7 @@ func TestPostReturn_BorrowsReleasedBeforeReturn(t *testing.T) {
 	// Cannot return with outstanding borrow
 	require.False(t, ctx.CanReturn())
 	require.Error(t, ctx.ValidateReturn())
-	require.ErrorIs(t, ctx.ValidateReturn(), component.ErrOutstandingBorrows)
+	require.ErrorIs(t, ctx.ValidateReturn(), runtime.ErrOutstandingBorrows)
 
 	// Release the borrow
 	ctx.DecrementBorrows()
@@ -43,18 +44,18 @@ func TestPostReturn_BorrowsReleasedBeforeReturn(t *testing.T) {
 // TestPostReturn_ValidateReturn tests the ValidateReturn() behavior with various states.
 func TestPostReturn_ValidateReturn(t *testing.T) {
 	t.Run("fresh context can return", func(t *testing.T) {
-		ctx := component.NewCallContext()
+		ctx := runtime.NewCallContext()
 		err := ctx.ValidateReturn()
 		require.NoError(t, err)
 	})
 
 	t.Run("single borrow prevents return", func(t *testing.T) {
-		ctx := component.NewCallContext()
+		ctx := runtime.NewCallContext()
 		ctx.IncrementBorrows()
 
 		err := ctx.ValidateReturn()
 		require.Error(t, err)
-		require.ErrorIs(t, err, component.ErrOutstandingBorrows)
+		require.ErrorIs(t, err, runtime.ErrOutstandingBorrows)
 
 		ctx.DecrementBorrows()
 		err = ctx.ValidateReturn()
@@ -62,7 +63,7 @@ func TestPostReturn_ValidateReturn(t *testing.T) {
 	})
 
 	t.Run("multiple borrows all must be released", func(t *testing.T) {
-		ctx := component.NewCallContext()
+		ctx := runtime.NewCallContext()
 		ctx.IncrementBorrows()
 		ctx.IncrementBorrows()
 		ctx.IncrementBorrows()
@@ -91,7 +92,7 @@ func TestPostReturn_ValidateReturn(t *testing.T) {
 // TestPostReturn_CanReturn tests the CanReturn() method which is the boolean
 // equivalent of ValidateReturn().
 func TestPostReturn_CanReturn(t *testing.T) {
-	ctx := component.NewCallContext()
+	ctx := runtime.NewCallContext()
 
 	// Fresh context
 	require.True(t, ctx.CanReturn())
@@ -115,7 +116,7 @@ func TestPostReturn_CanReturn(t *testing.T) {
 
 // TestPostReturn_NumBorrowsTracking tests that NumBorrows() accurately tracks the count.
 func TestPostReturn_NumBorrowsTracking(t *testing.T) {
-	ctx := component.NewCallContext()
+	ctx := runtime.NewCallContext()
 
 	require.Equal(t, 0, ctx.NumBorrows())
 
@@ -135,9 +136,9 @@ func TestPostReturn_NumBorrowsTracking(t *testing.T) {
 // TestPostReturn_MultipleCallContextsIndependent tests that separate call contexts
 // maintain independent borrow counts.
 func TestPostReturn_MultipleCallContextsIndependent(t *testing.T) {
-	ctx1 := component.NewCallContext()
-	ctx2 := component.NewCallContext()
-	ctx3 := component.NewCallContext()
+	ctx1 := runtime.NewCallContext()
+	ctx2 := runtime.NewCallContext()
+	ctx3 := runtime.NewCallContext()
 
 	// Add borrows to ctx1 only
 	ctx1.IncrementBorrows()
@@ -165,7 +166,7 @@ func TestPostReturn_SimulateHostCallWithBorrows(t *testing.T) {
 	// with borrow<T> parameters
 
 	// Create call context for this call
-	ctx := component.NewCallContext()
+	ctx := runtime.NewCallContext()
 
 	// Simulate: func process(a: borrow<X>, b: borrow<Y>) -> s32
 	// Two borrowed parameters means two borrows to track
@@ -194,12 +195,12 @@ func TestPostReturn_SimulateHostCallWithBorrows(t *testing.T) {
 
 // TestPostReturn_ErrOutstandingBorrows tests the error type and message.
 func TestPostReturn_ErrOutstandingBorrows(t *testing.T) {
-	ctx := component.NewCallContext()
+	ctx := runtime.NewCallContext()
 	ctx.IncrementBorrows()
 
 	err := ctx.ValidateReturn()
 	require.Error(t, err)
-	require.ErrorIs(t, err, component.ErrOutstandingBorrows)
+	require.ErrorIs(t, err, runtime.ErrOutstandingBorrows)
 
 	// Check the error message is informative
 	require.Contains(t, err.Error(), "borrow")
@@ -211,14 +212,14 @@ func TestPostReturn_IntegrationWithResourceTable(t *testing.T) {
 	// This test shows how CallContext works together with ResourceTable
 	// in a realistic scenario
 
-	table := component.NewResourceTable()
-	ctx := component.NewCallContext()
+	table := runtime.NewResourceTable()
+	ctx := runtime.NewCallContext()
 
 	// Create an owned resource
 	handle := table.New("my-resource-data", true)
 
 	// Create a borrow scope for tracking lends
-	scope := component.NewBorrowScope(table)
+	scope := runtime.NewBorrowScope(table)
 
 	// Simulate: guest passes borrow<T> to host
 	// lift_borrow increments lends on the original resource
@@ -236,7 +237,7 @@ func TestPostReturn_IntegrationWithResourceTable(t *testing.T) {
 
 	// Original resource cannot be dropped while borrowed
 	_, err = table.Remove(handle)
-	require.ErrorIs(t, err, component.ErrResourceInUse)
+	require.ErrorIs(t, err, runtime.ErrResourceInUse)
 
 	// Host function finishes using the borrow
 	ctx.DecrementBorrows()
@@ -258,11 +259,11 @@ func TestPostReturn_IntegrationWithResourceTable(t *testing.T) {
 // TestPostReturn_NestedCalls tests that nested calls have independent contexts.
 func TestPostReturn_NestedCalls(t *testing.T) {
 	// Outer call receives a borrow
-	outerCtx := component.NewCallContext()
+	outerCtx := runtime.NewCallContext()
 	outerCtx.IncrementBorrows()
 
 	// Outer call makes a nested call that also receives a borrow
-	innerCtx := component.NewCallContext()
+	innerCtx := runtime.NewCallContext()
 	innerCtx.IncrementBorrows()
 
 	// Inner call finishes and releases its borrow
@@ -283,7 +284,7 @@ func TestPostReturn_NestedCalls(t *testing.T) {
 // TestPostReturn_ZeroBorrowsIdempotent tests that ValidateReturn is idempotent
 // when there are no borrows.
 func TestPostReturn_ZeroBorrowsIdempotent(t *testing.T) {
-	ctx := component.NewCallContext()
+	ctx := runtime.NewCallContext()
 
 	// Multiple calls to ValidateReturn should all succeed
 	require.NoError(t, ctx.ValidateReturn())
@@ -297,7 +298,7 @@ func TestPostReturn_ZeroBorrowsIdempotent(t *testing.T) {
 
 // TestPostReturn_LargeBorrowCount tests handling a large number of borrows.
 func TestPostReturn_LargeBorrowCount(t *testing.T) {
-	ctx := component.NewCallContext()
+	ctx := runtime.NewCallContext()
 
 	const numBorrows = 1000
 
@@ -322,7 +323,7 @@ func TestPostReturn_LargeBorrowCount(t *testing.T) {
 // TestPostReturn_ReusableContext tests that a context can be reused across
 // multiple logical call cycles.
 func TestPostReturn_ReusableContext(t *testing.T) {
-	ctx := component.NewCallContext()
+	ctx := runtime.NewCallContext()
 
 	// First call cycle
 	ctx.IncrementBorrows()

@@ -45,6 +45,8 @@ import (
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 // Request represents a host-side request resource.
@@ -180,7 +182,7 @@ func TestServiceMiddlewareComposition_InstantiateService(t *testing.T) {
 	defer compiledService.Close(ctx)
 
 	// Set up resource table and logger tracking
-	resourceTable := component.NewResourceTable()
+	resourceTable := runtime.NewResourceTable()
 	testCtx := component.WithResourceTable(ctx, resourceTable)
 
 	// Create a shared logger for the test
@@ -248,7 +250,7 @@ func TestServiceMiddlewareComposition_FullComposition(t *testing.T) {
 	defer compiledMiddleware.Close(ctx)
 
 	// Set up shared resource table and logger
-	resourceTable := component.NewResourceTable()
+	resourceTable := runtime.NewResourceTable()
 	testCtx := component.WithResourceTable(ctx, resourceTable)
 	sharedLogger := NewLogger()
 
@@ -341,7 +343,7 @@ func TestServiceMiddlewareComposition_FullComposition(t *testing.T) {
 	t.Logf("Created request handle: %d", requestHandle)
 
 	// Call the middleware's execute function
-	result, err := middlewareHandlerExecute.Call(testCtx, component.ValOwn(uint32(requestHandle)))
+	result, err := middlewareHandlerExecute.Call(testCtx, types.ValOwn(uint32(requestHandle)))
 	if err != nil {
 		t.Skipf("middleware execute call failed: %v", err)
 	}
@@ -369,7 +371,7 @@ func TestServiceMiddlewareComposition_FullComposition(t *testing.T) {
 	t.Logf("Got response handle: %d", responseHandle)
 
 	// Retrieve the response from resource table
-	responseEntry, err := resourceTable.Get(component.Handle(responseHandle))
+	responseEntry, err := resourceTable.Get(runtime.Handle(responseHandle))
 	if err != nil {
 		t.Fatalf("Failed to get response from resource table: %v", err)
 	}
@@ -432,7 +434,7 @@ func TestServiceMiddlewareComposition_ErrorHandling(t *testing.T) {
 }
 
 // Helper function to define the logging interface for a linker
-func defineLoggingInterface(linker *component.ComponentLinker, table *component.ResourceTable, sharedLogger *Logger) error {
+func defineLoggingInterface(linker *component.ComponentLinker, table *runtime.ResourceTable, sharedLogger *Logger) error {
 	// Use basic Linker for FuncNoType support, then merge into ComponentLinker
 	basicLinker := component.NewLinker()
 
@@ -441,17 +443,17 @@ func defineLoggingInterface(linker *component.ComponentLinker, table *component.
 		Resource("logger", func(rep uint32) {
 			// Destructor - nothing to clean up for logger
 		}).
-		FuncNoType("get-logger", func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+		FuncNoType("get-logger", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			rt := component.ResourceTableFromContext(ctx)
 			if rt == nil {
 				rt = table
 			}
 			handle := rt.New(sharedLogger, true)
-			return []component.Val{component.ValOwn(uint32(handle))}, nil
+			return []types.Val{types.ValOwn(uint32(handle))}, nil
 		}).
-		FuncNoType("[method]logger.log", func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+		FuncNoType("[method]logger.log", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			if len(args) < 2 {
-				return []component.Val{}, nil
+				return []types.Val{}, nil
 			}
 
 			rt := component.ResourceTableFromContext(ctx)
@@ -463,9 +465,9 @@ func defineLoggingInterface(linker *component.ComponentLinker, table *component.
 			borrowHandle := args[0].Borrow()
 			message := args[1].StringVal()
 
-			entry, err := rt.Get(component.Handle(borrowHandle))
+			entry, err := rt.Get(runtime.Handle(borrowHandle))
 			if err != nil {
-				return []component.Val{}, nil
+				return []types.Val{}, nil
 			}
 
 			logger, ok := entry.Rep.(*Logger)
@@ -473,7 +475,7 @@ func defineLoggingInterface(linker *component.ComponentLinker, table *component.
 				logger.Log(message)
 			}
 
-			return []component.Val{}, nil
+			return []types.Val{}, nil
 		}).
 		SkipValidation().
 		Build()
@@ -487,7 +489,7 @@ func defineLoggingInterface(linker *component.ComponentLinker, table *component.
 }
 
 // Helper function to define the types interface for a linker
-func defineTypesInterface(linker *component.ComponentLinker, table *component.ResourceTable) error {
+func defineTypesInterface(linker *component.ComponentLinker, table *runtime.ResourceTable) error {
 	// Use basic Linker for FuncNoType support, then merge into ComponentLinker
 	basicLinker := component.NewLinker()
 
@@ -499,7 +501,7 @@ func defineTypesInterface(linker *component.ComponentLinker, table *component.Re
 		Resource("response", func(rep uint32) {
 			// Destructor
 		}).
-		FuncNoType("[constructor]request", func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+		FuncNoType("[constructor]request", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			rt := component.ResourceTableFromContext(ctx)
 			if rt == nil {
 				rt = table
@@ -541,73 +543,73 @@ func defineTypesInterface(linker *component.ComponentLinker, table *component.Re
 
 			req := NewRequest(headers, body)
 			handle := rt.New(req, true)
-			return []component.Val{component.ValOwn(uint32(handle))}, nil
+			return []types.Val{types.ValOwn(uint32(handle))}, nil
 		}).
-		FuncNoType("[method]request.headers", func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+		FuncNoType("[method]request.headers", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			rt := component.ResourceTableFromContext(ctx)
 			if rt == nil {
 				rt = table
 			}
 
 			borrowHandle := args[0].Borrow()
-			entry, err := rt.Get(component.Handle(borrowHandle))
+			entry, err := rt.Get(runtime.Handle(borrowHandle))
 			if err != nil {
-				return []component.Val{component.ValList([]component.Val{})}, nil
+				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 
 			req, ok := entry.Rep.(*Request)
 			if !ok {
-				return []component.Val{component.ValList([]component.Val{})}, nil
+				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 
 			// Convert headers to list<tuple<list<u8>, list<u8>>>
-			var tuples []component.Val
+			var tuples []types.Val
 			for i := 0; i+1 < len(req.headers); i += 2 {
 				key := req.headers[i]
 				val := req.headers[i+1]
 
-				keyVals := make([]component.Val, len(key))
+				keyVals := make([]types.Val, len(key))
 				for j, b := range key {
-					keyVals[j] = component.ValU8(b)
+					keyVals[j] = types.ValU8(b)
 				}
-				valVals := make([]component.Val, len(val))
+				valVals := make([]types.Val, len(val))
 				for j, b := range val {
-					valVals[j] = component.ValU8(b)
+					valVals[j] = types.ValU8(b)
 				}
 
-				tuples = append(tuples, component.ValTuple([]component.Val{
-					component.ValList(keyVals),
-					component.ValList(valVals),
+				tuples = append(tuples, types.ValTuple([]types.Val{
+					types.ValList(keyVals),
+					types.ValList(valVals),
 				}))
 			}
 
-			return []component.Val{component.ValList(tuples)}, nil
+			return []types.Val{types.ValList(tuples)}, nil
 		}).
-		FuncNoType("[method]request.body", func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+		FuncNoType("[method]request.body", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			rt := component.ResourceTableFromContext(ctx)
 			if rt == nil {
 				rt = table
 			}
 
 			borrowHandle := args[0].Borrow()
-			entry, err := rt.Get(component.Handle(borrowHandle))
+			entry, err := rt.Get(runtime.Handle(borrowHandle))
 			if err != nil {
-				return []component.Val{component.ValList([]component.Val{})}, nil
+				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 
 			req, ok := entry.Rep.(*Request)
 			if !ok {
-				return []component.Val{component.ValList([]component.Val{})}, nil
+				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 
-			bodyVals := make([]component.Val, len(req.body))
+			bodyVals := make([]types.Val, len(req.body))
 			for i, b := range req.body {
-				bodyVals[i] = component.ValU8(b)
+				bodyVals[i] = types.ValU8(b)
 			}
 
-			return []component.Val{component.ValList(bodyVals)}, nil
+			return []types.Val{types.ValList(bodyVals)}, nil
 		}).
-		FuncNoType("[constructor]response", func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+		FuncNoType("[constructor]response", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			rt := component.ResourceTableFromContext(ctx)
 			if rt == nil {
 				rt = table
@@ -647,79 +649,79 @@ func defineTypesInterface(linker *component.ComponentLinker, table *component.Re
 
 			resp := NewResponse(headers, body)
 			handle := rt.New(resp, true)
-			return []component.Val{component.ValOwn(uint32(handle))}, nil
+			return []types.Val{types.ValOwn(uint32(handle))}, nil
 		}).
-		FuncNoType("[method]response.headers", func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+		FuncNoType("[method]response.headers", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			rt := component.ResourceTableFromContext(ctx)
 			if rt == nil {
 				rt = table
 			}
 
 			borrowHandle := args[0].Borrow()
-			entry, err := rt.Get(component.Handle(borrowHandle))
+			entry, err := rt.Get(runtime.Handle(borrowHandle))
 			if err != nil {
-				return []component.Val{component.ValList([]component.Val{})}, nil
+				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 
 			resp, ok := entry.Rep.(*Response)
 			if !ok {
-				return []component.Val{component.ValList([]component.Val{})}, nil
+				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 
 			// Convert headers to list<tuple<list<u8>, list<u8>>>
-			var tuples []component.Val
+			var tuples []types.Val
 			for i := 0; i+1 < len(resp.headers); i += 2 {
 				key := resp.headers[i]
 				val := resp.headers[i+1]
 
-				keyVals := make([]component.Val, len(key))
+				keyVals := make([]types.Val, len(key))
 				for j, b := range key {
-					keyVals[j] = component.ValU8(b)
+					keyVals[j] = types.ValU8(b)
 				}
-				valVals := make([]component.Val, len(val))
+				valVals := make([]types.Val, len(val))
 				for j, b := range val {
-					valVals[j] = component.ValU8(b)
+					valVals[j] = types.ValU8(b)
 				}
 
-				tuples = append(tuples, component.ValTuple([]component.Val{
-					component.ValList(keyVals),
-					component.ValList(valVals),
+				tuples = append(tuples, types.ValTuple([]types.Val{
+					types.ValList(keyVals),
+					types.ValList(valVals),
 				}))
 			}
 
-			return []component.Val{component.ValList(tuples)}, nil
+			return []types.Val{types.ValList(tuples)}, nil
 		}).
-		FuncNoType("[method]response.body", func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+		FuncNoType("[method]response.body", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			rt := component.ResourceTableFromContext(ctx)
 			if rt == nil {
 				rt = table
 			}
 
 			borrowHandle := args[0].Borrow()
-			entry, err := rt.Get(component.Handle(borrowHandle))
+			entry, err := rt.Get(runtime.Handle(borrowHandle))
 			if err != nil {
-				return []component.Val{component.ValList([]component.Val{})}, nil
+				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 
 			resp, ok := entry.Rep.(*Response)
 			if !ok {
-				return []component.Val{component.ValList([]component.Val{})}, nil
+				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 
-			bodyVals := make([]component.Val, len(resp.body))
+			bodyVals := make([]types.Val, len(resp.body))
 			for i, b := range resp.body {
-				bodyVals[i] = component.ValU8(b)
+				bodyVals[i] = types.ValU8(b)
 			}
 
-			return []component.Val{component.ValList(bodyVals)}, nil
+			return []types.Val{types.ValList(bodyVals)}, nil
 		}).
-		FuncNoType("[resource-drop]request", func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+		FuncNoType("[resource-drop]request", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			// Resource drop is handled by the destructor
-			return []component.Val{}, nil
+			return []types.Val{}, nil
 		}).
-		FuncNoType("[resource-drop]response", func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+		FuncNoType("[resource-drop]response", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			// Resource drop is handled by the destructor
-			return []component.Val{}, nil
+			return []types.Val{}, nil
 		}).
 		SkipValidation().
 		Build()
@@ -733,13 +735,13 @@ func defineTypesInterface(linker *component.ComponentLinker, table *component.Re
 }
 
 // Helper function to define the handler interface that forwards to a service
-func defineHandlerInterface(linker *component.ComponentLinker, serviceExecute *component.ExportedFunc, table *component.ResourceTable) error {
+func defineHandlerInterface(linker *component.ComponentLinker, serviceExecute *component.ExportedFunc, table *runtime.ResourceTable) error {
 	// Use basic Linker for FuncNoType support, then merge into ComponentLinker
 	basicLinker := component.NewLinker()
 
 	// Define example:service/handler@0.1.0
 	err := basicLinker.DefineInstance("example:service/handler@0.1.0").
-		FuncNoType("execute", func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+		FuncNoType("execute", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 			// Forward the call to the service's execute function
 			return serviceExecute.Call(ctx, args...)
 		}).
@@ -753,4 +755,3 @@ func defineHandlerInterface(linker *component.ComponentLinker, serviceExecute *c
 	linker.MergeFrom(basicLinker)
 	return nil
 }
-

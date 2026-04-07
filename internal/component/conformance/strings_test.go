@@ -113,7 +113,7 @@ func TestStringsUTF8Roundtrip(t *testing.T) {
 			iter := abi.NewFlatIter([]uint64{uint64(ptr), uint64(length)})
 			lifted, err := abi.LiftFlat(liftCtx, types.String{}, iter)
 			require.NoError(t, err)
-			require.Equal(t, component.ValKindString, lifted.Kind())
+			require.Equal(t, types.ValKindString, lifted.Kind())
 			require.Equal(t, tc.s, lifted.StringVal())
 		})
 	}
@@ -150,7 +150,7 @@ func TestStringsUTF16Roundtrip(t *testing.T) {
 			iter := abi.NewFlatIter([]uint64{uint64(ptr), uint64(codeUnits)})
 			lifted, err := abi.LiftFlat(liftCtx, types.String{}, iter)
 			require.NoError(t, err)
-			require.Equal(t, component.ValKindString, lifted.Kind())
+			require.Equal(t, types.ValKindString, lifted.Kind())
 			require.Equal(t, tc.s, lifted.StringVal())
 		})
 	}
@@ -187,7 +187,7 @@ func TestStringsLatin1UTF16Roundtrip(t *testing.T) {
 			iter := abi.NewFlatIter([]uint64{uint64(ptr), uint64(taggedLen)})
 			lifted, err := abi.LiftFlat(liftCtx, types.String{}, iter)
 			require.NoError(t, err)
-			require.Equal(t, component.ValKindString, lifted.Kind())
+			require.Equal(t, types.ValKindString, lifted.Kind())
 			require.Equal(t, tc.s, lifted.StringVal())
 		})
 	}
@@ -232,8 +232,8 @@ func TestStringsLatin1UTF16Compression(t *testing.T) {
 	// Non-Latin-1 strings should use UTF-16
 	nonLatin1 := []string{
 		"\u03B1\u03B2\u03B3", // Greek
-		"\u4E2D\u6587",      // Chinese
-		"hello \U0001F600",  // Emoji
+		"\u4E2D\u6587",       // Chinese
+		"hello \U0001F600",   // Emoji
 	}
 
 	for _, s := range nonLatin1 {
@@ -422,10 +422,10 @@ func TestStringsInvalidUTF8(t *testing.T) {
 		data []byte
 	}{
 		{"single_ff", []byte{0xFF}},
-		{"incomplete_2byte", []byte{0xC2}},           // Start of 2-byte sequence without continuation
-		{"incomplete_3byte", []byte{0xE0, 0x80}},     // Start of 3-byte without full continuation
-		{"invalid_continuation", []byte{0x80}},      // Continuation byte without starter
-		{"overlong_null", []byte{0xC0, 0x80}},       // Overlong encoding of NUL
+		{"incomplete_2byte", []byte{0xC2}},             // Start of 2-byte sequence without continuation
+		{"incomplete_3byte", []byte{0xE0, 0x80}},       // Start of 3-byte without full continuation
+		{"invalid_continuation", []byte{0x80}},         // Continuation byte without starter
+		{"overlong_null", []byte{0xC0, 0x80}},          // Overlong encoding of NUL
 		{"invalid_f5", []byte{0xF5, 0x80, 0x80, 0x80}}, // Beyond valid Unicode
 	}
 
@@ -601,7 +601,7 @@ func TestStringsLowerFlatRoundtrip(t *testing.T) {
 				},
 			}
 
-			val := component.ValString(tc.s)
+			val := types.ValString(tc.s)
 			flat, err := abi.LowerFlat(ctx, types.String{}, val)
 			require.NoError(t, err)
 			require.Equal(t, 2, len(flat), "String should flatten to 2 values")
@@ -680,9 +680,9 @@ func TestStringsUTF16ByteLength(t *testing.T) {
 	}{
 		{"empty", "", 0},
 		{"ascii", "hello", 5},
-		{"bmp_only", "\u4E2D\u6587", 2},       // Chinese chars, 2 BMP code points
-		{"with_surrogate", "\U0001F600", 2},   // Emoji requires surrogate pair
-		{"mixed", "a\U0001F600b", 4},          // a + surrogate pair + b
+		{"bmp_only", "\u4E2D\u6587", 2},     // Chinese chars, 2 BMP code points
+		{"with_surrogate", "\U0001F600", 2}, // Emoji requires surrogate pair
+		{"mixed", "a\U0001F600b", 4},        // a + surrogate pair + b
 	}
 
 	for _, tc := range testCases {
@@ -798,7 +798,7 @@ func TestStringsHeapOperations(t *testing.T) {
 
 		val, err := abi.LiftHeap(ctx, types.String{}, 0)
 		require.NoError(t, err)
-		require.Equal(t, component.ValKindString, val.Kind())
+		require.Equal(t, types.ValKindString, val.Kind())
 		require.Equal(t, "hello", val.StringVal())
 	})
 
@@ -816,7 +816,7 @@ func TestStringsHeapOperations(t *testing.T) {
 			},
 		}
 
-		val := component.ValString("world")
+		val := types.ValString("world")
 		err := abi.LowerHeap(ctx, types.String{}, val, 0)
 		require.NoError(t, err)
 
