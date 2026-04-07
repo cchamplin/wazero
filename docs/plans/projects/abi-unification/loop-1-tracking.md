@@ -98,8 +98,8 @@ Loop 1 phase 1.D item 31 verifies the dispatch in `abi/lift.go` and
 
 ### Item 2: Add `Stream`, `Future`, `ErrorContext` types to `types.ValType` as recognised cases that trap on lift/lower
 
-- **status:** pending
-- **claimed_by:** -
+- **status:** claimed
+- **claimed_by:** 2026-04-07 session-loop1-item2
 - **spec_review:** -
 - **code_review:** -
 - **commit:** -
