@@ -42,6 +42,9 @@ func TestTypeResourceTableConcrete(t *testing.T) {
 	if rt.Instance != 1 {
 		t.Errorf("Instance = %d, want 1", rt.Instance)
 	}
+	if rt.AbstractIdx != 0 {
+		t.Errorf("AbstractIdx = %d, want 0 for Concrete entry", rt.AbstractIdx)
+	}
 }
 
 func TestTypeResourceTableAbstract(t *testing.T) {
@@ -54,6 +57,12 @@ func TestTypeResourceTableAbstract(t *testing.T) {
 	}
 	if rt.AbstractIdx != 42 {
 		t.Errorf("AbstractIdx = %d, want 42", rt.AbstractIdx)
+	}
+	if rt.Resource != 0 {
+		t.Errorf("Resource = %d, want 0 for Abstract entry", rt.Resource)
+	}
+	if rt.Instance != 0 {
+		t.Errorf("Instance = %d, want 0 for Abstract entry", rt.Instance)
 	}
 }
 
