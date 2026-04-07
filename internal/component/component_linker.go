@@ -9,6 +9,7 @@ import (
 
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/experimental"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/wasm"
 )
@@ -85,7 +86,7 @@ func (l *ComponentLinker) DefineResource(namespace, name string, destructor func
 }
 
 // DefineValue adds a value definition for value imports.
-func (l *ComponentLinker) DefineValue(namespace, name string, value Val) error {
+func (l *ComponentLinker) DefineValue(namespace, name string, value types.Val) error {
 	key := namespace + "/" + name
 	if _, exists := l.definitions[key]; exists {
 		return fmt.Errorf("definition already exists: %s", key)
@@ -150,7 +151,7 @@ func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledCom
 		component:     c,
 		coreInstances: make([]api.Module, 0),
 		exports:       make(map[string]*ExportedFunc),
-		resourceTable: NewResourceTable(),
+		resourceTable: runtime.NewResourceTable(),
 	}
 
 	// Build index spaces from aliases.
@@ -393,7 +394,7 @@ func (l *ComponentLinker) executeStartFunction(ctx context.Context, inst *Instan
 	}
 
 	// Gather value arguments and mark as consumed
-	args := make([]Val, len(c.Start.ArgValueIdx))
+	args := make([]types.Val, len(c.Start.ArgValueIdx))
 	for i, argIdx := range c.Start.ArgValueIdx {
 		val, err := inst.ConsumeValue(argIdx)
 		if err != nil {
@@ -911,9 +912,9 @@ func (l *ComponentLinker) buildImportResolver(
 	canonLowers map[uint32]canonLowerInfo,
 	canonResources map[uint32]canonResourceInfo,
 	funcAliases map[uint32]struct {
-	instanceIdx uint32
-	exportName  string
-},
+		instanceIdx uint32
+		exportName  string
+	},
 ) experimental.ImportResolver {
 	// Build a map from import module name to source instance index
 	importMap := make(map[string]uint32)
@@ -1256,9 +1257,9 @@ func (l *ComponentLinker) instantiateCoreModule(
 	canonLowers map[uint32]canonLowerInfo,
 	canonResources map[uint32]canonResourceInfo,
 	funcAliases map[uint32]struct {
-	instanceIdx uint32
-	exportName  string
-},
+		instanceIdx uint32
+		exportName  string
+	},
 ) (api.Module, error) {
 	moduleIdx := coreInst.ModuleIdx
 	if int(moduleIdx) >= len(compiledModules) {
@@ -1815,7 +1816,7 @@ func (l *ComponentLinker) createResourceDropExport(name string, rdef *ResourceDe
 		ResultTypes: []api.ValueType{},
 		Func: api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
 			handle := uint32(stack[0])
-			entry, err := inst.resourceTable.Remove(Handle(handle))
+			entry, err := inst.resourceTable.Remove(runtime.Handle(handle))
 			if err != nil {
 				return // Silently ignore invalid handles per spec
 			}
@@ -1853,7 +1854,7 @@ func (l *ComponentLinker) createResourceRepExport(name string, inst *Instance) H
 		ResultTypes: []api.ValueType{api.ValueTypeI32},
 		Func: api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
 			handle := uint32(stack[0])
-			rep, err := inst.resourceTable.Rep(Handle(handle))
+			rep, err := inst.resourceTable.Rep(runtime.Handle(handle))
 			if err != nil {
 				stack[0] = 0
 				return
@@ -1915,9 +1916,9 @@ func (l *ComponentLinker) createInlineInstanceModule(
 	canonLowers map[uint32]canonLowerInfo,
 	canonResources map[uint32]canonResourceInfo,
 	funcAliases map[uint32]struct {
-	instanceIdx uint32
-	exportName  string
-},
+		instanceIdx uint32
+		exportName  string
+	},
 ) api.Module {
 	// Check if the runtime supports host module instantiation
 	hmi, ok := l.runtime.(HostModuleInstantiator)
@@ -2162,7 +2163,7 @@ func (l *ComponentLinker) createResourceOpExport(
 				handle := uint32(stack[0])
 				// Get the resource table and drop the handle
 				if inst.resourceTable != nil {
-					inst.resourceTable.Remove(Handle(handle))
+					inst.resourceTable.Remove(runtime.Handle(handle))
 				}
 			}),
 		}
@@ -2189,7 +2190,7 @@ func (l *ComponentLinker) createResourceOpExport(
 			Func: api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
 				handle := uint32(stack[0])
 				if inst.resourceTable != nil {
-					rep, err := inst.resourceTable.Rep(Handle(handle))
+					rep, err := inst.resourceTable.Rep(runtime.Handle(handle))
 					if err == nil {
 						stack[0] = uint64(rep)
 					}
@@ -2492,7 +2493,7 @@ func (l *ComponentLinker) createCanonLowerFunc(
 		}
 
 		// Lift core args to component values
-		args := make([]Val, 0)
+		args := make([]types.Val, 0)
 		if compFunc.Type != nil {
 			for _, paramDef := range compFunc.Type.Params {
 				localTypes := paramDef.LocalTypes
@@ -2544,51 +2545,51 @@ func (l *ComponentLinker) createCanonLowerFunc(
 
 // liftFromStack lifts a value from the core wasm stack based on the component type.
 // Returns the Val and the number of stack slots consumed.
-func liftFromStack(stack []uint64, typeRef ValTypeRef, resolvedType *TypeDef, localTypes map[uint32]*TypeDef, memory api.Memory) (Val, int) {
+func liftFromStack(stack []uint64, typeRef ValTypeRef, resolvedType *TypeDef, localTypes map[uint32]*TypeDef, memory api.Memory) (types.Val, int) {
 	if typeRef.IsPrimitive {
 		switch typeRef.Primitive {
 		case 0x7f: // bool
-			return ValBool(stack[0] != 0), 1
+			return types.ValBool(stack[0] != 0), 1
 		case 0x7e: // s8
-			return ValS8(int8(stack[0])), 1
+			return types.ValS8(int8(stack[0])), 1
 		case 0x7d: // u8
-			return ValU8(uint8(stack[0])), 1
+			return types.ValU8(uint8(stack[0])), 1
 		case 0x7c: // s16
-			return ValS16(int16(stack[0])), 1
+			return types.ValS16(int16(stack[0])), 1
 		case 0x7b: // u16
-			return ValU16(uint16(stack[0])), 1
+			return types.ValU16(uint16(stack[0])), 1
 		case 0x7a: // s32
-			return ValS32(int32(stack[0])), 1
+			return types.ValS32(int32(stack[0])), 1
 		case 0x79: // u32
-			return ValU32(uint32(stack[0])), 1
+			return types.ValU32(uint32(stack[0])), 1
 		case 0x78: // s64
-			return ValS64(int64(stack[0])), 1
+			return types.ValS64(int64(stack[0])), 1
 		case 0x77: // u64
-			return ValU64(stack[0]), 1
+			return types.ValU64(stack[0]), 1
 		case 0x76: // f32
-			return ValF32(float32(stack[0])), 1
+			return types.ValF32(float32(stack[0])), 1
 		case 0x75: // f64
-			return ValF64(float64(stack[0])), 1
+			return types.ValF64(float64(stack[0])), 1
 		case 0x74: // char
-			return ValChar(rune(stack[0])), 1
+			return types.ValChar(rune(stack[0])), 1
 		case 0x73: // string
 			if memory != nil && len(stack) >= 2 {
 				ptr := uint32(stack[0])
 				length := uint32(stack[1])
 				if data, ok := memory.Read(ptr, length); ok {
-					return ValString(string(data)), 2
+					return types.ValString(string(data)), 2
 				}
 			}
-			return ValString(""), 2
+			return types.ValString(""), 2
 		}
 	}
 
 	// Handle own and borrow types
 	if typeRef.IsOwn {
-		return ValOwn(uint32(stack[0])), 1
+		return types.ValOwn(uint32(stack[0])), 1
 	}
 	if typeRef.IsBorrow {
-		return ValBorrow(uint32(stack[0])), 1
+		return types.ValBorrow(uint32(stack[0])), 1
 	}
 
 	// Handle complex types using ResolvedType
@@ -2597,9 +2598,9 @@ func liftFromStack(stack []uint64, typeRef ValTypeRef, resolvedType *TypeDef, lo
 		if resolvedType.Enum != nil {
 			disc := int(stack[0])
 			if disc >= 0 && disc < len(resolvedType.Enum.Names) {
-				return ValEnum(resolvedType.Enum.Names[disc]), 1
+				return types.ValEnum(resolvedType.Enum.Names[disc]), 1
 			}
-			return ValEnum(""), 1
+			return types.ValEnum(""), 1
 		}
 
 		// Handle flags types
@@ -2609,7 +2610,7 @@ func liftFromStack(stack []uint64, typeRef ValTypeRef, resolvedType *TypeDef, lo
 			for i, name := range resolvedType.Flags.Names {
 				flagMap[name] = (bits & (1 << uint(i))) != 0
 			}
-			return ValFlags(flagMap), 1
+			return types.ValFlags(flagMap), 1
 		}
 
 		// Handle record types
@@ -2651,11 +2652,11 @@ func liftFromStack(stack []uint64, typeRef ValTypeRef, resolvedType *TypeDef, lo
 				if elemType.IsPrimitive && elemType.Primitive == 0x7d { // u8
 					// list<u8> - read bytes from memory
 					if data, ok := memory.Read(ptr, length); ok {
-						vals := make([]Val, len(data))
+						vals := make([]types.Val, len(data))
 						for i, b := range data {
-							vals[i] = ValU8(b)
+							vals[i] = types.ValU8(b)
 						}
-						return ValList(vals), 2
+						return types.ValList(vals), 2
 					}
 				} else {
 					// Complex element types - lift each element from memory
@@ -2665,21 +2666,21 @@ func liftFromStack(stack []uint64, typeRef ValTypeRef, resolvedType *TypeDef, lo
 					}
 					elemResolved := resolveInnerType(elemType, effectiveLocalTypes)
 					vals := liftListFromMemory(ptr, length, elemType, elemResolved, effectiveLocalTypes, memory)
-					return ValList(vals), 2
+					return types.ValList(vals), 2
 				}
 			}
 			// Fallback for memory read failure
-			return ValList([]Val{}), 2
+			return types.ValList([]types.Val{}), 2
 		}
 	}
 
 	// For non-primitive types, treat as i32 for now
-	return ValS32(int32(stack[0])), 1
+	return types.ValS32(int32(stack[0])), 1
 }
 
 // liftRecordFromStack lifts a record value from the core wasm stack.
-func liftRecordFromStack(stack []uint64, recordDef *RecordTypeDef, localTypes map[uint32]*TypeDef, memory api.Memory) (Val, int) {
-	fields := make(map[string]Val)
+func liftRecordFromStack(stack []uint64, recordDef *RecordTypeDef, localTypes map[uint32]*TypeDef, memory api.Memory) (types.Val, int) {
+	fields := make(map[string]types.Val)
 	stackIdx := 0
 	for _, field := range recordDef.Fields {
 		fieldResolved := resolveInnerType(field.ValType, localTypes)
@@ -2687,26 +2688,26 @@ func liftRecordFromStack(stack []uint64, recordDef *RecordTypeDef, localTypes ma
 		fields[field.Name] = val
 		stackIdx += consumed
 	}
-	return ValRecord(fields), stackIdx
+	return types.ValRecord(fields), stackIdx
 }
 
 // liftOptionFromStack lifts an option value from the core wasm stack.
-func liftOptionFromStack(stack []uint64, optionDef *OptionTypeDef, localTypes map[uint32]*TypeDef, memory api.Memory) (Val, int) {
+func liftOptionFromStack(stack []uint64, optionDef *OptionTypeDef, localTypes map[uint32]*TypeDef, memory api.Memory) (types.Val, int) {
 	disc := uint32(stack[0])
 	if disc == 0 {
 		// None - still need to count the payload slots
 		innerSlots := flatSlotCount(optionDef.InnerType, localTypes)
-		return ValOption(nil), 1 + innerSlots
+		return types.ValOption(nil), 1 + innerSlots
 	}
 	// Some
 	innerResolved := resolveInnerType(optionDef.InnerType, localTypes)
 	val, consumed := liftFromStack(stack[1:], optionDef.InnerType, innerResolved, localTypes, memory)
 	payload := val
-	return ValOption(&payload), 1 + consumed
+	return types.ValOption(&payload), 1 + consumed
 }
 
 // liftListFromMemory lifts a list of complex elements from linear memory.
-func liftListFromMemory(ptr, length uint32, elemType ValTypeRef, elemResolved *TypeDef, localTypes map[uint32]*TypeDef, memory api.Memory) []Val {
+func liftListFromMemory(ptr, length uint32, elemType ValTypeRef, elemResolved *TypeDef, localTypes map[uint32]*TypeDef, memory api.Memory) []types.Val {
 	if length == 0 || elemResolved == nil {
 		return nil
 	}
@@ -2714,7 +2715,7 @@ func liftListFromMemory(ptr, length uint32, elemType ValTypeRef, elemResolved *T
 	if elemSize == 0 {
 		return nil
 	}
-	vals := make([]Val, length)
+	vals := make([]types.Val, length)
 	for i := uint32(0); i < length; i++ {
 		elemOffset := ptr + i*elemSize
 		vals[i] = liftValFromMemory(elemOffset, elemType, elemResolved, localTypes, memory)
@@ -2723,43 +2724,43 @@ func liftListFromMemory(ptr, length uint32, elemType ValTypeRef, elemResolved *T
 }
 
 // liftValFromMemory lifts a single value from linear memory at the given offset.
-func liftValFromMemory(offset uint32, typeRef ValTypeRef, resolved *TypeDef, localTypes map[uint32]*TypeDef, memory api.Memory) Val {
+func liftValFromMemory(offset uint32, typeRef ValTypeRef, resolved *TypeDef, localTypes map[uint32]*TypeDef, memory api.Memory) types.Val {
 	if resolved == nil {
 		// Primitive or unresolved - try primitive
 		if typeRef.IsPrimitive {
 			switch typeRef.Primitive {
 			case 0x7f: // bool
 				b, _ := memory.ReadByteAt(offset)
-				return ValBool(b != 0)
+				return types.ValBool(b != 0)
 			case 0x7e: // s8
 				b, _ := memory.ReadByteAt(offset)
-				return ValS8(int8(b))
+				return types.ValS8(int8(b))
 			case 0x7d: // u8
 				b, _ := memory.ReadByteAt(offset)
-				return ValU8(b)
+				return types.ValU8(b)
 			case 0x7c: // s16
 				v, _ := memory.ReadUint16Le(offset)
-				return ValS16(int16(v))
+				return types.ValS16(int16(v))
 			case 0x7b: // u16
 				v, _ := memory.ReadUint16Le(offset)
-				return ValU16(v)
+				return types.ValU16(v)
 			case 0x7a: // s32
 				v, _ := memory.ReadUint32Le(offset)
-				return ValS32(int32(v))
+				return types.ValS32(int32(v))
 			case 0x79: // u32
 				v, _ := memory.ReadUint32Le(offset)
-				return ValU32(v)
+				return types.ValU32(v)
 			}
 		}
-		return ValU32(0)
+		return types.ValU32(0)
 	}
 	if resolved.Enum != nil {
 		b, _ := memory.ReadByteAt(offset)
 		disc := int(b)
 		if disc >= 0 && disc < len(resolved.Enum.Names) {
-			return ValEnum(resolved.Enum.Names[disc])
+			return types.ValEnum(resolved.Enum.Names[disc])
 		}
-		return ValEnum("")
+		return types.ValEnum("")
 	}
 	if resolved.Record != nil {
 		effectiveLocalTypes := resolved.SourceLocalTypes
@@ -2781,21 +2782,21 @@ func liftValFromMemory(offset uint32, typeRef ValTypeRef, resolved *TypeDef, loc
 		elemType := resolved.List.ElementType
 		if elemType.IsPrimitive && elemType.Primitive == 0x7d { // u8
 			if data, ok := memory.Read(ptrVal, lenVal); ok {
-				vals := make([]Val, len(data))
+				vals := make([]types.Val, len(data))
 				for i, b := range data {
-					vals[i] = ValU8(b)
+					vals[i] = types.ValU8(b)
 				}
-				return ValList(vals)
+				return types.ValList(vals)
 			}
 		}
-		return ValList(nil)
+		return types.ValList(nil)
 	}
-	return ValU32(0)
+	return types.ValU32(0)
 }
 
 // liftRecordFromMemory lifts a record from linear memory.
-func liftRecordFromMemory(offset uint32, recordDef *RecordTypeDef, localTypes map[uint32]*TypeDef, memory api.Memory) Val {
-	fields := make(map[string]Val)
+func liftRecordFromMemory(offset uint32, recordDef *RecordTypeDef, localTypes map[uint32]*TypeDef, memory api.Memory) types.Val {
+	fields := make(map[string]types.Val)
 	fieldOffset := offset
 	for _, field := range recordDef.Fields {
 		fieldResolved := resolveInnerType(field.ValType, localTypes)
@@ -2808,20 +2809,20 @@ func liftRecordFromMemory(offset uint32, recordDef *RecordTypeDef, localTypes ma
 		fields[field.Name] = liftValFromMemory(fieldOffset, field.ValType, fieldResolved, localTypes, memory)
 		fieldOffset += fieldSize
 	}
-	return ValRecord(fields)
+	return types.ValRecord(fields)
 }
 
 // liftOptionFromMemory lifts an option from linear memory.
-func liftOptionFromMemory(offset uint32, optionDef *OptionTypeDef, localTypes map[uint32]*TypeDef, memory api.Memory) Val {
+func liftOptionFromMemory(offset uint32, optionDef *OptionTypeDef, localTypes map[uint32]*TypeDef, memory api.Memory) types.Val {
 	disc, _ := memory.ReadByteAt(offset)
 	if disc == 0 {
-		return ValOption(nil)
+		return types.ValOption(nil)
 	}
 	innerResolved := resolveInnerType(optionDef.InnerType, localTypes)
 	innerAlign := elemAlignFromTypeRef(optionDef.InnerType, innerResolved)
 	payloadOffset := (offset + 1 + innerAlign - 1) &^ (innerAlign - 1)
 	val := liftValFromMemory(payloadOffset, optionDef.InnerType, innerResolved, localTypes, memory)
-	return ValOption(&val)
+	return types.ValOption(&val)
 }
 
 // elemSizeFromTypeDef returns the byte size of a TypeDef in linear memory.
@@ -2988,7 +2989,7 @@ func resolveInnerType(ref ValTypeRef, localTypes map[uint32]*TypeDef) *TypeDef {
 }
 
 // liftVariantFromStack lifts a variant value from the core wasm stack.
-func liftVariantFromStack(stack []uint64, variantDef *VariantTypeDef, localTypes map[uint32]*TypeDef, memory api.Memory) (Val, int) {
+func liftVariantFromStack(stack []uint64, variantDef *VariantTypeDef, localTypes map[uint32]*TypeDef, memory api.Memory) (types.Val, int) {
 	disc := int(stack[0])
 	// Calculate max payload slots across all cases
 	maxPayloadSlots := 0
@@ -3003,17 +3004,17 @@ func liftVariantFromStack(stack []uint64, variantDef *VariantTypeDef, localTypes
 	totalSlots := 1 + maxPayloadSlots
 
 	if disc < 0 || disc >= len(variantDef.Cases) {
-		return ValVariant("", nil), totalSlots
+		return types.ValVariant("", nil), totalSlots
 	}
 
 	caseDef := variantDef.Cases[disc]
 	if caseDef.ValType == nil {
-		return ValVariant(caseDef.Name, nil), totalSlots
+		return types.ValVariant(caseDef.Name, nil), totalSlots
 	}
 
 	payloadResolved := resolveInnerType(*caseDef.ValType, localTypes)
 	val, _ := liftFromStack(stack[1:], *caseDef.ValType, payloadResolved, localTypes, memory)
-	return ValVariant(caseDef.Name, &val), totalSlots
+	return types.ValVariant(caseDef.Name, &val), totalSlots
 }
 
 // flatSlotCount returns the number of flat i32/i64 stack slots a type occupies.
@@ -3071,55 +3072,55 @@ func flatSlotCount(ref ValTypeRef, localTypes map[uint32]*TypeDef) int {
 
 // lowerToStack lowers a component Val to the core wasm stack.
 // Returns the number of stack slots written.
-func lowerToStack(stack []uint64, val Val, resolvedType *TypeDef) int {
+func lowerToStack(stack []uint64, val types.Val, resolvedType *TypeDef) int {
 	switch val.Kind() {
-	case ValKindBool:
+	case types.ValKindBool:
 		if val.Bool() {
 			stack[0] = 1
 		} else {
 			stack[0] = 0
 		}
 		return 1
-	case ValKindS8:
+	case types.ValKindS8:
 		stack[0] = uint64(uint32(int32(val.S8())))
 		return 1
-	case ValKindU8:
+	case types.ValKindU8:
 		stack[0] = uint64(val.U8())
 		return 1
-	case ValKindS16:
+	case types.ValKindS16:
 		stack[0] = uint64(uint32(int32(val.S16())))
 		return 1
-	case ValKindU16:
+	case types.ValKindU16:
 		stack[0] = uint64(val.U16())
 		return 1
-	case ValKindS32:
+	case types.ValKindS32:
 		stack[0] = uint64(uint32(val.S32()))
 		return 1
-	case ValKindU32:
+	case types.ValKindU32:
 		stack[0] = uint64(val.U32())
 		return 1
-	case ValKindS64:
+	case types.ValKindS64:
 		stack[0] = uint64(val.S64())
 		return 1
-	case ValKindU64:
+	case types.ValKindU64:
 		stack[0] = val.U64()
 		return 1
-	case ValKindF32:
+	case types.ValKindF32:
 		stack[0] = uint64(val.U32()) // F32 bits
 		return 1
-	case ValKindF64:
+	case types.ValKindF64:
 		stack[0] = val.U64() // F64 bits
 		return 1
-	case ValKindChar:
+	case types.ValKindChar:
 		stack[0] = uint64(val.Char())
 		return 1
-	case ValKindOwn:
+	case types.ValKindOwn:
 		stack[0] = uint64(val.Own())
 		return 1
-	case ValKindBorrow:
+	case types.ValKindBorrow:
 		stack[0] = uint64(val.Borrow())
 		return 1
-	case ValKindEnum:
+	case types.ValKindEnum:
 		if resolvedType != nil && resolvedType.Enum != nil {
 			caseName := val.Enum()
 			for i, name := range resolvedType.Enum.Names {
@@ -3131,7 +3132,7 @@ func lowerToStack(stack []uint64, val Val, resolvedType *TypeDef) int {
 		}
 		stack[0] = 0
 		return 1
-	case ValKindFlags:
+	case types.ValKindFlags:
 		if resolvedType != nil && resolvedType.Flags != nil {
 			flags := val.Flags()
 			var bits uint32
@@ -3154,7 +3155,7 @@ func lowerToStack(stack []uint64, val Val, resolvedType *TypeDef) int {
 // writeResultsToMemory writes component results to linear memory at the given offset.
 // This is used when the function has too many results to return via the stack.
 // For list types, it allocates memory via realloc and writes (ptr, len) to retptr.
-func writeResultsToMemory(ctx context.Context, memory api.Memory, reallocFunc api.Function, retptr uint32, results []Val, funcType *FuncType) error {
+func writeResultsToMemory(ctx context.Context, memory api.Memory, reallocFunc api.Function, retptr uint32, results []types.Val, funcType *FuncType) error {
 	if memory == nil || funcType == nil {
 		return nil
 	}
@@ -3166,29 +3167,29 @@ func writeResultsToMemory(ctx context.Context, memory api.Memory, reallocFunc ap
 		}
 
 		switch result.Kind() {
-		case ValKindS32, ValKindU32:
+		case types.ValKindS32, types.ValKindU32:
 			memory.WriteUint32Le(offset, result.U32())
 			offset += 4
-		case ValKindS64, ValKindU64:
+		case types.ValKindS64, types.ValKindU64:
 			memory.WriteUint64Le(offset, result.U64())
 			offset += 8
-		case ValKindF32:
+		case types.ValKindF32:
 			memory.WriteUint32Le(offset, result.U32())
 			offset += 4
-		case ValKindF64:
+		case types.ValKindF64:
 			memory.WriteUint64Le(offset, result.U64())
 			offset += 8
-		case ValKindBool:
+		case types.ValKindBool:
 			if result.Bool() {
 				memory.WriteByteAt(offset, 1)
 			} else {
 				memory.WriteByteAt(offset, 0)
 			}
 			offset += 1
-		case ValKindOwn, ValKindBorrow:
+		case types.ValKindOwn, types.ValKindBorrow:
 			memory.WriteUint32Le(offset, result.U32())
 			offset += 4
-		case ValKindList:
+		case types.ValKindList:
 			// List lowering: allocate memory, write elements, return (ptr, len)
 			list := result.List()
 			listLen := uint32(len(list))
@@ -3230,7 +3231,7 @@ func writeResultsToMemory(ctx context.Context, memory api.Memory, reallocFunc ap
 			offset += 4
 			memory.WriteUint32Le(offset, listLen)
 			offset += 4
-		case ValKindString:
+		case types.ValKindString:
 			// String lowering: allocate memory, write bytes, return (ptr, len)
 			str := result.StringVal()
 			strLen := uint32(len(str))
@@ -3257,7 +3258,7 @@ func writeResultsToMemory(ctx context.Context, memory api.Memory, reallocFunc ap
 			offset += 4
 			memory.WriteUint32Le(offset, strLen)
 			offset += 4
-		case ValKindResult:
+		case types.ValKindResult:
 			// Result lowering: write discriminant + payload
 			isOk, okVal, errVal := result.Result()
 			if isOk {
@@ -3266,7 +3267,7 @@ func writeResultsToMemory(ctx context.Context, memory api.Memory, reallocFunc ap
 				offset += 4 // Align to 4 bytes for payload
 				if okVal != nil {
 					// Recursively write the ok payload
-					if err := writeResultsToMemory(ctx, memory, reallocFunc, offset, []Val{*okVal}, nil); err != nil {
+					if err := writeResultsToMemory(ctx, memory, reallocFunc, offset, []types.Val{*okVal}, nil); err != nil {
 						return fmt.Errorf("failed to write result ok payload: %w", err)
 					}
 					offset += sizeOfVal(*okVal)
@@ -3277,27 +3278,27 @@ func writeResultsToMemory(ctx context.Context, memory api.Memory, reallocFunc ap
 				offset += 4 // Align to 4 bytes for payload
 				if errVal != nil {
 					// Recursively write the error payload
-					if err := writeResultsToMemory(ctx, memory, reallocFunc, offset, []Val{*errVal}, nil); err != nil {
+					if err := writeResultsToMemory(ctx, memory, reallocFunc, offset, []types.Val{*errVal}, nil); err != nil {
 						return fmt.Errorf("failed to write result error payload: %w", err)
 					}
 					offset += sizeOfVal(*errVal)
 				}
 			}
-		case ValKindVariant:
+		case types.ValKindVariant:
 			// Variant lowering: write discriminant + payload
 			caseName, payload := result.Variant()
 			// For now, write discriminant as first i32 and payload recursively
 			// Note: proper implementation needs type info for discriminant index
-			_ = caseName // Would need type info to map name to index
+			_ = caseName                    // Would need type info to map name to index
 			memory.WriteUint32Le(offset, 0) // Placeholder discriminant
 			offset += 4
 			if payload != nil {
-				if err := writeResultsToMemory(ctx, memory, reallocFunc, offset, []Val{*payload}, nil); err != nil {
+				if err := writeResultsToMemory(ctx, memory, reallocFunc, offset, []types.Val{*payload}, nil); err != nil {
 					return fmt.Errorf("failed to write variant payload: %w", err)
 				}
 				offset += sizeOfVal(*payload)
 			}
-		case ValKindOption:
+		case types.ValKindOption:
 			// Option lowering: write discriminant + payload
 			payload := result.Option()
 			if payload == nil {
@@ -3308,12 +3309,12 @@ func writeResultsToMemory(ctx context.Context, memory api.Memory, reallocFunc ap
 				// Some case: discriminant=1
 				memory.WriteByteAt(offset, 1)
 				offset += 4 // Align to 4 bytes for payload
-				if err := writeResultsToMemory(ctx, memory, reallocFunc, offset, []Val{*payload}, nil); err != nil {
+				if err := writeResultsToMemory(ctx, memory, reallocFunc, offset, []types.Val{*payload}, nil); err != nil {
 					return fmt.Errorf("failed to write option payload: %w", err)
 				}
 				offset += sizeOfVal(*payload)
 			}
-		case ValKindEnum:
+		case types.ValKindEnum:
 			// Enum lowering: write discriminant as i32
 			if i < len(funcType.Results) && funcType.Results[i].ResolvedType != nil && funcType.Results[i].ResolvedType.Enum != nil {
 				caseName := result.Enum()
@@ -3329,7 +3330,7 @@ func writeResultsToMemory(ctx context.Context, memory api.Memory, reallocFunc ap
 				memory.WriteUint32Le(offset, 0)
 			}
 			offset += 4
-		case ValKindFlags:
+		case types.ValKindFlags:
 			// Flags lowering: write bitmap as i32
 			if i < len(funcType.Results) && funcType.Results[i].ResolvedType != nil && funcType.Results[i].ResolvedType.Flags != nil {
 				flags := result.Flags()
@@ -3344,7 +3345,7 @@ func writeResultsToMemory(ctx context.Context, memory api.Memory, reallocFunc ap
 				memory.WriteUint32Le(offset, 0)
 			}
 			offset += 4
-		case ValKindRecord:
+		case types.ValKindRecord:
 			// Record lowering: write fields sequentially to memory
 			rec := result.Record()
 			if i < len(funcType.Results) && funcType.Results[i].ResolvedType != nil && funcType.Results[i].ResolvedType.Record != nil {
@@ -3366,7 +3367,7 @@ func writeResultsToMemory(ctx context.Context, memory api.Memory, reallocFunc ap
 }
 
 // writeRecordToMemory writes a record's fields to linear memory.
-func writeRecordToMemory(ctx context.Context, memory api.Memory, reallocFunc api.Function, offset uint32, rec map[string]Val, recordDef *RecordTypeDef, localTypes map[uint32]*TypeDef) (uint32, error) {
+func writeRecordToMemory(ctx context.Context, memory api.Memory, reallocFunc api.Function, offset uint32, rec map[string]types.Val, recordDef *RecordTypeDef, localTypes map[uint32]*TypeDef) (uint32, error) {
 	for _, field := range recordDef.Fields {
 		val, ok := rec[field.Name]
 		if !ok {
@@ -3384,40 +3385,40 @@ func writeRecordToMemory(ctx context.Context, memory api.Memory, reallocFunc api
 }
 
 // writeValToMemory writes a single value to linear memory at the given offset.
-func writeValToMemory(ctx context.Context, memory api.Memory, reallocFunc api.Function, offset uint32, val Val, typeRef ValTypeRef, localTypes map[uint32]*TypeDef) (uint32, error) {
+func writeValToMemory(ctx context.Context, memory api.Memory, reallocFunc api.Function, offset uint32, val types.Val, typeRef ValTypeRef, localTypes map[uint32]*TypeDef) (uint32, error) {
 	switch val.Kind() {
-	case ValKindBool:
+	case types.ValKindBool:
 		if val.Bool() {
 			memory.WriteByteAt(offset, 1)
 		} else {
 			memory.WriteByteAt(offset, 0)
 		}
 		return offset + 1, nil
-	case ValKindS8:
+	case types.ValKindS8:
 		memory.WriteByteAt(offset, byte(val.S8()))
 		return offset + 1, nil
-	case ValKindU8:
+	case types.ValKindU8:
 		memory.WriteByteAt(offset, val.U8())
 		return offset + 1, nil
-	case ValKindS16:
+	case types.ValKindS16:
 		memory.WriteUint32Le(offset, uint32(int32(val.S16())))
 		return offset + 2, nil
-	case ValKindU16:
+	case types.ValKindU16:
 		memory.WriteUint32Le(offset, uint32(val.U16()))
 		return offset + 2, nil
-	case ValKindS32, ValKindU32, ValKindChar:
+	case types.ValKindS32, types.ValKindU32, types.ValKindChar:
 		memory.WriteUint32Le(offset, val.U32())
 		return offset + 4, nil
-	case ValKindS64, ValKindU64:
+	case types.ValKindS64, types.ValKindU64:
 		memory.WriteUint64Le(offset, val.U64())
 		return offset + 8, nil
-	case ValKindF32:
+	case types.ValKindF32:
 		memory.WriteUint32Le(offset, val.U32())
 		return offset + 4, nil
-	case ValKindF64:
+	case types.ValKindF64:
 		memory.WriteUint64Le(offset, val.U64())
 		return offset + 8, nil
-	case ValKindEnum:
+	case types.ValKindEnum:
 		var resolved *TypeDef
 		if !typeRef.IsPrimitive && localTypes != nil {
 			resolved = localTypes[typeRef.TypeIdx]
@@ -3434,7 +3435,7 @@ func writeValToMemory(ctx context.Context, memory api.Memory, reallocFunc api.Fu
 		}
 		memory.WriteUint32Le(offset, disc)
 		return offset + 4, nil
-	case ValKindOption:
+	case types.ValKindOption:
 		payload := val.Option()
 		if payload == nil {
 			memory.WriteByteAt(offset, 0)
@@ -3457,7 +3458,7 @@ func writeValToMemory(ctx context.Context, memory api.Memory, reallocFunc api.Fu
 			}
 		}
 		return writeValToMemory(ctx, memory, reallocFunc, offset, *payload, innerTypeRef, localTypes)
-	case ValKindList:
+	case types.ValKindList:
 		list := val.List()
 		listLen := uint32(len(list))
 
@@ -3487,7 +3488,7 @@ func writeValToMemory(ctx context.Context, memory api.Memory, reallocFunc api.Fu
 		memory.WriteUint32Le(offset, listLen)
 		offset += 4
 		return offset, nil
-	case ValKindString:
+	case types.ValKindString:
 		str := val.StringVal()
 		strLen := uint32(len(str))
 		var ptr uint32
@@ -3504,7 +3505,7 @@ func writeValToMemory(ctx context.Context, memory api.Memory, reallocFunc api.Fu
 		memory.WriteUint32Le(offset, strLen)
 		offset += 4
 		return offset, nil
-	case ValKindRecord:
+	case types.ValKindRecord:
 		rec := val.Record()
 		var resolved *TypeDef
 		if !typeRef.IsPrimitive && localTypes != nil {
