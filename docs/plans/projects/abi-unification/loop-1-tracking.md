@@ -195,8 +195,8 @@ case types.ErrorContext:
 
 ### Item 3: Change `types.Own{ResourceIdx}` → `types.Own{Resource *ResourceType}` (and same for `types.Borrow`)
 
-- **status:** pending
-- **claimed_by:** -
+- **status:** claimed
+- **claimed_by:** 2026-04-07 session-loop1-item3
 - **spec_review:** -
 - **code_review:** -
 - **notes:** Removes the existing TODO comments at internal/component/types/resource.go lines 10-15 and 32-37
