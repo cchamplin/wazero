@@ -94,6 +94,10 @@ func TestComposite_TupleRoundTrip(t *testing.T) {
 	if len(ct.Tuples[tup.Index].Types) != 3 {
 		t.Errorf("len(Types) = %d, want 3", len(ct.Tuples[tup.Index].Types))
 	}
+	got := ct.Tuples[tup.Index].Types
+	if got[0] != U32 || got[1] != S32 || got[2] != Bool {
+		t.Errorf("Tuple types = %v, want [U32, S32, Bool]", got)
+	}
 }
 
 // TestComposite_OptionResultEnumFlags exercises the remaining composites.
@@ -107,8 +111,16 @@ func TestComposite_OptionResultEnumFlags(t *testing.T) {
 	if opt.Kind != TypeKindOption {
 		t.Errorf("opt.Kind = %v, want TypeKindOption", opt.Kind)
 	}
+	if ct.Options[opt.Index].Element != U32 {
+		t.Errorf("Option Element = %v, want U32", ct.Options[opt.Index].Element)
+	}
 	if res.Kind != TypeKindResult {
 		t.Errorf("res.Kind = %v, want TypeKindResult", res.Kind)
+	}
+	resStored := ct.Results[res.Index]
+	if !resStored.HasOK || resStored.OK != U32 || !resStored.HasErr || resStored.Err != U32 {
+		t.Errorf("Result stored = {HasOK:%v OK:%v HasErr:%v Err:%v}, want all true/U32",
+			resStored.HasOK, resStored.OK, resStored.HasErr, resStored.Err)
 	}
 	if en.Kind != TypeKindEnum {
 		t.Errorf("en.Kind = %v, want TypeKindEnum", en.Kind)
@@ -142,6 +154,9 @@ func TestComposite_AsyncTypes(t *testing.T) {
 	}
 	if !ct.Streams[s.Index].HasElement || ct.Streams[s.Index].Element != U32 {
 		t.Errorf("stream payload = %v/%v, want true/U32", ct.Streams[s.Index].HasElement, ct.Streams[s.Index].Element)
+	}
+	if !ct.Futures[f.Index].HasElement || ct.Futures[f.Index].Element != U32 {
+		t.Errorf("future payload = %v/%v, want true/U32", ct.Futures[f.Index].HasElement, ct.Futures[f.Index].Element)
 	}
 	if len(ct.ErrorContextTables) != 1 {
 		t.Errorf("len(ErrorContextTables) = %d, want 1", len(ct.ErrorContextTables))
