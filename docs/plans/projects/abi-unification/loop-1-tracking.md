@@ -53,8 +53,8 @@
 
 ### Item 1: Verify `types.List{Length *uint32}` covers fixed-size lists; add tests for both shapes
 
-- **status:** pending
-- **claimed_by:** -
+- **status:** claimed
+- **claimed_by:** 2026-04-07 session-loop1-open
 - **spec_review:** -
 - **code_review:** -
 - **commit:** -
