@@ -75,38 +75,38 @@ func TestFlattenParams(t *testing.T) {
 			expected: []api.ValueType{api.ValueTypeI32},
 		},
 		{
-			name:   "record with two i32 fields",
-			params: []types.ValType{types.Record{Fields: []types.Field{{Name: "a", Type: types.S32{}}, {Name: "b", Type: types.S32{}}}}},
+			name:     "record with two i32 fields",
+			params:   []types.ValType{types.Record{Fields: []types.Field{{Name: "a", Type: types.S32{}}, {Name: "b", Type: types.S32{}}}}},
 			expected: []api.ValueType{api.ValueTypeI32, api.ValueTypeI32},
 		},
 		{
-			name:   "tuple of s32 and s64",
-			params: []types.ValType{types.Tuple{Types: []types.ValType{types.S32{}, types.S64{}}}},
+			name:     "tuple of s32 and s64",
+			params:   []types.ValType{types.Tuple{Types: []types.ValType{types.S32{}, types.S64{}}}},
 			expected: []api.ValueType{api.ValueTypeI32, api.ValueTypeI64},
 		},
 		{
-			name:   "option of s32",
-			params: []types.ValType{types.Option{Some: types.S32{}}},
+			name:     "option of s32",
+			params:   []types.ValType{types.Option{Some: types.S32{}}},
 			expected: []api.ValueType{api.ValueTypeI32, api.ValueTypeI32}, // discriminant, payload
 		},
 		{
-			name:   "result of s32 and s32",
-			params: []types.ValType{types.Result{Ok: types.S32{}, Error: types.S32{}}},
+			name:     "result of s32 and s32",
+			params:   []types.ValType{types.Result{Ok: types.S32{}, Error: types.S32{}}},
 			expected: []api.ValueType{api.ValueTypeI32, api.ValueTypeI32}, // discriminant, payload (max of ok/err)
 		},
 		{
-			name:   "enum",
-			params: []types.ValType{types.Enum{Cases: []string{"a", "b", "c"}}},
+			name:     "enum",
+			params:   []types.ValType{types.Enum{Cases: []string{"a", "b", "c"}}},
 			expected: []api.ValueType{api.ValueTypeI32},
 		},
 		{
-			name:   "flags with 3 names",
-			params: []types.ValType{types.Flags{Names: []string{"a", "b", "c"}}},
+			name:     "flags with 3 names",
+			params:   []types.ValType{types.Flags{Names: []string{"a", "b", "c"}}},
 			expected: []api.ValueType{api.ValueTypeI32},
 		},
 		{
-			name:   "variant",
-			params: []types.ValType{types.Variant{Cases: []types.Case{{Name: "a", Type: types.S32{}}, {Name: "b", Type: types.S64{}}}}},
+			name:     "variant",
+			params:   []types.ValType{types.Variant{Cases: []types.Case{{Name: "a", Type: types.S32{}}, {Name: "b", Type: types.S64{}}}}},
 			expected: []api.ValueType{api.ValueTypeI32, api.ValueTypeI64}, // discriminant + max payload
 		},
 	}
