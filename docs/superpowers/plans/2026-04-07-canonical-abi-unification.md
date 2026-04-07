@@ -17,6 +17,67 @@
 
 ---
 
+## Verification convention (read this before executing any task)
+
+Many tasks in this plan have a final verification step of the form `wc -l <file>` followed by `Expected: line count > N`. **These line-count thresholds are soft sanity checks set by eyeballing the verbatim content during plan authoring. They are not authoritative correctness gates.**
+
+The authoritative gate is **structural completeness**, defined as:
+
+- **For templates** (Tasks 13–40 except 24, 25, 26, 27, 33, 39, 40 which are non-template tasks): the file must contain all 10 required template sections per spec §6.2 — `# <Title>`, `## Spec-overrides-instructions warning`, `## First action`, `## Inputs`, `## Allowed reads`, `## Allowed writes`, `## Procedure`, `## Halt conditions`, `## Return format`, `## Self-check`. Code-producing templates must additionally contain `## After this template runs`. The warning section must contain the verbatim text "SPEC-OVERRIDES-LOCAL-INSTRUCTIONS RULE." (no placeholder strings remain).
+
+- **For iteration scripts** (Tasks 10–12): the file must contain the section structure verified by the structural-check shell snippet inside that task's verification step.
+
+- **For loop prompts** (Tasks 7–9): the file must contain the section structure verified by the structural-check shell snippet inside that task's verification step.
+
+- **For status JSON files** (Tasks 2–5): the file must parse as JSON and have `schema_version: 1`.
+
+- **For the Python harness** (Task 6): the pytest test suite must pass.
+
+**Verification protocol when a count check disagrees with the structural check:**
+
+1. Run the structural check first.
+2. If structural passes, the file is accepted regardless of line count. Do not halt on count mismatch.
+3. If structural fails, halt and surface the specific missing sections to the user.
+4. If a task has only a count check and no structural check, run the count check and treat it as the gate. (Some tasks legitimately have no structural template — e.g., Task 41 README.)
+
+For templates whose plan content is a structural description (not verbatim markdown — e.g., Tasks 14–25 and 28–40 where the plan describes what each section should contain), executing subagents must produce a file that:
+
+- Contains all 10 required sections in order.
+- Replaces every `[Insert THE WARNING TEXT verbatim here.]` placeholder with the canonical warning text from spec §7.5 (also reproduced at the start of Phase 5 below).
+- Faithfully implements the procedure / inputs / allowed reads / allowed writes / halt conditions described in the plan task.
+
+The task's count threshold is a hint about how detailed the file should be; the structural check is the gate.
+
+**Per-template structural check command** (run after writing any template):
+
+```bash
+TPL=docs/superpowers/projects/2026-04-07-canonical-abi-unification/templates/<template-name>.md
+fail=0
+for section in "# " "## Spec-overrides-instructions warning" "## First action" "## Inputs" "## Allowed reads" "## Allowed writes" "## Procedure" "## Halt conditions" "## Return format" "## Self-check"; do
+  if ! grep -qF "$section" "$TPL"; then
+    echo "MISSING: $section"
+    fail=1
+  fi
+done
+if ! grep -qF "SPEC-OVERRIDES-LOCAL-INSTRUCTIONS RULE." "$TPL"; then
+  echo "MISSING: verbatim warning text"
+  fail=1
+fi
+if grep -qF "Insert THE WARNING TEXT" "$TPL"; then
+  echo "BUG: placeholder string still present (must be replaced with verbatim text)"
+  fail=1
+fi
+if [ "$fail" -eq 0 ]; then echo "structural OK"; else exit 1; fi
+```
+
+For code-producing templates, additionally check `## After this template runs` is present.
+
+**This convention overrides individual task verification steps where they conflict.** Specifically: where a task says "Expected: line count > N" and the structural check passes but the count is below N, prefer the structural check and proceed. Where the structural check fails, halt regardless of count. The count was always meant as a sanity hint, never as a gate.
+
+This convention was added on 2026-04-07 after Task 10's count threshold (>200) disagreed with the actual file (158 lines) despite structural completeness — the threshold was an off-by-~40 estimate during plan authoring, and the right fix is to make verification structural, not to relax the count.
+
+---
+
 ## Phase 0 — Project directory bootstrap
 
 ### Task 1: Create the project directory tree
@@ -1416,13 +1477,26 @@ Halt the iteration immediately and end the session if:
 A halted iteration is **not** committed. The next session resumes by reading the most recently committed state.
 ````
 
-- [ ] **Step 2: Verify**
+- [ ] **Step 2: Verify (structural — preferred over line count)**
 
 Run:
 ```bash
-wc -l docs/superpowers/projects/2026-04-07-canonical-abi-unification/scripts/loop1-iteration.md
+SCRIPT=docs/superpowers/projects/2026-04-07-canonical-abi-unification/scripts/loop1-iteration.md
+fail=0
+for section in "## Step 0" "## Step 1" "## Step 2" "## Step 3" "## Step 4" "## Step 5" "## Halt conditions" "### For existing-conformance audit" "### For function reconciliation" "### For async stub installation" "#### Gate 1" "#### Gate 2" "#### Gate 3" "#### Gate 4" "#### Gate 6" "#### Gate 7"; do
+  if ! grep -qF "$section" "$SCRIPT"; then
+    echo "MISSING: $section"
+    fail=1
+  fi
+done
+if grep -qF "#### Gate 5" "$SCRIPT"; then
+  echo "BUG: #### Gate 5 must not exist (spec §5.7 dropped Gate 5)"
+  fail=1
+fi
+if [ "$fail" -eq 0 ]; then echo "structural OK"; else exit 1; fi
 ```
-Expected: line count > 200.
+
+Expected: a single line `structural OK`. The line count of the file is informational only — the verbatim content the plan provides is approximately 158 lines; do NOT halt on line count.
 
 ### Task 11: Write loop2-iteration.md
 
@@ -1454,14 +1528,22 @@ function check_regression(baseline_path):
     return OK
 ```
 
-- [ ] **Step 2: Verify**
+- [ ] **Step 2: Verify (structural)**
 
 Run:
 ```bash
-wc -l docs/superpowers/projects/2026-04-07-canonical-abi-unification/scripts/loop2-iteration.md
+SCRIPT=docs/superpowers/projects/2026-04-07-canonical-abi-unification/scripts/loop2-iteration.md
+fail=0
+for section in "## Step 0" "## Step 1" "## Step 2" "## Step 3" "## Step 4" "## Step 5" "## Halt conditions" "### For existing-wiring audit" "### For callsite migration" "### For dead-helper deletion" "templates/migrate-callsite.md" "templates/add-wiring-test.md" "templates/diagnose-loop2-regression.md" "templates/delete-dead-helper.md" "templates/verify-grep-zero.md" "loop2-baseline.json"; do
+  if ! grep -qF "$section" "$SCRIPT"; then
+    echo "MISSING: $section"
+    fail=1
+  fi
+done
+if [ "$fail" -eq 0 ]; then echo "structural OK"; else exit 1; fi
 ```
 
-Expected: line count > 150.
+Expected: a single line `structural OK`. The structural check verifies the script defines the three Loop 2 work item types, references every Loop 2 template the script must dispatch, and references the baseline file used by the regression-check protocol from Rule L2-B. Line count is informational only.
 
 ### Task 12: Write loop3-iteration.md
 
@@ -1476,14 +1558,22 @@ Same structure as `loop2-iteration.md`. Differences:
 - Regression check uses `loop3-baseline.json`.
 - Status file: `loop3-suppressed-errors.json`.
 
-- [ ] **Step 2: Verify**
+- [ ] **Step 2: Verify (structural)**
 
 Run:
 ```bash
-wc -l docs/superpowers/projects/2026-04-07-canonical-abi-unification/scripts/loop3-iteration.md
+SCRIPT=docs/superpowers/projects/2026-04-07-canonical-abi-unification/scripts/loop3-iteration.md
+fail=0
+for section in "## Step 0" "## Step 1" "## Step 2" "## Step 3" "## Step 4" "## Step 5" "## Halt conditions" "### For suppression-site fix" "templates/fix-error-suppression.md" "templates/add-wasip2-trap-test.md" "loop3-baseline.json"; do
+  if ! grep -qF "$section" "$SCRIPT"; then
+    echo "MISSING: $section"
+    fail=1
+  fi
+done
+if [ "$fail" -eq 0 ]; then echo "structural OK"; else exit 1; fi
 ```
 
-Expected: line count > 100.
+Expected: a single line `structural OK`. Verifies the Loop 3 work item type, the templates the script dispatches, and the baseline file. Line count is informational only.
 
 ---
 
