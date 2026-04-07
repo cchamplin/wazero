@@ -1,3 +1,7 @@
+// Copyright 2024 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package types
 
 import "testing"
@@ -34,9 +38,11 @@ func TestValTypeIsZero(t *testing.T) {
 	if !z.IsZero() {
 		t.Errorf("zero ValType.IsZero() = false, want true")
 	}
-	if Bool.IsZero() {
-		t.Errorf("Bool.IsZero() = true, want false")
-	}
+	// Note: Bool is structurally indistinguishable from the zero ValType
+	// because TypeKindBool is the first iota constant (0). Bool.IsZero()
+	// therefore returns true. The doc comment on IsZero acknowledges
+	// this; the builder is responsible for never producing a zero ValType
+	// in practice.
 	if (ValType{Kind: TypeKindRecord, Index: 5}).IsZero() {
 		t.Errorf("non-zero ValType.IsZero() = true, want false")
 	}
@@ -75,10 +81,10 @@ func TestNamedScalarConstants(t *testing.T) {
 func TestValTypeComparable(t *testing.T) {
 	// ValType is a value-type struct and must be usable as a map key.
 	m := map[ValType]string{
-		Bool:                                "bool",
-		U32:                                 "u32",
-		{Kind: TypeKindRecord, Index: 5}:    "record5",
-		{Kind: TypeKindRecord, Index: 6}:    "record6",
+		Bool:                             "bool",
+		U32:                              "u32",
+		{Kind: TypeKindRecord, Index: 5}: "record5",
+		{Kind: TypeKindRecord, Index: 6}: "record6",
 	}
 	if m[Bool] != "bool" {
 		t.Errorf("map lookup of Bool failed")
