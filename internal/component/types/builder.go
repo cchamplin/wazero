@@ -37,7 +37,6 @@ type ComponentTypesBuilder struct {
 	resultIntern    map[uint64][]uint32
 	streamIntern    map[uint64][]uint32
 	futureIntern    map[uint64][]uint32
-	errCtxIntern    map[uint64][]uint32
 	funcIntern      map[uint64][]uint32
 }
 
@@ -55,7 +54,6 @@ func NewComponentTypesBuilder() *ComponentTypesBuilder {
 		resultIntern:    map[uint64][]uint32{},
 		streamIntern:    map[uint64][]uint32{},
 		futureIntern:    map[uint64][]uint32{},
-		errCtxIntern:    map[uint64][]uint32{},
 		funcIntern:      map[uint64][]uint32{},
 	}
 }
@@ -510,7 +508,6 @@ func (b *ComponentTypesBuilder) Finish() *ComponentTypes {
 	b.resultIntern = nil
 	b.streamIntern = nil
 	b.futureIntern = nil
-	b.errCtxIntern = nil
 	b.funcIntern = nil
 	return &out
 }

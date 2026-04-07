@@ -132,6 +132,17 @@ func TestBuilderFinishFreezesBuilder(t *testing.T) {
 	b.InternRecord([]RecordField{{Name: "b", Type: U32}})
 }
 
+func TestBuilderDoubleFinishPanics(t *testing.T) {
+	b := NewComponentTypesBuilder()
+	b.Finish()
+	defer func() {
+		if r := recover(); r == nil {
+			t.Errorf("second Finish() did not panic")
+		}
+	}()
+	b.Finish()
+}
+
 func TestBuilderInternFunc(t *testing.T) {
 	b := NewComponentTypesBuilder()
 	params := b.InternTuple([]ValType{U32, S32})
