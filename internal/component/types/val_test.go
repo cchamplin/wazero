@@ -1,6 +1,6 @@
 // internal/component/val_test.go
 
-package component
+package types
 
 import (
 	"testing"

@@ -1,6 +1,6 @@
 // internal/component/val.go
 
-package component
+package types
 
 import "fmt"
 
