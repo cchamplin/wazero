@@ -6,11 +6,12 @@ import (
 	"context"
 	"testing"
 
+	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
 func TestWithResourceTable(t *testing.T) {
-	table := NewResourceTable()
+	table := runtime.NewResourceTable()
 	ctx := WithResourceTable(context.Background(), table)
 
 	retrieved := ResourceTableFromContext(ctx)

@@ -5,6 +5,8 @@ package component
 import (
 	"context"
 	"io"
+
+	"github.com/tetratelabs/wazero/internal/component/runtime"
 )
 
 // TerminalMode controls how terminal detection behaves for WASI CLI interfaces.
@@ -31,14 +33,14 @@ const (
 )
 
 // WithResourceTable returns a new context with the given ResourceTable stored.
-func WithResourceTable(ctx context.Context, table *ResourceTable) context.Context {
+func WithResourceTable(ctx context.Context, table *runtime.ResourceTable) context.Context {
 	return context.WithValue(ctx, resourceTableContextKey, table)
 }
 
 // ResourceTableFromContext retrieves the ResourceTable from the context.
 // Returns nil if no ResourceTable is set.
-func ResourceTableFromContext(ctx context.Context) *ResourceTable {
-	table, _ := ctx.Value(resourceTableContextKey).(*ResourceTable)
+func ResourceTableFromContext(ctx context.Context) *runtime.ResourceTable {
+	table, _ := ctx.Value(resourceTableContextKey).(*runtime.ResourceTable)
 	return table
 }
 

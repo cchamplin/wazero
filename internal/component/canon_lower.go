@@ -8,6 +8,7 @@ import (
 	"math"
 
 	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 // EnumType represents an enumeration type for lowering.
@@ -221,7 +222,7 @@ func (f *LoweredFunc) CallWithStack(ctx context.Context, stack []uint64) ([]uint
 }
 
 // liftArguments lifts core wasm values to component Vals.
-func (f *LoweredFunc) liftArguments(stack []uint64) ([]Val, error) {
+func (f *LoweredFunc) liftArguments(stack []uint64) ([]types.Val, error) {
 	// If we have type information, use it for proper lifting
 	if f.funcType != nil && len(f.funcType.Params) > 0 {
 		return f.liftArgumentsTyped(stack)
@@ -229,9 +230,9 @@ func (f *LoweredFunc) liftArguments(stack []uint64) ([]Val, error) {
 
 	// Without type info, assume simple numeric types (i32)
 	// This is a fallback for when type information is not available
-	args := make([]Val, len(stack))
+	args := make([]types.Val, len(stack))
 	for i, v := range stack {
-		args[i] = ValS32(int32(v))
+		args[i] = types.ValS32(int32(v))
 	}
 	return args, nil
 }
@@ -273,9 +274,9 @@ func (f *flatIter) nextF64() float64 {
 }
 
 // liftArgumentsTyped lifts arguments using type information.
-func (f *LoweredFunc) liftArgumentsTyped(stack []uint64) ([]Val, error) {
+func (f *LoweredFunc) liftArgumentsTyped(stack []uint64) ([]types.Val, error) {
 	iter := newFlatIter(stack)
-	args := make([]Val, len(f.funcType.Params))
+	args := make([]types.Val, len(f.funcType.Params))
 
 	for i, param := range f.funcType.Params {
 		val, err := f.liftValFromFlat(iter, param.ValType)
@@ -289,38 +290,38 @@ func (f *LoweredFunc) liftArgumentsTyped(stack []uint64) ([]Val, error) {
 }
 
 // liftValFromFlat lifts a single value from flat representation using type info.
-func (f *LoweredFunc) liftValFromFlat(iter *flatIter, typeRef ValTypeRef) (Val, error) {
+func (f *LoweredFunc) liftValFromFlat(iter *flatIter, typeRef ValTypeRef) (types.Val, error) {
 	if !typeRef.IsPrimitive {
 		// For non-primitive types, we would need the full type definition
 		// For now, treat as i32 (this is a limitation)
-		return ValS32(int32(iter.nextI32())), nil
+		return types.ValS32(int32(iter.nextI32())), nil
 	}
 
 	switch typeRef.Primitive {
 	case 0x7f: // bool
-		return ValBool(iter.nextI32() != 0), nil
+		return types.ValBool(iter.nextI32() != 0), nil
 	case 0x7e: // s8
-		return ValS8(int8(iter.nextI32())), nil
+		return types.ValS8(int8(iter.nextI32())), nil
 	case 0x7d: // u8
-		return ValU8(uint8(iter.nextI32())), nil
+		return types.ValU8(uint8(iter.nextI32())), nil
 	case 0x7c: // s16
-		return ValS16(int16(iter.nextI32())), nil
+		return types.ValS16(int16(iter.nextI32())), nil
 	case 0x7b: // u16
-		return ValU16(uint16(iter.nextI32())), nil
+		return types.ValU16(uint16(iter.nextI32())), nil
 	case 0x7a: // s32
-		return ValS32(int32(iter.nextI32())), nil
+		return types.ValS32(int32(iter.nextI32())), nil
 	case 0x79: // u32
-		return ValU32(iter.nextI32()), nil
+		return types.ValU32(iter.nextI32()), nil
 	case 0x78: // s64
-		return ValS64(int64(iter.nextI64())), nil
+		return types.ValS64(int64(iter.nextI64())), nil
 	case 0x77: // u64
-		return ValU64(iter.nextI64()), nil
+		return types.ValU64(iter.nextI64()), nil
 	case 0x76: // f32
-		return ValF32(iter.nextF32()), nil
+		return types.ValF32(iter.nextF32()), nil
 	case 0x75: // f64
-		return ValF64(iter.nextF64()), nil
+		return types.ValF64(iter.nextF64()), nil
 	case 0x74: // char
-		return ValChar(rune(iter.nextI32())), nil
+		return types.ValChar(rune(iter.nextI32())), nil
 	case 0x73: // string
 		// String needs memory context - for now return empty
 		// Full implementation would read ptr/len and load from memory
@@ -329,13 +330,13 @@ func (f *LoweredFunc) liftValFromFlat(iter *flatIter, typeRef ValTypeRef) (Val, 
 		if f.memory != nil {
 			str, err := f.liftString(ptr, length)
 			if err != nil {
-				return Val{}, err
+				return types.Val{}, err
 			}
-			return ValString(str), nil
+			return types.ValString(str), nil
 		}
-		return ValString(""), fmt.Errorf("string lifting requires memory (ptr=%d, len=%d)", ptr, length)
+		return types.ValString(""), fmt.Errorf("string lifting requires memory (ptr=%d, len=%d)", ptr, length)
 	default:
-		return ValS32(int32(iter.nextI32())), nil
+		return types.ValS32(int32(iter.nextI32())), nil
 	}
 }
 
@@ -352,7 +353,7 @@ func (f *LoweredFunc) liftString(ptr, length uint32) (string, error) {
 }
 
 // lowerResults lowers component Vals to core wasm values.
-func (f *LoweredFunc) lowerResults(results []Val) ([]uint64, error) {
+func (f *LoweredFunc) lowerResults(results []types.Val) ([]uint64, error) {
 	// If we have type information, use it for proper lowering
 	if f.funcType != nil && len(f.funcType.Results) > 0 {
 		return f.lowerResultsTyped(results)
@@ -371,7 +372,7 @@ func (f *LoweredFunc) lowerResults(results []Val) ([]uint64, error) {
 }
 
 // lowerResultsTyped lowers results using type information.
-func (f *LoweredFunc) lowerResultsTyped(results []Val) ([]uint64, error) {
+func (f *LoweredFunc) lowerResultsTyped(results []types.Val) ([]uint64, error) {
 	if len(results) != len(f.funcType.Results) {
 		return nil, fmt.Errorf("expected %d results, got %d", len(f.funcType.Results), len(results))
 	}
@@ -390,7 +391,7 @@ func (f *LoweredFunc) lowerResultsTyped(results []Val) ([]uint64, error) {
 }
 
 // lowerValToFlatTyped lowers a Val to flat representation using type info.
-func (f *LoweredFunc) lowerValToFlatTyped(val Val, typeRef ValTypeRef) ([]uint64, error) {
+func (f *LoweredFunc) lowerValToFlatTyped(val types.Val, typeRef ValTypeRef) ([]uint64, error) {
 	if !typeRef.IsPrimitive {
 		// For non-primitive types, use untyped lowering as fallback
 		return lowerValToFlat(val)
@@ -474,36 +475,36 @@ func (f *LoweredFunc) lowerString(s string) ([]uint64, error) {
 
 // lowerValToFlat lowers a Val to flat core wasm values without type information.
 // This is used as a fallback when type information is not available.
-func lowerValToFlat(val Val) ([]uint64, error) {
+func lowerValToFlat(val types.Val) ([]uint64, error) {
 	switch val.Kind() {
-	case ValKindBool:
+	case types.ValKindBool:
 		if val.Bool() {
 			return []uint64{1}, nil
 		}
 		return []uint64{0}, nil
-	case ValKindS8:
+	case types.ValKindS8:
 		return []uint64{uint64(uint32(int32(val.S8())))}, nil
-	case ValKindU8:
+	case types.ValKindU8:
 		return []uint64{uint64(val.U8())}, nil
-	case ValKindS16:
+	case types.ValKindS16:
 		return []uint64{uint64(uint32(int32(val.S16())))}, nil
-	case ValKindU16:
+	case types.ValKindU16:
 		return []uint64{uint64(val.U16())}, nil
-	case ValKindS32:
+	case types.ValKindS32:
 		return []uint64{uint64(uint32(val.S32()))}, nil
-	case ValKindU32:
+	case types.ValKindU32:
 		return []uint64{uint64(val.U32())}, nil
-	case ValKindS64:
+	case types.ValKindS64:
 		return []uint64{uint64(val.S64())}, nil
-	case ValKindU64:
+	case types.ValKindU64:
 		return []uint64{val.U64()}, nil
-	case ValKindF32:
+	case types.ValKindF32:
 		return []uint64{uint64(math.Float32bits(val.F32()))}, nil
-	case ValKindF64:
+	case types.ValKindF64:
 		return []uint64{math.Float64bits(val.F64())}, nil
-	case ValKindChar:
+	case types.ValKindChar:
 		return []uint64{uint64(val.Char())}, nil
-	case ValKindEnum:
+	case types.ValKindEnum:
 		// Enum types need type info to map case name to discriminant
 		// For now, return error; full implementation needs type context
 		return nil, fmt.Errorf("enum lowering requires type context")
@@ -513,7 +514,7 @@ func lowerValToFlat(val Val) ([]uint64, error) {
 }
 
 // lowerEnumToFlat converts an enum to its discriminant value.
-func lowerEnumToFlat(val Val, enumType *EnumType) ([]uint64, error) {
+func lowerEnumToFlat(val types.Val, enumType *EnumType) ([]uint64, error) {
 	caseName := val.Enum()
 	for i, name := range enumType.Cases {
 		if name == caseName {
@@ -525,7 +526,7 @@ func lowerEnumToFlat(val Val, enumType *EnumType) ([]uint64, error) {
 
 // lowerFlagsToFlat converts flags to a bitvector.
 // Per Canonical ABI: flags with N <= 32 use u32, N <= 64 use u64, else multiple u32s.
-func lowerFlagsToFlat(val Val, flagsType *FlagsType) ([]uint64, error) {
+func lowerFlagsToFlat(val types.Val, flagsType *FlagsType) ([]uint64, error) {
 	flags := val.Flags()
 	n := len(flagsType.Flags)
 
@@ -569,7 +570,7 @@ func lowerFlagsToFlat(val Val, flagsType *FlagsType) ([]uint64, error) {
 // 1. The discriminant indicates which case is active
 // 2. The payload is the value for that case (if any)
 // 3. All cases produce the same flat representation size (padded to max case size)
-func lowerVariantToFlat(val Val, variantType *VariantType) ([]uint64, error) {
+func lowerVariantToFlat(val types.Val, variantType *VariantType) ([]uint64, error) {
 	caseName, payload := val.Variant()
 
 	// Find the case index (discriminant)

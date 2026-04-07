@@ -10,16 +10,18 @@ import (
 	"testing"
 
 	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/internalapi"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
 func TestCanonLower_SimpleFunc(t *testing.T) {
 	// Create a simple host function that adds two i32s
-	hostFunc := func(ctx context.Context, args []Val) ([]Val, error) {
+	hostFunc := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		a := args[0].S32()
 		b := args[1].S32()
-		return []Val{ValS32(a + b)}, nil
+		return []types.Val{types.ValS32(a + b)}, nil
 	}
 
 	// Lower it to a core function
@@ -39,8 +41,8 @@ func TestCanonLower_SimpleFunc(t *testing.T) {
 
 func TestCanonLower_NilOptions(t *testing.T) {
 	// Test that nil options defaults to UTF8
-	hostFunc := func(ctx context.Context, args []Val) ([]Val, error) {
-		return []Val{ValS32(42)}, nil
+	hostFunc := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		return []types.Val{types.ValS32(42)}, nil
 	}
 
 	lowered := CanonLower(hostFunc, nil, nil)
@@ -51,8 +53,8 @@ func TestCanonLower_NilOptions(t *testing.T) {
 
 func TestCanonLower_NoArgs(t *testing.T) {
 	// Test function with no arguments
-	hostFunc := func(ctx context.Context, args []Val) ([]Val, error) {
-		return []Val{ValS32(100)}, nil
+	hostFunc := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		return []types.Val{types.ValS32(100)}, nil
 	}
 
 	lowered := CanonLower(hostFunc, nil, nil)
@@ -65,9 +67,9 @@ func TestCanonLower_NoArgs(t *testing.T) {
 func TestCanonLower_NoResults(t *testing.T) {
 	// Test function with no results
 	called := false
-	hostFunc := func(ctx context.Context, args []Val) ([]Val, error) {
+	hostFunc := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		called = true
-		return []Val{}, nil
+		return []types.Val{}, nil
 	}
 
 	lowered := CanonLower(hostFunc, nil, nil)
@@ -79,9 +81,9 @@ func TestCanonLower_NoResults(t *testing.T) {
 
 func TestCanonLower_MultipleResults(t *testing.T) {
 	// Test function with multiple results
-	hostFunc := func(ctx context.Context, args []Val) ([]Val, error) {
+	hostFunc := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		a := args[0].S32()
-		return []Val{ValS32(a * 2), ValS32(a * 3)}, nil
+		return []types.Val{types.ValS32(a * 2), types.ValS32(a * 3)}, nil
 	}
 
 	lowered := CanonLower(hostFunc, nil, nil)
@@ -94,10 +96,10 @@ func TestCanonLower_MultipleResults(t *testing.T) {
 
 func TestCanonLower_U32Values(t *testing.T) {
 	// Test with unsigned 32-bit values
-	hostFunc := func(ctx context.Context, args []Val) ([]Val, error) {
+	hostFunc := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		// Args are lifted as S32, convert to U32 for unsigned behavior
 		a := uint32(args[0].S32())
-		return []Val{ValU32(a + 1)}, nil
+		return []types.Val{types.ValU32(a + 1)}, nil
 	}
 
 	lowered := CanonLower(hostFunc, nil, nil)
@@ -112,12 +114,12 @@ func TestCanonLower_U32Values(t *testing.T) {
 
 func TestCanonLower_S64Values(t *testing.T) {
 	// Test with 64-bit values using typed function
-	hostFunc := func(ctx context.Context, args []Val) ([]Val, error) {
+	hostFunc := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		// Without type info, values are lifted as S32
 		// This test demonstrates the limitation
 		a := int64(args[0].S32())
 		b := int64(args[1].S32())
-		return []Val{ValS64(a + b)}, nil
+		return []types.Val{types.ValS64(a + b)}, nil
 	}
 
 	lowered := CanonLower(hostFunc, nil, nil)
@@ -129,8 +131,8 @@ func TestCanonLower_S64Values(t *testing.T) {
 
 func TestCanonLower_BoolValues(t *testing.T) {
 	// Test bool lowering
-	hostFunc := func(ctx context.Context, args []Val) ([]Val, error) {
-		return []Val{ValBool(true), ValBool(false)}, nil
+	hostFunc := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		return []types.Val{types.ValBool(true), types.ValBool(false)}, nil
 	}
 
 	lowered := CanonLower(hostFunc, nil, nil)
@@ -143,8 +145,8 @@ func TestCanonLower_BoolValues(t *testing.T) {
 
 func TestCanonLower_F32Values(t *testing.T) {
 	// Test float32 lowering
-	hostFunc := func(ctx context.Context, args []Val) ([]Val, error) {
-		return []Val{ValF32(3.14)}, nil
+	hostFunc := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		return []types.Val{types.ValF32(3.14)}, nil
 	}
 
 	lowered := CanonLower(hostFunc, nil, nil)
@@ -163,8 +165,8 @@ func TestCanonLower_F32Values(t *testing.T) {
 
 func TestCanonLower_F64Values(t *testing.T) {
 	// Test float64 lowering
-	hostFunc := func(ctx context.Context, args []Val) ([]Val, error) {
-		return []Val{ValF64(2.718281828)}, nil
+	hostFunc := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		return []types.Val{types.ValF64(2.718281828)}, nil
 	}
 
 	lowered := CanonLower(hostFunc, nil, nil)
@@ -183,8 +185,8 @@ func TestCanonLower_F64Values(t *testing.T) {
 
 func TestCanonLower_CharValues(t *testing.T) {
 	// Test char (Unicode scalar) lowering
-	hostFunc := func(ctx context.Context, args []Val) ([]Val, error) {
-		return []Val{ValChar('A'), ValChar('\u4e2d')}, nil // 'A' and Chinese character
+	hostFunc := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		return []types.Val{types.ValChar('A'), types.ValChar('\u4e2d')}, nil // 'A' and Chinese character
 	}
 
 	lowered := CanonLower(hostFunc, nil, nil)
@@ -197,11 +199,11 @@ func TestCanonLower_CharValues(t *testing.T) {
 
 func TestCanonLower_WithTypedParams(t *testing.T) {
 	// Test with explicit type information
-	hostFunc := func(ctx context.Context, args []Val) ([]Val, error) {
+	hostFunc := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		require.Equal(t, 2, len(args))
 		a := args[0].S32()
 		b := args[1].S32()
-		return []Val{ValS32(a * b)}, nil
+		return []types.Val{types.ValS32(a * b)}, nil
 	}
 
 	funcType := &FuncType{
@@ -223,10 +225,10 @@ func TestCanonLower_WithTypedParams(t *testing.T) {
 
 func TestCanonLower_WithTypedBool(t *testing.T) {
 	// Test with explicit bool type information
-	hostFunc := func(ctx context.Context, args []Val) ([]Val, error) {
+	hostFunc := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		require.Equal(t, 1, len(args))
 		b := args[0].Bool()
-		return []Val{ValBool(!b)}, nil
+		return []types.Val{types.ValBool(!b)}, nil
 	}
 
 	funcType := &FuncType{
@@ -256,7 +258,7 @@ func TestCanonLower_WithTypedBool(t *testing.T) {
 func TestCanonLower_ErrorPropagation(t *testing.T) {
 	// Test that errors from the callback are propagated
 	expectedErr := "test error"
-	hostFunc := func(ctx context.Context, args []Val) ([]Val, error) {
+	hostFunc := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		return nil, &testError{msg: expectedErr}
 	}
 
@@ -276,7 +278,7 @@ func (e *testError) Error() string {
 
 func TestCanonLower_SetMemory(t *testing.T) {
 	// Test SetMemory
-	lowered := CanonLower(func(ctx context.Context, args []Val) ([]Val, error) {
+	lowered := CanonLower(func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		return nil, nil
 	}, nil, nil)
 
@@ -289,14 +291,14 @@ func TestCanonLower_SetMemory(t *testing.T) {
 
 func TestCanonLower_SetInstance(t *testing.T) {
 	// Test SetInstance
-	lowered := CanonLower(func(ctx context.Context, args []Val) ([]Val, error) {
+	lowered := CanonLower(func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		return nil, nil
 	}, nil, nil)
 
 	require.Nil(t, lowered.instance)
 
 	inst := &Instance{
-		resourceTable: NewResourceTable(),
+		resourceTable: runtime.NewResourceTable(),
 	}
 	lowered.SetInstance(inst)
 	require.Equal(t, inst, lowered.instance)
@@ -309,9 +311,9 @@ func TestCanonLower_ContextPropagation(t *testing.T) {
 	testValue := "test-value"
 
 	var receivedCtx context.Context
-	hostFunc := func(ctx context.Context, args []Val) ([]Val, error) {
+	hostFunc := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		receivedCtx = ctx
-		return []Val{}, nil
+		return []types.Val{}, nil
 	}
 
 	lowered := CanonLower(hostFunc, nil, nil)
@@ -327,24 +329,24 @@ func TestCanonLower_ContextPropagation(t *testing.T) {
 func TestLowerValToFlat_AllTypes(t *testing.T) {
 	tests := []struct {
 		name     string
-		val      Val
+		val      types.Val
 		expected []uint64
 	}{
-		{"bool true", ValBool(true), []uint64{1}},
-		{"bool false", ValBool(false), []uint64{0}},
-		{"s8 positive", ValS8(42), []uint64{42}},
-		{"s8 negative", ValS8(-1), []uint64{0xFFFFFFFF}}, // sign extended to i32
-		{"u8", ValU8(255), []uint64{255}},
-		{"s16 positive", ValS16(1000), []uint64{1000}},
-		{"s16 negative", ValS16(-1), []uint64{0xFFFFFFFF}},
-		{"u16", ValU16(65535), []uint64{65535}},
-		{"s32 positive", ValS32(100000), []uint64{100000}},
-		{"s32 negative", ValS32(-100), []uint64{0xFFFFFF9C}},
-		{"u32", ValU32(0xFFFFFFFF), []uint64{0xFFFFFFFF}},
-		{"s64", ValS64(0x123456789ABCDEF0), []uint64{0x123456789ABCDEF0}},
-		{"u64", ValU64(0xFEDCBA9876543210), []uint64{0xFEDCBA9876543210}},
-		{"char ASCII", ValChar('Z'), []uint64{90}},
-		{"char Unicode", ValChar('\u1234'), []uint64{0x1234}},
+		{"bool true", types.ValBool(true), []uint64{1}},
+		{"bool false", types.ValBool(false), []uint64{0}},
+		{"s8 positive", types.ValS8(42), []uint64{42}},
+		{"s8 negative", types.ValS8(-1), []uint64{0xFFFFFFFF}}, // sign extended to i32
+		{"u8", types.ValU8(255), []uint64{255}},
+		{"s16 positive", types.ValS16(1000), []uint64{1000}},
+		{"s16 negative", types.ValS16(-1), []uint64{0xFFFFFFFF}},
+		{"u16", types.ValU16(65535), []uint64{65535}},
+		{"s32 positive", types.ValS32(100000), []uint64{100000}},
+		{"s32 negative", types.ValS32(-100), []uint64{0xFFFFFF9C}},
+		{"u32", types.ValU32(0xFFFFFFFF), []uint64{0xFFFFFFFF}},
+		{"s64", types.ValS64(0x123456789ABCDEF0), []uint64{0x123456789ABCDEF0}},
+		{"u64", types.ValU64(0xFEDCBA9876543210), []uint64{0xFEDCBA9876543210}},
+		{"char ASCII", types.ValChar('Z'), []uint64{90}},
+		{"char Unicode", types.ValChar('\u1234'), []uint64{0x1234}},
 	}
 
 	for _, tt := range tests {
@@ -358,13 +360,13 @@ func TestLowerValToFlat_AllTypes(t *testing.T) {
 
 func TestLowerValToFlat_Floats(t *testing.T) {
 	// Test f32
-	result, err := lowerValToFlat(ValF32(1.5))
+	result, err := lowerValToFlat(types.ValF32(1.5))
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, math.Float32frombits(uint32(result[0])), float32(1.5))
 
 	// Test f64
-	result, err = lowerValToFlat(ValF64(2.5))
+	result, err = lowerValToFlat(types.ValF64(2.5))
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, math.Float64frombits(result[0]), float64(2.5))
@@ -372,7 +374,7 @@ func TestLowerValToFlat_Floats(t *testing.T) {
 
 func TestLowerValToFlat_UnsupportedType(t *testing.T) {
 	// Test that unsupported types return an error
-	_, err := lowerValToFlat(ValString("hello"))
+	_, err := lowerValToFlat(types.ValString("hello"))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unsupported")
 }
@@ -404,10 +406,10 @@ func TestFlatIter_Floats(t *testing.T) {
 
 func TestCanonLower_WithTypedS64(t *testing.T) {
 	// Test with explicit s64 type information
-	hostFunc := func(ctx context.Context, args []Val) ([]Val, error) {
+	hostFunc := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		require.Equal(t, 1, len(args))
 		a := args[0].S64()
-		return []Val{ValS64(a * 2)}, nil
+		return []types.Val{types.ValS64(a * 2)}, nil
 	}
 
 	funcType := &FuncType{
@@ -430,10 +432,10 @@ func TestCanonLower_WithTypedS64(t *testing.T) {
 
 func TestCanonLower_WithTypedU64(t *testing.T) {
 	// Test with explicit u64 type information
-	hostFunc := func(ctx context.Context, args []Val) ([]Val, error) {
+	hostFunc := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		require.Equal(t, 1, len(args))
 		a := args[0].U64()
-		return []Val{ValU64(a + 1)}, nil
+		return []types.Val{types.ValU64(a + 1)}, nil
 	}
 
 	funcType := &FuncType{
@@ -454,10 +456,10 @@ func TestCanonLower_WithTypedU64(t *testing.T) {
 
 func TestCanonLower_WithTypedF32(t *testing.T) {
 	// Test with explicit f32 type information
-	hostFunc := func(ctx context.Context, args []Val) ([]Val, error) {
+	hostFunc := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		require.Equal(t, 1, len(args))
 		a := args[0].F32()
-		return []Val{ValF32(a * 2.0)}, nil
+		return []types.Val{types.ValF32(a * 2.0)}, nil
 	}
 
 	funcType := &FuncType{
@@ -485,10 +487,10 @@ func TestCanonLower_WithTypedF32(t *testing.T) {
 
 func TestCanonLower_WithTypedF64(t *testing.T) {
 	// Test with explicit f64 type information
-	hostFunc := func(ctx context.Context, args []Val) ([]Val, error) {
+	hostFunc := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		require.Equal(t, 1, len(args))
 		a := args[0].F64()
-		return []Val{ValF64(a * 2.0)}, nil
+		return []types.Val{types.ValF64(a * 2.0)}, nil
 	}
 
 	funcType := &FuncType{
@@ -516,10 +518,10 @@ func TestCanonLower_WithTypedF64(t *testing.T) {
 
 func TestCanonLower_WithTypedChar(t *testing.T) {
 	// Test with explicit char type information
-	hostFunc := func(ctx context.Context, args []Val) ([]Val, error) {
+	hostFunc := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
 		require.Equal(t, 1, len(args))
 		c := args[0].Char()
-		return []Val{ValChar(c + 1)}, nil // Return next character
+		return []types.Val{types.ValChar(c + 1)}, nil // Return next character
 	}
 
 	funcType := &FuncType{
@@ -540,8 +542,8 @@ func TestCanonLower_WithTypedChar(t *testing.T) {
 
 func TestCanonLower_MismatchedResultCount(t *testing.T) {
 	// Test error when result count doesn't match type
-	hostFunc := func(ctx context.Context, args []Val) ([]Val, error) {
-		return []Val{ValS32(1), ValS32(2)}, nil // Return 2 results
+	hostFunc := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		return []types.Val{types.ValS32(1), types.ValS32(2)}, nil // Return 2 results
 	}
 
 	funcType := &FuncType{
@@ -700,7 +702,7 @@ func TestLoweredFunc_StringLowering(t *testing.T) {
 	}
 
 	// Lower string argument
-	results, err := f.lowerValToFlatTyped(ValString(testStr), f.funcType.Params[0].ValType)
+	results, err := f.lowerValToFlatTyped(types.ValString(testStr), f.funcType.Params[0].ValType)
 	if err != nil {
 		t.Fatalf("string lowering failed: %v", err)
 	}
@@ -753,7 +755,7 @@ func TestLoweredFunc_StringLowering_EmptyString(t *testing.T) {
 	}
 
 	// Lower empty string
-	results, err := f.lowerValToFlatTyped(ValString(""), f.funcType.Params[0].ValType)
+	results, err := f.lowerValToFlatTyped(types.ValString(""), f.funcType.Params[0].ValType)
 	if err != nil {
 		t.Fatalf("empty string lowering failed: %v", err)
 	}
@@ -785,7 +787,7 @@ func TestLoweredFunc_StringLowering_NoMemory(t *testing.T) {
 		reallocFunc: nil,
 	}
 
-	_, err := f.lowerValToFlatTyped(ValString("test"), f.funcType.Params[0].ValType)
+	_, err := f.lowerValToFlatTyped(types.ValString("test"), f.funcType.Params[0].ValType)
 	if err == nil {
 		t.Fatal("expected error for string lowering without memory")
 	}
@@ -806,7 +808,7 @@ func TestLoweredFunc_StringLowering_NoRealloc(t *testing.T) {
 		reallocFunc: nil, // No realloc
 	}
 
-	_, err := f.lowerValToFlatTyped(ValString("test"), f.funcType.Params[0].ValType)
+	_, err := f.lowerValToFlatTyped(types.ValString("test"), f.funcType.Params[0].ValType)
 	if err == nil {
 		t.Fatal("expected error for string lowering without realloc")
 	}
@@ -835,7 +837,7 @@ func TestLoweredFunc_StringLowering_Unicode(t *testing.T) {
 		reallocFunc: mockRealloc,
 	}
 
-	results, err := f.lowerValToFlatTyped(ValString(testStr), f.funcType.Params[0].ValType)
+	results, err := f.lowerValToFlatTyped(types.ValString(testStr), f.funcType.Params[0].ValType)
 	if err != nil {
 		t.Fatalf("unicode string lowering failed: %v", err)
 	}
@@ -870,7 +872,7 @@ func TestLowerEnumToFlat(t *testing.T) {
 	enumType := &EnumType{Cases: []string{"case0", "case1", "case2"}}
 
 	for _, tc := range cases {
-		val := ValEnum(tc.caseName)
+		val := types.ValEnum(tc.caseName)
 		result, err := lowerEnumToFlat(val, enumType)
 		if err != nil {
 			t.Fatalf("enum lowering failed for %s: %v", tc.caseName, err)
@@ -884,7 +886,7 @@ func TestLowerEnumToFlat(t *testing.T) {
 func TestLowerEnumToFlat_UnknownCase(t *testing.T) {
 	// Test that unknown enum case returns an error
 	enumType := &EnumType{Cases: []string{"case0", "case1", "case2"}}
-	val := ValEnum("unknown")
+	val := types.ValEnum("unknown")
 
 	_, err := lowerEnumToFlat(val, enumType)
 	if err == nil {
@@ -911,7 +913,7 @@ func TestLowerFlags(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		val := ValFlags(tc.flags)
+		val := types.ValFlags(tc.flags)
 		result, err := lowerFlagsToFlat(val, flagsType)
 		if err != nil {
 			t.Fatalf("flags lowering failed: %v", err)
@@ -975,7 +977,7 @@ func TestLowerFlags_Large(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			val := ValFlags(tc.flags)
+			val := types.ValFlags(tc.flags)
 			result, err := lowerFlagsToFlat(val, flagsType)
 			if err != nil {
 				t.Fatalf("flags lowering failed: %v", err)
@@ -1062,7 +1064,7 @@ func TestLowerFlags_VeryLarge(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			val := ValFlags(tc.flags)
+			val := types.ValFlags(tc.flags)
 			result, err := lowerFlagsToFlat(val, flagsType)
 			if err != nil {
 				t.Fatalf("flags lowering failed: %v", err)
@@ -1094,11 +1096,11 @@ func TestLowerVariant(t *testing.T) {
 	}
 
 	cases := []struct {
-		name           string
-		caseName       string
-		payload        *Val
-		expectedDisc   uint64
-		expectedLen    int    // expected total length of result
+		name         string
+		caseName     string
+		payload      *types.Val
+		expectedDisc uint64
+		expectedLen  int // expected total length of result
 	}{
 		{
 			name:         "none case",
@@ -1110,7 +1112,7 @@ func TestLowerVariant(t *testing.T) {
 		{
 			name:         "some case with s32",
 			caseName:     "some",
-			payload:      ptrVal(ValS32(42)),
+			payload:      ptrVal(types.ValS32(42)),
 			expectedDisc: 1,
 			expectedLen:  3, // disc + 1 payload + 1 padding
 		},
@@ -1118,7 +1120,7 @@ func TestLowerVariant(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			val := ValVariant(tc.caseName, tc.payload)
+			val := types.ValVariant(tc.caseName, tc.payload)
 			result, err := lowerVariantToFlat(val, variantType)
 			if err != nil {
 				t.Fatalf("variant lowering failed: %v", err)
@@ -1148,7 +1150,7 @@ func TestLowerVariant_UnknownCase(t *testing.T) {
 		},
 	}
 
-	val := ValVariant("unknown", nil)
+	val := types.ValVariant("unknown", nil)
 	_, err := lowerVariantToFlat(val, variantType)
 	if err == nil {
 		t.Fatal("expected error for unknown variant case")
@@ -1159,6 +1161,6 @@ func TestLowerVariant_UnknownCase(t *testing.T) {
 }
 
 // ptrVal is a helper to create a pointer to a Val
-func ptrVal(v Val) *Val {
+func ptrVal(v types.Val) *types.Val {
 	return &v
 }
