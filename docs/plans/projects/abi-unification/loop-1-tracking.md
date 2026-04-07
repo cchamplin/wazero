@@ -1,6 +1,6 @@
 # Loop 1 — Unify type representation, then make `abi/` correct
 
-> **Status:** not started
+> **Status:** in progress
 >
 > **Goal:** wazero has ONE type representation for component-model
 > types. The binary parser populates `internal/component/types.ValType`
