@@ -2743,3 +2743,52 @@ func TestLiftFlatFixedLengthList(t *testing.T) {
 		}
 	}
 }
+
+// TestLiftAsyncTypesTraps asserts that lift of the async value types
+// (Stream, Future, ErrorContext) traps with a clear "async not yet
+// supported" error in both LiftFlat and LiftHeap. These types are
+// recognised by the type system (so the binary parser can produce a
+// complete type graph) but the synchronous canonical ABI does not
+// implement async — it must trap, not silently succeed.
+//
+// Spec authority for the i32-handle shape:
+//   - definitions.py:1192,1199,1200 — load() dispatches Stream/Future/
+//     ErrorContext through lift_stream/lift_future/lift_error_context,
+//     which are async-only operations.
+//   - definitions.py:1787,1794,1795 — lift_flat() likewise dispatches to
+//     async-only operations.
+func TestLiftAsyncTypesTraps(t *testing.T) {
+	tests := []struct {
+		name string
+		typ  types.ValType
+	}{
+		{"Stream_no_element", types.Stream{}},
+		{"Stream_with_element", types.Stream{Element: types.U32{}}},
+		{"Future_no_element", types.Future{}},
+		{"Future_with_element", types.Future{Element: types.U32{}}},
+		{"ErrorContext", types.ErrorContext{}},
+	}
+
+	for _, tt := range tests {
+		tc := tt
+		t.Run("LiftFlat_"+tc.name, func(t *testing.T) {
+			iter := NewFlatIter([]uint64{0})
+			val, err := LiftFlat(nil, tc.typ, iter)
+			require.Error(t, err)
+			require.Equal(t, component.Val{}, val)
+			if !strings.Contains(err.Error(), "async not yet supported") {
+				t.Fatalf("expected error to mention 'async not yet supported', got: %v", err)
+			}
+		})
+		t.Run("LiftHeap_"+tc.name, func(t *testing.T) {
+			data := make([]byte, 16)
+			ctx := &LiftContext{Memory: &mockMemory{data: data}}
+			val, err := LiftHeap(ctx, tc.typ, 0)
+			require.Error(t, err)
+			require.Equal(t, component.Val{}, val)
+			if !strings.Contains(err.Error(), "async not yet supported") {
+				t.Fatalf("expected error to mention 'async not yet supported', got: %v", err)
+			}
+		})
+	}
+}

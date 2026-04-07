@@ -356,6 +356,105 @@ func (f Flags) FlattenCount() int {
 	return (n + 31) / 32
 }
 
+// Stream is the type of a wasi-async `stream<T>`. It is recognised as a
+// value type so the binary parser can produce a complete type graph, but
+// the synchronous canonical ABI implementation does not lift or lower
+// streams; lift/lower of `Stream` traps with an "async not yet supported"
+// error. Async support is deferred to a follow-up project — see
+// docs/plans/2026-04-07-canonical-abi-unification-design.md "Out of scope".
+//
+// Spec: debug-vendored/component-model/design/mvp/canonical-abi/definitions.py:174-176
+//
+//	@dataclass
+//	class StreamType(ValType):
+//	  t: Optional[ValType]
+//
+// The element type may be nil for `stream<>`. Stream handles flatten to a
+// single i32 per spec lines 1080 (alignment), 1138 (elem_size), and 1719
+// (flatten_type) — same shape as `Own`/`Borrow`.
+type Stream struct {
+	Element ValType // may be nil for stream<>
+}
+
+func (Stream) valType() {}
+
+// Size returns 4 because stream handles are i32 indices.
+// Spec: definitions.py:1138 (case StreamType() | FutureType() : return 4)
+func (Stream) Size() uint32 { return 4 }
+
+// Align returns 4 for i32 alignment.
+// Spec: definitions.py:1080 (case StreamType() | FutureType() : return 4)
+func (Stream) Align() uint32 { return 4 }
+
+// FlattenCount returns 1 because a stream handle is a single i32.
+// Spec: definitions.py:1719 (case StreamType() | FutureType() : return ['i32'])
+func (Stream) FlattenCount() int { return 1 }
+
+// Future is the type of a wasi-async `future<T>`. It is recognised as a
+// value type so the binary parser can produce a complete type graph, but
+// the synchronous canonical ABI implementation does not lift or lower
+// futures; lift/lower of `Future` traps with an "async not yet supported"
+// error. Async support is deferred to a follow-up project — see
+// docs/plans/2026-04-07-canonical-abi-unification-design.md "Out of scope".
+//
+// Spec: debug-vendored/component-model/design/mvp/canonical-abi/definitions.py:178-180
+//
+//	@dataclass
+//	class FutureType(ValType):
+//	  t: Optional[ValType]
+//
+// The element type may be nil for `future<>`. Future handles flatten to a
+// single i32 per spec lines 1080 (alignment), 1138 (elem_size), and 1719
+// (flatten_type) — same shape as `Own`/`Borrow`.
+type Future struct {
+	Element ValType // may be nil for future<>
+}
+
+func (Future) valType() {}
+
+// Size returns 4 because future handles are i32 indices.
+// Spec: definitions.py:1138 (case StreamType() | FutureType() : return 4)
+func (Future) Size() uint32 { return 4 }
+
+// Align returns 4 for i32 alignment.
+// Spec: definitions.py:1080 (case StreamType() | FutureType() : return 4)
+func (Future) Align() uint32 { return 4 }
+
+// FlattenCount returns 1 because a future handle is a single i32.
+// Spec: definitions.py:1719 (case StreamType() | FutureType() : return ['i32'])
+func (Future) FlattenCount() int { return 1 }
+
+// ErrorContext is the type of a wasi-async `error-context` value. It is
+// recognised as a value type so the binary parser can produce a complete
+// type graph, but the synchronous canonical ABI implementation does not
+// lift or lower error-context values; lift/lower of `ErrorContext` traps
+// with an "async not yet supported" error. Async support is deferred to a
+// follow-up project — see
+// docs/plans/2026-04-07-canonical-abi-unification-design.md "Out of scope".
+//
+// Spec: debug-vendored/component-model/design/mvp/canonical-abi/definitions.py:120
+//
+//	class ErrorContextType(ValType): pass
+//
+// ErrorContext flattens to a single i32 handle per spec lines 1074
+// (alignment), 1132 (elem_size), and 1713 (flatten_type) — same shape as
+// `Own`/`Borrow`.
+type ErrorContext struct{}
+
+func (ErrorContext) valType() {}
+
+// Size returns 4 because error-context handles are i32 indices.
+// Spec: definitions.py:1132 (case ErrorContextType() : return 4)
+func (ErrorContext) Size() uint32 { return 4 }
+
+// Align returns 4 for i32 alignment.
+// Spec: definitions.py:1074 (case ErrorContextType() : return 4)
+func (ErrorContext) Align() uint32 { return 4 }
+
+// FlattenCount returns 1 because an error-context handle is a single i32.
+// Spec: definitions.py:1713 (case ErrorContextType() : return ['i32'])
+func (ErrorContext) FlattenCount() int { return 1 }
+
 // Tuple represents a tuple type (positional record).
 type Tuple struct {
 	Types []ValType

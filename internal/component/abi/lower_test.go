@@ -1761,6 +1761,57 @@ func findSubstring(s, substr string) bool {
 	return false
 }
 
+// TestLowerAsyncTypesTraps asserts that lower of the async value types
+// (Stream, Future, ErrorContext) traps with a clear "async not yet
+// supported" error in both LowerFlat and LowerHeap. These types are
+// recognised by the type system (so the binary parser can produce a
+// complete type graph) but the synchronous canonical ABI does not
+// implement async — it must trap, not silently succeed.
+//
+// Spec authority for the i32-handle shape:
+//   - definitions.py:1382,1389,1390 — store() dispatches Stream/Future/
+//     ErrorContext through lower_stream/lower_future/lower_error_context,
+//     which are async-only operations.
+//   - definitions.py:1881,1888,1889 — lower_flat() likewise dispatches to
+//     async-only operations.
+func TestLowerAsyncTypesTraps(t *testing.T) {
+	tests := []struct {
+		name string
+		typ  types.ValType
+	}{
+		{"Stream_no_element", types.Stream{}},
+		{"Stream_with_element", types.Stream{Element: types.U32{}}},
+		{"Future_no_element", types.Future{}},
+		{"Future_with_element", types.Future{Element: types.U32{}}},
+		{"ErrorContext", types.ErrorContext{}},
+	}
+
+	// A zero-value component.Val is sufficient: lower must trap before
+	// it tries to interpret the value.
+	zero := component.Val{}
+
+	for _, tt := range tests {
+		tc := tt
+		t.Run("LowerFlat_"+tc.name, func(t *testing.T) {
+			flat, err := LowerFlat(nil, tc.typ, zero)
+			require.Error(t, err)
+			require.Nil(t, flat)
+			if !contains(err.Error(), "async not yet supported") {
+				t.Fatalf("expected error to mention 'async not yet supported', got: %v", err)
+			}
+		})
+		t.Run("LowerHeap_"+tc.name, func(t *testing.T) {
+			data := make([]byte, 16)
+			ctx := &LowerContext{Memory: &mockMemory{data: data}}
+			err := LowerHeap(ctx, tc.typ, zero, 0)
+			require.Error(t, err)
+			if !contains(err.Error(), "async not yet supported") {
+				t.Fatalf("expected error to mention 'async not yet supported', got: %v", err)
+			}
+		})
+	}
+}
+
 // --- Borrow Optimization Tests (Task 2.5) ---
 
 func TestLowerBorrowOptimization(t *testing.T) {

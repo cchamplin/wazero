@@ -299,6 +299,21 @@ func LowerFlat(ctx *LowerContext, typ types.ValType, val component.Val) ([]uint6
 
 		return []uint64{uint64(ptr), uint64(length)}, nil
 
+	// Async value types: stream<T>, future<T>, error-context.
+	// The synchronous canonical ABI does not implement async; lower_flat
+	// must trap rather than silently succeed. The type is recognised so
+	// the binary parser can produce a complete type graph; lift/lower
+	// support is deferred to a follow-up async project.
+	// Spec: definitions.py:1881 (case ErrorContextType() : return lower_error_context(...))
+	// Spec: definitions.py:1888 (case StreamType(t)      : return [lower_stream(...)])
+	// Spec: definitions.py:1889 (case FutureType(t)      : return [lower_future(...)])
+	case types.Stream:
+		return nil, fmt.Errorf("stream<T> lower not yet supported (async not yet supported in synchronous canonical ABI; deferred to follow-up project)")
+	case types.Future:
+		return nil, fmt.Errorf("future<T> lower not yet supported (async not yet supported in synchronous canonical ABI; deferred to follow-up project)")
+	case types.ErrorContext:
+		return nil, fmt.Errorf("error-context lower not yet supported (async not yet supported in synchronous canonical ABI; deferred to follow-up project)")
+
 	default:
 		return nil, fmt.Errorf("unsupported flat lower for type: %T", typ)
 	}
@@ -641,6 +656,21 @@ func LowerHeap(ctx *LowerContext, typ types.ValType, val component.Val, offset u
 		writeUint32Le(ctx.Memory, offset, ptr)
 		writeUint32Le(ctx.Memory, offset+4, length)
 		return nil
+
+	// Async value types: stream<T>, future<T>, error-context.
+	// The synchronous canonical ABI does not implement async; store
+	// (heap lower) must trap rather than silently succeed. The type is
+	// recognised so the binary parser can produce a complete type graph;
+	// lift/lower support is deferred to a follow-up async project.
+	// Spec: definitions.py:1382 (case ErrorContextType() : store_int(cx, lower_error_context(...), ptr, 4))
+	// Spec: definitions.py:1389 (case StreamType(t)      : store_int(cx, lower_stream(...), ptr, 4))
+	// Spec: definitions.py:1390 (case FutureType(t)      : store_int(cx, lower_future(...), ptr, 4))
+	case types.Stream:
+		return fmt.Errorf("stream<T> lower not yet supported (async not yet supported in synchronous canonical ABI; deferred to follow-up project)")
+	case types.Future:
+		return fmt.Errorf("future<T> lower not yet supported (async not yet supported in synchronous canonical ABI; deferred to follow-up project)")
+	case types.ErrorContext:
+		return fmt.Errorf("error-context lower not yet supported (async not yet supported in synchronous canonical ABI; deferred to follow-up project)")
 
 	default:
 		return fmt.Errorf("unsupported heap lower for type: %T", typ)

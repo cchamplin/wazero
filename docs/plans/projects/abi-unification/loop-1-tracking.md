@@ -98,12 +98,12 @@ Loop 1 phase 1.D item 31 verifies the dispatch in `abi/lift.go` and
 
 ### Item 2: Add `Stream`, `Future`, `ErrorContext` types to `types.ValType` as recognised cases that trap on lift/lower
 
-- **status:** claimed
+- **status:** done
 - **claimed_by:** 2026-04-07 session-loop1-item2
-- **spec_review:** -
-- **code_review:** -
-- **commit:** -
-- **notes:** Async runtime is OUT OF SCOPE for this project; these types exist only so the parser can produce complete output and lift/lower can trap with a clear message
+- **spec_review:** 2026-04-07 PASSED (round 2; cited definitions.py:120, 174-180, 1074, 1080, 1132, 1138, 1192, 1199, 1200, 1382, 1389, 1390, 1713, 1719, 1787, 1794, 1795, 1881, 1888, 1889 — all four ValType-dispatching functions confirmed; trap arms inside the same switch as other types; no fifth dispatch function missed)
+- **code_review:** 2026-04-07 PASSED (round 2; 1 NIT noted: error messages contain "not yet supported" twice — left as-is, polish-only)
+- **commit:** 63bc185d
+- **notes:** Async runtime is OUT OF SCOPE for this project; these types exist only so the parser can produce complete output and lift/lower can trap with a clear message. Round-1 BLOCKER (out-of-scope `ErrorContextTypeDef` addition to `internal/component/component.go` with no producer/consumer) reverted in bounce-back; the parity addition deferred to item 6 where it can be wired up with binary-parser producer and consumer in one coherent commit. Note in the original item description suggesting `component.go` parity was treated as informational context only — the Files list and Definition of Done do not include `component.go`, and universal rule 7 ("no helpers without consumers") prohibits adding the field without a producer.
 
 **Files:**
 - Modify: `internal/component/types/composite.go` — add `Stream`,

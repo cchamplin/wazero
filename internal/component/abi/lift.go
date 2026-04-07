@@ -330,6 +330,21 @@ func LiftFlat(ctx *LiftContext, typ types.ValType, iter *FlatIter) (component.Va
 		}
 		return component.ValList(elems), nil
 
+	// Async value types: stream<T>, future<T>, error-context.
+	// The synchronous canonical ABI does not implement async; lift_flat
+	// must trap rather than silently succeed. The type is recognised so
+	// the binary parser can produce a complete type graph; lift/lower
+	// support is deferred to a follow-up async project.
+	// Spec: definitions.py:1787 (case ErrorContextType() : return lift_error_context(...))
+	// Spec: definitions.py:1794 (case StreamType(t)      : return lift_stream(...))
+	// Spec: definitions.py:1795 (case FutureType(t)      : return lift_future(...))
+	case types.Stream:
+		return component.Val{}, fmt.Errorf("stream<T> lift not yet supported (async not yet supported in synchronous canonical ABI; deferred to follow-up project)")
+	case types.Future:
+		return component.Val{}, fmt.Errorf("future<T> lift not yet supported (async not yet supported in synchronous canonical ABI; deferred to follow-up project)")
+	case types.ErrorContext:
+		return component.Val{}, fmt.Errorf("error-context lift not yet supported (async not yet supported in synchronous canonical ABI; deferred to follow-up project)")
+
 	default:
 		return component.Val{}, fmt.Errorf("unsupported flat lift for type: %T", typ)
 	}
@@ -688,6 +703,21 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (component.Val
 			elems[i] = elem
 		}
 		return component.ValList(elems), nil
+
+	// Async value types: stream<T>, future<T>, error-context.
+	// The synchronous canonical ABI does not implement async; load (heap
+	// lift) must trap rather than silently succeed. The type is
+	// recognised so the binary parser can produce a complete type graph;
+	// lift/lower support is deferred to a follow-up async project.
+	// Spec: definitions.py:1192 (case ErrorContextType() : return lift_error_context(cx, load_int(...)))
+	// Spec: definitions.py:1199 (case StreamType(t)      : return lift_stream(cx, load_int(...), t))
+	// Spec: definitions.py:1200 (case FutureType(t)      : return lift_future(cx, load_int(...), t))
+	case types.Stream:
+		return component.Val{}, fmt.Errorf("stream<T> lift not yet supported (async not yet supported in synchronous canonical ABI; deferred to follow-up project)")
+	case types.Future:
+		return component.Val{}, fmt.Errorf("future<T> lift not yet supported (async not yet supported in synchronous canonical ABI; deferred to follow-up project)")
+	case types.ErrorContext:
+		return component.Val{}, fmt.Errorf("error-context lift not yet supported (async not yet supported in synchronous canonical ABI; deferred to follow-up project)")
 
 	default:
 		return component.Val{}, fmt.Errorf("unsupported heap lift for type: %T", typ)
