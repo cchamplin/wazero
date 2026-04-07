@@ -1,4 +1,4 @@
-package component
+package runtime
 
 import (
 	"testing"

@@ -1,6 +1,6 @@
-// internal/component/resource_table_test.go
+// internal/component/runtime/resource_table_test.go
 
-package component
+package runtime
 
 import (
 	"testing"

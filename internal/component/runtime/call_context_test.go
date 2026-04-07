@@ -1,6 +1,6 @@
-// internal/component/call_context_test.go
+// internal/component/runtime/call_context_test.go
 
-package component
+package runtime
 
 import (
 	"testing"

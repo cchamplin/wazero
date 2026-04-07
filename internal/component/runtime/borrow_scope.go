@@ -1,6 +1,6 @@
-// internal/component/borrow_scope.go
+// internal/component/runtime/borrow_scope.go
 
-package component
+package runtime
 
 // BorrowScope tracks resource handles that have been lent during a call.
 // When the call completes, all lends must be released.

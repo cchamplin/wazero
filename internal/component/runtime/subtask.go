@@ -1,6 +1,12 @@
-package component
+// internal/component/runtime/subtask.go
 
-import "fmt"
+package runtime
+
+import (
+	"fmt"
+
+	"github.com/tetratelabs/wazero/internal/component/types"
+)
 
 // SubtaskState represents the state of a subtask.
 type SubtaskState int
@@ -21,7 +27,7 @@ const (
 type Subtask struct {
 	borrowScope *BorrowScope
 	state       SubtaskState
-	result      []Val // Stored result after resolve
+	result      []types.Val // Stored result after resolve
 }
 
 // NewSubtask creates a new Subtask with its own borrow scope.
@@ -45,7 +51,7 @@ func (s *Subtask) State() SubtaskState {
 
 // DeliverResolve transitions the subtask from pending to resolved with a result.
 // This is called when the lowered function returns.
-func (s *Subtask) DeliverResolve(result []Val) error {
+func (s *Subtask) DeliverResolve(result []types.Val) error {
 	if s.state != SubtaskStatePending {
 		return fmt.Errorf("subtask: cannot resolve in state %d", s.state)
 	}
@@ -87,7 +93,7 @@ func (s *Subtask) Finish() error {
 
 // Result returns the stored result after resolution.
 // Returns nil if not yet resolved.
-func (s *Subtask) Result() []Val {
+func (s *Subtask) Result() []types.Val {
 	return s.result
 }
 

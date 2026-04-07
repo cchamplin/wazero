@@ -1,6 +1,6 @@
-// internal/component/destructor.go
+// internal/component/runtime/destructor.go
 
-package component
+package runtime
 
 // DestructorFunc is a function that destroys a resource given its representation.
 // This is called when an owned handle is dropped.

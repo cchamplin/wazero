@@ -1,6 +1,6 @@
-// internal/component/reentrance.go
+// internal/component/runtime/reentrance.go
 
-package component
+package runtime
 
 // ReentranceTracker tracks which component instances are currently on the call stack.
 // This is used to implement the call_might_be_recursive check from the spec.

@@ -1,6 +1,6 @@
-// internal/component/borrow_scope_test.go
+// internal/component/runtime/borrow_scope_test.go
 
-package component
+package runtime
 
 import (
 	"testing"

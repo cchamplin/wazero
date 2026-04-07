@@ -1,6 +1,6 @@
-// internal/component/instance_state.go
+// internal/component/runtime/instance_state.go
 
-package component
+package runtime
 
 // InstanceState tracks the execution state of a component instance.
 // This includes the may_leave flag required by the Canonical ABI.

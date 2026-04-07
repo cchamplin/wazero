@@ -1,6 +1,6 @@
-// internal/component/call_context.go
+// internal/component/runtime/call_context.go
 
-package component
+package runtime
 
 import "errors"
 

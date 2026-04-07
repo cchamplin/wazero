@@ -1,6 +1,6 @@
-// internal/component/resource_type_id.go
+// internal/component/runtime/resource_type_id.go
 
-package component
+package runtime
 
 // ResourceTypeID uniquely identifies a resource type within a component instance.
 // This corresponds to the 'rt' field in the spec's ResourceHandle.

@@ -1,6 +1,6 @@
-// internal/component/resource_table.go
+// internal/component/runtime/resource_table.go
 
-package component
+package runtime
 
 import (
 	"errors"
