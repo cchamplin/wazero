@@ -73,7 +73,9 @@ func hashU32(h hash.Hash64, v uint32) {
 }
 
 func hashU8(h hash.Hash64, v uint8) {
-	h.Write([]byte{v})
+	var buf [1]byte
+	buf[0] = v
+	h.Write(buf[:])
 }
 
 func hashString(h hash.Hash64, s string) {
@@ -89,6 +91,15 @@ func hashValType(h hash.Hash64, v ValType) {
 func newHash() hash.Hash64 {
 	return fnv.New64a()
 }
+
+// --- Intern* methods ---
+//
+// Each Intern* method computes a structural hash of the type's content,
+// scans the bucket for an existing match, and either returns the existing
+// ValType (or named index) or appends a new entry with precomputed ABI
+// metadata and returns the new value. Type arguments must already have
+// been interned: the builder is strictly bottom-up. Calling any Intern*
+// method after Finish panics.
 
 // --- record ---
 
@@ -417,6 +428,11 @@ func (b *ComponentTypesBuilder) InternFuture(elem ValType, hasElem bool) ValType
 	return ValType{Kind: TypeKindFuture, Index: idx}
 }
 
+// InternErrorContextTable returns the singleton ValType for error-context.
+// Unlike other Intern* methods, this is a one-shot constructor: every
+// call after the first returns the same ValType{Kind: TypeKindErrorContext,
+// Index: 0} without re-appending. There is exactly one error-context
+// table per ComponentTypes.
 func (b *ComponentTypesBuilder) InternErrorContextTable() ValType {
 	b.panicIfFinished()
 	// Single canonical entry — no key.
@@ -442,11 +458,18 @@ func (b *ComponentTypesBuilder) InternAbstractResource() ResourceTableIdx {
 	return ResourceTableIdx(idx)
 }
 
+// InternOwnHandle returns the ValType for an `own<R>` handle where R is
+// the resource declaration at rtIdx. Encodes (TypeKindOwn, rtIdx) directly;
+// no hash bucket is needed because two callers passing the same rtIdx
+// always produce structurally identical ValTypes.
 func (b *ComponentTypesBuilder) InternOwnHandle(rtIdx ResourceTableIdx) ValType {
 	b.panicIfFinished()
 	return ValType{Kind: TypeKindOwn, Index: uint32(rtIdx)}
 }
 
+// InternBorrowHandle returns the ValType for a `borrow<R>` handle where R
+// is the resource declaration at rtIdx. Encodes (TypeKindBorrow, rtIdx)
+// directly; see InternOwnHandle for why no hash bucket is needed.
 func (b *ComponentTypesBuilder) InternBorrowHandle(rtIdx ResourceTableIdx) ValType {
 	b.panicIfFinished()
 	return ValType{Kind: TypeKindBorrow, Index: uint32(rtIdx)}
