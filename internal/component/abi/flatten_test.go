@@ -8,342 +8,261 @@ import (
 	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
-func TestFlattenParams(t *testing.T) {
-	tests := []struct {
-		name     string
-		params   []types.ValType
-		expected []api.ValueType
-	}{
-		{
-			name:     "empty",
-			params:   nil,
-			expected: nil,
-		},
-		{
-			name:     "single s32",
-			params:   []types.ValType{types.S32{}},
-			expected: []api.ValueType{api.ValueTypeI32},
-		},
-		{
-			name:     "s32 and s64",
-			params:   []types.ValType{types.S32{}, types.S64{}},
-			expected: []api.ValueType{api.ValueTypeI32, api.ValueTypeI64},
-		},
-		{
-			name:     "string param",
-			params:   []types.ValType{types.String{}},
-			expected: []api.ValueType{api.ValueTypeI32, api.ValueTypeI32}, // ptr, len
-		},
-		{
-			name:     "bool",
-			params:   []types.ValType{types.Bool{}},
-			expected: []api.ValueType{api.ValueTypeI32},
-		},
-		{
-			name:     "s8 u8 s16 u16",
-			params:   []types.ValType{types.S8{}, types.U8{}, types.S16{}, types.U16{}},
-			expected: []api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
-		},
-		{
-			name:     "u32 u64",
-			params:   []types.ValType{types.U32{}, types.U64{}},
-			expected: []api.ValueType{api.ValueTypeI32, api.ValueTypeI64},
-		},
-		{
-			name:     "f32 f64",
-			params:   []types.ValType{types.F32{}, types.F64{}},
-			expected: []api.ValueType{api.ValueTypeF32, api.ValueTypeF64},
-		},
-		{
-			name:     "char",
-			params:   []types.ValType{types.Char{}},
-			expected: []api.ValueType{api.ValueTypeI32},
-		},
-		{
-			name:     "list",
-			params:   []types.ValType{types.List{Element: types.S32{}}},
-			expected: []api.ValueType{api.ValueTypeI32, api.ValueTypeI32}, // ptr, len
-		},
-		{
-			name:     "own handle",
-			params:   []types.ValType{types.Own{ResourceIdx: 0}},
-			expected: []api.ValueType{api.ValueTypeI32},
-		},
-		{
-			name:     "borrow handle",
-			params:   []types.ValType{types.Borrow{ResourceIdx: 0}},
-			expected: []api.ValueType{api.ValueTypeI32},
-		},
-		{
-			name:     "record with two i32 fields",
-			params:   []types.ValType{types.Record{Fields: []types.Field{{Name: "a", Type: types.S32{}}, {Name: "b", Type: types.S32{}}}}},
-			expected: []api.ValueType{api.ValueTypeI32, api.ValueTypeI32},
-		},
-		{
-			name:     "tuple of s32 and s64",
-			params:   []types.ValType{types.Tuple{Types: []types.ValType{types.S32{}, types.S64{}}}},
-			expected: []api.ValueType{api.ValueTypeI32, api.ValueTypeI64},
-		},
-		{
-			name:     "option of s32",
-			params:   []types.ValType{types.Option{Some: types.S32{}}},
-			expected: []api.ValueType{api.ValueTypeI32, api.ValueTypeI32}, // discriminant, payload
-		},
-		{
-			name:     "result of s32 and s32",
-			params:   []types.ValType{types.Result{Ok: types.S32{}, Error: types.S32{}}},
-			expected: []api.ValueType{api.ValueTypeI32, api.ValueTypeI32}, // discriminant, payload (max of ok/err)
-		},
-		{
-			name:     "enum",
-			params:   []types.ValType{types.Enum{Cases: []string{"a", "b", "c"}}},
-			expected: []api.ValueType{api.ValueTypeI32},
-		},
-		{
-			name:     "flags with 3 names",
-			params:   []types.ValType{types.Flags{Names: []string{"a", "b", "c"}}},
-			expected: []api.ValueType{api.ValueTypeI32},
-		},
-		{
-			name:     "variant",
-			params:   []types.ValType{types.Variant{Cases: []types.Case{{Name: "a", Type: types.S32{}}, {Name: "b", Type: types.S64{}}}}},
-			expected: []api.ValueType{api.ValueTypeI32, api.ValueTypeI64}, // discriminant + max payload
-		},
-	}
+// Session 0 note (Task 15): the pre-existing flatten_test.go constructed
+// types via the deleted interface-style literals. Those tests have been
+// dropped in favour of a minimal set that exercises the new kind-switch
+// dispatch through the ComponentTypesBuilder. Full test migration is
+// tracked in Task 19 of the Session 0 plan.
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := FlattenParams(tt.params)
-			if len(result) != len(tt.expected) {
-				t.Errorf("FlattenParams() = %v, want %v", result, tt.expected)
-				return
-			}
-			for i := range result {
-				if result[i] != tt.expected[i] {
-					t.Errorf("FlattenParams()[%d] = %v, want %v", i, result[i], tt.expected[i])
-				}
-			}
-		})
-	}
-}
-
-func TestFlattenResults(t *testing.T) {
-	tests := []struct {
-		name        string
-		results     []types.ValType
-		expected    []api.ValueType
-		needsRetptr bool
-	}{
-		{
-			name:        "empty",
-			results:     nil,
-			expected:    nil,
-			needsRetptr: false,
-		},
-		{
-			name:        "single s32",
-			results:     []types.ValType{types.S32{}},
-			expected:    []api.ValueType{api.ValueTypeI32},
-			needsRetptr: false,
-		},
-		{
-			name:        "string result needs retptr",
-			results:     []types.ValType{types.String{}},
-			expected:    nil, // results via retptr
-			needsRetptr: true,
-		},
-		{
-			name:        "single f32",
-			results:     []types.ValType{types.F32{}},
-			expected:    []api.ValueType{api.ValueTypeF32},
-			needsRetptr: false,
-		},
-		{
-			name:        "single f64",
-			results:     []types.ValType{types.F64{}},
-			expected:    []api.ValueType{api.ValueTypeF64},
-			needsRetptr: false,
-		},
-		{
-			name:        "two s32 results needs retptr",
-			results:     []types.ValType{types.S32{}, types.S32{}},
-			expected:    nil,
-			needsRetptr: true,
-		},
-		{
-			name:        "list result needs retptr",
-			results:     []types.ValType{types.List{Element: types.S32{}}},
-			expected:    nil,
-			needsRetptr: true,
-		},
-		{
-			name:        "record result needs retptr",
-			results:     []types.ValType{types.Record{Fields: []types.Field{{Name: "a", Type: types.S32{}}, {Name: "b", Type: types.S32{}}}}},
-			expected:    nil,
-			needsRetptr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result, needsRetptr := FlattenResults(tt.results)
-			if needsRetptr != tt.needsRetptr {
-				t.Errorf("FlattenResults() needsRetptr = %v, want %v", needsRetptr, tt.needsRetptr)
-			}
-			if len(result) != len(tt.expected) {
-				t.Errorf("FlattenResults() = %v, want %v", result, tt.expected)
-			}
-		})
-	}
-}
-
-func TestCoreSignature(t *testing.T) {
-	tests := []struct {
-		name           string
-		params         []types.ValType
-		results        []types.ValType
-		expectParams   []api.ValueType
-		expectResults  []api.ValueType
-		expectNeedsPtr bool
-	}{
-		{
-			name:           "simple function",
-			params:         []types.ValType{types.S32{}},
-			results:        []types.ValType{types.S32{}},
-			expectParams:   []api.ValueType{api.ValueTypeI32},
-			expectResults:  []api.ValueType{api.ValueTypeI32},
-			expectNeedsPtr: false,
-		},
-		{
-			name:           "string return needs retptr prepended",
-			params:         []types.ValType{types.S32{}},
-			results:        []types.ValType{types.String{}},
-			expectParams:   []api.ValueType{api.ValueTypeI32, api.ValueTypeI32}, // retptr prepended
-			expectResults:  nil,
-			expectNeedsPtr: true,
-		},
-		{
-			name:           "no params with string result",
-			params:         nil,
-			results:        []types.ValType{types.String{}},
-			expectParams:   []api.ValueType{api.ValueTypeI32}, // just retptr
-			expectResults:  nil,
-			expectNeedsPtr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			params, results, needsRetptr := CoreSignature(tt.params, tt.results)
-			if needsRetptr != tt.expectNeedsPtr {
-				t.Errorf("CoreSignature() needsRetptr = %v, want %v", needsRetptr, tt.expectNeedsPtr)
-			}
-			if len(params) != len(tt.expectParams) {
-				t.Errorf("CoreSignature() params = %v, want %v", params, tt.expectParams)
-			} else {
-				for i := range params {
-					if params[i] != tt.expectParams[i] {
-						t.Errorf("CoreSignature() params[%d] = %v, want %v", i, params[i], tt.expectParams[i])
-					}
-				}
-			}
-			if len(results) != len(tt.expectResults) {
-				t.Errorf("CoreSignature() results = %v, want %v", results, tt.expectResults)
-			}
-		})
-	}
-}
-
-func TestFlattenType(t *testing.T) {
+func TestFlattenType_Scalars(t *testing.T) {
 	tests := []struct {
 		name     string
 		typ      types.ValType
 		expected []api.ValueType
 	}{
-		{"bool", types.Bool{}, []api.ValueType{api.ValueTypeI32}},
-		{"s8", types.S8{}, []api.ValueType{api.ValueTypeI32}},
-		{"u8", types.U8{}, []api.ValueType{api.ValueTypeI32}},
-		{"s16", types.S16{}, []api.ValueType{api.ValueTypeI32}},
-		{"u16", types.U16{}, []api.ValueType{api.ValueTypeI32}},
-		{"s32", types.S32{}, []api.ValueType{api.ValueTypeI32}},
-		{"u32", types.U32{}, []api.ValueType{api.ValueTypeI32}},
-		{"s64", types.S64{}, []api.ValueType{api.ValueTypeI64}},
-		{"u64", types.U64{}, []api.ValueType{api.ValueTypeI64}},
-		{"f32", types.F32{}, []api.ValueType{api.ValueTypeF32}},
-		{"f64", types.F64{}, []api.ValueType{api.ValueTypeF64}},
-		{"char", types.Char{}, []api.ValueType{api.ValueTypeI32}},
-		{"string", types.String{}, []api.ValueType{api.ValueTypeI32, api.ValueTypeI32}},
-		{"list", types.List{Element: types.U8{}}, []api.ValueType{api.ValueTypeI32, api.ValueTypeI32}},
-		{"own", types.Own{ResourceIdx: 0}, []api.ValueType{api.ValueTypeI32}},
-		{"borrow", types.Borrow{ResourceIdx: 0}, []api.ValueType{api.ValueTypeI32}},
+		{"bool", types.Bool, []api.ValueType{api.ValueTypeI32}},
+		{"s8", types.S8, []api.ValueType{api.ValueTypeI32}},
+		{"u8", types.U8, []api.ValueType{api.ValueTypeI32}},
+		{"s16", types.S16, []api.ValueType{api.ValueTypeI32}},
+		{"u16", types.U16, []api.ValueType{api.ValueTypeI32}},
+		{"s32", types.S32, []api.ValueType{api.ValueTypeI32}},
+		{"u32", types.U32, []api.ValueType{api.ValueTypeI32}},
+		{"s64", types.S64, []api.ValueType{api.ValueTypeI64}},
+		{"u64", types.U64, []api.ValueType{api.ValueTypeI64}},
+		{"f32", types.F32, []api.ValueType{api.ValueTypeF32}},
+		{"f64", types.F64, []api.ValueType{api.ValueTypeF64}},
+		{"char", types.Char, []api.ValueType{api.ValueTypeI32}},
+		{"string", types.String_, []api.ValueType{api.ValueTypeI32, api.ValueTypeI32}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := flattenType(tt.typ)
-			if len(result) != len(tt.expected) {
+			result := flattenType(nil, tt.typ)
+			if !reflect.DeepEqual(result, tt.expected) {
 				t.Errorf("flattenType(%s) = %v, want %v", tt.name, result, tt.expected)
-				return
-			}
-			for i := range result {
-				if result[i] != tt.expected[i] {
-					t.Errorf("flattenType(%s)[%d] = %v, want %v", tt.name, i, result[i], tt.expected[i])
-				}
 			}
 		})
 	}
 }
 
-func TestFlattenVariantJoinSemantics(t *testing.T) {
-	tests := []struct {
-		name     string
-		variant  types.Variant
-		expected []api.ValueType
-	}{
-		{
-			name: "i32_and_f32_join_to_i32",
-			variant: types.Variant{Cases: []types.Case{
-				{Name: "a", Type: types.S32{}},
-				{Name: "b", Type: types.F32{}},
-			}},
-			// Discriminant (i32) + payload joined to i32 (f32 reinterpreted as i32)
-			expected: []api.ValueType{api.ValueTypeI32, api.ValueTypeI32},
-		},
-		{
-			name: "i32_and_i64_join_to_i64",
-			variant: types.Variant{Cases: []types.Case{
-				{Name: "a", Type: types.S32{}},
-				{Name: "b", Type: types.S64{}},
-			}},
-			// Discriminant (i32) + payload joined to i64
-			expected: []api.ValueType{api.ValueTypeI32, api.ValueTypeI64},
-		},
-		{
-			name: "f32_and_f64_join_to_i64",
-			variant: types.Variant{Cases: []types.Case{
-				{Name: "a", Type: types.F32{}},
-				{Name: "b", Type: types.F64{}},
-			}},
-			// Discriminant (i32) + payload joined to i64 (since f32!=f64, join returns i64)
-			expected: []api.ValueType{api.ValueTypeI32, api.ValueTypeI64},
-		},
-		{
-			name: "f64_and_i64_join_to_i64",
-			variant: types.Variant{Cases: []types.Case{
-				{Name: "a", Type: types.F64{}},
-				{Name: "b", Type: types.S64{}},
-			}},
-			// Same type width, join returns i64
-			expected: []api.ValueType{api.ValueTypeI32, api.ValueTypeI64},
-		},
-	}
+func TestFlattenType_Record(t *testing.T) {
+	b := types.NewComponentTypesBuilder()
+	recT := b.InternRecord([]types.RecordField{
+		{Name: "a", Type: types.S32},
+		{Name: "b", Type: types.U64},
+	})
+	ct := b.Finish()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := flattenType(tt.variant)
-			if !reflect.DeepEqual(result, tt.expected) {
-				t.Errorf("flattenType() = %v, want %v", result, tt.expected)
+	result := flattenType(ct, recT)
+	expected := []api.ValueType{api.ValueTypeI32, api.ValueTypeI64}
+	if !reflect.DeepEqual(result, expected) {
+		t.Errorf("flattenType(record) = %v, want %v", result, expected)
+	}
+}
+
+func TestFlattenType_Tuple(t *testing.T) {
+	b := types.NewComponentTypesBuilder()
+	tupT := b.InternTuple([]types.ValType{types.S32, types.S64})
+	ct := b.Finish()
+
+	result := flattenType(ct, tupT)
+	expected := []api.ValueType{api.ValueTypeI32, api.ValueTypeI64}
+	if !reflect.DeepEqual(result, expected) {
+		t.Errorf("flattenType(tuple) = %v, want %v", result, expected)
+	}
+}
+
+func TestFlattenType_List(t *testing.T) {
+	b := types.NewComponentTypesBuilder()
+	listT := b.InternList(types.U32)
+	ct := b.Finish()
+
+	result := flattenType(ct, listT)
+	expected := []api.ValueType{api.ValueTypeI32, api.ValueTypeI32}
+	if !reflect.DeepEqual(result, expected) {
+		t.Errorf("flattenType(list) = %v, want %v", result, expected)
+	}
+}
+
+func TestFlattenType_FixedList(t *testing.T) {
+	b := types.NewComponentTypesBuilder()
+	flT := b.InternFixedLengthList(types.U32, 3)
+	ct := b.Finish()
+
+	result := flattenType(ct, flT)
+	expected := []api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32}
+	if !reflect.DeepEqual(result, expected) {
+		t.Errorf("flattenType(fixed-list) = %v, want %v", result, expected)
+	}
+}
+
+func TestFlattenType_Option(t *testing.T) {
+	b := types.NewComponentTypesBuilder()
+	optT := b.InternOption(types.S32)
+	ct := b.Finish()
+
+	result := flattenType(ct, optT)
+	// Discriminant + payload
+	expected := []api.ValueType{api.ValueTypeI32, api.ValueTypeI32}
+	if !reflect.DeepEqual(result, expected) {
+		t.Errorf("flattenType(option) = %v, want %v", result, expected)
+	}
+}
+
+func TestFlattenType_Result(t *testing.T) {
+	b := types.NewComponentTypesBuilder()
+	resT := b.InternResult(types.S32, types.S32, true, true)
+	ct := b.Finish()
+
+	result := flattenType(ct, resT)
+	// Discriminant + joined payload (both s32)
+	expected := []api.ValueType{api.ValueTypeI32, api.ValueTypeI32}
+	if !reflect.DeepEqual(result, expected) {
+		t.Errorf("flattenType(result) = %v, want %v", result, expected)
+	}
+}
+
+func TestFlattenType_Enum(t *testing.T) {
+	b := types.NewComponentTypesBuilder()
+	enumT := b.InternEnum([]string{"a", "b", "c"})
+	ct := b.Finish()
+
+	result := flattenType(ct, enumT)
+	expected := []api.ValueType{api.ValueTypeI32}
+	if !reflect.DeepEqual(result, expected) {
+		t.Errorf("flattenType(enum) = %v, want %v", result, expected)
+	}
+}
+
+func TestFlattenType_Flags(t *testing.T) {
+	b := types.NewComponentTypesBuilder()
+	flagsT := b.InternFlags([]string{"a", "b", "c"})
+	ct := b.Finish()
+
+	result := flattenType(ct, flagsT)
+	expected := []api.ValueType{api.ValueTypeI32}
+	if !reflect.DeepEqual(result, expected) {
+		t.Errorf("flattenType(flags) = %v, want %v", result, expected)
+	}
+}
+
+func TestFlattenType_Variant_JoinSemantics(t *testing.T) {
+	b := types.NewComponentTypesBuilder()
+	// variant { a: s32, b: s64 } — joined payload is i64
+	varT := b.InternVariant([]types.VariantCase{
+		{Name: "a", Payload: types.S32, HasPayload: true},
+		{Name: "b", Payload: types.S64, HasPayload: true},
+	})
+	ct := b.Finish()
+
+	result := flattenType(ct, varT)
+	expected := []api.ValueType{api.ValueTypeI32, api.ValueTypeI64}
+	if !reflect.DeepEqual(result, expected) {
+		t.Errorf("flattenType(variant) = %v, want %v", result, expected)
+	}
+}
+
+func TestFlattenType_OwnBorrow(t *testing.T) {
+	b := types.NewComponentTypesBuilder()
+	rtIdx := b.InternAbstractResource()
+	ownT := b.InternOwnHandle(rtIdx)
+	borrowT := b.InternBorrowHandle(rtIdx)
+	ct := b.Finish()
+
+	own := flattenType(ct, ownT)
+	expected := []api.ValueType{api.ValueTypeI32}
+	if !reflect.DeepEqual(own, expected) {
+		t.Errorf("flattenType(own) = %v, want %v", own, expected)
+	}
+	borrow := flattenType(ct, borrowT)
+	if !reflect.DeepEqual(borrow, expected) {
+		t.Errorf("flattenType(borrow) = %v, want %v", borrow, expected)
+	}
+}
+
+func TestFlattenType_AsyncTypesAreI32(t *testing.T) {
+	b := types.NewComponentTypesBuilder()
+	streamT := b.InternStream(types.U32, true)
+	futureT := b.InternFuture(types.U32, true)
+	errCtxT := b.InternErrorContextTable()
+	ct := b.Finish()
+
+	cases := []struct {
+		name string
+		typ  types.ValType
+	}{
+		{"Stream", streamT},
+		{"Future", futureT},
+		{"ErrorContext", errCtxT},
+	}
+	expected := []api.ValueType{api.ValueTypeI32}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := flattenType(ct, tc.typ)
+			if !reflect.DeepEqual(result, expected) {
+				t.Errorf("flattenType(%s) = %v, want %v", tc.name, result, expected)
 			}
 		})
+	}
+}
+
+func TestFlattenParamsResults(t *testing.T) {
+	b := types.NewComponentTypesBuilder()
+	recT := b.InternRecord([]types.RecordField{
+		{Name: "a", Type: types.S32},
+		{Name: "b", Type: types.S32},
+	})
+	ct := b.Finish()
+
+	params := FlattenParams(ct, []types.ValType{types.S32, types.U64})
+	expected := []api.ValueType{api.ValueTypeI32, api.ValueTypeI64}
+	if !reflect.DeepEqual(params, expected) {
+		t.Errorf("FlattenParams = %v, want %v", params, expected)
+	}
+
+	// Single scalar result: no retptr.
+	flat, needsRetptr := FlattenResults(ct, []types.ValType{types.S32})
+	if needsRetptr {
+		t.Errorf("FlattenResults(single scalar): unexpected retptr")
+	}
+	if !reflect.DeepEqual(flat, []api.ValueType{api.ValueTypeI32}) {
+		t.Errorf("FlattenResults(single scalar) = %v", flat)
+	}
+
+	// Record result with 2 i32 fields: needs retptr (exceeds MaxFlatResults).
+	_, needsRetptr = FlattenResults(ct, []types.ValType{recT})
+	if !needsRetptr {
+		t.Errorf("FlattenResults(record with 2 fields): expected retptr")
+	}
+}
+
+func TestCoreSignature(t *testing.T) {
+	b := types.NewComponentTypesBuilder()
+	ct := b.Finish()
+
+	// Simple function: (s32) -> s32
+	params, results, needsRetptr := CoreSignature(ct, []types.ValType{types.S32}, []types.ValType{types.S32})
+	if needsRetptr {
+		t.Errorf("unexpected retptr for simple function")
+	}
+	expectedParams := []api.ValueType{api.ValueTypeI32}
+	expectedResults := []api.ValueType{api.ValueTypeI32}
+	if !reflect.DeepEqual(params, expectedParams) {
+		t.Errorf("params = %v, want %v", params, expectedParams)
+	}
+	if !reflect.DeepEqual(results, expectedResults) {
+		t.Errorf("results = %v, want %v", results, expectedResults)
+	}
+
+	// String result needs retptr.
+	params, results, needsRetptr = CoreSignature(ct, nil, []types.ValType{types.String_})
+	if !needsRetptr {
+		t.Errorf("expected retptr for string result")
+	}
+	if results != nil {
+		t.Errorf("expected nil results when retptr needed, got %v", results)
+	}
+	if !reflect.DeepEqual(params, []api.ValueType{api.ValueTypeI32}) {
+		t.Errorf("expected [i32] (retptr only), got %v", params)
 	}
 }

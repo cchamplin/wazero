@@ -48,38 +48,39 @@ func (f *FlatIter) NextF64() float64 {
 	return math.Float64frombits(v)
 }
 
-// LiftFlat lifts a flat representation to a component Val.
+// LiftFlat lifts a flat representation to a component Val. Dispatches on
+// typ.Kind and reads composite-type content via ctx.Types.<slice>[typ.Index].
 func LiftFlat(ctx *LiftContext, typ types.ValType, iter *FlatIter) (types.Val, error) {
-	switch typ.(type) {
-	case types.Bool:
+	switch typ.Kind {
+	case types.TypeKindBool:
 		return types.ValBool(iter.NextI32() != 0), nil
-	case types.S8:
+	case types.TypeKindS8:
 		return types.ValS8(int8(iter.NextI32())), nil
-	case types.U8:
+	case types.TypeKindU8:
 		return types.ValU8(uint8(iter.NextI32())), nil
-	case types.S16:
+	case types.TypeKindS16:
 		return types.ValS16(int16(iter.NextI32())), nil
-	case types.U16:
+	case types.TypeKindU16:
 		return types.ValU16(uint16(iter.NextI32())), nil
-	case types.S32:
+	case types.TypeKindS32:
 		return types.ValS32(int32(iter.NextI32())), nil
-	case types.U32:
+	case types.TypeKindU32:
 		return types.ValU32(iter.NextI32()), nil
-	case types.S64:
+	case types.TypeKindS64:
 		return types.ValS64(int64(iter.NextI64())), nil
-	case types.U64:
+	case types.TypeKindU64:
 		return types.ValU64(iter.NextI64()), nil
-	case types.F32:
+	case types.TypeKindF32:
 		return types.ValF32(canonicalizeNaN32(iter.NextF32())), nil
-	case types.F64:
+	case types.TypeKindF64:
 		return types.ValF64(canonicalizeNaN64(iter.NextF64())), nil
-	case types.Char:
+	case types.TypeKindChar:
 		c := iter.NextI32()
 		if !isValidUnicodeScalar(c) {
 			return types.Val{}, fmt.Errorf("invalid char value: U+%04X is not a valid Unicode scalar value", c)
 		}
 		return types.ValChar(rune(c)), nil
-	case types.String:
+	case types.TypeKindString:
 		ptr := iter.NextI32()
 		taggedLen := iter.NextI32()
 		s, err := liftStringFromPtrLen(ctx, ptr, taggedLen)
@@ -87,40 +88,38 @@ func LiftFlat(ctx *LiftContext, typ types.ValType, iter *FlatIter) (types.Val, e
 			return types.Val{}, err
 		}
 		return types.ValString(s), nil
-	case types.Record:
-		t := typ.(types.Record)
-		fields := make(map[string]types.Val)
-		for _, f := range t.Fields {
-			fieldVal, err := LiftFlat(ctx, f.Type, iter)
+	case types.TypeKindRecord:
+		rec := &ctx.Types.Records[typ.Index]
+		fields := make(map[string]types.Val, len(rec.Fields))
+		for _, f := range rec.Fields {
+			fv, err := LiftFlat(ctx, f.Type, iter)
 			if err != nil {
 				return types.Val{}, fmt.Errorf("lift record field %s: %w", f.Name, err)
 			}
-			fields[f.Name] = fieldVal
+			fields[f.Name] = fv
 		}
 		return types.ValRecord(fields), nil
-	case types.Variant:
-		t := typ.(types.Variant)
+	case types.TypeKindVariant:
+		variant := &ctx.Types.Variants[typ.Index]
 		disc := iter.NextI32()
-		if int(disc) >= len(t.Cases) {
+		if int(disc) >= len(variant.Cases) {
 			return types.Val{}, fmt.Errorf("invalid variant discriminant: %d", disc)
 		}
-		c := t.Cases[disc]
+		c := variant.Cases[disc]
 
-		// Calculate the joined flat types for the variant payload
-		// Per Canonical ABI spec lines 2962-2989, variant payloads use joined types
-		flatTypes := flattenVariantPayload(t)
+		// Calculate joined flat types for the variant payload.
+		// Per Canonical ABI spec lines 2962-2989, variant payloads use joined types.
+		flatTypes := flattenVariantPayload(ctx.Types, variant)
 
 		var payload *types.Val
-		if c.Type != nil {
-			// Get the actual case's flat types
-			caseFlat := flattenType(c.Type)
+		if c.HasPayload {
+			caseFlat := flattenType(ctx.Types, c.Payload)
 			coercedValues := make([]uint64, len(caseFlat))
 
-			// Read and coerce each payload value
+			// Read and coerce each payload value.
 			for i := 0; i < len(caseFlat); i++ {
 				have := flatTypes[i]
 				want := caseFlat[i]
-				// Read as the joined type (widest possible type)
 				var rawValue uint64
 				if have == api.ValueTypeI64 || have == api.ValueTypeF64 {
 					rawValue = iter.NextI64()
@@ -130,7 +129,7 @@ func LiftFlat(ctx *LiftContext, typ types.ValType, iter *FlatIter) (types.Val, e
 				coercedValues[i] = coerceFlatValue(rawValue, have, want)
 			}
 
-			// Skip remaining padding in the joined flat layout
+			// Skip remaining padding in the joined flat layout.
 			for i := len(caseFlat); i < len(flatTypes); i++ {
 				if flatTypes[i] == api.ValueTypeI64 || flatTypes[i] == api.ValueTypeF64 {
 					iter.NextI64()
@@ -139,15 +138,13 @@ func LiftFlat(ctx *LiftContext, typ types.ValType, iter *FlatIter) (types.Val, e
 				}
 			}
 
-			// Lift the payload using coerced values
 			coerceIter := NewFlatIter(coercedValues)
-			p, err := LiftFlat(ctx, c.Type, coerceIter)
+			p, err := LiftFlat(ctx, c.Payload, coerceIter)
 			if err != nil {
 				return types.Val{}, fmt.Errorf("lift variant payload: %w", err)
 			}
 			payload = &p
 		} else {
-			// No payload - skip all padding
 			for i := 0; i < len(flatTypes); i++ {
 				if flatTypes[i] == api.ValueTypeI64 || flatTypes[i] == api.ValueTypeF64 {
 					iter.NextI64()
@@ -156,57 +153,114 @@ func LiftFlat(ctx *LiftContext, typ types.ValType, iter *FlatIter) (types.Val, e
 				}
 			}
 		}
-
 		return types.ValVariant(c.Name, payload), nil
-
-	case types.Tuple:
-		t := typ.(types.Tuple)
-		elems := make([]types.Val, len(t.Types))
-		for i, elemType := range t.Types {
-			elemVal, err := LiftFlat(ctx, elemType, iter)
+	case types.TypeKindTuple:
+		tup := &ctx.Types.Tuples[typ.Index]
+		out := make([]types.Val, len(tup.Types))
+		for i, t := range tup.Types {
+			v, err := LiftFlat(ctx, t, iter)
 			if err != nil {
 				return types.Val{}, fmt.Errorf("lift tuple element %d: %w", i, err)
 			}
-			elems[i] = elemVal
+			out[i] = v
 		}
-		return types.ValTuple(elems), nil
+		return types.ValTuple(out), nil
+	case types.TypeKindList:
+		list := &ctx.Types.Lists[typ.Index]
+		// Dynamic list: read ptr and length from flat.
+		ptr := iter.NextI32()
+		length := iter.NextI32()
 
-	case types.Option:
-		t := typ.(types.Option)
-		disc := iter.NextI32()
-		payloadFlat := 0
-		if t.Some != nil {
-			payloadFlat = t.Some.FlattenCount()
+		if length == 0 {
+			return types.ValList([]types.Val{}), nil
 		}
+
+		elemABI := list.Element.ABI(ctx.Types)
+		if ptr%elemABI.Align32 != 0 {
+			return types.Val{}, fmt.Errorf("list element pointer not aligned: ptr=%d, required alignment=%d", ptr, elemABI.Align32)
+		}
+
+		if ctx == nil || ctx.Memory == nil {
+			return types.Val{}, fmt.Errorf("lift list: memory context required for non-empty list")
+		}
+
+		elemSize := elemABI.Size32
+		maxOffset := uint64(ptr) + uint64(length)*uint64(elemSize)
+		if maxOffset > uint64(ctx.Memory.Size()) {
+			return types.Val{}, fmt.Errorf("list data exceeds memory bounds: ptr=%d, len=%d, elemSize=%d", ptr, length, elemSize)
+		}
+
+		elems := make([]types.Val, length)
+		for i := uint32(0); i < length; i++ {
+			elem, err := LiftHeap(ctx, list.Element, ptr+i*elemSize)
+			if err != nil {
+				return types.Val{}, fmt.Errorf("lift list element %d: %w", i, err)
+			}
+			elems[i] = elem
+		}
+		return types.ValList(elems), nil
+	case types.TypeKindFixedList:
+		fl := &ctx.Types.FixedLists[typ.Index]
+		elems := make([]types.Val, fl.Length)
+		for i := uint32(0); i < fl.Length; i++ {
+			elem, err := LiftFlat(ctx, fl.Element, iter)
+			if err != nil {
+				return types.Val{}, fmt.Errorf("lift fixed list element %d: %w", i, err)
+			}
+			elems[i] = elem
+		}
+		return types.ValList(elems), nil
+	case types.TypeKindFlags:
+		fl := &ctx.Types.Flags[typ.Index]
+		flags := make(map[string]bool, len(fl.Names))
+		if len(fl.Names) == 0 {
+			return types.ValFlags(flags), nil
+		}
+		numI32s := (len(fl.Names) + 31) / 32
+		for i32Idx := 0; i32Idx < numI32s; i32Idx++ {
+			bits := iter.NextI32()
+			for bit := 0; bit < 32; bit++ {
+				flagIdx := i32Idx*32 + bit
+				if flagIdx >= len(fl.Names) {
+					break
+				}
+				flags[fl.Names[flagIdx]] = (bits & (1 << bit)) != 0
+			}
+		}
+		return types.ValFlags(flags), nil
+	case types.TypeKindEnum:
+		en := &ctx.Types.Enums[typ.Index]
+		disc := iter.NextI32()
+		if int(disc) >= len(en.Names) {
+			return types.Val{}, fmt.Errorf("invalid enum discriminant: %d", disc)
+		}
+		return types.ValEnum(en.Names[disc]), nil
+	case types.TypeKindOption:
+		opt := &ctx.Types.Options[typ.Index]
+		disc := iter.NextI32()
+		payloadABI := opt.Element.ABI(ctx.Types)
+		payloadFlat := int(payloadABI.FlattenCount)
 		if disc == 0 {
-			// None - skip payload slots
+			// None - skip payload slots.
 			for i := 0; i < payloadFlat; i++ {
 				iter.NextI64()
 			}
 			return types.ValOption(nil), nil
 		}
-		// Some
-		if t.Some != nil {
-			payload, err := LiftFlat(ctx, t.Some, iter)
-			if err != nil {
-				return types.Val{}, fmt.Errorf("lift option payload: %w", err)
-			}
-			return types.ValOption(&payload), nil
+		payload, err := LiftFlat(ctx, opt.Element, iter)
+		if err != nil {
+			return types.Val{}, fmt.Errorf("lift option payload: %w", err)
 		}
-		// Unit option (Some with no payload type) - return empty Val as marker
-		emptyVal := types.Val{}
-		return types.ValOption(&emptyVal), nil
-
-	case types.Result:
-		t := typ.(types.Result)
+		return types.ValOption(&payload), nil
+	case types.TypeKindResult:
+		res := &ctx.Types.Results[typ.Index]
 		disc := iter.NextI32()
-		// Calculate max payload for padding
 		okFlat, errFlat := 0, 0
-		if t.Ok != nil {
-			okFlat = t.Ok.FlattenCount()
+		if res.HasOK {
+			okFlat = int(res.OK.ABI(ctx.Types).FlattenCount)
 		}
-		if t.Error != nil {
-			errFlat = t.Error.FlattenCount()
+		if res.HasErr {
+			errFlat = int(res.Err.ABI(ctx.Types).FlattenCount)
 		}
 		maxFlat := okFlat
 		if errFlat > maxFlat {
@@ -214,13 +268,11 @@ func LiftFlat(ctx *LiftContext, typ types.ValType, iter *FlatIter) (types.Val, e
 		}
 
 		if disc == 0 {
-			// Ok
-			if t.Ok != nil {
-				okVal, err := LiftFlat(ctx, t.Ok, iter)
+			if res.HasOK {
+				okVal, err := LiftFlat(ctx, res.OK, iter)
 				if err != nil {
 					return types.Val{}, fmt.Errorf("lift result ok: %w", err)
 				}
-				// Skip remaining padding
 				for i := okFlat; i < maxFlat; i++ {
 					iter.NextI64()
 				}
@@ -231,9 +283,8 @@ func LiftFlat(ctx *LiftContext, typ types.ValType, iter *FlatIter) (types.Val, e
 			}
 			return types.ValResultOk(nil), nil
 		}
-		// Error
-		if t.Error != nil {
-			errVal, err := LiftFlat(ctx, t.Error, iter)
+		if res.HasErr {
+			errVal, err := LiftFlat(ctx, res.Err, iter)
 			if err != nil {
 				return types.Val{}, fmt.Errorf("lift result error: %w", err)
 			}
@@ -246,181 +297,90 @@ func LiftFlat(ctx *LiftContext, typ types.ValType, iter *FlatIter) (types.Val, e
 			iter.NextI64()
 		}
 		return types.ValResultError(nil), nil
-
-	case types.Enum:
-		t := typ.(types.Enum)
-		disc := iter.NextI32()
-		if int(disc) >= len(t.Cases) {
-			return types.Val{}, fmt.Errorf("invalid enum discriminant: %d", disc)
-		}
-		return types.ValEnum(t.Cases[disc]), nil
-
-	case types.Flags:
-		t := typ.(types.Flags)
-		flags := make(map[string]bool)
-		if len(t.Names) == 0 {
-			return types.ValFlags(flags), nil
-		}
-		// Read the required number of i32s
-		numI32s := (len(t.Names) + 31) / 32
-		for i32Idx := 0; i32Idx < numI32s; i32Idx++ {
-			bits := iter.NextI32()
-			for bit := 0; bit < 32; bit++ {
-				flagIdx := i32Idx*32 + bit
-				if flagIdx >= len(t.Names) {
-					break
-				}
-				flags[t.Names[flagIdx]] = (bits & (1 << bit)) != 0
-			}
-		}
-		return types.ValFlags(flags), nil
-
-	case types.List:
-		t := typ.(types.List)
-
-		if t.Length != nil {
-			// Fixed-length list: lift each element from flat values
-			length := *t.Length
-			elems := make([]types.Val, length)
-			for i := uint32(0); i < length; i++ {
-				elem, err := LiftFlat(ctx, t.Element, iter)
-				if err != nil {
-					return types.Val{}, fmt.Errorf("lift fixed list element %d: %w", i, err)
-				}
-				elems[i] = elem
-			}
-			return types.ValList(elems), nil
-		}
-
-		// Dynamic list: read ptr and length
-		ptr := iter.NextI32()
-		length := iter.NextI32()
-
-		// Empty list case - no memory access needed
-		if length == 0 {
-			return types.ValList([]types.Val{}), nil
-		}
-
-		// Validate alignment per spec line 2153
-		elemAlign := t.Element.Align()
-		if ptr%elemAlign != 0 {
-			return types.Val{}, fmt.Errorf("list element pointer not aligned: ptr=%d, required alignment=%d", ptr, elemAlign)
-		}
-
-		// Need memory context for non-empty lists
-		if ctx == nil || ctx.Memory == nil {
-			return types.Val{}, fmt.Errorf("lift list: memory context required for non-empty list")
-		}
-
-		// Validate bounds
-		elemSize := t.Element.Size()
-		maxOffset := uint64(ptr) + uint64(length)*uint64(elemSize)
-		if maxOffset > uint64(ctx.Memory.Size()) {
-			return types.Val{}, fmt.Errorf("list data exceeds memory bounds: ptr=%d, len=%d, elemSize=%d", ptr, length, elemSize)
-		}
-
-		// Lift each element from heap
-		elems := make([]types.Val, length)
-		for i := uint32(0); i < length; i++ {
-			elem, err := LiftHeap(ctx, t.Element, ptr+i*elemSize)
-			if err != nil {
-				return types.Val{}, fmt.Errorf("lift list element %d: %w", i, err)
-			}
-			elems[i] = elem
-		}
-		return types.ValList(elems), nil
-
-	// Async value types: stream<T>, future<T>, error-context.
-	// The synchronous canonical ABI does not implement async; lift_flat
-	// must trap rather than silently succeed. The type is recognised so
-	// the binary parser can produce a complete type graph; lift/lower
-	// support is deferred to a follow-up async project.
-	// Spec: definitions.py:1787 (case ErrorContextType() : return lift_error_context(...))
-	// Spec: definitions.py:1794 (case StreamType(t)      : return lift_stream(...))
-	// Spec: definitions.py:1795 (case FutureType(t)      : return lift_future(...))
-	case types.Stream:
-		return types.Val{}, fmt.Errorf("stream<T> lift not yet supported (async not yet supported in synchronous canonical ABI; deferred to follow-up project)")
-	case types.Future:
-		return types.Val{}, fmt.Errorf("future<T> lift not yet supported (async not yet supported in synchronous canonical ABI; deferred to follow-up project)")
-	case types.ErrorContext:
-		return types.Val{}, fmt.Errorf("error-context lift not yet supported (async not yet supported in synchronous canonical ABI; deferred to follow-up project)")
-
+	case types.TypeKindOwn:
+		return liftOwnHandle(ctx, typ, iter.NextI32())
+	case types.TypeKindBorrow:
+		return liftBorrowHandle(ctx, typ, iter.NextI32())
+	case types.TypeKindStream, types.TypeKindFuture, types.TypeKindErrorContext:
+		return types.Val{}, fmt.Errorf(
+			"component-model async types not yet supported: kind=%d", typ.Kind)
 	default:
-		return types.Val{}, fmt.Errorf("unsupported flat lift for type: %T", typ)
+		return types.Val{}, fmt.Errorf("LiftFlat: unknown TypeKind %d", typ.Kind)
 	}
 }
 
-// LiftHeap lifts a value from heap memory at the given offset.
+// LiftHeap lifts a value from heap memory at the given offset. Dispatches
+// on typ.Kind like LiftFlat, but reads scalar bytes directly from memory
+// instead of consuming the flat iterator.
 func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (types.Val, error) {
-	switch t := typ.(type) {
-	// Primitives
-	case types.Bool:
+	switch typ.Kind {
+	case types.TypeKindBool:
 		v, err := ctx.ReadU8(offset)
 		if err != nil {
 			return types.Val{}, fmt.Errorf("lift bool: %w", err)
 		}
 		return types.ValBool(v != 0), nil
-	case types.U8:
+	case types.TypeKindU8:
 		v, err := ctx.ReadU8(offset)
 		if err != nil {
 			return types.Val{}, fmt.Errorf("lift u8: %w", err)
 		}
 		return types.ValU8(v), nil
-	case types.S8:
+	case types.TypeKindS8:
 		v, err := ctx.ReadU8(offset)
 		if err != nil {
 			return types.Val{}, fmt.Errorf("lift s8: %w", err)
 		}
 		return types.ValS8(int8(v)), nil
-	case types.U16:
+	case types.TypeKindU16:
 		v, err := ctx.ReadU16(offset)
 		if err != nil {
 			return types.Val{}, fmt.Errorf("lift u16: %w", err)
 		}
 		return types.ValU16(v), nil
-	case types.S16:
+	case types.TypeKindS16:
 		v, err := ctx.ReadU16(offset)
 		if err != nil {
 			return types.Val{}, fmt.Errorf("lift s16: %w", err)
 		}
 		return types.ValS16(int16(v)), nil
-	case types.U32:
+	case types.TypeKindU32:
 		v, err := ctx.ReadU32(offset)
 		if err != nil {
 			return types.Val{}, fmt.Errorf("lift u32: %w", err)
 		}
 		return types.ValU32(v), nil
-	case types.S32:
+	case types.TypeKindS32:
 		v, err := ctx.ReadU32(offset)
 		if err != nil {
 			return types.Val{}, fmt.Errorf("lift s32: %w", err)
 		}
 		return types.ValS32(int32(v)), nil
-	case types.U64:
+	case types.TypeKindU64:
 		v, err := ctx.ReadU64(offset)
 		if err != nil {
 			return types.Val{}, fmt.Errorf("lift u64: %w", err)
 		}
 		return types.ValU64(v), nil
-	case types.S64:
+	case types.TypeKindS64:
 		v, err := ctx.ReadU64(offset)
 		if err != nil {
 			return types.Val{}, fmt.Errorf("lift s64: %w", err)
 		}
 		return types.ValS64(int64(v)), nil
-	case types.F32:
+	case types.TypeKindF32:
 		v, err := ctx.ReadF32(offset)
 		if err != nil {
 			return types.Val{}, fmt.Errorf("lift f32: %w", err)
 		}
 		return types.ValF32(canonicalizeNaN32(v)), nil
-	case types.F64:
+	case types.TypeKindF64:
 		v, err := ctx.ReadF64(offset)
 		if err != nil {
 			return types.Val{}, fmt.Errorf("lift f64: %w", err)
 		}
 		return types.ValF64(canonicalizeNaN64(v)), nil
-	case types.Char:
+	case types.TypeKindChar:
 		c, err := ctx.ReadU32(offset)
 		if err != nil {
 			return types.Val{}, fmt.Errorf("lift char: %w", err)
@@ -429,55 +389,45 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (types.Val, er
 			return types.Val{}, fmt.Errorf("invalid char value: U+%04X is not a valid Unicode scalar value", c)
 		}
 		return types.ValChar(rune(c)), nil
-	case types.String:
+	case types.TypeKindString:
 		s, err := LiftString(ctx, offset)
 		if err != nil {
 			return types.Val{}, err
 		}
 		return types.ValString(s), nil
-
-	// Record
-	case types.Record:
-		fields := make(map[string]types.Val)
+	case types.TypeKindRecord:
+		rec := &ctx.Types.Records[typ.Index]
+		fields := make(map[string]types.Val, len(rec.Fields))
 		fieldOffset := uint32(0)
-		for _, f := range t.Fields {
-			// Align field offset
-			align := f.Type.Align()
-			if fieldOffset%align != 0 {
-				fieldOffset += align - (fieldOffset % align)
-			}
+		for _, f := range rec.Fields {
+			fa := f.Type.ABI(ctx.Types)
+			fieldOffset = alignTo(fieldOffset, fa.Align32)
 			fieldVal, err := LiftHeap(ctx, f.Type, offset+fieldOffset)
 			if err != nil {
 				return types.Val{}, fmt.Errorf("lift record field %s: %w", f.Name, err)
 			}
 			fields[f.Name] = fieldVal
-			fieldOffset += f.Type.Size()
+			fieldOffset += fa.Size32
 		}
 		return types.ValRecord(fields), nil
-
-	// Tuple
-	case types.Tuple:
-		elems := make([]types.Val, len(t.Types))
+	case types.TypeKindTuple:
+		tup := &ctx.Types.Tuples[typ.Index]
+		elems := make([]types.Val, len(tup.Types))
 		elemOffset := uint32(0)
-		for i, elemType := range t.Types {
-			// Align
-			align := elemType.Align()
-			if elemOffset%align != 0 {
-				elemOffset += align - (elemOffset % align)
-			}
+		for i, elemType := range tup.Types {
+			ea := elemType.ABI(ctx.Types)
+			elemOffset = alignTo(elemOffset, ea.Align32)
 			elem, err := LiftHeap(ctx, elemType, offset+elemOffset)
 			if err != nil {
 				return types.Val{}, fmt.Errorf("lift tuple element %d: %w", i, err)
 			}
 			elems[i] = elem
-			elemOffset += elemType.Size()
+			elemOffset += ea.Size32
 		}
 		return types.ValTuple(elems), nil
-
-	// Variant
-	case types.Variant:
-		// Read discriminant (size depends on number of cases)
-		discSize := t.DiscriminantSize()
+	case types.TypeKindVariant:
+		variant := &ctx.Types.Variants[typ.Index]
+		discSize := variant.Disc.DiscSize
 		var disc uint32
 		var discErr error
 		switch discSize {
@@ -493,26 +443,22 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (types.Val, er
 		if discErr != nil {
 			return types.Val{}, fmt.Errorf("lift variant discriminant: %w", discErr)
 		}
-		if int(disc) >= len(t.Cases) {
+		if int(disc) >= len(variant.Cases) {
 			return types.Val{}, fmt.Errorf("invalid variant discriminant: %d", disc)
 		}
-		c := t.Cases[disc]
-
-		// Calculate payload offset (aligned to max payload alignment)
-		payloadOffset := t.PayloadOffset()
+		c := variant.Cases[disc]
 
 		var payload *types.Val
-		if c.Type != nil {
-			p, err := LiftHeap(ctx, c.Type, offset+payloadOffset)
+		if c.HasPayload {
+			p, err := LiftHeap(ctx, c.Payload, offset+variant.Disc.PayloadOffset)
 			if err != nil {
 				return types.Val{}, fmt.Errorf("lift variant payload: %w", err)
 			}
 			payload = &p
 		}
 		return types.ValVariant(c.Name, payload), nil
-
-	// Option
-	case types.Option:
+	case types.TypeKindOption:
+		opt := &ctx.Types.Options[typ.Index]
 		disc, err := ctx.ReadU8(offset)
 		if err != nil {
 			return types.Val{}, fmt.Errorf("lift option discriminant: %w", err)
@@ -520,48 +466,21 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (types.Val, er
 		if disc == 0 {
 			return types.ValOption(nil), nil
 		}
-		// Calculate payload offset
-		payloadAlign := uint32(1)
-		if t.Some != nil {
-			payloadAlign = t.Some.Align()
+		p, err := LiftHeap(ctx, opt.Element, offset+opt.Disc.PayloadOffset)
+		if err != nil {
+			return types.Val{}, fmt.Errorf("lift option payload: %w", err)
 		}
-		payloadOffset := uint32(1) // discriminant is 1 byte
-		if payloadOffset%payloadAlign != 0 {
-			payloadOffset += payloadAlign - (payloadOffset % payloadAlign)
-		}
-
-		if t.Some != nil {
-			p, err := LiftHeap(ctx, t.Some, offset+payloadOffset)
-			if err != nil {
-				return types.Val{}, fmt.Errorf("lift option payload: %w", err)
-			}
-			return types.ValOption(&p), nil
-		}
-		emptyVal := types.Val{}
-		return types.ValOption(&emptyVal), nil
-
-	// Result
-	case types.Result:
+		return types.ValOption(&p), nil
+	case types.TypeKindResult:
+		res := &ctx.Types.Results[typ.Index]
 		disc, err := ctx.ReadU8(offset)
 		if err != nil {
 			return types.Val{}, fmt.Errorf("lift result discriminant: %w", err)
 		}
-		// Calculate max alignment for payload
-		payloadAlign := uint32(1)
-		if t.Ok != nil && t.Ok.Align() > payloadAlign {
-			payloadAlign = t.Ok.Align()
-		}
-		if t.Error != nil && t.Error.Align() > payloadAlign {
-			payloadAlign = t.Error.Align()
-		}
-		payloadOffset := uint32(1)
-		if payloadOffset%payloadAlign != 0 {
-			payloadOffset += payloadAlign - (payloadOffset % payloadAlign)
-		}
-
-		if disc == 0 { // Ok
-			if t.Ok != nil {
-				ok, err := LiftHeap(ctx, t.Ok, offset+payloadOffset)
+		payloadOffset := res.Disc.PayloadOffset
+		if disc == 0 {
+			if res.HasOK {
+				ok, err := LiftHeap(ctx, res.OK, offset+payloadOffset)
 				if err != nil {
 					return types.Val{}, err
 				}
@@ -569,19 +488,17 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (types.Val, er
 			}
 			return types.ValResultOk(nil), nil
 		}
-		// Error
-		if t.Error != nil {
-			e, err := LiftHeap(ctx, t.Error, offset+payloadOffset)
+		if res.HasErr {
+			e, err := LiftHeap(ctx, res.Err, offset+payloadOffset)
 			if err != nil {
 				return types.Val{}, err
 			}
 			return types.ValResultError(&e), nil
 		}
 		return types.ValResultError(nil), nil
-
-	// Enum
-	case types.Enum:
-		discSize := t.Size() // Enum's Size() returns the discriminant size
+	case types.TypeKindEnum:
+		en := &ctx.Types.Enums[typ.Index]
+		discSize := en.Disc.DiscSize
 		var disc uint32
 		var discErr error
 		switch discSize {
@@ -597,46 +514,44 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (types.Val, er
 		if discErr != nil {
 			return types.Val{}, fmt.Errorf("lift enum discriminant: %w", discErr)
 		}
-		if int(disc) >= len(t.Cases) {
+		if int(disc) >= len(en.Names) {
 			return types.Val{}, fmt.Errorf("invalid enum discriminant: %d", disc)
 		}
-		return types.ValEnum(t.Cases[disc]), nil
-
-	// Flags
-	case types.Flags:
-		flags := make(map[string]bool)
-		if len(t.Names) == 0 {
+		return types.ValEnum(en.Names[disc]), nil
+	case types.TypeKindFlags:
+		fl := &ctx.Types.Flags[typ.Index]
+		flags := make(map[string]bool, len(fl.Names))
+		n := len(fl.Names)
+		if n == 0 {
 			return types.ValFlags(flags), nil
 		}
-		// Determine storage size
-		n := len(t.Names)
-		if n <= 8 {
+		switch {
+		case n <= 8:
 			bits, err := ctx.ReadU8(offset)
 			if err != nil {
 				return types.Val{}, fmt.Errorf("lift flags: %w", err)
 			}
-			for i, name := range t.Names {
+			for i, name := range fl.Names {
 				flags[name] = (bits & (1 << i)) != 0
 			}
-		} else if n <= 16 {
+		case n <= 16:
 			bits, err := ctx.ReadU16(offset)
 			if err != nil {
 				return types.Val{}, fmt.Errorf("lift flags: %w", err)
 			}
-			for i, name := range t.Names {
+			for i, name := range fl.Names {
 				flags[name] = (bits & (1 << i)) != 0
 			}
-		} else if n <= 32 {
+		case n <= 32:
 			bits, err := ctx.ReadU32(offset)
 			if err != nil {
 				return types.Val{}, fmt.Errorf("lift flags: %w", err)
 			}
-			for i, name := range t.Names {
+			for i, name := range fl.Names {
 				flags[name] = (bits & (1 << i)) != 0
 			}
-		} else {
-			// Multiple u32s
-			for i, name := range t.Names {
+		default:
+			for i, name := range fl.Names {
 				wordIdx := i / 32
 				bit := i % 32
 				word, err := ctx.ReadU32(offset + uint32(wordIdx*4))
@@ -647,26 +562,8 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (types.Val, er
 			}
 		}
 		return types.ValFlags(flags), nil
-
-	// List
-	case types.List:
-		if t.Length != nil {
-			// Fixed-length list: elements are inline at offset
-			length := *t.Length
-			elems := make([]types.Val, length)
-			elemSize := t.Element.Size()
-			for i := uint32(0); i < length; i++ {
-				elemOffset := offset + i*elemSize
-				elem, err := LiftHeap(ctx, t.Element, elemOffset)
-				if err != nil {
-					return types.Val{}, fmt.Errorf("lift fixed list element %d: %w", i, err)
-				}
-				elems[i] = elem
-			}
-			return types.ValList(elems), nil
-		}
-
-		// Dynamic list: read ptr and length from memory
+	case types.TypeKindList:
+		list := &ctx.Types.Lists[typ.Index]
 		ptr, err := ctx.ReadU32(offset)
 		if err != nil {
 			return types.Val{}, fmt.Errorf("lift list ptr: %w", err)
@@ -676,18 +573,13 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (types.Val, er
 			return types.Val{}, fmt.Errorf("lift list length: %w", err)
 		}
 
-		// Compute element size once for validation and iteration
-		elemSize := t.Element.Size()
+		elemABI := list.Element.ABI(ctx.Types)
+		elemSize := elemABI.Size32
 
 		if length > 0 {
-			// Validate alignment per spec line 2153
-			elemAlign := t.Element.Align()
-			if ptr%elemAlign != 0 {
-				return types.Val{}, fmt.Errorf("list element pointer not aligned: ptr=%d, required alignment=%d", ptr, elemAlign)
+			if ptr%elemABI.Align32 != 0 {
+				return types.Val{}, fmt.Errorf("list element pointer not aligned: ptr=%d, required alignment=%d", ptr, elemABI.Align32)
 			}
-
-			// Validate bounds to prevent overflow and excessive allocation
-			// Check for potential overflow in ptr + length * elemSize
 			maxOffset := uint64(ptr) + uint64(length)*uint64(elemSize)
 			if maxOffset > uint64(ctx.Memory.Size()) {
 				return types.Val{}, fmt.Errorf("list data exceeds memory bounds: ptr=%d, len=%d, elemSize=%d", ptr, length, elemSize)
@@ -696,170 +588,142 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (types.Val, er
 
 		elems := make([]types.Val, length)
 		for i := uint32(0); i < length; i++ {
-			elem, err := LiftHeap(ctx, t.Element, ptr+i*elemSize)
+			elem, err := LiftHeap(ctx, list.Element, ptr+i*elemSize)
 			if err != nil {
 				return types.Val{}, fmt.Errorf("lift list element %d: %w", i, err)
 			}
 			elems[i] = elem
 		}
 		return types.ValList(elems), nil
-
-	// Async value types: stream<T>, future<T>, error-context.
-	// The synchronous canonical ABI does not implement async; load (heap
-	// lift) must trap rather than silently succeed. The type is
-	// recognised so the binary parser can produce a complete type graph;
-	// lift/lower support is deferred to a follow-up async project.
-	// Spec: definitions.py:1192 (case ErrorContextType() : return lift_error_context(cx, load_int(...)))
-	// Spec: definitions.py:1199 (case StreamType(t)      : return lift_stream(cx, load_int(...), t))
-	// Spec: definitions.py:1200 (case FutureType(t)      : return lift_future(cx, load_int(...), t))
-	case types.Stream:
-		return types.Val{}, fmt.Errorf("stream<T> lift not yet supported (async not yet supported in synchronous canonical ABI; deferred to follow-up project)")
-	case types.Future:
-		return types.Val{}, fmt.Errorf("future<T> lift not yet supported (async not yet supported in synchronous canonical ABI; deferred to follow-up project)")
-	case types.ErrorContext:
-		return types.Val{}, fmt.Errorf("error-context lift not yet supported (async not yet supported in synchronous canonical ABI; deferred to follow-up project)")
-
+	case types.TypeKindFixedList:
+		fl := &ctx.Types.FixedLists[typ.Index]
+		elems := make([]types.Val, fl.Length)
+		elemABI := fl.Element.ABI(ctx.Types)
+		elemSize := elemABI.Size32
+		for i := uint32(0); i < fl.Length; i++ {
+			elemOffset := offset + i*elemSize
+			elem, err := LiftHeap(ctx, fl.Element, elemOffset)
+			if err != nil {
+				return types.Val{}, fmt.Errorf("lift fixed list element %d: %w", i, err)
+			}
+			elems[i] = elem
+		}
+		return types.ValList(elems), nil
+	case types.TypeKindOwn:
+		h, err := ctx.ReadU32(offset)
+		if err != nil {
+			return types.Val{}, fmt.Errorf("lift own handle: %w", err)
+		}
+		return liftOwnHandle(ctx, typ, h)
+	case types.TypeKindBorrow:
+		h, err := ctx.ReadU32(offset)
+		if err != nil {
+			return types.Val{}, fmt.Errorf("lift borrow handle: %w", err)
+		}
+		return liftBorrowHandle(ctx, typ, h)
+	case types.TypeKindStream, types.TypeKindFuture, types.TypeKindErrorContext:
+		return types.Val{}, fmt.Errorf(
+			"component-model async types not yet supported: kind=%d", typ.Kind)
 	default:
-		return types.Val{}, fmt.Errorf("unsupported heap lift for type: %T", typ)
+		return types.Val{}, fmt.Errorf("LiftHeap: unknown TypeKind %d", typ.Kind)
 	}
 }
 
-// LiftOwn transfers ownership of a resource out of the component.
-// It removes the handle from the table and returns the representation value.
-// Traps if the handle has active borrows (NumLends > 0).
-// Traps if the handle is not owned (i.e., it's a borrowed handle).
+// liftOwnHandle implements the TypeKindOwn lift arm.
 //
-// TODO: Per spec lines 2218-2219, should validate:
-//   - trap_if(h.rt is not t.rt) - resource type matches
-//
-// Currently, resource type tracking is not implemented in ResourceTable.
-// Full implementation requires tracking which resource type each handle belongs to,
-// which is a larger architectural change.
-func LiftOwn(ctx *LiftContext, handleIdx uint32) (any, error) {
-	if ctx.ResourceTable == nil {
-		return nil, fmt.Errorf("lift_own: no resource table available")
+// Spec: definitions.py:1336-1347 (lift_own).
+// In Session 0, ctx.Instance.ResourceTypes is empty (Concrete promotion
+// is Session 2 work) and this traps for any real handle. The dispatch
+// arm exists, compiles, and traps with a precise error.
+func liftOwnHandle(ctx *LiftContext, typ types.ValType, handleIdx uint32) (types.Val, error) {
+	if ctx == nil || ctx.Instance == nil {
+		return types.Val{}, fmt.Errorf("lift own: no component instance available")
 	}
-
-	// We need to look up the full handle including generation.
-	// First, get the entry to verify it exists and is owned.
-	// The handleIdx is just the index; we need to reconstruct the full handle.
-	// For proper generation tracking, we iterate through to find the handle.
-	// However, the canonical ABI only passes the index, so we construct
-	// a handle with the current generation from the table entry.
-
-	// Get the current generation for this index by constructing a probe handle
-	// and using Get to validate. The table's Get validates generation.
-	// Since we only have the index, we need to try with generation 0 first,
-	// but that won't work for reused slots.
-
-	// The proper approach: the table needs to expose a way to get by index.
-	// For now, we iterate through possible generations, but this is inefficient.
-	// A better design would be to track the full handle in the component instance.
-
-	// Simplified approach: try to find a valid handle for this index
-	// by checking if the index is within bounds and the entry is occupied.
-	// The ResourceTable.Get validates both index bounds and generation.
-
-	// Since the component model ABI only passes the index (u32), and the
-	// generation is stored in the table, we need to query the table to
-	// get the current generation for this slot.
-
-	// For the MVP implementation, we'll construct the handle using the
-	// generation from direct table access. This requires that the caller
-	// passes the correct index that was obtained from a prior New() call.
-
-	// First, verify the index is valid and get the entry
-	h := runtime.Handle(handleIdx) // Start with generation 0
-
-	// Try to get with just the index - the table will validate
-	// Note: This is a limitation - the full handle should include generation
-	// For proper implementation, the handle passed to LiftOwn should be the
-	// full 64-bit handle, but the canonical ABI passes u32 index only.
-
-	// Get the entry first to check ownership
-	entry, err := ctx.ResourceTable.Get(h)
-	if err != nil {
-		// Try to find the entry by scanning generations
-		// This is a workaround for the index-only interface
-		for gen := uint32(1); gen < 1000; gen++ {
-			h = runtime.MakeHandle(handleIdx, gen)
-			entry, err = ctx.ResourceTable.Get(h)
-			if err == nil {
-				break
-			}
-		}
-		if err != nil {
-			return nil, fmt.Errorf("lift_own: invalid handle index %d: %w", handleIdx, err)
-		}
+	if ctx.Types == nil {
+		return types.Val{}, fmt.Errorf("lift own: no component types available")
 	}
-
-	// Verify this is an owned handle, not a borrow
-	if !entry.Own {
-		return nil, fmt.Errorf("lift_own: handle is not owned")
+	if int(typ.Index) >= len(ctx.Types.ResourceTables) {
+		return types.Val{}, fmt.Errorf("lift own: resource table index %d out of range", typ.Index)
 	}
-
-	// Remove from table (this checks NumLends > 0 and returns error if so)
-	removed, err := ctx.ResourceTable.Remove(h)
-	if err != nil {
-		return nil, fmt.Errorf("lift_own: %w", err)
+	rt := ctx.Types.ResourceTables[typ.Index]
+	if !rt.Concrete {
+		return types.Val{}, fmt.Errorf(
+			"cannot lift abstract resource at runtime (type %d)", typ.Index)
 	}
-
-	return removed.Rep, nil
-}
-
-// LiftBorrow reads a resource representation for borrowing.
-// Unlike LiftOwn, it does NOT remove the handle from the table.
-// It tracks the lend in the BorrowScope to prevent ownership transfer while borrowed.
-//
-// TODO: Per spec lines 2237-2238, should validate:
-//   - trap_if(h.rt is not t.rt) - resource type matches
-//
-// Currently, resource type tracking is not implemented in ResourceTable.
-// Full implementation requires tracking which resource type each handle belongs to,
-// which is a larger architectural change.
-func LiftBorrow(ctx *LiftContext, handleIdx uint32) (any, error) {
-	if ctx.ResourceTable == nil {
-		return nil, fmt.Errorf("lift_borrow: no resource table available")
+	expectedRT := ctx.Instance.LookupResourceType(rt.Instance, rt.Resource)
+	if expectedRT == nil {
+		return types.Val{}, fmt.Errorf(
+			"no resource type for instance %d declaration %d "+
+				"(resource concrete promotion not yet wired — session 2)",
+			rt.Instance, rt.Resource)
 	}
-
-	// Construct handle from index - similar approach to LiftOwn
 	h := runtime.Handle(handleIdx)
-
-	// Try to get the entry
-	entry, err := ctx.ResourceTable.Get(h)
-	if err != nil {
-		// Try to find the entry by scanning generations
-		for gen := uint32(1); gen < 1000; gen++ {
-			h = runtime.MakeHandle(handleIdx, gen)
-			entry, err = ctx.ResourceTable.Get(h)
-			if err == nil {
-				break
-			}
-		}
-		if err != nil {
-			return nil, fmt.Errorf("lift_borrow: invalid handle index %d: %w", handleIdx, err)
-		}
+	if err := ctx.Instance.Table.ValidateType(h, expectedRT); err != nil {
+		return types.Val{}, err
 	}
+	// For own<>: transfer ownership via the table.
+	if _, err := ctx.Instance.Table.Remove(h); err != nil {
+		return types.Val{}, err
+	}
+	return types.ValOwn(handleIdx), nil
+}
 
-	// Track the lend in the borrow scope
+// liftBorrowHandle implements the TypeKindBorrow lift arm.
+//
+// Spec: definitions.py:1338-1347 (lift_borrow).
+func liftBorrowHandle(ctx *LiftContext, typ types.ValType, handleIdx uint32) (types.Val, error) {
+	if ctx == nil || ctx.Instance == nil {
+		return types.Val{}, fmt.Errorf("lift borrow: no component instance available")
+	}
+	if ctx.Types == nil {
+		return types.Val{}, fmt.Errorf("lift borrow: no component types available")
+	}
+	if int(typ.Index) >= len(ctx.Types.ResourceTables) {
+		return types.Val{}, fmt.Errorf("lift borrow: resource table index %d out of range", typ.Index)
+	}
+	rt := ctx.Types.ResourceTables[typ.Index]
+	if !rt.Concrete {
+		return types.Val{}, fmt.Errorf(
+			"cannot lift abstract resource at runtime (type %d)", typ.Index)
+	}
+	expectedRT := ctx.Instance.LookupResourceType(rt.Instance, rt.Resource)
+	if expectedRT == nil {
+		return types.Val{}, fmt.Errorf(
+			"no resource type for instance %d declaration %d "+
+				"(resource concrete promotion not yet wired — session 2)",
+			rt.Instance, rt.Resource)
+	}
+	h := runtime.Handle(handleIdx)
+	if err := ctx.Instance.Table.ValidateType(h, expectedRT); err != nil {
+		return types.Val{}, err
+	}
+	if err := ctx.Instance.Table.IncrementLends(h); err != nil {
+		return types.Val{}, err
+	}
 	if ctx.BorrowScope != nil {
 		if err := ctx.BorrowScope.AddLender(h); err != nil {
-			return nil, fmt.Errorf("lift_borrow: tracking lend: %w", err)
+			return types.Val{}, err
 		}
 	}
+	return types.ValBorrow(handleIdx), nil
+}
 
-	return entry.Rep, nil
+// alignTo rounds offset up to the given alignment. align must be a
+// power of two.
+func alignTo(offset, align uint32) uint32 {
+	if align == 0 {
+		return offset
+	}
+	return (offset + align - 1) &^ (align - 1)
 }
 
 // isValidUnicodeScalar checks if a value is a valid Unicode scalar value.
 // Unicode scalar values are any code point except high-surrogate and low-surrogate code points.
 // Valid ranges: U+0000 to U+D7FF and U+E000 to U+10FFFF
 func isValidUnicodeScalar(v uint32) bool {
-	// Check for surrogates (U+D800 to U+DFFF)
 	if v >= 0xD800 && v <= 0xDFFF {
 		return false
 	}
-	// Check for values above maximum Unicode code point
 	if v > 0x10FFFF {
 		return false
 	}
@@ -867,13 +731,12 @@ func isValidUnicodeScalar(v uint32) bool {
 }
 
 // flattenVariantPayload returns the joined flat types for a variant's payload.
-// This uses the join function to compute the widest compatible type for each position.
 // Per Canonical ABI spec lines 2962-2989, variant payloads use joined types.
-func flattenVariantPayload(v types.Variant) []api.ValueType {
+func flattenVariantPayload(ct *types.ComponentTypes, v *types.TypeVariant) []api.ValueType {
 	var flat []api.ValueType
 	for _, c := range v.Cases {
-		if c.Type != nil {
-			caseFlat := flattenType(c.Type)
+		if c.HasPayload {
+			caseFlat := flattenType(ct, c.Payload)
 			for i, ft := range caseFlat {
 				if i < len(flat) {
 					flat[i] = join(flat[i], ft)
@@ -900,19 +763,14 @@ func coerceFlatValue(value uint64, have, want api.ValueType) uint64 {
 	}
 	switch {
 	case have == api.ValueTypeI32 && want == api.ValueTypeF32:
-		// The value is already the i32 bits representing f32, just return it
 		return value
 	case have == api.ValueTypeI64 && want == api.ValueTypeI32:
-		// Wrap i64 to i32 (truncate to low 32 bits)
 		return value & 0xFFFFFFFF
 	case have == api.ValueTypeI64 && want == api.ValueTypeF32:
-		// Wrap i64 to i32, use as f32 bits
 		return value & 0xFFFFFFFF
 	case have == api.ValueTypeI64 && want == api.ValueTypeF64:
-		// i64 bits as f64 - value is already the bits
 		return value
 	default:
-		// No coercion needed or unknown combination
 		return value
 	}
 }

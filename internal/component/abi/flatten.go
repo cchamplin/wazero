@@ -7,10 +7,10 @@ import (
 
 // FlattenParams converts component parameter types to core wasm types.
 // This is used to determine the core function signature for lowered component functions.
-func FlattenParams(params []types.ValType) []api.ValueType {
+func FlattenParams(ct *types.ComponentTypes, params []types.ValType) []api.ValueType {
 	var result []api.ValueType
 	for _, p := range params {
-		result = append(result, flattenType(p)...)
+		result = append(result, flattenType(ct, p)...)
 	}
 	return result
 }
@@ -23,10 +23,10 @@ func FlattenParams(params []types.ValType) []api.ValueType {
 // Per the Canonical ABI spec, if the total number of flattened results exceeds
 // MaxFlatResults (1 for synchronous calls), results are returned via memory
 // using a return pointer parameter.
-func FlattenResults(results []types.ValType) ([]api.ValueType, bool) {
+func FlattenResults(ct *types.ComponentTypes, results []types.ValType) ([]api.ValueType, bool) {
 	var flat []api.ValueType
 	for _, r := range results {
-		flat = append(flat, flattenType(r)...)
+		flat = append(flat, flattenType(ct, r)...)
 	}
 
 	if len(flat) > MaxFlatResults {
@@ -38,9 +38,9 @@ func FlattenResults(results []types.ValType) ([]api.ValueType, bool) {
 // CoreSignature returns the complete core function signature for a lowered function.
 // It computes the flattened parameter and result types according to the Canonical ABI.
 // If needsRetptr is true, an i32 param is appended for the return pointer.
-func CoreSignature(paramTypes, resultTypes []types.ValType) (params, results []api.ValueType, needsRetptr bool) {
-	params = FlattenParams(paramTypes)
-	results, needsRetptr = FlattenResults(resultTypes)
+func CoreSignature(ct *types.ComponentTypes, paramTypes, resultTypes []types.ValType) (params, results []api.ValueType, needsRetptr bool) {
+	params = FlattenParams(ct, paramTypes)
+	results, needsRetptr = FlattenResults(ct, resultTypes)
 
 	if needsRetptr {
 		// Append retptr parameter (per Canonical ABI spec, retptr comes after all other params)
@@ -50,163 +50,120 @@ func CoreSignature(paramTypes, resultTypes []types.ValType) (params, results []a
 	return params, results, needsRetptr
 }
 
-// flattenType converts a single component type to core wasm types.
+// flattenType converts a single component type to core wasm types by
+// dispatching on typ.Kind. Composite types are looked up via ct.
 // This implements the flattening rules from the Canonical ABI specification.
-func flattenType(t types.ValType) []api.ValueType {
-	switch v := t.(type) {
-	case types.Bool:
+func flattenType(ct *types.ComponentTypes, t types.ValType) []api.ValueType {
+	switch t.Kind {
+	case types.TypeKindBool,
+		types.TypeKindS8, types.TypeKindU8,
+		types.TypeKindS16, types.TypeKindU16,
+		types.TypeKindS32, types.TypeKindU32:
 		return []api.ValueType{api.ValueTypeI32}
-	case types.S8, types.U8, types.S16, types.U16, types.S32, types.U32:
-		return []api.ValueType{api.ValueTypeI32}
-	case types.S64, types.U64:
+	case types.TypeKindS64, types.TypeKindU64:
 		return []api.ValueType{api.ValueTypeI64}
-	case types.F32:
+	case types.TypeKindF32:
 		return []api.ValueType{api.ValueTypeF32}
-	case types.F64:
+	case types.TypeKindF64:
 		return []api.ValueType{api.ValueTypeF64}
-	case types.Char:
-		return []api.ValueType{api.ValueTypeI32} // Unicode scalar value
-	case types.String:
-		return []api.ValueType{api.ValueTypeI32, api.ValueTypeI32} // ptr, len
-	case types.List:
-		if v.Length != nil {
-			// Fixed-length list: flatten each element inline
-			var result []api.ValueType
-			elemFlat := flattenType(v.Element)
-			for i := uint32(0); i < *v.Length; i++ {
-				result = append(result, elemFlat...)
-			}
-			return result
-		}
-		return []api.ValueType{api.ValueTypeI32, api.ValueTypeI32} // ptr, len
-	case types.Own, types.Borrow:
-		return []api.ValueType{api.ValueTypeI32} // Handle index
-	case types.Record:
-		return flattenRecord(v)
-	case types.Tuple:
-		return flattenTuple(v)
-	case types.Variant:
-		return flattenVariant(v)
-	case types.Option:
-		return flattenOption(v)
-	case types.Result:
-		return flattenResult(v)
-	case types.Enum:
-		return []api.ValueType{api.ValueTypeI32} // Discriminant
-	case types.Flags:
-		return flattenFlags(v)
-	default:
-		// For unknown types, assume they fit in i32 as a fallback
+	case types.TypeKindChar:
 		return []api.ValueType{api.ValueTypeI32}
-	}
-}
-
-// flattenRecord flattens a record type by flattening each field sequentially.
-func flattenRecord(r types.Record) []api.ValueType {
-	var result []api.ValueType
-	for _, f := range r.Fields {
-		result = append(result, flattenType(f.Type)...)
-	}
-	return result
-}
-
-// flattenTuple flattens a tuple type by flattening each element sequentially.
-func flattenTuple(t types.Tuple) []api.ValueType {
-	var result []api.ValueType
-	for _, elemType := range t.Types {
-		result = append(result, flattenType(elemType)...)
-	}
-	return result
-}
-
-// flattenVariant flattens a variant type.
-// The flattened form is: discriminant (i32) + joined payload types.
-// Per spec, payload types are joined across all cases using the join function.
-func flattenVariant(v types.Variant) []api.ValueType {
-	// Start with discriminant
-	result := []api.ValueType{api.ValueTypeI32}
-
-	// Find max payload length and compute joined types
-	var flat []api.ValueType
-	for _, c := range v.Cases {
-		if c.Type != nil {
-			caseFlat := flattenType(c.Type)
-			for i, ft := range caseFlat {
-				if i < len(flat) {
-					flat[i] = join(flat[i], ft)
-				} else {
-					flat = append(flat, ft)
+	case types.TypeKindString:
+		return []api.ValueType{api.ValueTypeI32, api.ValueTypeI32}
+	case types.TypeKindList:
+		return []api.ValueType{api.ValueTypeI32, api.ValueTypeI32}
+	case types.TypeKindFixedList:
+		fl := &ct.FixedLists[t.Index]
+		var result []api.ValueType
+		elemFlat := flattenType(ct, fl.Element)
+		for i := uint32(0); i < fl.Length; i++ {
+			result = append(result, elemFlat...)
+		}
+		return result
+	case types.TypeKindRecord:
+		rec := &ct.Records[t.Index]
+		var result []api.ValueType
+		for _, f := range rec.Fields {
+			result = append(result, flattenType(ct, f.Type)...)
+		}
+		return result
+	case types.TypeKindTuple:
+		tup := &ct.Tuples[t.Index]
+		var result []api.ValueType
+		for _, elemType := range tup.Types {
+			result = append(result, flattenType(ct, elemType)...)
+		}
+		return result
+	case types.TypeKindVariant:
+		variant := &ct.Variants[t.Index]
+		result := []api.ValueType{api.ValueTypeI32}
+		var flat []api.ValueType
+		for _, c := range variant.Cases {
+			if c.HasPayload {
+				caseFlat := flattenType(ct, c.Payload)
+				for i, ft := range caseFlat {
+					if i < len(flat) {
+						flat[i] = join(flat[i], ft)
+					} else {
+						flat = append(flat, ft)
+					}
 				}
 			}
 		}
-	}
-
-	return append(result, flat...)
-}
-
-// flattenOption flattens an option type.
-// Option is sugar for variant { none, some(T) }.
-func flattenOption(o types.Option) []api.ValueType {
-	// Discriminant (none=0, some=1)
-	result := []api.ValueType{api.ValueTypeI32}
-
-	// Payload for some case
-	if o.Some != nil {
-		result = append(result, flattenType(o.Some)...)
-	}
-
-	return result
-}
-
-// flattenResult flattens a result type.
-// Result is sugar for variant { ok(T), error(E) }.
-func flattenResult(r types.Result) []api.ValueType {
-	// Discriminant (ok=0, error=1)
-	result := []api.ValueType{api.ValueTypeI32}
-
-	// Find max payload between ok and error using join
-	var okFlat, errFlat []api.ValueType
-	if r.Ok != nil {
-		okFlat = flattenType(r.Ok)
-	}
-	if r.Error != nil {
-		errFlat = flattenType(r.Error)
-	}
-
-	// Join types at each position (similar to flattenVariant)
-	var flat []api.ValueType
-	for i, ft := range okFlat {
-		if i < len(flat) {
-			flat[i] = join(flat[i], ft)
-		} else {
-			flat = append(flat, ft)
+		return append(result, flat...)
+	case types.TypeKindOption:
+		opt := &ct.Options[t.Index]
+		result := []api.ValueType{api.ValueTypeI32}
+		result = append(result, flattenType(ct, opt.Element)...)
+		return result
+	case types.TypeKindResult:
+		res := &ct.Results[t.Index]
+		result := []api.ValueType{api.ValueTypeI32}
+		var okFlat, errFlat []api.ValueType
+		if res.HasOK {
+			okFlat = flattenType(ct, res.OK)
 		}
-	}
-	for i, ft := range errFlat {
-		if i < len(flat) {
-			flat[i] = join(flat[i], ft)
-		} else {
-			flat = append(flat, ft)
+		if res.HasErr {
+			errFlat = flattenType(ct, res.Err)
 		}
+		var flat []api.ValueType
+		for i, ft := range okFlat {
+			if i < len(flat) {
+				flat[i] = join(flat[i], ft)
+			} else {
+				flat = append(flat, ft)
+			}
+		}
+		for i, ft := range errFlat {
+			if i < len(flat) {
+				flat[i] = join(flat[i], ft)
+			} else {
+				flat = append(flat, ft)
+			}
+		}
+		return append(result, flat...)
+	case types.TypeKindEnum:
+		return []api.ValueType{api.ValueTypeI32}
+	case types.TypeKindFlags:
+		fl := &ct.Flags[t.Index]
+		n := len(fl.Names)
+		if n == 0 {
+			return nil
+		}
+		numI32s := (n + 31) / 32
+		result := make([]api.ValueType, numI32s)
+		for i := range result {
+			result[i] = api.ValueTypeI32
+		}
+		return result
+	case types.TypeKindOwn, types.TypeKindBorrow:
+		return []api.ValueType{api.ValueTypeI32}
+	case types.TypeKindStream, types.TypeKindFuture, types.TypeKindErrorContext:
+		return []api.ValueType{api.ValueTypeI32}
+	default:
+		// Fallback: assume i32 for any unrecognized kind.
+		return []api.ValueType{api.ValueTypeI32}
 	}
-
-	return append(result, flat...)
-}
-
-// flattenFlags flattens a flags type.
-// Flags are represented as one or more i32 values depending on the number of flags.
-func flattenFlags(f types.Flags) []api.ValueType {
-	n := len(f.Names)
-	if n == 0 {
-		return nil
-	}
-	// Number of i32s needed: ceil(n / 32)
-	numI32s := (n + 31) / 32
-	result := make([]api.ValueType, numI32s)
-	for i := range result {
-		result[i] = api.ValueTypeI32
-	}
-	return result
 }
 
 // join returns the joined type per Canonical ABI spec.

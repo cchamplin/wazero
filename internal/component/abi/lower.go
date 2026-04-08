@@ -9,52 +9,53 @@ import (
 	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
-// LowerFlat lowers a component Val to flat core wasm values.
+// LowerFlat lowers a component Val to flat core wasm values. Dispatches
+// on typ.Kind and reads composite-type content via ctx.Types.<slice>[typ.Index].
 func LowerFlat(ctx *LowerContext, typ types.ValType, val types.Val) ([]uint64, error) {
-	switch typ.(type) {
-	case types.Bool:
+	switch typ.Kind {
+	case types.TypeKindBool:
 		if val.Bool() {
 			return []uint64{1}, nil
 		}
 		return []uint64{0}, nil
-	case types.S8:
+	case types.TypeKindS8:
 		return []uint64{uint64(uint32(int32(val.S8())))}, nil
-	case types.U8:
+	case types.TypeKindU8:
 		return []uint64{uint64(val.U8())}, nil
-	case types.S16:
+	case types.TypeKindS16:
 		return []uint64{uint64(uint32(int32(val.S16())))}, nil
-	case types.U16:
+	case types.TypeKindU16:
 		return []uint64{uint64(val.U16())}, nil
-	case types.S32:
+	case types.TypeKindS32:
 		return []uint64{uint64(uint32(val.S32()))}, nil
-	case types.U32:
+	case types.TypeKindU32:
 		return []uint64{uint64(val.U32())}, nil
-	case types.S64:
+	case types.TypeKindS64:
 		return []uint64{uint64(val.S64())}, nil
-	case types.U64:
+	case types.TypeKindU64:
 		return []uint64{val.U64()}, nil
-	case types.F32:
+	case types.TypeKindF32:
 		return []uint64{uint64(math.Float32bits(val.F32()))}, nil
-	case types.F64:
+	case types.TypeKindF64:
 		return []uint64{math.Float64bits(val.F64())}, nil
-	case types.Char:
+	case types.TypeKindChar:
 		c := val.Char()
 		if !isValidUnicodeScalarRune(c) {
 			return nil, fmt.Errorf("invalid char value: U+%04X is not a valid Unicode scalar value", c)
 		}
 		return []uint64{uint64(c)}, nil
-	case types.String:
+	case types.TypeKindString:
 		ptr, taggedLen, err := LowerString(ctx, val.StringVal())
 		if err != nil {
 			return nil, err
 		}
 		return []uint64{uint64(ptr), uint64(taggedLen)}, nil
-	case types.Record:
-		t := typ.(types.Record)
-		rec := val.Record()
-		result := []uint64{}
-		for _, f := range t.Fields {
-			fieldVal, ok := rec[f.Name]
+	case types.TypeKindRecord:
+		rec := &ctx.Types.Records[typ.Index]
+		valRec := val.Record()
+		var result []uint64
+		for _, f := range rec.Fields {
+			fieldVal, ok := valRec[f.Name]
 			if !ok {
 				return nil, fmt.Errorf("missing record field: %s", f.Name)
 			}
@@ -65,69 +66,61 @@ func LowerFlat(ctx *LowerContext, typ types.ValType, val types.Val) ([]uint64, e
 			result = append(result, flat...)
 		}
 		return result, nil
-	case types.Variant:
-		t := typ.(types.Variant)
+	case types.TypeKindVariant:
+		variant := &ctx.Types.Variants[typ.Index]
 		caseName, payload := val.Variant()
 
-		// Find case index
 		caseIdx := -1
+		var caseHasPayload bool
 		var caseType types.ValType
-		for i, c := range t.Cases {
+		for i, c := range variant.Cases {
 			if c.Name == caseName {
 				caseIdx = i
-				caseType = c.Type
+				caseHasPayload = c.HasPayload
+				caseType = c.Payload
 				break
 			}
 		}
 		if caseIdx == -1 {
 			return nil, fmt.Errorf("unknown variant case: %s", caseName)
 		}
-
-		if caseType != nil && payload == nil {
+		if caseHasPayload && payload == nil {
 			return nil, fmt.Errorf("variant case %q requires a payload", caseName)
 		}
 
-		// Calculate joined flat types per Canonical ABI spec lines 3077-3098
-		flatTypes := flattenVariantPayload(t)
-
+		flatTypes := flattenVariantPayload(ctx.Types, variant)
 		result := []uint64{uint64(caseIdx)}
 
-		if caseType != nil && payload != nil {
-			// Lower the payload
+		if caseHasPayload && payload != nil {
 			payloadFlat, err := LowerFlat(ctx, caseType, *payload)
 			if err != nil {
 				return nil, fmt.Errorf("lower variant payload: %w", err)
 			}
 
-			// Coerce each payload value from case type to joined type
-			caseFlat := flattenType(caseType)
+			caseFlat := flattenType(ctx.Types, caseType)
 			for i, pv := range payloadFlat {
 				have := caseFlat[i]
 				want := flatTypes[i]
 				result = append(result, coerceFlatValueForLower(pv, have, want))
 			}
-
-			// Pad remaining slots with zeros
 			for i := len(payloadFlat); i < len(flatTypes); i++ {
 				result = append(result, 0)
 			}
 		} else {
-			// No payload - pad all slots with zeros
 			for i := 0; i < len(flatTypes); i++ {
 				result = append(result, 0)
 			}
 		}
-
 		return result, nil
 
-	case types.Tuple:
-		t := typ.(types.Tuple)
+	case types.TypeKindTuple:
+		tup := &ctx.Types.Tuples[typ.Index]
 		elems := val.Tuple()
-		if len(elems) != len(t.Types) {
-			return nil, fmt.Errorf("tuple has %d elements, expected %d", len(elems), len(t.Types))
+		if len(elems) != len(tup.Types) {
+			return nil, fmt.Errorf("tuple has %d elements, expected %d", len(elems), len(tup.Types))
 		}
-		result := []uint64{}
-		for i, elemType := range t.Types {
+		var result []uint64
+		for i, elemType := range tup.Types {
 			flat, err := LowerFlat(ctx, elemType, elems[i])
 			if err != nil {
 				return nil, fmt.Errorf("lower tuple element %d: %w", i, err)
@@ -136,46 +129,37 @@ func LowerFlat(ctx *LowerContext, typ types.ValType, val types.Val) ([]uint64, e
 		}
 		return result, nil
 
-	case types.Option:
-		t := typ.(types.Option)
+	case types.TypeKindOption:
+		opt := &ctx.Types.Options[typ.Index]
 		payload := val.Option()
-
-		// Calculate payload flatten count for padding
-		payloadFlat := 0
-		if t.Some != nil {
-			payloadFlat = t.Some.FlattenCount()
-		}
+		payloadABI := opt.Element.ABI(ctx.Types)
+		payloadFlat := int(payloadABI.FlattenCount)
 
 		if payload == nil {
-			// None: discriminant=0, padding
 			result := []uint64{0}
 			for i := 0; i < payloadFlat; i++ {
 				result = append(result, 0)
 			}
 			return result, nil
 		}
-		// Some: discriminant=1, payload
 		result := []uint64{1}
-		if t.Some != nil {
-			flat, err := LowerFlat(ctx, t.Some, *payload)
-			if err != nil {
-				return nil, fmt.Errorf("lower option payload: %w", err)
-			}
-			result = append(result, flat...)
+		flat, err := LowerFlat(ctx, opt.Element, *payload)
+		if err != nil {
+			return nil, fmt.Errorf("lower option payload: %w", err)
 		}
+		result = append(result, flat...)
 		return result, nil
 
-	case types.Result:
-		t := typ.(types.Result)
+	case types.TypeKindResult:
+		res := &ctx.Types.Results[typ.Index]
 		isOk, okVal, errVal := val.Result()
 
-		// Calculate max payload for padding
 		okFlat, errFlat := 0, 0
-		if t.Ok != nil {
-			okFlat = t.Ok.FlattenCount()
+		if res.HasOK {
+			okFlat = int(res.OK.ABI(ctx.Types).FlattenCount)
 		}
-		if t.Error != nil {
-			errFlat = t.Error.FlattenCount()
+		if res.HasErr {
+			errFlat = int(res.Err.ABI(ctx.Types).FlattenCount)
 		}
 		maxFlat := okFlat
 		if errFlat > maxFlat {
@@ -183,11 +167,10 @@ func LowerFlat(ctx *LowerContext, typ types.ValType, val types.Val) ([]uint64, e
 		}
 
 		if isOk {
-			// Ok: discriminant=0, ok payload, padding
 			result := []uint64{0}
 			payloadCount := 0
-			if t.Ok != nil && okVal != nil {
-				flat, err := LowerFlat(ctx, t.Ok, *okVal)
+			if res.HasOK && okVal != nil {
+				flat, err := LowerFlat(ctx, res.OK, *okVal)
 				if err != nil {
 					return nil, fmt.Errorf("lower result ok: %w", err)
 				}
@@ -199,11 +182,10 @@ func LowerFlat(ctx *LowerContext, typ types.ValType, val types.Val) ([]uint64, e
 			}
 			return result, nil
 		}
-		// Error: discriminant=1, error payload, padding
 		result := []uint64{1}
 		payloadCount := 0
-		if t.Error != nil && errVal != nil {
-			flat, err := LowerFlat(ctx, t.Error, *errVal)
+		if res.HasErr && errVal != nil {
+			flat, err := LowerFlat(ctx, res.Err, *errVal)
 			if err != nil {
 				return nil, fmt.Errorf("lower result error: %w", err)
 			}
@@ -215,26 +197,25 @@ func LowerFlat(ctx *LowerContext, typ types.ValType, val types.Val) ([]uint64, e
 		}
 		return result, nil
 
-	case types.Enum:
-		t := typ.(types.Enum)
+	case types.TypeKindEnum:
+		en := &ctx.Types.Enums[typ.Index]
 		caseName := val.Enum()
-		for i, c := range t.Cases {
+		for i, c := range en.Names {
 			if c == caseName {
 				return []uint64{uint64(i)}, nil
 			}
 		}
 		return nil, fmt.Errorf("unknown enum case: %s", caseName)
 
-	case types.Flags:
-		t := typ.(types.Flags)
+	case types.TypeKindFlags:
+		fl := &ctx.Types.Flags[typ.Index]
 		flags := val.Flags()
-		if len(t.Names) == 0 {
+		if len(fl.Names) == 0 {
 			return []uint64{}, nil
 		}
-		// Calculate the number of i32s needed
-		numI32s := (len(t.Names) + 31) / 32
+		numI32s := (len(fl.Names) + 31) / 32
 		result := make([]uint64, numI32s)
-		for i, name := range t.Names {
+		for i, name := range fl.Names {
 			if flags[name] {
 				i32Idx := i / 32
 				bit := i % 32
@@ -243,129 +224,118 @@ func LowerFlat(ctx *LowerContext, typ types.ValType, val types.Val) ([]uint64, e
 		}
 		return result, nil
 
-	case types.List:
-		t := typ.(types.List)
+	case types.TypeKindList:
+		list := &ctx.Types.Lists[typ.Index]
 		elements := val.List()
-
-		if t.Length != nil {
-			// Fixed-length list: validate length and lower each element
-			if uint32(len(elements)) != *t.Length {
-				return nil, fmt.Errorf("fixed list length mismatch: got %d, expected %d", len(elements), *t.Length)
-			}
-
-			var result []uint64
-			for i, elem := range elements {
-				flat, err := LowerFlat(ctx, t.Element, elem)
-				if err != nil {
-					return nil, fmt.Errorf("lower fixed list element %d: %w", i, err)
-				}
-				result = append(result, flat...)
-			}
-			return result, nil
-		}
-
-		// Dynamic list: existing code
 		length := uint32(len(elements))
 
-		// Empty list case - no allocation needed
 		if length == 0 {
 			return []uint64{0, 0}, nil
 		}
 
-		// Need realloc for non-empty lists
 		if ctx == nil || ctx.Realloc == nil {
 			return nil, fmt.Errorf("lower list: realloc function required for non-empty list")
 		}
 
-		// Calculate total size needed
-		elemSize := t.Element.Size()
-		elemAlign := t.Element.Align()
+		elemABI := list.Element.ABI(ctx.Types)
+		elemSize := elemABI.Size32
+		elemAlign := elemABI.Align32
 		totalSize := length * elemSize
 
-		// Allocate memory for the list
 		ptr, err := ctx.Realloc(0, 0, elemAlign, totalSize)
 		if err != nil {
 			return nil, fmt.Errorf("lower list: realloc failed: %w", err)
 		}
 
-		// Lower each element to heap
 		for i := uint32(0); i < length; i++ {
 			offset := ptr + i*elemSize
-			if err := LowerHeap(ctx, t.Element, elements[i], offset); err != nil {
+			if err := LowerHeap(ctx, list.Element, elements[i], offset); err != nil {
 				return nil, fmt.Errorf("lower list element %d: %w", i, err)
 			}
 		}
 
 		return []uint64{uint64(ptr), uint64(length)}, nil
 
-	// Async value types: stream<T>, future<T>, error-context.
-	// The synchronous canonical ABI does not implement async; lower_flat
-	// must trap rather than silently succeed. The type is recognised so
-	// the binary parser can produce a complete type graph; lift/lower
-	// support is deferred to a follow-up async project.
-	// Spec: definitions.py:1881 (case ErrorContextType() : return lower_error_context(...))
-	// Spec: definitions.py:1888 (case StreamType(t)      : return [lower_stream(...)])
-	// Spec: definitions.py:1889 (case FutureType(t)      : return [lower_future(...)])
-	case types.Stream:
-		return nil, fmt.Errorf("stream<T> lower not yet supported (async not yet supported in synchronous canonical ABI; deferred to follow-up project)")
-	case types.Future:
-		return nil, fmt.Errorf("future<T> lower not yet supported (async not yet supported in synchronous canonical ABI; deferred to follow-up project)")
-	case types.ErrorContext:
-		return nil, fmt.Errorf("error-context lower not yet supported (async not yet supported in synchronous canonical ABI; deferred to follow-up project)")
+	case types.TypeKindFixedList:
+		fl := &ctx.Types.FixedLists[typ.Index]
+		elements := val.List()
+		if uint32(len(elements)) != fl.Length {
+			return nil, fmt.Errorf("fixed list length mismatch: got %d, expected %d", len(elements), fl.Length)
+		}
+		var result []uint64
+		for i, elem := range elements {
+			flat, err := LowerFlat(ctx, fl.Element, elem)
+			if err != nil {
+				return nil, fmt.Errorf("lower fixed list element %d: %w", i, err)
+			}
+			result = append(result, flat...)
+		}
+		return result, nil
+
+	case types.TypeKindOwn:
+		return lowerOwnHandleFlat(ctx, typ, val)
+	case types.TypeKindBorrow:
+		return lowerBorrowHandleFlat(ctx, typ, val)
+
+	case types.TypeKindStream, types.TypeKindFuture, types.TypeKindErrorContext:
+		return nil, fmt.Errorf(
+			"component-model async types not yet supported: kind=%d", typ.Kind)
 
 	default:
-		return nil, fmt.Errorf("unsupported flat lower for type: %T", typ)
+		return nil, fmt.Errorf("LowerFlat: unknown TypeKind %d", typ.Kind)
 	}
 }
 
 // LowerHeap lowers a component Val to heap memory at the given offset.
+// Dispatches on typ.Kind like LowerFlat, but writes scalar bytes directly
+// to memory instead of producing a flat slice.
 func LowerHeap(ctx *LowerContext, typ types.ValType, val types.Val, offset uint32) error {
-	switch typ.(type) {
-	case types.Bool:
+	switch typ.Kind {
+	case types.TypeKindBool:
 		if val.Bool() {
 			writeUint8(ctx.Memory, offset, 1)
 		} else {
 			writeUint8(ctx.Memory, offset, 0)
 		}
 		return nil
-	case types.S8:
+	case types.TypeKindS8:
 		writeUint8(ctx.Memory, offset, uint8(val.S8()))
 		return nil
-	case types.U8:
+	case types.TypeKindU8:
 		writeUint8(ctx.Memory, offset, val.U8())
 		return nil
-	case types.S16:
+	case types.TypeKindS16:
 		writeUint16Le(ctx.Memory, offset, uint16(val.S16()))
 		return nil
-	case types.U16:
+	case types.TypeKindU16:
 		writeUint16Le(ctx.Memory, offset, val.U16())
 		return nil
-	case types.S32:
+	case types.TypeKindS32:
 		writeUint32Le(ctx.Memory, offset, uint32(val.S32()))
 		return nil
-	case types.U32:
+	case types.TypeKindU32:
 		writeUint32Le(ctx.Memory, offset, val.U32())
 		return nil
-	case types.S64:
+	case types.TypeKindS64:
 		writeUint64Le(ctx.Memory, offset, uint64(val.S64()))
 		return nil
-	case types.U64:
+	case types.TypeKindU64:
 		writeUint64Le(ctx.Memory, offset, val.U64())
 		return nil
-	case types.F32:
+	case types.TypeKindF32:
 		writeUint32Le(ctx.Memory, offset, math.Float32bits(val.F32()))
 		return nil
-	case types.F64:
+	case types.TypeKindF64:
 		writeUint64Le(ctx.Memory, offset, math.Float64bits(val.F64()))
 		return nil
-	case types.Char:
+	case types.TypeKindChar:
 		c := val.Char()
 		if !isValidUnicodeScalarRune(c) {
 			return fmt.Errorf("invalid char value: U+%04X is not a valid Unicode scalar value", c)
 		}
 		writeUint32Le(ctx.Memory, offset, uint32(c))
 		return nil
-	case types.String:
+	case types.TypeKindString:
 		ptr, taggedLen, err := LowerString(ctx, val.StringVal())
 		if err != nil {
 			return err
@@ -374,58 +344,53 @@ func LowerHeap(ctx *LowerContext, typ types.ValType, val types.Val, offset uint3
 		writeUint32Le(ctx.Memory, offset+4, taggedLen)
 		return nil
 
-	case types.Record:
-		t := typ.(types.Record)
-		rec := val.Record()
+	case types.TypeKindRecord:
+		rec := &ctx.Types.Records[typ.Index]
+		valRec := val.Record()
 		fieldOffset := uint32(0)
-		for _, f := range t.Fields {
-			// Align field offset
-			align := f.Type.Align()
-			if fieldOffset%align != 0 {
-				fieldOffset += align - (fieldOffset % align)
-			}
-			fieldVal, ok := rec[f.Name]
+		for _, f := range rec.Fields {
+			fa := f.Type.ABI(ctx.Types)
+			fieldOffset = alignTo(fieldOffset, fa.Align32)
+			fieldVal, ok := valRec[f.Name]
 			if !ok {
 				return fmt.Errorf("missing record field: %s", f.Name)
 			}
 			if err := LowerHeap(ctx, f.Type, fieldVal, offset+fieldOffset); err != nil {
 				return fmt.Errorf("lower record field %s: %w", f.Name, err)
 			}
-			fieldOffset += f.Type.Size()
+			fieldOffset += fa.Size32
 		}
 		return nil
 
-	case types.Tuple:
-		t := typ.(types.Tuple)
+	case types.TypeKindTuple:
+		tup := &ctx.Types.Tuples[typ.Index]
 		elems := val.Tuple()
-		if len(elems) != len(t.Types) {
-			return fmt.Errorf("tuple has %d elements, expected %d", len(elems), len(t.Types))
+		if len(elems) != len(tup.Types) {
+			return fmt.Errorf("tuple has %d elements, expected %d", len(elems), len(tup.Types))
 		}
 		elemOffset := uint32(0)
-		for i, elemType := range t.Types {
-			// Align
-			align := elemType.Align()
-			if elemOffset%align != 0 {
-				elemOffset += align - (elemOffset % align)
-			}
+		for i, elemType := range tup.Types {
+			ea := elemType.ABI(ctx.Types)
+			elemOffset = alignTo(elemOffset, ea.Align32)
 			if err := LowerHeap(ctx, elemType, elems[i], offset+elemOffset); err != nil {
 				return fmt.Errorf("lower tuple element %d: %w", i, err)
 			}
-			elemOffset += elemType.Size()
+			elemOffset += ea.Size32
 		}
 		return nil
 
-	case types.Variant:
-		t := typ.(types.Variant)
+	case types.TypeKindVariant:
+		variant := &ctx.Types.Variants[typ.Index]
 		caseName, payload := val.Variant()
 
-		// Find case index
 		caseIdx := -1
+		var caseHasPayload bool
 		var caseType types.ValType
-		for i, c := range t.Cases {
+		for i, c := range variant.Cases {
 			if c.Name == caseName {
 				caseIdx = i
-				caseType = c.Type
+				caseHasPayload = c.HasPayload
+				caseType = c.Payload
 				break
 			}
 		}
@@ -433,8 +398,7 @@ func LowerHeap(ctx *LowerContext, typ types.ValType, val types.Val, offset uint3
 			return fmt.Errorf("unknown variant case: %s", caseName)
 		}
 
-		// Write discriminant
-		discSize := t.DiscriminantSize()
+		discSize := variant.Disc.DiscSize
 		switch discSize {
 		case 1:
 			writeUint8(ctx.Memory, offset, uint8(caseIdx))
@@ -444,86 +408,54 @@ func LowerHeap(ctx *LowerContext, typ types.ValType, val types.Val, offset uint3
 			writeUint32Le(ctx.Memory, offset, uint32(caseIdx))
 		}
 
-		// Write payload if present
-		if caseType != nil && payload != nil {
-			payloadOffset := t.PayloadOffset()
-			if err := LowerHeap(ctx, caseType, *payload, offset+payloadOffset); err != nil {
+		if caseHasPayload && payload != nil {
+			if err := LowerHeap(ctx, caseType, *payload, offset+variant.Disc.PayloadOffset); err != nil {
 				return fmt.Errorf("lower variant payload: %w", err)
 			}
 		}
 		return nil
 
-	case types.Option:
-		t := typ.(types.Option)
+	case types.TypeKindOption:
+		opt := &ctx.Types.Options[typ.Index]
 		payload := val.Option()
 
 		if payload == nil {
-			// None: discriminant = 0
 			writeUint8(ctx.Memory, offset, 0)
 			return nil
 		}
-
-		// Some: discriminant = 1
 		writeUint8(ctx.Memory, offset, 1)
-
-		// Calculate payload offset
-		payloadAlign := uint32(1)
-		if t.Some != nil {
-			payloadAlign = t.Some.Align()
-		}
-		payloadOffset := uint32(1) // discriminant is 1 byte
-		if payloadOffset%payloadAlign != 0 {
-			payloadOffset += payloadAlign - (payloadOffset % payloadAlign)
-		}
-
-		if t.Some != nil {
-			if err := LowerHeap(ctx, t.Some, *payload, offset+payloadOffset); err != nil {
-				return fmt.Errorf("lower option payload: %w", err)
-			}
+		if err := LowerHeap(ctx, opt.Element, *payload, offset+opt.Disc.PayloadOffset); err != nil {
+			return fmt.Errorf("lower option payload: %w", err)
 		}
 		return nil
 
-	case types.Result:
-		t := typ.(types.Result)
+	case types.TypeKindResult:
+		res := &ctx.Types.Results[typ.Index]
 		isOk, okVal, errVal := val.Result()
-
-		// Calculate max alignment for payload
-		payloadAlign := uint32(1)
-		if t.Ok != nil && t.Ok.Align() > payloadAlign {
-			payloadAlign = t.Ok.Align()
-		}
-		if t.Error != nil && t.Error.Align() > payloadAlign {
-			payloadAlign = t.Error.Align()
-		}
-		payloadOffset := uint32(1)
-		if payloadOffset%payloadAlign != 0 {
-			payloadOffset += payloadAlign - (payloadOffset % payloadAlign)
-		}
+		payloadOffset := res.Disc.PayloadOffset
 
 		if isOk {
-			// Ok: discriminant = 0
 			writeUint8(ctx.Memory, offset, 0)
-			if t.Ok != nil && okVal != nil {
-				if err := LowerHeap(ctx, t.Ok, *okVal, offset+payloadOffset); err != nil {
+			if res.HasOK && okVal != nil {
+				if err := LowerHeap(ctx, res.OK, *okVal, offset+payloadOffset); err != nil {
 					return fmt.Errorf("lower result ok: %w", err)
 				}
 			}
 		} else {
-			// Error: discriminant = 1
 			writeUint8(ctx.Memory, offset, 1)
-			if t.Error != nil && errVal != nil {
-				if err := LowerHeap(ctx, t.Error, *errVal, offset+payloadOffset); err != nil {
+			if res.HasErr && errVal != nil {
+				if err := LowerHeap(ctx, res.Err, *errVal, offset+payloadOffset); err != nil {
 					return fmt.Errorf("lower result error: %w", err)
 				}
 			}
 		}
 		return nil
 
-	case types.Enum:
-		t := typ.(types.Enum)
+	case types.TypeKindEnum:
+		en := &ctx.Types.Enums[typ.Index]
 		caseName := val.Enum()
 		caseIdx := -1
-		for i, c := range t.Cases {
+		for i, c := range en.Names {
 			if c == caseName {
 				caseIdx = i
 				break
@@ -533,9 +465,7 @@ func LowerHeap(ctx *LowerContext, typ types.ValType, val types.Val, offset uint3
 			return fmt.Errorf("unknown enum case: %s", caseName)
 		}
 
-		// Write discriminant based on enum size
-		discSize := t.Size()
-		switch discSize {
+		switch en.Disc.DiscSize {
 		case 1:
 			writeUint8(ctx.Memory, offset, uint8(caseIdx))
 		case 2:
@@ -545,46 +475,44 @@ func LowerHeap(ctx *LowerContext, typ types.ValType, val types.Val, offset uint3
 		}
 		return nil
 
-	case types.Flags:
-		t := typ.(types.Flags)
+	case types.TypeKindFlags:
+		fl := &ctx.Types.Flags[typ.Index]
 		flags := val.Flags()
-		if len(t.Names) == 0 {
+		n := len(fl.Names)
+		if n == 0 {
 			return nil
 		}
-
-		n := len(t.Names)
-		if n <= 8 {
+		switch {
+		case n <= 8:
 			var bits uint8
-			for i, name := range t.Names {
+			for i, name := range fl.Names {
 				if flags[name] {
 					bits |= 1 << i
 				}
 			}
 			writeUint8(ctx.Memory, offset, bits)
-		} else if n <= 16 {
+		case n <= 16:
 			var bits uint16
-			for i, name := range t.Names {
+			for i, name := range fl.Names {
 				if flags[name] {
 					bits |= 1 << i
 				}
 			}
 			writeUint16Le(ctx.Memory, offset, bits)
-		} else if n <= 32 {
+		case n <= 32:
 			var bits uint32
-			for i, name := range t.Names {
+			for i, name := range fl.Names {
 				if flags[name] {
 					bits |= 1 << i
 				}
 			}
 			writeUint32Le(ctx.Memory, offset, bits)
-		} else {
-			// Multiple u32s
-			for i, name := range t.Names {
+		default:
+			for i, name := range fl.Names {
 				if flags[name] {
 					wordIdx := i / 32
 					bit := i % 32
 					wordOffset := offset + uint32(wordIdx*4)
-					// Read, modify, write
 					data, ok := ctx.Memory.Read(wordOffset, 4)
 					if !ok {
 						return fmt.Errorf("failed to read flags word at offset %d", wordOffset)
@@ -597,133 +525,173 @@ func LowerHeap(ctx *LowerContext, typ types.ValType, val types.Val, offset uint3
 		}
 		return nil
 
-	case types.List:
-		t := typ.(types.List)
+	case types.TypeKindList:
+		list := &ctx.Types.Lists[typ.Index]
 		elements := val.List()
-
-		if t.Length != nil {
-			// Fixed-length list: validate length and write elements inline
-			if uint32(len(elements)) != *t.Length {
-				return fmt.Errorf("fixed list length mismatch: got %d, expected %d", len(elements), *t.Length)
-			}
-
-			elemSize := t.Element.Size()
-			for i, elem := range elements {
-				elemOffset := offset + uint32(i)*elemSize
-				if err := LowerHeap(ctx, t.Element, elem, elemOffset); err != nil {
-					return fmt.Errorf("lower fixed list element %d: %w", i, err)
-				}
-			}
-			return nil
-		}
-
-		// Dynamic list: existing code
 		length := uint32(len(elements))
 
-		// Empty list case
 		if length == 0 {
-			writeUint32Le(ctx.Memory, offset, 0)   // ptr
-			writeUint32Le(ctx.Memory, offset+4, 0) // len
+			writeUint32Le(ctx.Memory, offset, 0)
+			writeUint32Le(ctx.Memory, offset+4, 0)
 			return nil
 		}
 
-		// Need realloc for non-empty lists
 		if ctx.Realloc == nil {
 			return fmt.Errorf("lower list: realloc function required for non-empty list")
 		}
 
-		// Calculate total size needed
-		elemSize := t.Element.Size()
-		elemAlign := t.Element.Align()
+		elemABI := list.Element.ABI(ctx.Types)
+		elemSize := elemABI.Size32
+		elemAlign := elemABI.Align32
 		totalSize := length * elemSize
 
-		// Allocate memory for the list elements
 		ptr, err := ctx.Realloc(0, 0, elemAlign, totalSize)
 		if err != nil {
 			return fmt.Errorf("lower list: realloc failed: %w", err)
 		}
 
-		// Lower each element to heap
 		for i := uint32(0); i < length; i++ {
 			elemOffset := ptr + i*elemSize
-			if err := LowerHeap(ctx, t.Element, elements[i], elemOffset); err != nil {
+			if err := LowerHeap(ctx, list.Element, elements[i], elemOffset); err != nil {
 				return fmt.Errorf("lower list element %d: %w", i, err)
 			}
 		}
 
-		// Write ptr and length at the given offset
 		writeUint32Le(ctx.Memory, offset, ptr)
 		writeUint32Le(ctx.Memory, offset+4, length)
 		return nil
 
-	// Async value types: stream<T>, future<T>, error-context.
-	// The synchronous canonical ABI does not implement async; store
-	// (heap lower) must trap rather than silently succeed. The type is
-	// recognised so the binary parser can produce a complete type graph;
-	// lift/lower support is deferred to a follow-up async project.
-	// Spec: definitions.py:1382 (case ErrorContextType() : store_int(cx, lower_error_context(...), ptr, 4))
-	// Spec: definitions.py:1389 (case StreamType(t)      : store_int(cx, lower_stream(...), ptr, 4))
-	// Spec: definitions.py:1390 (case FutureType(t)      : store_int(cx, lower_future(...), ptr, 4))
-	case types.Stream:
-		return fmt.Errorf("stream<T> lower not yet supported (async not yet supported in synchronous canonical ABI; deferred to follow-up project)")
-	case types.Future:
-		return fmt.Errorf("future<T> lower not yet supported (async not yet supported in synchronous canonical ABI; deferred to follow-up project)")
-	case types.ErrorContext:
-		return fmt.Errorf("error-context lower not yet supported (async not yet supported in synchronous canonical ABI; deferred to follow-up project)")
+	case types.TypeKindFixedList:
+		fl := &ctx.Types.FixedLists[typ.Index]
+		elements := val.List()
+		if uint32(len(elements)) != fl.Length {
+			return fmt.Errorf("fixed list length mismatch: got %d, expected %d", len(elements), fl.Length)
+		}
+		elemABI := fl.Element.ABI(ctx.Types)
+		elemSize := elemABI.Size32
+		for i, elem := range elements {
+			elemOffset := offset + uint32(i)*elemSize
+			if err := LowerHeap(ctx, fl.Element, elem, elemOffset); err != nil {
+				return fmt.Errorf("lower fixed list element %d: %w", i, err)
+			}
+		}
+		return nil
+
+	case types.TypeKindOwn:
+		flat, err := lowerOwnHandleFlat(ctx, typ, val)
+		if err != nil {
+			return err
+		}
+		writeUint32Le(ctx.Memory, offset, uint32(flat[0]))
+		return nil
+	case types.TypeKindBorrow:
+		flat, err := lowerBorrowHandleFlat(ctx, typ, val)
+		if err != nil {
+			return err
+		}
+		writeUint32Le(ctx.Memory, offset, uint32(flat[0]))
+		return nil
+
+	case types.TypeKindStream, types.TypeKindFuture, types.TypeKindErrorContext:
+		return fmt.Errorf(
+			"component-model async types not yet supported: kind=%d", typ.Kind)
 
 	default:
-		return fmt.Errorf("unsupported heap lower for type: %T", typ)
+		return fmt.Errorf("LowerHeap: unknown TypeKind %d", typ.Kind)
 	}
 }
 
-// LowerOwn receives ownership of a resource into the component.
-// Creates a new owned handle in the table and returns its index.
-// This is the opposite of LiftOwn - it takes a representation value
-// and creates a new handle in the component's resource table.
-func LowerOwn(ctx *LowerContext, rep any) (uint32, error) {
-	if ctx.ResourceTable == nil {
-		return 0, fmt.Errorf("lower_own: no resource table available")
-	}
-
-	h := ctx.ResourceTable.New(rep, true)
-	return h.Index(), nil
-}
-
-// LowerBorrow receives a borrowed resource into the component.
-// Creates a borrowed handle in the table and tracks it in CallContext.
-// This implements canon_lower for borrow<T> types.
+// lowerOwnHandleFlat is the TypeKindOwn lowering arm. It resolves the
+// resource type, allocates a new owned handle in the caller's table, and
+// returns the single-i32 flat encoding.
 //
-// TODO: Per spec lines 2679-2680, when cx.inst is t.rt.impl (same instance),
-// should return rep directly instead of creating handle. This optimization
-// requires tracking the resource type's implementing instance.
-func LowerBorrow(ctx *LowerContext, rep any) (uint32, error) {
-	if ctx.ResourceTable == nil {
-		return 0, fmt.Errorf("lower_borrow: no resource table available")
+// Spec: definitions.py (lower_own).
+func lowerOwnHandleFlat(ctx *LowerContext, typ types.ValType, val types.Val) ([]uint64, error) {
+	if ctx == nil || ctx.Instance == nil {
+		return nil, fmt.Errorf("lower own: no component instance available")
 	}
+	if ctx.Types == nil {
+		return nil, fmt.Errorf("lower own: no component types available")
+	}
+	if int(typ.Index) >= len(ctx.Types.ResourceTables) {
+		return nil, fmt.Errorf("lower own: resource table index %d out of range", typ.Index)
+	}
+	rt := ctx.Types.ResourceTables[typ.Index]
+	if !rt.Concrete {
+		return nil, fmt.Errorf(
+			"cannot lower abstract resource at runtime (type %d)", typ.Index)
+	}
+	expectedRT := ctx.Instance.LookupResourceType(rt.Instance, rt.Resource)
+	if expectedRT == nil {
+		return nil, fmt.Errorf(
+			"no resource type for instance %d declaration %d "+
+				"(resource concrete promotion not yet wired — session 2)",
+			rt.Instance, rt.Resource)
+	}
+	rep := val.Own()
+	h, err := ctx.Instance.Table.NewResourceHandle(uint32(rep), true /* own */, expectedRT)
+	if err != nil {
+		return nil, err
+	}
+	return []uint64{uint64(h.Index())}, nil
+}
 
-	h := ctx.ResourceTable.New(rep, false) // own=false for borrowed
-
-	// Track borrow in call context for return validation
+// lowerBorrowHandleFlat is the TypeKindBorrow lowering arm. It resolves
+// the resource type and folds in the same-instance optimization from
+// CanonicalABI.md:2677-2683: if the calling instance is the one that
+// defined the resource, return rep directly without allocating a new
+// handle. Otherwise, allocate a borrow handle in the caller's table.
+func lowerBorrowHandleFlat(ctx *LowerContext, typ types.ValType, val types.Val) ([]uint64, error) {
+	if ctx == nil || ctx.Instance == nil {
+		return nil, fmt.Errorf("lower borrow: no component instance available")
+	}
+	if ctx.Types == nil {
+		return nil, fmt.Errorf("lower borrow: no component types available")
+	}
+	if int(typ.Index) >= len(ctx.Types.ResourceTables) {
+		return nil, fmt.Errorf("lower borrow: resource table index %d out of range", typ.Index)
+	}
+	rt := ctx.Types.ResourceTables[typ.Index]
+	if !rt.Concrete {
+		return nil, fmt.Errorf(
+			"cannot lower abstract resource at runtime (type %d)", typ.Index)
+	}
+	expectedRT := ctx.Instance.LookupResourceType(rt.Instance, rt.Resource)
+	if expectedRT == nil {
+		return nil, fmt.Errorf(
+			"no resource type for instance %d declaration %d "+
+				"(resource concrete promotion not yet wired — session 2)",
+			rt.Instance, rt.Resource)
+	}
+	rep := val.Borrow()
+	// Same-instance optimization (CanonicalABI.md:2677-2683): if the
+	// calling instance is the one that defined the resource, return
+	// rep directly without allocating a new handle. Comparison is
+	// pointer identity on *runtime.ComponentInstance.
+	if ctx.Instance == expectedRT.Impl {
+		return []uint64{uint64(rep)}, nil
+	}
+	// Cross-instance: allocate a borrow handle in the caller's table.
+	h, err := ctx.Instance.Table.NewResourceHandle(uint32(rep), false /* borrow */, expectedRT)
+	if err != nil {
+		return nil, err
+	}
 	if ctx.CallContext != nil {
 		ctx.CallContext.IncrementBorrows()
 	}
-
-	return h.Index(), nil
+	return []uint64{uint64(h.Index())}, nil
 }
 
 // isValidUnicodeScalarRune checks if a rune is a valid Unicode scalar value.
 // Unicode scalar values are any code point except high-surrogate and low-surrogate code points.
 // Valid ranges: U+0000 to U+D7FF and U+E000 to U+10FFFF
 func isValidUnicodeScalarRune(r rune) bool {
-	// Check for surrogates (U+D800 to U+DFFF)
 	if r >= 0xD800 && r <= 0xDFFF {
 		return false
 	}
-	// Check for values above maximum Unicode code point
 	if r > 0x10FFFF {
 		return false
 	}
-	// Check for negative values (rune is int32)
 	if r < 0 {
 		return false
 	}
@@ -743,16 +711,12 @@ func coerceFlatValueForLower(value uint64, have, want api.ValueType) uint64 {
 	}
 	switch {
 	case have == api.ValueTypeF32 && want == api.ValueTypeI32:
-		// f32 bits encoded as i32 - value already has the bits
 		return value
 	case have == api.ValueTypeI32 && want == api.ValueTypeI64:
-		// i32 zero-extended to i64 - value is already in uint64
 		return value
 	case have == api.ValueTypeF32 && want == api.ValueTypeI64:
-		// f32 bits encoded as i32, then zero-extended to i64
 		return value
 	case have == api.ValueTypeF64 && want == api.ValueTypeI64:
-		// f64 bits encoded as i64 - value already has the bits
 		return value
 	default:
 		return value
