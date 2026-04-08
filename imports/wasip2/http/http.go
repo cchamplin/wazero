@@ -377,7 +377,10 @@ func fieldsConstructor(ctx context.Context, args []types.Val) ([]types.Val, erro
 		return []types.Val{types.ValOwn(0)}, nil
 	}
 	fields := NewFields()
-	handle, _ := table.NewResourceHandle(fields, true, httpFieldsResourceType)
+	handle, err := table.NewResourceHandle(fields, true, httpFieldsResourceType)
+	if err != nil {
+		return nil, fmt.Errorf("create resource handle: %w", err)
+	}
 	return []types.Val{types.ValOwn(uint32(handle))}, nil
 }
 
@@ -405,7 +408,10 @@ func fieldsFromList(ctx context.Context, args []types.Val) ([]types.Val, error) 
 		}
 	}
 
-	handle, _ := table.NewResourceHandle(fields, true, httpFieldsResourceType)
+	handle, err := table.NewResourceHandle(fields, true, httpFieldsResourceType)
+	if err != nil {
+		return nil, fmt.Errorf("create resource handle: %w", err)
+	}
 	result := types.ValOwn(uint32(handle))
 	return []types.Val{types.ValResultOk(&result)}, nil
 }
@@ -542,7 +548,10 @@ func fieldsClone(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	}
 
 	clone := fields.Clone()
-	handle, _ := table.NewResourceHandle(clone, true, httpFieldsResourceType)
+	handle, err := table.NewResourceHandle(clone, true, httpFieldsResourceType)
+	if err != nil {
+		return nil, fmt.Errorf("create resource handle: %w", err)
+	}
 	return []types.Val{types.ValOwn(uint32(handle))}, nil
 }
 
@@ -572,7 +581,10 @@ func outgoingRequestConstructor(ctx context.Context, args []types.Val) ([]types.
 	}
 
 	req := NewOutgoingRequest(headers)
-	handle, _ := table.NewResourceHandle(req, true, httpOutgoingRequestResourceType)
+	handle, err := table.NewResourceHandle(req, true, httpOutgoingRequestResourceType)
+	if err != nil {
+		return nil, fmt.Errorf("create resource handle: %w", err)
+	}
 	return []types.Val{types.ValOwn(uint32(handle))}, nil
 }
 
@@ -718,7 +730,10 @@ func outgoingRequestHeaders(ctx context.Context, args []types.Val) ([]types.Val,
 	if headers == nil {
 		headers = NewFields()
 	}
-	handle, _ := table.NewResourceHandle(headers, true, httpFieldsResourceType)
+	handle, err := table.NewResourceHandle(headers, true, httpFieldsResourceType)
+	if err != nil {
+		return nil, fmt.Errorf("create resource handle: %w", err)
+	}
 	return []types.Val{types.ValOwn(uint32(handle))}, nil
 }
 
@@ -739,7 +754,10 @@ func outgoingRequestBody(ctx context.Context, args []types.Val) ([]types.Val, er
 		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
-	handle, _ := table.NewResourceHandle(body, true, httpOutgoingBodyResourceType)
+	handle, err := table.NewResourceHandle(body, true, httpOutgoingBodyResourceType)
+	if err != nil {
+		return nil, fmt.Errorf("create resource handle: %w", err)
+	}
 	result := types.ValOwn(uint32(handle))
 	return []types.Val{types.ValResultOk(&result)}, nil
 }
@@ -879,7 +897,10 @@ func incomingRequestHeaders(ctx context.Context, args []types.Val) ([]types.Val,
 	if headers == nil {
 		headers = NewFields()
 	}
-	handle, _ := table.NewResourceHandle(headers, true, httpFieldsResourceType)
+	handle, err := table.NewResourceHandle(headers, true, httpFieldsResourceType)
+	if err != nil {
+		return nil, fmt.Errorf("create resource handle: %w", err)
+	}
 	return []types.Val{types.ValOwn(uint32(handle))}, nil
 }
 
@@ -899,7 +920,10 @@ func incomingRequestConsume(ctx context.Context, args []types.Val) ([]types.Val,
 		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
-	handle, _ := table.NewResourceHandle(body, true, httpIncomingBodyResourceType)
+	handle, err := table.NewResourceHandle(body, true, httpIncomingBodyResourceType)
+	if err != nil {
+		return nil, fmt.Errorf("create resource handle: %w", err)
+	}
 	result := types.ValOwn(uint32(handle))
 	return []types.Val{types.ValResultOk(&result)}, nil
 }
@@ -949,7 +973,10 @@ func outgoingResponseConstructor(ctx context.Context, args []types.Val) ([]types
 	}
 
 	resp := NewOutgoingResponse(headers)
-	handle, _ := table.NewResourceHandle(resp, true, httpOutgoingResponseResourceType)
+	handle, err := table.NewResourceHandle(resp, true, httpOutgoingResponseResourceType)
+	if err != nil {
+		return nil, fmt.Errorf("create resource handle: %w", err)
+	}
 	return []types.Val{types.ValOwn(uint32(handle))}, nil
 }
 
@@ -986,7 +1013,10 @@ func outgoingResponseHeaders(ctx context.Context, args []types.Val) ([]types.Val
 	if headers == nil {
 		headers = NewFields()
 	}
-	handle, _ := table.NewResourceHandle(headers, true, httpFieldsResourceType)
+	handle, err := table.NewResourceHandle(headers, true, httpFieldsResourceType)
+	if err != nil {
+		return nil, fmt.Errorf("create resource handle: %w", err)
+	}
 	return []types.Val{types.ValOwn(uint32(handle))}, nil
 }
 
@@ -1006,7 +1036,10 @@ func outgoingResponseBody(ctx context.Context, args []types.Val) ([]types.Val, e
 		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
-	handle, _ := table.NewResourceHandle(body, true, httpOutgoingBodyResourceType)
+	handle, err := table.NewResourceHandle(body, true, httpOutgoingBodyResourceType)
+	if err != nil {
+		return nil, fmt.Errorf("create resource handle: %w", err)
+	}
 	result := types.ValOwn(uint32(handle))
 	return []types.Val{types.ValResultOk(&result)}, nil
 }
@@ -1038,7 +1071,10 @@ func incomingResponseHeaders(ctx context.Context, args []types.Val) ([]types.Val
 	if headers == nil {
 		headers = NewFields()
 	}
-	handle, _ := table.NewResourceHandle(headers, true, httpFieldsResourceType)
+	handle, err := table.NewResourceHandle(headers, true, httpFieldsResourceType)
+	if err != nil {
+		return nil, fmt.Errorf("create resource handle: %w", err)
+	}
 	return []types.Val{types.ValOwn(uint32(handle))}, nil
 }
 
@@ -1058,7 +1094,10 @@ func incomingResponseConsume(ctx context.Context, args []types.Val) ([]types.Val
 		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
-	handle, _ := table.NewResourceHandle(body, true, httpIncomingBodyResourceType)
+	handle, err := table.NewResourceHandle(body, true, httpIncomingBodyResourceType)
+	if err != nil {
+		return nil, fmt.Errorf("create resource handle: %w", err)
+	}
 	result := types.ValOwn(uint32(handle))
 	return []types.Val{types.ValResultOk(&result)}, nil
 }
@@ -1083,7 +1122,10 @@ func incomingBodyStream(ctx context.Context, args []types.Val) ([]types.Val, err
 		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
-	handle, _ := table.NewResourceHandle(stream, true, httpInputStreamResourceType)
+	handle, err := table.NewResourceHandle(stream, true, httpInputStreamResourceType)
+	if err != nil {
+		return nil, fmt.Errorf("create resource handle: %w", err)
+	}
 	result := types.ValOwn(uint32(handle))
 	return []types.Val{types.ValResultOk(&result)}, nil
 }
@@ -1107,7 +1149,10 @@ func incomingBodyFinish(ctx context.Context, args []types.Val) ([]types.Val, err
 
 	// For simple cases (no trailer support), resolve immediately with no trailers
 	ft := NewFutureTrailersReady(nil, nil)
-	handle, _ := table.NewResourceHandle(ft, true, httpFutureTrailersResourceType)
+	handle, err := table.NewResourceHandle(ft, true, httpFutureTrailersResourceType)
+	if err != nil {
+		return nil, fmt.Errorf("create resource handle: %w", err)
+	}
 	return []types.Val{types.ValOwn(uint32(handle))}, nil
 }
 
@@ -1131,7 +1176,10 @@ func outgoingBodyWrite(ctx context.Context, args []types.Val) ([]types.Val, erro
 		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
-	handle, _ := table.NewResourceHandle(stream, true, httpOutputStreamResourceType)
+	handle, err := table.NewResourceHandle(stream, true, httpOutputStreamResourceType)
+	if err != nil {
+		return nil, fmt.Errorf("create resource handle: %w", err)
+	}
 	result := types.ValOwn(uint32(handle))
 	return []types.Val{types.ValResultOk(&result)}, nil
 }
@@ -1192,7 +1240,10 @@ func futureIncomingResponseGet(ctx context.Context, args []types.Val) ([]types.V
 	}
 
 	// Success case: create handle for incoming response
-	respHandle, _ := table.NewResourceHandle(resp, true, httpIncomingResponseResourceType)
+	respHandle, err := table.NewResourceHandle(resp, true, httpIncomingResponseResourceType)
+	if err != nil {
+		return nil, fmt.Errorf("create resource handle: %w", err)
+	}
 	respVal := types.ValOwn(uint32(respHandle))
 	innerResult := types.ValResultOk(&respVal)
 	outerResult := types.ValResultOk(&innerResult)
@@ -1285,7 +1336,10 @@ func futureTrailersGet(ctx context.Context, args []types.Val) ([]types.Val, erro
 	// Ok case: option<trailers>
 	var trailersOpt types.Val
 	if ft.trailers != nil && table != nil {
-		handle, _ := table.NewResourceHandle(ft.trailers, true, httpFieldsResourceType)
+		handle, err := table.NewResourceHandle(ft.trailers, true, httpFieldsResourceType)
+		if err != nil {
+			return nil, fmt.Errorf("create resource handle: %w", err)
+		}
 		trailersHandle := types.ValOwn(uint32(handle))
 		trailersOpt = types.ValOption(&trailersHandle)
 	} else {
@@ -1413,7 +1467,10 @@ func requestOptionsConstructor(ctx context.Context, args []types.Val) ([]types.V
 	}
 
 	opts := NewRequestOptions()
-	handle, _ := table.NewResourceHandle(opts, true, httpRequestOptionsResourceType)
+	handle, err := table.NewResourceHandle(opts, true, httpRequestOptionsResourceType)
+	if err != nil {
+		return nil, fmt.Errorf("create resource handle: %w", err)
+	}
 	return []types.Val{types.ValOwn(uint32(handle))}, nil
 }
 

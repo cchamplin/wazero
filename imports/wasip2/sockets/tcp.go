@@ -4,6 +4,7 @@ package sockets
 
 import (
 	"context"
+	"fmt"
 	"net"
 
 	wasipIO "github.com/tetratelabs/wazero/imports/wasip2/io"
@@ -379,11 +380,26 @@ func tcpSocketAccept(ctx context.Context, args []types.Val) ([]types.Val, error)
 	}
 
 	// Create resources
-	sockHandle, _ := table.NewResourceHandle(acceptedSock, true, tcpSocketResourceType)
+	sockHandle, err := table.NewResourceHandle(acceptedSock, true, tcpSocketResourceType)
+	if err != nil {
+		acceptedSock.Close()
+		return nil, fmt.Errorf("tcpSocketAccept: register socket handle: %w", err)
+	}
 	inStream := NewTcpInputStream(acceptedSock)
 	outStream := NewTcpOutputStream(acceptedSock)
-	inHandle, _ := table.NewResourceHandle(inStream, true, tcpInputStreamResourceType)
-	outHandle, _ := table.NewResourceHandle(outStream, true, tcpOutputStreamResourceType)
+	inHandle, err := table.NewResourceHandle(inStream, true, tcpInputStreamResourceType)
+	if err != nil {
+		table.Remove(sockHandle)
+		acceptedSock.Close()
+		return nil, fmt.Errorf("tcpSocketAccept: register input stream handle: %w", err)
+	}
+	outHandle, err := table.NewResourceHandle(outStream, true, tcpOutputStreamResourceType)
+	if err != nil {
+		table.Remove(inHandle)
+		table.Remove(sockHandle)
+		acceptedSock.Close()
+		return nil, fmt.Errorf("tcpSocketAccept: register output stream handle: %w", err)
+	}
 
 	socketVal := types.ValOwn(uint32(sockHandle))
 	inputStreamVal := types.ValOwn(uint32(inHandle))

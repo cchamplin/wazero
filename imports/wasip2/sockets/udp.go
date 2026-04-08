@@ -221,8 +221,15 @@ func udpSocketStream(ctx context.Context, args []types.Val) ([]types.Val, error)
 	inStream := NewIncomingDatagramStream(sock)
 	outStream := NewOutgoingDatagramStream(sock)
 
-	inHandle, _ := table.NewResourceHandle(inStream, true, incomingDatagramStreamResourceType)
-	outHandle, _ := table.NewResourceHandle(outStream, true, outgoingDatagramStreamResourceType)
+	inHandle, err := table.NewResourceHandle(inStream, true, incomingDatagramStreamResourceType)
+	if err != nil {
+		return nil, fmt.Errorf("udpSocketStream: register incoming datagram stream handle: %w", err)
+	}
+	outHandle, err := table.NewResourceHandle(outStream, true, outgoingDatagramStreamResourceType)
+	if err != nil {
+		table.Remove(inHandle)
+		return nil, fmt.Errorf("udpSocketStream: register outgoing datagram stream handle: %w", err)
+	}
 
 	incomingStreamVal := types.ValOwn(uint32(inHandle))
 	outgoingStreamVal := types.ValOwn(uint32(outHandle))
