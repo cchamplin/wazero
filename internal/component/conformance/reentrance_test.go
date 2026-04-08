@@ -9,7 +9,7 @@ import (
 )
 
 func TestInstance_CallDepthTracking(t *testing.T) {
-	inst := &component.Instance{}
+	inst := component.NewInstance(&component.Component{}, 0, nil)
 
 	require.Equal(t, 0, inst.ActiveCallDepth(), "should start at 0")
 
@@ -38,7 +38,7 @@ func TestInstance_CallDepthNilSafety(t *testing.T) {
 }
 
 func TestInstance_CallDepthNoUnderflow(t *testing.T) {
-	inst := &component.Instance{}
+	inst := component.NewInstance(&component.Component{}, 0, nil)
 
 	// Exit without enter - should stay at 0, not go negative
 	inst.ExitCall()
@@ -51,8 +51,10 @@ func TestInstance_CallDepthNoUnderflow(t *testing.T) {
 }
 
 func TestInstance_CallMightBeRecursive(t *testing.T) {
-	callee := &component.Instance{}
-	caller := &component.Instance{}
+	// Session 1 Task B4: distinct IDs so the ReentranceTracker can
+	// actually distinguish callee from caller (same ID would collapse).
+	callee := component.NewInstance(&component.Component{}, 1, nil)
+	caller := component.NewInstance(&component.Component{}, 2, nil)
 
 	t.Run("different_instances_no_reentrance", func(t *testing.T) {
 		// Caller and callee are different - never recursive
@@ -84,7 +86,7 @@ func TestInstance_CallMightBeRecursive(t *testing.T) {
 }
 
 func TestInstance_ValidateNotRecursive(t *testing.T) {
-	inst := &component.Instance{}
+	inst := component.NewInstance(&component.Component{}, 1, nil)
 
 	t.Run("no_active_call_passes", func(t *testing.T) {
 		err := inst.ValidateNotRecursive(inst)
@@ -101,7 +103,7 @@ func TestInstance_ValidateNotRecursive(t *testing.T) {
 	})
 
 	t.Run("active_call_from_different_instance_passes", func(t *testing.T) {
-		other := &component.Instance{}
+		other := component.NewInstance(&component.Component{}, 2, nil)
 		inst.EnterCall()
 		defer inst.ExitCall()
 
@@ -127,7 +129,7 @@ func TestReentrance_CallerInstanceContext(t *testing.T) {
 	})
 
 	t.Run("with_caller_returns_instance", func(t *testing.T) {
-		inst := &component.Instance{}
+		inst := component.NewInstance(&component.Component{}, 0, nil)
 		ctxWithCaller := component.WithCallerInstance(ctx, inst)
 
 		caller := component.GetCallerInstance(ctxWithCaller)
@@ -135,8 +137,8 @@ func TestReentrance_CallerInstanceContext(t *testing.T) {
 	})
 
 	t.Run("nested_contexts", func(t *testing.T) {
-		inst1 := &component.Instance{}
-		inst2 := &component.Instance{}
+		inst1 := component.NewInstance(&component.Component{}, 1, nil)
+		inst2 := component.NewInstance(&component.Component{}, 2, nil)
 
 		ctx1 := component.WithCallerInstance(ctx, inst1)
 		ctx2 := component.WithCallerInstance(ctx1, inst2)
@@ -149,7 +151,7 @@ func TestReentrance_CallerInstanceContext(t *testing.T) {
 }
 
 func TestReentrance_DeepCallStack(t *testing.T) {
-	inst := &component.Instance{}
+	inst := component.NewInstance(&component.Component{}, 0, nil)
 
 	// Simulate deep call stack
 	depth := 100
@@ -165,7 +167,7 @@ func TestReentrance_DeepCallStack(t *testing.T) {
 }
 
 func TestReentrance_ExitCallNeverNegative(t *testing.T) {
-	inst := &component.Instance{}
+	inst := component.NewInstance(&component.Component{}, 0, nil)
 
 	// Exit without enter should not go negative
 	inst.ExitCall()

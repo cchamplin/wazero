@@ -6,8 +6,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/tetratelabs/wazero/api"
-	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
@@ -36,21 +34,23 @@ func (l *ComponentLinker) instantiateNestedComponent(
 		withArgs[arg.Name] = def
 	}
 
-	// Create nested instance.
+	// Create nested instance via newInstance so the embedded
+	// *runtime.ComponentInstance is wired up with the parent's runtime
+	// state (Parent pointer, freshly-allocated Table, Destructors,
+	// ReentranceTracker, may_leave=true).
 	//
-	// Session 0 compile-fix: the old runtime.NewResourceTable() call no
-	// longer exists. The unified runtime.Table is allocated eagerly via
-	// NewTable. Session 1 folds this into the runtime.ComponentInstance
-	// construction path.
-	nestedInst := &Instance{
-		component:      nestedComp,
-		coreInstances:  make([]api.Module, 0),
-		exports:        make(map[string]*ExportedFunc),
-		table:          runtime.NewTable(),
-		componentFuncs: make(map[uint32]ComponentFunc),
-	}
+	// Session 1 Task B4: replaces the former struct-literal allocation
+	// that directly set the deleted `table` field.
+	//
+	// Session 1 followup (Task C1+): nested instance IDs should be
+	// assigned monotonically by the linker so LookupResourceType's
+	// findInstance walk has a unique ID per runtime instance. Until
+	// the linker tracks an allocator, newly-created nested instances
+	// share id 0 — callers must not rely on ID uniqueness yet.
+	nestedInst := newInstance(nestedComp, 0, parent)
 
-	// Set parent relationship
+	// Set parent relationship (wrapper-layer child list; rt.Parent is
+	// already wired by newInstance via the parent argument).
 	parent.AddChild(nestedInst)
 
 	// Store resolved arguments for later use during full instantiation

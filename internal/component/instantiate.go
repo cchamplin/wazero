@@ -41,11 +41,12 @@ func (r *runtimeAdapter) InstantiateModuleFromData(ctx context.Context, data []b
 // Instantiate creates an Instance from a parsed Component.
 // It instantiates all embedded core modules and wires up exports.
 func Instantiate(ctx context.Context, instantiator ModuleInstantiator, c *Component) (*Instance, error) {
-	inst := &Instance{
-		component:     c,
-		coreInstances: make([]api.Module, len(c.CoreModules)),
-		exports:       make(map[string]*ExportedFunc),
-	}
+	// Session 1 Task B4: allocate via newInstance so the embedded
+	// *runtime.ComponentInstance (Table, Destructors, Reentrance,
+	// may_leave=true) is wired up. Then size coreInstances to match
+	// the component's core module count.
+	inst := newInstance(c, 0, nil)
+	inst.coreInstances = make([]api.Module, len(c.CoreModules))
 
 	// Instantiate each core module
 	for i := range c.CoreModules {

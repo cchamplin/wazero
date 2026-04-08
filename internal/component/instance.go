@@ -17,6 +17,7 @@ package component
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/internal/component/runtime"
@@ -100,6 +101,19 @@ func newInstance(c *Component, id uint32, parent *Instance) *Instance {
 	}
 }
 
+// NewInstance is the exported constructor for tests and external packages
+// that need a properly-wired Instance (with its embedded
+// *runtime.ComponentInstance). Production code inside the component
+// package should use newInstance; this wrapper exists so conformance
+// tests and other sibling packages can migrate off bare
+// `&component.Instance{}` struct literals, which no longer have a
+// zero-value runtime layer.
+//
+// Session 1 Task B4.
+func NewInstance(c *Component, id uint32, parent *Instance) *Instance {
+	return newInstance(c, id, parent)
+}
+
 // ComponentFunc represents a callable component-level function.
 type ComponentFunc struct {
 	// Type is the component function type. The old *FuncType shape has
@@ -135,11 +149,10 @@ func (i *Instance) ExportedFunction(name string) *ExportedFunc {
 	return i.exports[name]
 }
 
-// ExportedFunc represents an exported component function.
-//
-// Session 0 compile-fix: the shape is preserved so that linker wiring and
-// wrapper types compile. The Call method panics because its body depends
-// on the deleted FuncType/ValTypeRef helpers and the rewritten abi/ package.
+// ExportedFunc represents an exported component function. The wrapper
+// shape carries the linker-time wiring (core func, memory, realloc,
+// post-return, canonical def). Call's body is rebuilt in Checkpoint C
+// Task C5 against abi.LiftParams / abi.LowerResults.
 type ExportedFunc struct {
 	name           string
 	funcType       *types.TypeFunc
@@ -159,12 +172,12 @@ func (f *ExportedFunc) Name() string {
 
 // Call invokes the exported function with the given arguments.
 //
-// Session 0 compile-fix: body panics. Session 1 rewrites this around
-// abi.LiftContext / abi.LowerContext once those land.
+// Checkpoint B: delegators in place; the full body is rebuilt in Checkpoint C
+// Task C5 against abi.LiftParams / abi.LowerResults. Until then Call returns
+// a precise error rather than panicking.
 func (f *ExportedFunc) Call(ctx context.Context, params ...types.Val) ([]types.Val, error) {
-	_ = ctx
-	_ = params
-	panic("compile-fix stub: see Session 1 followup note — instance.go lift/lower path scheduled for Session 1 deletion")
+	_, _ = ctx, params
+	return nil, fmt.Errorf("ExportedFunc.Call: rebuild in progress (Session 1 Checkpoint C Task C5)")
 }
 
 // Type returns the function's type.
@@ -186,31 +199,26 @@ func alignTo(offset, align uint32) uint32 {
 // resource.new / resource.rep / resource.drop entry points. Session 1 folds
 // these into the unified runtime.ComponentInstance + abi.LiftContext path.
 
-// ResourceNew implements canon resource.new.
-//
-// Session 0 compile-fix: body panics. The implementation depended on the
-// deleted ResourceTable.New(rep, own) shape; Session 1 migrates to
-// runtime.Table.NewResourceHandle with explicit *ResourceType identity.
-func (i *Instance) ResourceNew(rep any) (uint32, error) {
-	_ = rep
-	panic("compile-fix stub: see Session 1 followup note — instance.go resource.new scheduled for Session 1 deletion")
+// ResourceNew is canon.resource.new — spec definitions.py:2134-2138.
+// Session 1 Task B4: signature in place; body is a placeholder that
+// returns a precise error. Task E5 wires the full spec-correct body
+// against Table.NewResourceHandle after Tasks E1 (GetByIndex) + E2
+// (Rep uint32) + E3 (BorrowScope.ReleaseBorrow) land.
+func (i *Instance) ResourceNew(resourceIdx types.ResourceIdx, rep uint32) (uint32, error) {
+	_, _ = resourceIdx, rep
+	return 0, fmt.Errorf("Instance.ResourceNew: body rebuild in progress (Session 1 Checkpoint E Task E5)")
 }
 
-// ResourceRep implements canon resource.rep.
-//
-// Session 0 compile-fix: body panics.
-func (i *Instance) ResourceRep(handleIdx uint32) (any, error) {
-	_ = handleIdx
-	panic("compile-fix stub: see Session 1 followup note — instance.go resource.rep scheduled for Session 1 deletion")
+// ResourceRep is canon.resource.rep — spec definitions.py:2169-2173.
+func (i *Instance) ResourceRep(resourceIdx types.ResourceIdx, handleIdx uint32) (uint32, error) {
+	_, _ = resourceIdx, handleIdx
+	return 0, fmt.Errorf("Instance.ResourceRep: body rebuild in progress (Session 1 Checkpoint E Task E5)")
 }
 
-// ResourceDrop implements canon resource.drop.
-//
-// Session 0 compile-fix: body panics.
-func (i *Instance) ResourceDrop(handleIdx uint32, resourceTypeIdx uint32) error {
-	_ = handleIdx
-	_ = resourceTypeIdx
-	panic("compile-fix stub: see Session 1 followup note — instance.go resource.drop scheduled for Session 1 deletion")
+// ResourceDrop is canon.resource.drop — spec definitions.py:2142-2165.
+func (i *Instance) ResourceDrop(resourceIdx types.ResourceIdx, handleIdx uint32) error {
+	_, _ = resourceIdx, handleIdx
+	return fmt.Errorf("Instance.ResourceDrop: body rebuild in progress (Session 1 Checkpoint E Task E5)")
 }
 
 // Runtime returns the embedded *runtime.ComponentInstance.
@@ -228,19 +236,33 @@ func (i *Instance) MayLeave() bool { return i.rt.IsMayLeave() }
 // Spec: definitions.py:1955, :1973 (lower_flat_values toggles may_leave).
 func (i *Instance) SetMayLeave(allowed bool) { i.rt.MayLeave = allowed }
 
-// ActiveCallDepth returns the current reentrance nesting count.
-func (i *Instance) ActiveCallDepth() int { return i.rt.EnterCount() }
+// ActiveCallDepth returns the current reentrance nesting count. Nil-safe
+// so host callers that hold a nil *Instance (no instance on the context)
+// can query depth without special-casing.
+func (i *Instance) ActiveCallDepth() int {
+	if i == nil || i.rt == nil {
+		return 0
+	}
+	return i.rt.EnterCount()
+}
 
 // EnterCall increments the call-depth counter and registers the instance
 // on the ReentranceTracker so CallMightBeRecursive can detect recursive
 // re-entries. Spec: definitions.py:290-299 call_might_be_recursive.
+// Nil-safe for the same reason as ActiveCallDepth.
 func (i *Instance) EnterCall() {
+	if i == nil || i.rt == nil {
+		return
+	}
 	i.rt.Enter()
 	i.rt.Reentrance.EnterInstance(i.rt.ID)
 }
 
-// ExitCall is the inverse of EnterCall.
+// ExitCall is the inverse of EnterCall. Nil-safe.
 func (i *Instance) ExitCall() {
+	if i == nil || i.rt == nil {
+		return
+	}
 	i.rt.Reentrance.LeaveInstance(i.rt.ID)
 	i.rt.Leave()
 }

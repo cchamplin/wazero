@@ -19,20 +19,20 @@ func TestTypeIndexOutOfRange(t *testing.T) {
 // TestDeepNesting verifies that 5+ levels of nesting work correctly.
 func TestDeepNesting(t *testing.T) {
 	// Create 5-level hierarchy: level1 -> level2 -> level3 -> level4 -> level5
-	level1 := &Instance{}
+	level1 := newInstance(&Component{}, 1, nil)
 	level1Type := &TypeDef{Kind: TypeDefKindFunc}
 	level1.AddTypeToSpace(level1Type)
 
-	level2 := &Instance{}
+	level2 := newInstance(&Component{}, 2, nil)
 	level1.AddChild(level2)
 
-	level3 := &Instance{}
+	level3 := newInstance(&Component{}, 3, nil)
 	level2.AddChild(level3)
 
-	level4 := &Instance{}
+	level4 := newInstance(&Component{}, 4, nil)
 	level3.AddChild(level4)
 
-	level5 := &Instance{}
+	level5 := newInstance(&Component{}, 5, nil)
 	level4.AddChild(level5)
 
 	// From level5, try outer alias to level1 (depth=4)
@@ -63,7 +63,7 @@ func TestLinkerEmptyDefinitions(t *testing.T) {
 
 // TestInstanceGetExportedInstanceNotFound verifies nil return for missing export.
 func TestInstanceGetExportedInstanceNotFound(t *testing.T) {
-	inst := &Instance{}
+	inst := newInstance(&Component{}, 0, nil)
 
 	// No exported instances
 	result := inst.GetExportedInstance("nonexistent")
@@ -72,7 +72,7 @@ func TestInstanceGetExportedInstanceNotFound(t *testing.T) {
 
 // TestValueIndexSpaceOverflow verifies value operations with many values.
 func TestValueIndexSpaceOverflow(t *testing.T) {
-	inst := &Instance{}
+	inst := newInstance(&Component{}, 0, nil)
 
 	// Add several values
 	for i := 0; i < 100; i++ {
@@ -93,8 +93,8 @@ func TestValueIndexSpaceOverflow(t *testing.T) {
 
 // TestGetAncestorBeyondRoot verifies nil return when depth exceeds hierarchy.
 func TestGetAncestorBeyondRoot(t *testing.T) {
-	root := &Instance{}
-	child := &Instance{}
+	root := newInstance(&Component{}, 0, nil)
+	child := newInstance(&Component{}, 1, root)
 	root.AddChild(child)
 
 	// depth=1 gets root

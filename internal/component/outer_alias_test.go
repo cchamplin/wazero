@@ -9,12 +9,12 @@ import (
 
 func TestResolveOuterAlias_Type(t *testing.T) {
 	// Create parent with a type
-	parent := &Instance{}
+	parent := newInstance(&Component{}, 0, nil)
 	parentType := &TypeDef{Kind: TypeDefKindFunc}
 	parent.AddTypeToSpace(parentType)
 
 	// Create child
-	child := &Instance{}
+	child := newInstance(&Component{}, 1, parent)
 	parent.AddChild(child)
 
 	// Outer alias: depth=1, index=0 (parent's type at index 0)
@@ -41,7 +41,7 @@ func TestResolveOuterAlias_Type(t *testing.T) {
 
 func TestResolveOuterAlias_TooDeep(t *testing.T) {
 	// Create single instance (no parent)
-	inst := &Instance{}
+	inst := newInstance(&Component{}, 0, nil)
 
 	// Try to resolve outer alias with depth > nesting
 	alias := &Alias{
@@ -58,11 +58,11 @@ func TestResolveOuterAlias_TooDeep(t *testing.T) {
 }
 
 func TestResolveOuterAlias_Component(t *testing.T) {
-	parent := &Instance{}
+	parent := newInstance(&Component{}, 0, nil)
 	nestedComp := &Component{}
 	parent.AddComponentToSpace(nestedComp)
 
-	child := &Instance{}
+	child := newInstance(&Component{}, 1, parent)
 	parent.AddChild(child)
 
 	alias := &Alias{
@@ -87,7 +87,7 @@ func TestResolveOuterAlias_Component(t *testing.T) {
 }
 
 func TestResolveOuterAlias_NotOuterAlias(t *testing.T) {
-	inst := &Instance{}
+	inst := newInstance(&Component{}, 0, nil)
 
 	// Try to resolve an export alias (not outer)
 	alias := &Alias{
@@ -104,8 +104,8 @@ func TestResolveOuterAlias_NotOuterAlias(t *testing.T) {
 }
 
 func TestResolveOuterAlias_MutableSort(t *testing.T) {
-	parent := &Instance{}
-	child := &Instance{}
+	parent := newInstance(&Component{}, 0, nil)
+	child := newInstance(&Component{}, 1, parent)
 	parent.AddChild(child)
 
 	// Try to outer-alias a function (mutable, not allowed)
@@ -136,10 +136,10 @@ func TestResolveOuterAlias_MutableSort(t *testing.T) {
 }
 
 func TestResolveOuterAlias_IndexNotFound(t *testing.T) {
-	parent := &Instance{}
+	parent := newInstance(&Component{}, 0, nil)
 	// Parent has no types in type space
 
-	child := &Instance{}
+	child := newInstance(&Component{}, 1, parent)
 	parent.AddChild(child)
 
 	// Try to resolve type at index 0 (doesn't exist)
@@ -158,14 +158,14 @@ func TestResolveOuterAlias_IndexNotFound(t *testing.T) {
 
 func TestResolveOuterAlias_Grandparent(t *testing.T) {
 	// Create grandparent -> parent -> child hierarchy
-	grandparent := &Instance{}
+	grandparent := newInstance(&Component{}, 0, nil)
 	grandparentType := &TypeDef{Kind: TypeDefKindInstance, Instance: &InstanceTypeDef{}}
 	grandparent.AddTypeToSpace(grandparentType)
 
-	parent := &Instance{}
+	parent := newInstance(&Component{}, 1, grandparent)
 	grandparent.AddChild(parent)
 
-	child := &Instance{}
+	child := newInstance(&Component{}, 2, parent)
 	parent.AddChild(child)
 
 	// Outer alias: depth=2, index=0 (grandparent's type at index 0)
@@ -191,10 +191,10 @@ func TestResolveOuterAlias_Grandparent(t *testing.T) {
 }
 
 func TestResolveOuterAlias_ValueSort(t *testing.T) {
-	parent := &Instance{}
+	parent := newInstance(&Component{}, 0, nil)
 	parent.AddValue(types.ValS32(42))
 
-	child := &Instance{}
+	child := newInstance(&Component{}, 1, parent)
 	parent.AddChild(child)
 
 	// Try to outer-alias a value (mutable, not allowed)
@@ -212,7 +212,7 @@ func TestResolveOuterAlias_ValueSort(t *testing.T) {
 }
 
 func TestResolveOuterAlias_ZeroDepth(t *testing.T) {
-	inst := &Instance{}
+	inst := newInstance(&Component{}, 0, nil)
 	instType := &TypeDef{Kind: TypeDefKindFunc}
 	inst.AddTypeToSpace(instType)
 
@@ -239,10 +239,10 @@ func TestResolveOuterAlias_ZeroDepth(t *testing.T) {
 }
 
 func TestResolveOuterAlias_ComponentNotFound(t *testing.T) {
-	parent := &Instance{}
+	parent := newInstance(&Component{}, 0, nil)
 	// Parent has NO components in component space
 
-	child := &Instance{}
+	child := newInstance(&Component{}, 1, parent)
 	parent.AddChild(child)
 
 	alias := &Alias{

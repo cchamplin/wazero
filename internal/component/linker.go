@@ -449,10 +449,10 @@ func semverGreater(a, b *Semver) bool {
 
 // Instantiate creates an instance of a component with resolved imports.
 func (l *Linker) Instantiate(ctx context.Context, c *Component) (*Instance, error) {
-	inst := &Instance{
-		component: c,
-		exports:   make(map[string]*ExportedFunc),
-	}
+	// Session 1 Task B4: allocate via newInstance so the embedded
+	// *runtime.ComponentInstance is populated before any caller invokes
+	// MayLeave / EnterCall / Table accessors.
+	inst := newInstance(c, 0, nil)
 
 	// Resolve imports
 	for _, imp := range c.Imports {

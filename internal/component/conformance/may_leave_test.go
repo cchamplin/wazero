@@ -8,12 +8,12 @@ import (
 )
 
 func TestInstance_MayLeaveDefaultTrue(t *testing.T) {
-	inst := &component.Instance{}
+	inst := component.NewInstance(&component.Component{}, 0, nil)
 	require.True(t, inst.MayLeave(), "may_leave should default to true")
 }
 
 func TestInstance_SetMayLeave(t *testing.T) {
-	inst := &component.Instance{}
+	inst := component.NewInstance(&component.Component{}, 0, nil)
 
 	// Default is true
 	require.True(t, inst.MayLeave())
@@ -34,7 +34,7 @@ func TestInstance_MayLeaveFalseDuringLowering(t *testing.T) {
 	// We test this by checking the flag state in the Call path.
 	// The actual enforcement is tested in Task 1.5.
 
-	inst := &component.Instance{}
+	inst := component.NewInstance(&component.Component{}, 0, nil)
 	require.True(t, inst.MayLeave(), "should start true")
 
 	// Simulate entering lowering
@@ -53,7 +53,7 @@ func TestInstance_MayLeaveFalseDuringPostReturn(t *testing.T) {
 	// post-return execution to ensure synchronous lowered calls can always
 	// be implemented by plain synchronous function calls.
 
-	inst := &component.Instance{}
+	inst := component.NewInstance(&component.Component{}, 0, nil)
 
 	// Simulate post-return execution
 	inst.SetMayLeave(false)
@@ -64,17 +64,18 @@ func TestInstance_MayLeaveFalseDuringPostReturn(t *testing.T) {
 }
 
 func TestInstance_ValidateMayLeave(t *testing.T) {
-	inst := &component.Instance{}
+	inst := component.NewInstance(&component.Component{}, 0, nil)
 
 	// When may_leave is true, validation passes
 	err := inst.ValidateMayLeave()
 	require.NoError(t, err)
 
-	// When may_leave is false, validation fails
+	// When may_leave is false, validation fails. Session 1 B3 renamed
+	// the sentinel to "component instance cannot leave (may_leave=false)".
 	inst.SetMayLeave(false)
 	err = inst.ValidateMayLeave()
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "cannot call")
+	require.Contains(t, err.Error(), "may_leave=false")
 }
 
 func TestInstance_ValidateMayLeaveNilInstance(t *testing.T) {
@@ -84,7 +85,7 @@ func TestInstance_ValidateMayLeaveNilInstance(t *testing.T) {
 }
 
 func TestMayLeave_MultipleSetCycles(t *testing.T) {
-	inst := &component.Instance{}
+	inst := component.NewInstance(&component.Component{}, 0, nil)
 
 	// Simulate multiple lowering cycles
 	for i := 0; i < 10; i++ {
@@ -97,16 +98,17 @@ func TestMayLeave_MultipleSetCycles(t *testing.T) {
 }
 
 func TestMayLeave_ValidationDuringLowering(t *testing.T) {
-	inst := &component.Instance{}
+	inst := component.NewInstance(&component.Component{}, 0, nil)
 
 	// Before lowering, validation passes
 	require.NoError(t, inst.ValidateMayLeave())
 
-	// During lowering (may_leave=false), validation fails
+	// During lowering (may_leave=false), validation fails. Session 1 B3
+	// renamed the sentinel to include "may_leave=false".
 	inst.SetMayLeave(false)
 	err := inst.ValidateMayLeave()
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "cannot call")
+	require.Contains(t, err.Error(), "may_leave=false")
 
 	// After lowering (may_leave=true), validation passes again
 	inst.SetMayLeave(true)
@@ -116,7 +118,7 @@ func TestMayLeave_ValidationDuringLowering(t *testing.T) {
 func TestMayLeave_ConcurrentAccess(t *testing.T) {
 	// Note: may_leave is typically single-threaded per component instance,
 	// but this tests basic safety.
-	inst := &component.Instance{}
+	inst := component.NewInstance(&component.Component{}, 0, nil)
 
 	done := make(chan bool)
 
