@@ -125,10 +125,6 @@ must replace each stub with the actual test suite.
   `TestStringsDeferredToSession1`: end-to-end string lift/lower across the
   full linker path (not just the unit-level abi/ tests).
 
-- `internal/component/conformance/subtask_test.go` —
-  `TestSubtaskDeferredToSession1`: subtask creation, completion, and error
-  propagation.
-
 - `internal/component/conformance/type_edge_cases_test.go` —
   `TestTypeEdgeCasesDeferredToSession1`: edge cases in type checking (missing
   exports, resource equality, function signature mismatch).
@@ -226,34 +222,62 @@ the skip) before Session 1 can be declared done.
 - `internal/component/edge_case_test.go` — 1 test skipped
   (`TestTypeIndexOutOfRange`, which requires a working `Instantiate` path).
 
-- `internal/component/integration_test.go` — 1 test skipped
-  (the entire file's `TestIntegration_*` suite is reduced to a single skip;
-  14 integration tests covering linker/instantiate end-to-end).
+- `internal/component/integration_test.go` — 19 tests skipped
+  (each `TestIntegration_*` function has its own `t.Skip` call;
+  covers linker/instantiate end-to-end paths).
 
-- `internal/component/linker_api_test.go` — 1 test skipped
-  (the entire linker API file is reduced to a single skip; 20 tests
-  covering `ComponentLinker.Instantiate`, `MatchImport`, `DefineFunc`, etc.)
+- `internal/component/linker_api_test.go` — 8 tests skipped
+  (each test function has its own `t.Skip` call;
+  covers `ComponentLinker.Instantiate`, `MatchImport`, `DefineFunc`, etc.)
 
-- `internal/component/linker_test.go` — 1 test skipped
-  (the entire `Linker` test file is reduced to a single skip; 19 tests
-  covering `Linker.DefineFunc`, `MatchImport`, semver matching, etc.)
+- `internal/component/linker_test.go` — 34 tests skipped
+  (each test function has its own `t.Skip` call;
+  covers `Linker.DefineFunc`, `MatchImport`, semver matching, etc.)
 
-- `internal/component/nested_component_test.go` — 1 test skipped
-  (the entire nested-component test file is reduced to a single skip; 16
-  tests covering `instantiateNestedComponent`, `resolveFromParentScope`,
+- `internal/component/nested_component_test.go` — 21 tests skipped
+  (each test function has its own `t.Skip` call;
+  covers `instantiateNestedComponent`, `resolveFromParentScope`,
   `buildTypeSpace`, and export aliasing).
 
-- `internal/component/start_function_test.go` — 1 test skipped
-  (the entire start-function test file is reduced to a single skip; 9 tests
-  covering `ExecuteStartFunction` edge cases).
+- `internal/component/start_function_test.go` — 9 tests skipped
+  (each test function has its own `t.Skip` call;
+  covers `ExecuteStartFunction` edge cases).
 
-- `internal/component/type_checker_test.go` — 1 test skipped
-  (the entire type-checker test file is reduced to a single skip; 13 tests
-  covering `CheckDefinition`, `checkFuncType`, `checkInstance`, and
+- `internal/component/type_checker_test.go` — 17 tests skipped
+  (each test function has its own `t.Skip` call;
+  covers `CheckDefinition`, `checkFuncType`, `checkInstance`, and
   `checkResource`).
 
 - `internal/component/value_import_test.go` — 1 test skipped
   (`TestValueImport`, which exercises value imports through the linker).
+
+- `internal/component/instance_test.go` — 57 tests skipped
+  (the largest body of deferred work in the package; each test function
+  exercised `ExportedFunc.Call`'s lift/lower path, the old
+  `resourceTable` field, or the `NewResourceTable`/`MakeHandle` symbols
+  removed in Tasks 10-12; all have their own `t.Skip` calls).
+
+- `internal/component/component_linker_test.go` — 8 tests skipped
+  (each test function has its own `t.Skip` call; exercised the deleted
+  lift/lower path via `FuncType`, `NamedValType`, `ValTypeRef`,
+  `canonLowerInfo`, and `ComponentLinker.buildImportResolver`).
+
+- `internal/component/integration_public_api_test.go` — 7 tests skipped
+  (external `component_test` package; each function has its own `t.Skip`
+  call; used to import `github.com/tetratelabs/wazero` which transitively
+  imports the rewritten `internal/component/binary`).
+
+- `internal/component/composite_test.go` — 5 tests skipped
+  (external `component_test` package; each function has its own `t.Skip`
+  call; same transitive `internal/component/binary` import issue).
+
+- `internal/component/instantiate_test.go` — 2 tests skipped
+  (external `component_test` package; each function has its own `t.Skip`
+  call; same transitive import issue).
+
+- `internal/component/integration_records_test.go` — 2 tests skipped
+  (external `component_test` package; each function has its own `t.Skip`
+  call; same transitive import issue).
 
 **`internal/component/binary/` package:**
 
@@ -290,8 +314,8 @@ the skip) before Session 1 can be declared done.
   replaced with real instantiation wiring and `abi.Flatten` routing.
 - `resolveExportTypeAlias` panic stub gone, replaced with a walk over
   `*types.ComponentTypes` (the canonical bag).
-- All 40 tests currently marked `t.Skip("session 1 work")` pass without the skip.
-- All 30 conformance stubs (`TestXxxDeferredToSession1`) replaced with real
+- All 223 tests currently marked `t.Skip("session 1 work")` pass without the skip.
+- All 29 conformance stubs (`TestXxxDeferredToSession1`) replaced with real
   multi-case tests.
 - All 11 abi/ bounds-check and context-shape tests pass (requires a
   `[]byte`-backed memory stub that does not round to page size).
@@ -399,6 +423,13 @@ the resource tests can pass:
 ---
 
 ## Later — Async lift/lower (no session scheduled)
+
+### Conformance stubs deferred to Later:
+
+- `internal/component/conformance/subtask_test.go` —
+  `TestSubtaskDeferredToLater`: subtask creation, completion, and error
+  propagation. Async/subtask is a Later-scope primitive; this test must be
+  replaced when async lift/lower lands, not in Session 1.
 
 ### Stub-and-trap sites that need real implementations:
 
