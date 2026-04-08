@@ -168,7 +168,7 @@ func (l *ComponentLinker) resolveExportTypeAlias(parent *Instance, c *Component,
 	_ = parent
 	_ = c
 	_ = alias
-	return nil
+	panic("compile-fix stub: see Session 1 followup note — nested_component.go resolveExportTypeAlias scheduled for Session 1/2 restoration")
 }
 
 // buildTypeSpace populates the instance's type index space from the component's
