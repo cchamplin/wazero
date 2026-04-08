@@ -268,22 +268,40 @@ func (i *Instance) ExitCall() {
 }
 
 // CallMightBeRecursive reports whether calling i from caller would be
-// recursive given the active ReentranceTracker state.
+// recursive per the component-model canonical-ABI spec.
 //
-// Spec: definitions.py:290-299 call_might_be_recursive.
+// Spec: definitions.py:290-299 call_might_be_recursive checks reflexive
+// ancestor overlap between the caller instance and the callee instance —
+// the call is recursive iff caller.inst.is_reflexive_ancestor_of(callee_inst)
+// OR callee_inst.is_reflexive_ancestor_of(caller.inst). "Reflexive" means
+// an instance is its own ancestor, so same-instance calls are always
+// recursive.
+//
+// A nil caller models a host call with no supertask chain; in wazero's
+// Session 1 local-only model there is no supertask tree above the host,
+// so the spec's host branch reduces to returning false.
+//
+// The wrapper walks the structural parent chain rather than consulting
+// the per-instance ReentranceTracker because the tracker models
+// runtime-stack membership, not structural ancestry. Once a shared
+// ReentranceTracker across all instances on the same call stack lands
+// (see design line 285), this walk may be supplemented by a tracker
+// consultation.
 func (i *Instance) CallMightBeRecursive(caller *Instance) bool {
-	if i == nil || i.rt == nil {
+	if i == nil || caller == nil {
 		return false
 	}
-	// Check whether i is currently active on the shared ReentranceTracker.
-	if i.rt.Reentrance.CallMightBeRecursive(i.rt.ID) {
-		return true
-	}
-	// Also consult the caller's tracker in case they are on disjoint
-	// trackers (cross-instance call chains). In Session 1's local-only
-	// model this is typically the same tracker via the shared runtime.
-	if caller != nil && caller.rt != nil && caller.rt.Reentrance != nil {
-		return caller.rt.Reentrance.CallMightBeRecursive(i.rt.ID)
+	return isReflexiveAncestor(caller, i) || isReflexiveAncestor(i, caller)
+}
+
+// isReflexiveAncestor reports whether ancestor appears in descendant's
+// parent chain (reflexive: descendant qualifies as its own ancestor).
+// Spec: definitions.py ComponentInstance.reflexive_ancestors().
+func isReflexiveAncestor(ancestor, descendant *Instance) bool {
+	for cur := descendant; cur != nil; cur = cur.parent {
+		if cur == ancestor {
+			return true
+		}
 	}
 	return false
 }

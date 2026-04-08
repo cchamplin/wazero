@@ -51,13 +51,18 @@ func TestInstance_CallDepthNoUnderflow(t *testing.T) {
 }
 
 func TestInstance_CallMightBeRecursive(t *testing.T) {
-	// Session 1 Task B4: distinct IDs so the ReentranceTracker can
-	// actually distinguish callee from caller (same ID would collapse).
+	// Session 1 Task B4 corrective: CallMightBeRecursive implements the
+	// spec's structural reflexive-ancestor overlap check per
+	// definitions.py:290-299, not an active-call-tracker consultation.
+	// Distinct IDs keep the instances separable for debugging.
 	callee := component.NewInstance(&component.Component{}, 1, nil)
 	caller := component.NewInstance(&component.Component{}, 2, nil)
 
 	t.Run("different_instances_no_reentrance", func(t *testing.T) {
-		// Caller and callee are different - never recursive
+		// Spec: definitions.py:290-299. Siblings with no parent
+		// relationship have disjoint reflexive_ancestors sets, so the
+		// call is not structurally recursive — regardless of whether
+		// the callee is currently executing on its own call stack.
 		callee.EnterCall()
 		recursive := callee.CallMightBeRecursive(caller)
 		require.False(t, recursive, "different instances cannot be recursive")
@@ -65,13 +70,20 @@ func TestInstance_CallMightBeRecursive(t *testing.T) {
 	})
 
 	t.Run("same_instance_no_active_call", func(t *testing.T) {
-		// Same instance but no active call - not recursive
+		// Spec: definitions.py:290-299 call_might_be_recursive.
+		// Per spec, same-instance calls are ALWAYS potentially recursive
+		// because an instance is its own reflexive ancestor — so
+		// caller.inst.is_reflexive_ancestor_of(callee_inst) is trivially
+		// true when caller == callee. The old wazero implementation gated
+		// this on active call depth, which was a wazero-specific
+		// over-strict simplification the spec does not permit.
 		recursive := callee.CallMightBeRecursive(callee)
-		require.False(t, recursive, "no active call means not recursive")
+		require.True(t, recursive, "same instance is always reflexively its own ancestor")
 	})
 
 	t.Run("same_instance_with_active_call", func(t *testing.T) {
-		// Same instance with active call - RECURSIVE
+		// Same instance is reflexively recursive regardless of active
+		// call depth. Spec: definitions.py:290-299.
 		callee.EnterCall()
 		recursive := callee.CallMightBeRecursive(callee)
 		require.True(t, recursive, "same instance with active call is recursive")
@@ -79,7 +91,10 @@ func TestInstance_CallMightBeRecursive(t *testing.T) {
 	})
 
 	t.Run("nil_caller", func(t *testing.T) {
-		// Nil caller (host call) - never recursive
+		// Spec: definitions.py:290-299. A nil caller models a host call
+		// with no supertask chain; wazero's Session 1 local-only model
+		// has no supertask tree above the host, so the spec's host
+		// branch reduces to returning false.
 		recursive := callee.CallMightBeRecursive(nil)
 		require.False(t, recursive, "nil caller means host call, not recursive")
 	})
@@ -88,12 +103,26 @@ func TestInstance_CallMightBeRecursive(t *testing.T) {
 func TestInstance_ValidateNotRecursive(t *testing.T) {
 	inst := component.NewInstance(&component.Component{}, 1, nil)
 
-	t.Run("no_active_call_passes", func(t *testing.T) {
+	t.Run("no_active_call_still_recursive", func(t *testing.T) {
+		// Spec: definitions.py:290-299 call_might_be_recursive.
+		// ValidateNotRecursive delegates to CallMightBeRecursive, which
+		// per spec checks reflexive ancestor overlap. An instance is
+		// trivially its own reflexive ancestor, so a same-instance call
+		// is ALWAYS potentially recursive — active call depth is
+		// irrelevant. The old wazero assertion gated this on active
+		// call state, which was a wazero-specific over-strict
+		// simplification the spec does not permit. Symmetric with the
+		// `same_instance_no_active_call` flip in TestInstance_CallMightBeRecursive.
 		err := inst.ValidateNotRecursive(inst)
-		require.NoError(t, err)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "recursive")
 	})
 
 	t.Run("active_call_from_same_instance_fails", func(t *testing.T) {
+		// Also recursive per spec — same instance is its own reflexive
+		// ancestor regardless of active-call state. This subtest's
+		// assertion direction matches the spec; only its rationale
+		// changes (reflexive ancestry, not active-call depth).
 		inst.EnterCall()
 		defer inst.ExitCall()
 

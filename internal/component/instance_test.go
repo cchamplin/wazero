@@ -282,18 +282,23 @@ func TestInstanceMayLeaveDelegatesToRuntime(t *testing.T) {
 }
 
 // TestInstanceCallMightBeRecursiveUsesReentranceTracker asserts the
-// wrapper's CallMightBeRecursive uses the runtime ReentranceTracker,
-// not direct caller == i equality.
+// wrapper's CallMightBeRecursive implements the spec's reflexive-ancestor
+// overlap check via a structural parent-chain walk.
 //
-// Spec: definitions.py:290-299 call_might_be_recursive.
+// (Name retained from B3 for plan traceability; the B4 corrective
+// replaced the tracker-consultation implementation with a structural
+// walk because the tracker models runtime-stack membership rather than
+// structural ancestry. Spec: definitions.py:290-299 call_might_be_recursive.)
 func TestInstanceCallMightBeRecursiveUsesReentranceTracker(t *testing.T) {
 	a := newInstance(&Component{}, 1, nil)
 	b := newInstance(&Component{}, 2, nil)
 
-	// Neither has entered: nothing is recursive.
+	// Sibling instances with no parent relationship have disjoint
+	// reflexive_ancestors sets — not recursive regardless of active calls.
 	require.False(t, a.CallMightBeRecursive(b))
 
-	// a.EnterCall() activates instance id 1. Calling a (callee=a) is now recursive.
+	// Same instance is its own reflexive ancestor, so calling a from a
+	// is trivially recursive. Active-call state is irrelevant.
 	a.EnterCall()
 	defer a.ExitCall()
 	require.True(t, a.CallMightBeRecursive(a))
