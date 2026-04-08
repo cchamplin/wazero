@@ -282,11 +282,11 @@ func (i *Instance) ExitCall() {
 // so the spec's host branch reduces to returning false.
 //
 // The wrapper walks the structural parent chain rather than consulting
-// the per-instance ReentranceTracker because the tracker models
-// runtime-stack membership, not structural ancestry. Once a shared
-// ReentranceTracker across all instances on the same call stack lands
-// (see design line 285), this walk may be supplemented by a tracker
-// consultation.
+// the ReentranceTracker: the tracker models runtime-stack membership for
+// the separate concurrency trap at definitions.py:3664-3667, which is a
+// different spec check. The tracker must NOT be reintroduced here as a
+// substitute for the structural walk — doing so was the B3/B4-initial
+// divergence that the B4 corrective removed.
 func (i *Instance) CallMightBeRecursive(caller *Instance) bool {
 	if i == nil || caller == nil {
 		return false

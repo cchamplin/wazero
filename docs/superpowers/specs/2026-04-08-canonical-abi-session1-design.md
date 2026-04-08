@@ -262,27 +262,38 @@ func (c *ComponentInstance) IsMayLeave() bool {
 
 The `enterCount` field stays (used by `Enter()`/`Leave()`/`EnterCount()` for reentrance-related bookkeeping), but it no longer gates `IsMayLeave`.
 
-**`CallMightBeRecursive` transitive ancestor check.** Spec `definitions.py:290-299` `call_might_be_recursive(caller, callee_inst)` uses `reflexive_ancestors()` overlap, not direct caller equality. The wazero delegator must not just compare `caller == i`; it must check whether `caller` is in any of `i`'s ancestor chain OR `i` is in any of `caller`'s ancestor chain. Session 1 uses `runtime.ReentranceTracker` (which already exists at `runtime/reentrance.go`) populated with the currently-active instance IDs on the call stack, and queries it for the transitive check:
+**`CallMightBeRecursive` transitive ancestor check.** Spec `definitions.py:290-299` `call_might_be_recursive(caller, callee_inst)` uses `reflexive_ancestors()` overlap, not direct caller equality. The wazero delegator must not just compare `caller == i`; it must check whether `caller` is in any of `i`'s ancestor chain OR `i` is in any of `caller`'s ancestor chain.
+
+**B4 corrective (commit `b74f5558`, 2026-04-08):** The implementation below reflects the spec-correct structural walk. An earlier version of this design delegated to `runtime.ReentranceTracker.CallMightBeRecursive(callerID)`, but the tracker models runtime-stack membership (which is what `definitions.py:3664-3667`'s concurrency trap consults), NOT structural ancestry. They are different checks and must not be conflated. The structural walk below matches `definitions.py:290-299` exactly; the `ReentranceTracker` continues to exist for its separate concurrency-trap role and must not be reintroduced as a substitute for this check.
 
 ```go
-// runtime/component_instance.go — Session 1 uses the existing ReentranceTracker.
-// Enter() calls rt.Reentrance.EnterInstance(rt.ID); Leave() calls
-// rt.Reentrance.LeaveInstance(rt.ID). The tracker lives on the top-level
-// instance and is walked transitively.
+// internal/component/instance.go
 //
-// component.Instance delegator:
+// component.Instance delegator — structural reflexive-ancestor overlap.
 func (i *Instance) CallMightBeRecursive(caller *Instance) bool {
-    if i == nil || caller == nil || i.rt == nil || caller.rt == nil {
+    if i == nil || caller == nil {
         return false
     }
-    // Spec definitions.py:290-299: check whether caller's instance or
-    // any of its reflexive ancestors is already on the callee's call
-    // stack (or vice versa).
-    return i.rt.Reentrance.CallMightBeRecursive(caller.rt.ID)
+    // Spec definitions.py:290-299: check whether caller.inst is a reflexive
+    // ancestor of callee_inst, or vice versa. A nil caller models a host
+    // call with no supertask chain and reduces to returning false.
+    return isReflexiveAncestor(caller, i) || isReflexiveAncestor(i, caller)
+}
+
+// isReflexiveAncestor reports whether ancestor appears in descendant's
+// parent chain (reflexive: descendant qualifies as its own ancestor).
+// Spec: definitions.py ComponentInstance.reflexive_ancestors().
+func isReflexiveAncestor(ancestor, descendant *Instance) bool {
+    for cur := descendant; cur != nil; cur = cur.parent {
+        if cur == ancestor {
+            return true
+        }
+    }
+    return false
 }
 ```
 
-The `ReentranceTracker` is populated during canon.lift / canon.lower closures (see the Instantiate Pipeline section) via `Enter` at call entry and `Leave` at call exit, not via the wrapper-level `Instance.EnterCall` / `ExitCall`.
+The `ReentranceTracker` is populated during canon.lift / canon.lower closures via `EnterInstance`/`LeaveInstance` at call entry/exit for the separate task-level concurrency trap at `definitions.py:3664-3667`. It is NOT consulted by `CallMightBeRecursive`.
 
 ### Decision 4: Four latent `lift.go` gaps fixed per spec
 
