@@ -295,3 +295,87 @@ Three non-mechanical rewrites:
 
 ✅ Complete. Proceeding to Task A7.
 
+---
+
+## Task A7 — Checkpoint A Verification
+
+**No code commit.** This is a checkpoint-gate task that runs the exit-criterion bash script, executes V5/V9 grep verifications, and dispatches checkpoint-level reviewers over the A1-A6 scope.
+
+### Automated exit criteria
+
+| Check | Command | Result |
+|---|---|---|
+| A7.1 Build | `go build ./internal/component/binary/... ./internal/component/...` | ✅ empty |
+| A7.2 Tests | `go test ./internal/component/binary/... -count=1` | ✅ `ok ...binary 0.005s` |
+| A7.3 V5 | `grep -rn 'funcTypeIdx\|resourceDefs' internal/component/binary/` | ✅ empty |
+| A7.4 V9 (a) | `grep -n 'TypeDefs \[\]TypeDef' internal/component/component.go` | ✅ `52: TypeDefs []TypeDef` |
+| A7.4 V9 (b) | `grep -n 'c\.TypeDefs = append' internal/component/binary/decoder.go` | ✅ 17 hits across all opcodes |
+| A7.5 Working tree | `git status --porcelain` | ✅ only pre-existing `.env`/`.envrc` |
+
+### Checkpoint-level spec-compliance reviewer
+
+**Verdict:** ✅ CHECKPOINT A SPEC COMPLIANT.
+
+V4 citation audit: 23/23 modified-or-added test functions have valid citation blocks within 15 lines of their declarations (3 in component_typedef_test.go, 1 in component_test.go, 1 in decoder_test.go, 8 in component_type_test.go, 10 in instance_type_test.go).
+
+Decoder walk: every `decodeTypeSection` case appends exactly one `TypeDef` with the correct Kind + kind-specific field. In-loop invariant at decoder.go:461-464 tolerates alias-sparsity correctly.
+
+Restored tests walk: all 18 tests exercise the full `DecodeComponent` path, no stubs. Three non-mechanical rewrites in A6 all cite the actual decoder behavior.
+
+Both pre-flagged issues confirmed:
+- Alias-sparsity docstrings describe current state honestly; captured as Checkpoint C prerequisite.
+- import.go typebound inversion bug is real (lines 83-102: 0x00→TypeBoundSub, 0x01→TypeBoundEq, swapped from spec; unconditional typeidx read even for sub-resource). Sibling instance_type.go:145-164 is spec-correct. Test lock-in in import_test.go:195-236.
+
+### Checkpoint-level code-quality reviewer
+
+**Verdict:** APPROVED_WITH_MINOR (close Checkpoint A without correctives).
+
+Strengths: tight plan alignment; no partial-state commits; Decision 5 option A executed correctly; in-loop invariant is stricter than the plan asked; A4 pure deletion with zero drift; A5/A6 restorations strictly stronger than originals; uniform citation discipline; honest documentation of the alias-sparsity hazard.
+
+IMPORTANT I1: **import.go:83-102 typebound inversion** — pre-existing spec bug, not introduced by Checkpoint A. Reviewer recommends promoting from "Session 2 vague followup" to named Checkpoint C prerequisite with concrete test cases.
+
+MINOR (all non-blocking, deferred cleanup pass): docstring wording drift; 12 ValType* opcode cases share append tail; raw t.Fatalf in component_typedef_test.go; TestNewTypeDefs isn't explicitly called a "canary"; no positive-path test on FuncType helper; "Session 2" label hardcoded in a few comments.
+
+Integration: A1→A2→A3→A4 composes cleanly. At no commit is there a partial state. No production caller indexes `TypeDefs[canon.TypeIdx]` at Checkpoint A HEAD — all hazard-prone consumers land in Checkpoint C.
+
+### Correctives
+
+**None required to close Checkpoint A.** Both flagged issues are next-checkpoint concerns.
+
+### Deferred for user decision at Checkpoint B → C transition
+
+1. **Alias-sparsity resolution strategy** (from Task A4). Densify `TypeDefs` on alias (append an entry referencing the aliased target) OR add an alias-aware resolver helper on Component (walks aliases at lookup time). Design doc lines 1241-1247 list `component_linker.Instantiate` and `type_checker.checkFuncDefinition` as the first two callers that force this choice.
+
+2. **import.go typebound inversion** (from Task A6). File: `internal/component/binary/import.go:83-102`. Spec: Binary.md:239-240. Fix is bounded: flip the tag-to-name mapping, gate typeidx read on tag, rewrite locked-in tests at `import_test.go:195-236`, possibly flip enum constants at `component.go:693-695`. Recommendation: land a corrective before Checkpoint C starts, with new tests for both `(import "r" (type (eq T)))` and `(import "r" (type (sub resource)))`.
+
+### Task status
+
+✅ Complete. Checkpoint A closed.
+
+---
+
+## Checkpoint A Summary
+
+**Commits:** 9 (7 task commits + 2 correctives)
+**Files touched:** 7 (component.go, component_typedef_test.go, component_test.go, binary/decoder.go, binary/decoder_test.go, binary/component_type_test.go, binary/instance_type_test.go)
+**Tests added/restored:** 23 (3 new in component_typedef_test.go, 1 rewrite in component_test.go, 1 new in decoder_test.go, 8 restored in component_type_test.go, 10 restored in instance_type_test.go)
+**Build status:** green on `./internal/component/...`
+**Test status:** 9 component packages green
+
+**Per-task statuses:**
+| Task | Commit | Spec | Quality | Corrective |
+|---|---|---|---|---|
+| A1 | 5885f93e | ✅ | APPROVED_WITH_MINOR | — |
+| A2 | d7b4a41a | ✅ | APPROVED_WITH_MINOR | — |
+| A3 | 137fdaa1 | ✅ | APPROVED_WITH_MINOR | — |
+| A4 | 7bbf9a06 + 06b95970 | ✅ | APPROVED_WITH_MINOR → docstring corrective | ✅ landed |
+| A5 | 0c395a96 | ✅ | APPROVED | — |
+| A6 | 55c8081e + 0c8f42a2 | ✅ | APPROVED_WITH_MINOR → docstring corrective + flagged pre-existing import.go bug | ✅ landed |
+| A7 | (no commit; verification only) | ✅ | APPROVED_WITH_MINOR | — |
+
+**Two items requiring user decision before starting Checkpoint C:**
+1. Alias-aware TypeDefs resolver strategy.
+2. import.go typebound inversion bug fix approach.
+
+Checkpoint B (runtime instance embedding) does NOT depend on either of these and can proceed immediately.
+
