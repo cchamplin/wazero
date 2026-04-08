@@ -45,9 +45,10 @@ func (r *ReentranceTracker) LeaveInstance(instanceID uint32) {
 // uses reflexive_ancestors() overlap between caller and callee; wazero's
 // tracker models this by maintaining the per-instance active set on the
 // shared tracker used by all instances on a call stack. Populating the
-// tracker with every ancestor instance on Enter/Leave (done by the runtime
-// delegator in component_instance.go) makes a plain membership query
-// equivalent to the spec's reflexive-ancestor overlap check.
+// tracker with every ancestor instance on Enter/Leave (to be wired by
+// the runtime delegator in component_instance.go in a later Session 1
+// task) makes a plain membership query equivalent to the spec's
+// reflexive-ancestor overlap check.
 func (r *ReentranceTracker) CallMightBeRecursive(instanceID uint32) bool {
 	if r == nil {
 		return false
