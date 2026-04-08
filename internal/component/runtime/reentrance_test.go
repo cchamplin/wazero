@@ -47,17 +47,18 @@ func TestCallMightBeRecursive_NestedCalls(t *testing.T) {
 }
 
 // TestReentranceTrackerCallMightBeRecursive asserts the tracker's
-// spec-correct recursive-call detection for a single-thread active
-// stack (the only case wazero currently exercises).
+// runtime-stack membership query for a single-thread active stack.
 //
-// Spec: definitions.py:290-299 call_might_be_recursive(caller, callee_inst).
-// The spec walks caller.inst / caller.supertask chasing through
-// reflexive_ancestors(); see definitions.py for the exact branches.
-// wazero's ReentranceTracker models the overlap query by keeping a
-// per-instance active set on a tracker shared across all instances on
-// the call stack — so a membership query for callee_inst against the
-// active set is equivalent to the spec's reflexive-ancestor overlap
-// in the no-supertask-chain case.
+// This tracker serves the task-level concurrency trap at
+// definitions.py:3664-3667, NOT the canonical-ABI
+// definitions.py:290-299 call_might_be_recursive spec check. The
+// latter is a STRUCTURAL reflexive-ancestor overlap implemented by
+// component.Instance.CallMightBeRecursive via a parent-chain walk
+// (see internal/component/instance.go:isReflexiveAncestor).
+//
+// The two checks are intentionally distinct: reintroducing a call
+// from component.Instance.CallMightBeRecursive to this tracker was
+// the B3/B4 bug that commit b74f5558 removed.
 func TestReentranceTrackerCallMightBeRecursive(t *testing.T) {
 	rt := NewReentranceTracker()
 

@@ -826,16 +826,31 @@ All methods that previously read/wrote the deleted fields are rewritten as one-l
 func (i *Instance) MayLeave() bool             { return i.rt.IsMayLeave() }
 func (i *Instance) SetMayLeave(allowed bool)    { i.rt.MayLeave = allowed }
 func (i *Instance) ActiveCallDepth() int        { return i.rt.EnterCount() }
-func (i *Instance) EnterCall()                  { i.rt.Enter() }
-func (i *Instance) ExitCall()                   { i.rt.Leave() }
+func (i *Instance) EnterCall() {
+    i.rt.Enter()
+    i.rt.Reentrance.EnterInstance(i.rt.ID)
+}
+func (i *Instance) ExitCall() {
+    i.rt.Reentrance.LeaveInstance(i.rt.ID)
+    i.rt.Leave()
+}
 func (i *Instance) Table() *runtime.Table       { return i.rt.Table }
 func (i *Instance) Parent() *Instance           { return i.parent }
+// CallMightBeRecursive — see Decision 3's "CallMightBeRecursive transitive
+// ancestor check" above. This is a structural reflexive-ancestor walk via
+// isReflexiveAncestor; it must NOT consult ReentranceTracker (that tracker
+// serves the separate concurrency trap at definitions.py:3664-3667, a
+// different spec check). B4 corrective (commit b74f5558) removed an
+// earlier draft that delegated to the tracker.
 func (i *Instance) CallMightBeRecursive(caller *Instance) bool {
-    return caller == i && i.rt.EnterCount() > 0
+    if i == nil || caller == nil {
+        return false
+    }
+    return isReflexiveAncestor(caller, i) || isReflexiveAncestor(i, caller)
 }
 ```
 
-`ValidateMayLeave` and `ValidateNotRecursive` keep their existing shape, delegating through the new accessors.
+`ValidateMayLeave` and `ValidateNotRecursive` keep their existing shape, delegating through the new accessors. The `EnterCall`/`ExitCall` bookkeeping of `Reentrance.EnterInstance`/`LeaveInstance` tracks runtime-stack membership for the Session 2 concurrency trap at `definitions.py:3664-3667`; `CallMightBeRecursive`'s structural walk is a separate spec path (`definitions.py:290-299`).
 
 ## Instantiate Pipeline — Top-Level Shape
 
