@@ -7,6 +7,7 @@ import (
 
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/internal/component/runtime"
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 // Flat ABI limits as defined by the Component Model specification.
@@ -62,12 +63,20 @@ type Options struct {
 	PostReturnIdx  *uint32
 }
 
-// LiftContext provides context for lifting operations.
+// LiftContext provides context for lifting operations. Per-call state
+// (BorrowScope) lives directly on the context; per-component (Types)
+// and per-instance (Instance) state are pointer references.
+//
+// Spec: each lift call is performed by a specific instance — the one
+// whose may_leave gates the operation, whose table holds new handle
+// allocations, and whose identity is compared against resource type
+// Impl for the same-instance borrow optimization.
 type LiftContext struct {
-	Memory        api.Memory
-	Opts          *Options
-	ResourceTable *runtime.ResourceTable
-	BorrowScope   *runtime.BorrowScope
+	Memory      api.Memory
+	Opts        *Options
+	Types       *types.ComponentTypes
+	Instance    *runtime.ComponentInstance
+	BorrowScope *runtime.BorrowScope
 }
 
 // ReadU8 reads a u8 from memory at the given offset with bounds checking.
@@ -149,29 +158,16 @@ func (c *LiftContext) ReadBytes(offset, length uint32) ([]byte, error) {
 }
 
 // LowerContext provides context for lowering operations.
-// For primitive types, the context is not used, but it will be required
-// for composite types (strings, lists, records) that need memory allocation.
+//
+// Spec: each lower call is performed by a specific instance, just like
+// lift. CallContext carries per-call state.
 type LowerContext struct {
-	Memory        api.Memory
-	Opts          *Options
-	Realloc       func(oldPtr, oldSize, align, newSize uint32) (uint32, error)
-	ResourceTable *runtime.ResourceTable
-	CallContext   *runtime.CallContext
-	// Instance is the component instance performing the lowering.
-	// TODO: Per spec lines 2679-2680, used for borrow optimization when lowering
-	// to the resource's implementing instance. Returns rep directly instead of handle.
-	Instance interface{} // TODO: Use proper ComponentInstance type when available
-	// Subtask is the subtask tracking this lowered call.
-	// Used for borrow tracking during the call.
-	Subtask *runtime.Subtask
-}
-
-// BorrowScope returns the borrow scope from the subtask, or nil if no subtask.
-func (c *LowerContext) BorrowScope() *runtime.BorrowScope {
-	if c.Subtask == nil {
-		return nil
-	}
-	return c.Subtask.BorrowScope()
+	Memory      api.Memory
+	Opts        *Options
+	Realloc     func(oldPtr, oldSize, align, newSize uint32) (uint32, error)
+	Types       *types.ComponentTypes
+	Instance    *runtime.ComponentInstance
+	CallContext *runtime.CallContext
 }
 
 // writeUint8 writes a uint8 to memory at the given offset.
