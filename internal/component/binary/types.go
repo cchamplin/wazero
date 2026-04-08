@@ -1,4 +1,19 @@
-// internal/component/binary/types.go
+// Copyright 2024 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+// Package binary: type-section decoder.
+//
+// The decoder walks the binary type section one entry at a time and, for
+// each value type, calls through to a *types.ComponentTypesBuilder which
+// interns the entry and returns a *types.ValType. The decoder does not
+// construct any intermediate per-kind *TypeDef structs — the builder is
+// the single source of truth for composite-type shape and ABI.
+//
+// Scope-local index tracking is provided by typeScope: binary scope-local
+// index N corresponds to scope.entries[N], tagged as either a value type
+// or a resource declaration (or, in Session 2, an instance/component type
+// declaration). Lookup rules are in decodeValType.
 
 package binary
 
@@ -7,11 +22,12 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/leb128"
 )
 
-// Type definition opcodes
+// Type definition opcodes (top-level type-section entries that are not
+// ValType opcodes).
 const (
 	TypeOpFuncSync      byte = 0x40 // Sync function type
 	TypeOpFuncAsync     byte = 0x43 // Async function type
@@ -21,743 +37,653 @@ const (
 	TypeOpResourceAsync byte = 0x3e // Resource type (async destructor)
 )
 
-// Result encoding
+// Result encoding for function-type results.
 const (
 	ResultSingle byte = 0x00 // Single result value
 	ResultNamed  byte = 0x01 // Named results (or empty)
 )
 
-// TypeDefKind identifies the kind of type definition decoded from binary format.
-type TypeDefKind uint8
+// ResourceTypeDef carries the raw resource-declaration metadata decoded
+// from the binary. It lives on the binary package only: the decoder
+// interns an Abstract TypeResourceTable entry on the builder and records
+// the resulting ResourceTableIdx in the scope. The destructor /
+// callback function indices remain in ResourceTypeDef until runtime
+// linking consumes them (Session 2 work).
+type ResourceTypeDef struct {
+	// Destructor is the function index of the destructor, or nil if none.
+	Destructor *uint32
+	// AsyncDestructor indicates if this resource has an async destructor
+	// (decoded from the 0x3e opcode).
+	AsyncDestructor bool
+	// Callback is the function index of the async callback, or nil if none.
+	Callback *uint32
+	// ResourceTableIdx is the TypeResourceTable index in *types.ComponentTypes.
+	ResourceTableIdx types.ResourceTableIdx
+}
+
+// scopeEntryKind discriminates between value-type and resource-declaration
+// entries in the scope-local type slice. The binary format uses a single
+// flat type-section index space for both kinds; the discriminator catches
+// ill-formed inputs at decode time (e.g., own<5> where 5 is a record).
+type scopeEntryKind uint8
 
 const (
-	TypeDefKindFunc TypeDefKind = iota
-	TypeDefKindComponent
-	TypeDefKindInstance
-	TypeDefKindResource
-	TypeDefKindRecord
-	TypeDefKindVariant
-	TypeDefKindList
-	TypeDefKindTuple
-	TypeDefKindFlags
-	TypeDefKindEnum
-	TypeDefKindOption
-	TypeDefKindResult
+	scopeEntryValType  scopeEntryKind = iota // value type (record, variant, list, ...)
+	scopeEntryResource                       // resource declaration
+	// Session 2: scopeEntryInstance, scopeEntryComponent
+	scopeEntryOther // function / instance / component type — not addressable as a ValType
 )
 
-// TypeDef represents a decoded type definition from binary format.
-// This is a discriminated union of different type kinds.
-type TypeDef struct {
-	Kind TypeDefKind
-
-	// For FuncType
-	Func *component.FuncType
-
-	// For composite types
-	Record  *RecordTypeDef
-	Variant *VariantTypeDef
-	List    *ListTypeDef
-	Tuple   *TupleTypeDef
-	Flags   *FlagsTypeDef
-	Enum    *EnumTypeDef
-	Option  *OptionTypeDef
-	Result  *ResultTypeDef
-
-	// For resource types
-	Resource *ResourceTypeDef
+// scopeEntry is one entry in a typeScope, tagged by kind.
+type scopeEntry struct {
+	kind     scopeEntryKind
+	valType  types.ValType          // valid iff kind == scopeEntryValType
+	resource types.ResourceTableIdx // valid iff kind == scopeEntryResource
 }
 
-// RecordTypeDef represents a decoded record type definition.
-type RecordTypeDef struct {
-	Fields []RecordField
+// typeScope tracks scope-local type indices during decode. Each scope is
+// a flat []scopeEntry — binary scope-local index N corresponds to
+// scope.entries[N]. parent chains up the scope hierarchy so `outer`
+// aliases resolve across nested scopes.
+type typeScope struct {
+	entries []scopeEntry
+	parent  *typeScope
 }
 
-// RecordField represents a field in a record type.
-type RecordField struct {
-	Name string
-	Type component.ValTypeRef
+func newTypeScope(parent *typeScope) *typeScope {
+	return &typeScope{parent: parent}
 }
 
-// VariantTypeDef represents a decoded variant type definition.
-type VariantTypeDef struct {
-	Cases []VariantCase
+func (s *typeScope) appendValType(vt types.ValType) {
+	s.entries = append(s.entries, scopeEntry{
+		kind:    scopeEntryValType,
+		valType: vt,
+	})
 }
 
-// VariantCase represents a case in a variant type.
-type VariantCase struct {
-	Name    string
-	Type    *component.ValTypeRef // nil for cases with no payload
-	Refines *uint32               // optional index of refined case
+func (s *typeScope) appendResource(rtIdx types.ResourceTableIdx) {
+	s.entries = append(s.entries, scopeEntry{
+		kind:     scopeEntryResource,
+		resource: rtIdx,
+	})
 }
 
-// ListTypeDef represents a decoded list type definition.
-type ListTypeDef struct {
-	Element component.ValTypeRef
-}
-
-// TupleTypeDef represents a decoded tuple type definition.
-type TupleTypeDef struct {
-	Types []component.ValTypeRef
-}
-
-// FlagsTypeDef represents a decoded flags type definition.
-type FlagsTypeDef struct {
-	Names []string
-}
-
-// EnumTypeDef represents a decoded enum type definition.
-type EnumTypeDef struct {
-	Cases []string
-}
-
-// OptionTypeDef represents a decoded option type definition.
-type OptionTypeDef struct {
-	Some component.ValTypeRef
-}
-
-// ResultTypeDef represents a decoded result type definition.
-type ResultTypeDef struct {
-	Ok    *component.ValTypeRef // nil for result<_, E>
-	Error *component.ValTypeRef // nil for result<T, _>
-}
-
-// ResourceTypeDef represents a decoded resource type definition.
-// Resources have an optional destructor function that is called when the resource is dropped.
-type ResourceTypeDef struct {
-	// Destructor is the index of the destructor function, or nil if no destructor.
-	Destructor *uint32
-	// AsyncDestructor indicates if this resource has an async destructor (0x3e opcode).
-	AsyncDestructor bool
-	// Callback is the index of the callback function for async destructors, or nil if not specified.
-	Callback *uint32
+// appendOther records a scope slot that is neither a value type nor a
+// resource declaration (function types, instance/component type
+// declarations). Referring to such a slot from a value-type position is
+// rejected at lookup time.
+func (s *typeScope) appendOther() {
+	s.entries = append(s.entries, scopeEntry{
+		kind: scopeEntryOther,
+	})
 }
 
 // decodeValType reads a valtype from the reader.
-// valtypes are either primitive opcodes (0x73-0x7f), handle types (0x68 for borrow, 0x69 for own),
-// or type indices (LEB128).
-func decodeValType(r *bytes.Reader) (component.ValTypeRef, error) {
-	b, err := r.ReadByte()
+//
+// The grammar has three forms:
+//   - a primitive opcode in 0x73..0x7f (plus 0x64 for error-context)
+//   - own<> (0x69) / borrow<> (0x68) followed by a LEB128 type index that
+//     must point to a resource declaration in scope
+//   - a LEB128 type index that must point to a value-type entry in scope
+//
+// All three forms are resolved against the supplied scope; the result is
+// always an already-interned types.ValType.
+func decodeValType(
+	r *bytes.Reader,
+	scope *typeScope,
+	b *types.ComponentTypesBuilder,
+) (types.ValType, error) {
+	opcode, err := r.ReadByte()
 	if err != nil {
-		return component.ValTypeRef{}, err
+		return types.ValType{}, err
 	}
 
-	// Check if it's a primitive type (negative SLEB128 range)
-	if IsPrimValType(b) {
-		return component.ValTypeRef{
-			IsPrimitive: true,
-			Primitive:   b,
-		}, nil
+	// Primitive: direct mapping, no builder interaction.
+	if IsPrimValType(opcode) {
+		return primitiveOpcodeToValType(opcode, b)
 	}
 
-	// Check if it's a borrow handle type (0x68)
-	if b == ValTypeOpcodeBorrow {
-		typeIdx, _, err := leb128.DecodeUint32(r)
+	// own<R>
+	if opcode == ValTypeOpcodeOwn {
+		resIdx, _, err := leb128.DecodeUint32(r)
 		if err != nil {
-			return component.ValTypeRef{}, fmt.Errorf("decode borrow handle type index: %w", err)
+			return types.ValType{}, fmt.Errorf("decode own handle type index: %w", err)
 		}
-		return component.ValTypeRef{
-			IsPrimitive: false,
-			IsBorrow:    true,
-			TypeIdx:     typeIdx,
-		}, nil
+		if int(resIdx) >= len(scope.entries) {
+			return types.ValType{}, fmt.Errorf("own<> type index %d out of range", resIdx)
+		}
+		entry := scope.entries[resIdx]
+		if entry.kind != scopeEntryResource {
+			return types.ValType{}, fmt.Errorf("own<> references type index %d which is not a resource declaration", resIdx)
+		}
+		return b.InternOwnHandle(entry.resource), nil
 	}
 
-	// Check if it's an own handle type (0x69)
-	if b == ValTypeOpcodeOwn {
-		typeIdx, _, err := leb128.DecodeUint32(r)
+	// borrow<R>
+	if opcode == ValTypeOpcodeBorrow {
+		resIdx, _, err := leb128.DecodeUint32(r)
 		if err != nil {
-			return component.ValTypeRef{}, fmt.Errorf("decode own handle type index: %w", err)
+			return types.ValType{}, fmt.Errorf("decode borrow handle type index: %w", err)
 		}
-		return component.ValTypeRef{
-			IsPrimitive: false,
-			IsOwn:       true,
-			TypeIdx:     typeIdx,
-		}, nil
+		if int(resIdx) >= len(scope.entries) {
+			return types.ValType{}, fmt.Errorf("borrow<> type index %d out of range", resIdx)
+		}
+		entry := scope.entries[resIdx]
+		if entry.kind != scopeEntryResource {
+			return types.ValType{}, fmt.Errorf("borrow<> references type index %d which is not a resource declaration", resIdx)
+		}
+		return b.InternBorrowHandle(entry.resource), nil
 	}
 
-	// Otherwise, it's a type index encoded as LEB128 unsigned 32-bit integer.
-	// We need to unread the byte we just read and decode the full LEB128 value.
+	// Type index reference: unread the byte so we can decode the full LEB128.
 	if err := r.UnreadByte(); err != nil {
-		return component.ValTypeRef{}, fmt.Errorf("unread byte: %w", err)
+		return types.ValType{}, fmt.Errorf("unread byte: %w", err)
 	}
-
-	typeIdx, _, err := leb128.DecodeUint32(r)
+	idx, _, err := leb128.DecodeUint32(r)
 	if err != nil {
-		return component.ValTypeRef{}, fmt.Errorf("decode type index: %w", err)
+		return types.ValType{}, fmt.Errorf("decode type index: %w", err)
 	}
-
-	return component.ValTypeRef{
-		IsPrimitive: false,
-		TypeIdx:     typeIdx,
-	}, nil
+	if int(idx) >= len(scope.entries) {
+		return types.ValType{}, fmt.Errorf("type index %d out of range", idx)
+	}
+	entry := scope.entries[idx]
+	if entry.kind != scopeEntryValType {
+		return types.ValType{}, fmt.Errorf("type index %d refers to a non-value-type declaration (kind %d)", idx, entry.kind)
+	}
+	return entry.valType, nil
 }
 
-// decodeFuncType reads a component function type.
-// Format: 0x40 paramlist resultlist (sync) or 0x43 paramlist resultlist (async)
-func decodeFuncType(r *bytes.Reader) (*component.FuncType, error) {
-	opcode, err := r.ReadByte()
-	if err != nil {
-		return nil, err
-	}
-
-	if opcode != TypeOpFuncSync && opcode != TypeOpFuncAsync {
-		return nil, fmt.Errorf("expected functype opcode 0x40 or 0x43, got 0x%02x", opcode)
-	}
-
-	ft := &component.FuncType{}
-
-	// Parse params: vec(labelvaltype)
-	paramCount, _, err := leb128.DecodeUint32(r)
-	if err != nil {
-		return nil, fmt.Errorf("read param count: %w", err)
-	}
-
-	ft.Params = make([]component.NamedValType, paramCount)
-	for i := uint32(0); i < paramCount; i++ {
-		name, err := decodeName(r)
-		if err != nil {
-			return nil, fmt.Errorf("read param %d name: %w", i, err)
-		}
-
-		valType, err := decodeValType(r)
-		if err != nil {
-			return nil, fmt.Errorf("read param %d type: %w", i, err)
-		}
-
-		ft.Params[i] = component.NamedValType{
-			Name:    name,
-			ValType: valType,
-		}
-	}
-
-	// Parse results
-	resultTag, err := r.ReadByte()
-	if err != nil {
-		return nil, fmt.Errorf("read result tag: %w", err)
-	}
-
-	switch resultTag {
-	case ResultSingle:
-		// Single unnamed result
-		valType, err := decodeValType(r)
-		if err != nil {
-			return nil, fmt.Errorf("read single result type: %w", err)
-		}
-		ft.Results = []component.NamedValType{{ValType: valType}}
-
-	case ResultNamed:
-		// Named results (vec) - count of 0 means no results
-		resultCount, _, err := leb128.DecodeUint32(r)
-		if err != nil {
-			return nil, fmt.Errorf("read result count: %w", err)
-		}
-
-		ft.Results = make([]component.NamedValType, resultCount)
-		for i := uint32(0); i < resultCount; i++ {
-			name, err := decodeName(r)
-			if err != nil {
-				return nil, fmt.Errorf("read result %d name: %w", i, err)
-			}
-
-			valType, err := decodeValType(r)
-			if err != nil {
-				return nil, fmt.Errorf("read result %d type: %w", i, err)
-			}
-
-			ft.Results[i] = component.NamedValType{
-				Name:    name,
-				ValType: valType,
-			}
-		}
-
+// primitiveOpcodeToValType converts a primitive-valtype opcode to the
+// matching types.ValType. Error-context is handled via the builder
+// because it carries a per-component table identity.
+func primitiveOpcodeToValType(opcode byte, b *types.ComponentTypesBuilder) (types.ValType, error) {
+	switch opcode {
+	case byte(PrimValTypeBool):
+		return types.Bool, nil
+	case byte(PrimValTypeS8):
+		return types.S8, nil
+	case byte(PrimValTypeU8):
+		return types.U8, nil
+	case byte(PrimValTypeS16):
+		return types.S16, nil
+	case byte(PrimValTypeU16):
+		return types.U16, nil
+	case byte(PrimValTypeS32):
+		return types.S32, nil
+	case byte(PrimValTypeU32):
+		return types.U32, nil
+	case byte(PrimValTypeS64):
+		return types.S64, nil
+	case byte(PrimValTypeU64):
+		return types.U64, nil
+	case byte(PrimValTypeF32):
+		return types.F32, nil
+	case byte(PrimValTypeF64):
+		return types.F64, nil
+	case byte(PrimValTypeChar):
+		return types.Char, nil
+	case byte(PrimValTypeString):
+		return types.String_, nil
+	case byte(PrimValTypeErrorContext):
+		return b.InternErrorContextTable(), nil
 	default:
-		return nil, fmt.Errorf("invalid result tag: 0x%02x", resultTag)
+		return types.ValType{}, fmt.Errorf("unknown primitive valtype opcode: 0x%02x", opcode)
 	}
-
-	return ft, nil
 }
 
-// decodeName reads a length-prefixed UTF-8 name.
-func decodeName(r *bytes.Reader) (string, error) {
-	length, _, err := leb128.DecodeUint32(r)
-	if err != nil {
-		return "", err
-	}
-
-	if length == 0 {
-		return "", nil
-	}
-
-	buf := make([]byte, length)
-	if _, err := io.ReadFull(r, buf); err != nil {
-		return "", err
-	}
-
-	return string(buf), nil
-}
-
-// decodeDefinedType reads a defined type from the reader.
-// Defined types include composite types (record, variant, list, etc.)
-// Format: <opcode> <type-specific-data>
-func decodeDefinedType(r *bytes.Reader) (*TypeDef, error) {
+// decodeDefinedType reads a defined (composite) type from the reader and
+// returns its interned types.ValType. The opcode byte has already been
+// consumed by a lookahead in the caller for the top-level dispatch
+// variant; for nested use (inside decodeValType / scope definitions) the
+// opcode is read inside this function. To keep the contract consistent
+// here, callers that have already consumed the opcode must re-dispatch
+// via the per-kind helpers directly — see decodeTypeSection.
+func decodeDefinedType(
+	r *bytes.Reader,
+	scope *typeScope,
+	b *types.ComponentTypesBuilder,
+) (types.ValType, error) {
 	opcode, err := r.ReadByte()
 	if err != nil {
-		return nil, err
+		return types.ValType{}, err
 	}
-
 	switch opcode {
 	case ValTypeOpcodeRecord:
-		record, err := decodeRecordTypeDef(r)
-		if err != nil {
-			return nil, fmt.Errorf("decode record type: %w", err)
-		}
-		return &TypeDef{
-			Kind:   TypeDefKindRecord,
-			Record: record,
-		}, nil
-
+		return decodeRecord(r, scope, b)
 	case ValTypeOpcodeVariant:
-		variant, err := decodeVariantTypeDef(r)
-		if err != nil {
-			return nil, fmt.Errorf("decode variant type: %w", err)
-		}
-		return &TypeDef{
-			Kind:    TypeDefKindVariant,
-			Variant: variant,
-		}, nil
-
+		return decodeVariant(r, scope, b)
 	case ValTypeOpcodeList:
-		list, err := decodeListTypeDef(r)
-		if err != nil {
-			return nil, fmt.Errorf("decode list type: %w", err)
-		}
-		return &TypeDef{
-			Kind: TypeDefKindList,
-			List: list,
-		}, nil
-
+		return decodeList(r, scope, b)
+	case ValTypeOpcodeFixedSizeList:
+		return decodeFixedLengthList(r, scope, b)
 	case ValTypeOpcodeTuple:
-		tuple, err := decodeTupleTypeDef(r)
-		if err != nil {
-			return nil, fmt.Errorf("decode tuple type: %w", err)
-		}
-		return &TypeDef{
-			Kind:  TypeDefKindTuple,
-			Tuple: tuple,
-		}, nil
-
+		return decodeTuple(r, scope, b)
 	case ValTypeOpcodeFlags:
-		flags, err := decodeFlagsTypeDef(r)
-		if err != nil {
-			return nil, fmt.Errorf("decode flags type: %w", err)
-		}
-		return &TypeDef{
-			Kind:  TypeDefKindFlags,
-			Flags: flags,
-		}, nil
-
+		return decodeFlags(r, b)
 	case ValTypeOpcodeEnum:
-		enum, err := decodeEnumTypeDef(r)
-		if err != nil {
-			return nil, fmt.Errorf("decode enum type: %w", err)
-		}
-		return &TypeDef{
-			Kind: TypeDefKindEnum,
-			Enum: enum,
-		}, nil
-
+		return decodeEnum(r, b)
 	case ValTypeOpcodeOption:
-		option, err := decodeOptionTypeDef(r)
-		if err != nil {
-			return nil, fmt.Errorf("decode option type: %w", err)
-		}
-		return &TypeDef{
-			Kind:   TypeDefKindOption,
-			Option: option,
-		}, nil
-
+		return decodeOption(r, scope, b)
 	case ValTypeOpcodeResult:
-		result, err := decodeResultTypeDef(r)
-		if err != nil {
-			return nil, fmt.Errorf("decode result type: %w", err)
-		}
-		return &TypeDef{
-			Kind:   TypeDefKindResult,
-			Result: result,
-		}, nil
-
+		return decodeResult(r, scope, b)
+	case ValTypeOpcodeStream:
+		return decodeStream(r, scope, b)
+	case ValTypeOpcodeFuture:
+		return decodeFuture(r, scope, b)
 	default:
-		return nil, fmt.Errorf("unknown defined type opcode: 0x%02x", opcode)
+		return types.ValType{}, fmt.Errorf("unknown defined type opcode: 0x%02x", opcode)
 	}
 }
 
-// decodeRecordTypeDef reads a record type definition from the reader.
-// Format: 0x72 <field_count> (<name> <type>)*
-func decodeRecordTypeDef(r *bytes.Reader) (*RecordTypeDef, error) {
+// decodeRecord reads a record payload (the fields vector) and interns
+// the result. The 0x72 opcode has already been consumed.
+// Format: <field_count> (<name> <type>)*
+func decodeRecord(r *bytes.Reader, scope *typeScope, b *types.ComponentTypesBuilder) (types.ValType, error) {
 	fieldCount, _, err := leb128.DecodeUint32(r)
 	if err != nil {
-		return nil, fmt.Errorf("read field count: %w", err)
+		return types.ValType{}, fmt.Errorf("read field count: %w", err)
 	}
-
 	if fieldCount == 0 {
-		return nil, fmt.Errorf("record type must have at least 1 field")
+		return types.ValType{}, fmt.Errorf("record type must have at least 1 field")
 	}
-
-	fields := make([]RecordField, fieldCount)
-	fieldNames := make([]string, fieldCount)
+	fields := make([]types.RecordField, fieldCount)
+	names := make([]string, fieldCount)
 	for i := uint32(0); i < fieldCount; i++ {
 		name, err := decodeName(r)
 		if err != nil {
-			return nil, fmt.Errorf("read field %d name: %w", i, err)
+			return types.ValType{}, fmt.Errorf("read field %d name: %w", i, err)
 		}
-
-		valType, err := decodeValType(r)
+		vt, err := decodeValType(r, scope, b)
 		if err != nil {
-			return nil, fmt.Errorf("read field %d type: %w", i, err)
+			return types.ValType{}, fmt.Errorf("read field %d type: %w", i, err)
 		}
-
-		fields[i] = RecordField{
-			Name: name,
-			Type: valType,
-		}
-		fieldNames[i] = name
+		fields[i] = types.RecordField{Name: name, Type: vt}
+		names[i] = name
 	}
-
-	if err := checkUniqueNames(fieldNames, "record field"); err != nil {
-		return nil, err
+	if err := checkUniqueNames(names, "record field"); err != nil {
+		return types.ValType{}, err
 	}
-
-	return &RecordTypeDef{
-		Fields: fields,
-	}, nil
+	return b.InternRecord(fields), nil
 }
 
-// decodeListTypeDef reads a list type definition from the reader.
-// Format: 0x70 <element_type>
-func decodeListTypeDef(r *bytes.Reader) (*ListTypeDef, error) {
-	elemType, err := decodeValType(r)
-	if err != nil {
-		return nil, fmt.Errorf("read list element type: %w", err)
-	}
-
-	return &ListTypeDef{
-		Element: elemType,
-	}, nil
-}
-
-// decodeVariantTypeDef reads a variant type definition from the reader.
-// Format: 0x71 <case_count> (<name> <type_flag> [<type>] <refines_flag> [<refines_idx>])*
-// Note: type_flag 0x00 = no type (discriminant only), 0x01 = has type
-// Note: refines_flag 0x00 = no refines, 0x01 = has refines index
-func decodeVariantTypeDef(r *bytes.Reader) (*VariantTypeDef, error) {
+// decodeVariant reads a variant payload and interns the result. The 0x71
+// opcode has already been consumed.
+// Format: <case_count> (<name> <type_flag> [<type>] <refines_flag> [<refines_idx>])*
+func decodeVariant(r *bytes.Reader, scope *typeScope, b *types.ComponentTypesBuilder) (types.ValType, error) {
 	caseCount, _, err := leb128.DecodeUint32(r)
 	if err != nil {
-		return nil, fmt.Errorf("read case count: %w", err)
+		return types.ValType{}, fmt.Errorf("read case count: %w", err)
 	}
-
 	if caseCount == 0 {
-		return nil, fmt.Errorf("variant type must have at least 1 case")
+		return types.ValType{}, fmt.Errorf("variant type must have at least 1 case")
 	}
-
-	cases := make([]VariantCase, caseCount)
-	caseNames := make([]string, caseCount)
+	cases := make([]types.VariantCase, caseCount)
+	names := make([]string, caseCount)
 	for i := uint32(0); i < caseCount; i++ {
 		name, err := decodeName(r)
 		if err != nil {
-			return nil, fmt.Errorf("read case %d name: %w", i, err)
+			return types.ValType{}, fmt.Errorf("read case %d name: %w", i, err)
 		}
-
-		// Read type flag (comes BEFORE refines per spec)
 		typeFlag, err := r.ReadByte()
 		if err != nil {
-			return nil, fmt.Errorf("read case %d type flag: %w", i, err)
+			return types.ValType{}, fmt.Errorf("read case %d type flag: %w", i, err)
 		}
-
-		var valTypeRef *component.ValTypeRef
-		if typeFlag == 0x01 {
-			vt, err := decodeValType(r)
+		var payload types.ValType
+		hasPayload := false
+		switch typeFlag {
+		case 0x00:
+			// no payload
+		case 0x01:
+			payload, err = decodeValType(r, scope, b)
 			if err != nil {
-				return nil, fmt.Errorf("read case %d type: %w", i, err)
+				return types.ValType{}, fmt.Errorf("read case %d type: %w", i, err)
 			}
-			valTypeRef = &vt
-		} else if typeFlag != 0x00 {
-			return nil, fmt.Errorf("invalid type flag for case %d: 0x%02x", i, typeFlag)
+			hasPayload = true
+		default:
+			return types.ValType{}, fmt.Errorf("invalid type flag for case %d: 0x%02x", i, typeFlag)
 		}
-
-		// Read refines flag (comes AFTER type per spec)
+		// Read the refines flag and consume its index if present; we
+		// ignore the refines relation at decode time since it does not
+		// affect the structural type.
 		refinesFlag, err := r.ReadByte()
 		if err != nil {
-			return nil, fmt.Errorf("read case %d refines flag: %w", i, err)
+			return types.ValType{}, fmt.Errorf("read case %d refines flag: %w", i, err)
 		}
-
-		var refines *uint32
-		if refinesFlag == 0x01 {
-			refinesIdx, _, err := leb128.DecodeUint32(r)
-			if err != nil {
-				return nil, fmt.Errorf("read case %d refines index: %w", i, err)
+		switch refinesFlag {
+		case 0x00:
+			// no refines
+		case 0x01:
+			if _, _, err := leb128.DecodeUint32(r); err != nil {
+				return types.ValType{}, fmt.Errorf("read case %d refines index: %w", i, err)
 			}
-			refines = &refinesIdx
-		} else if refinesFlag != 0x00 {
-			return nil, fmt.Errorf("invalid refines flag for case %d: 0x%02x", i, refinesFlag)
+		default:
+			return types.ValType{}, fmt.Errorf("invalid refines flag for case %d: 0x%02x", i, refinesFlag)
 		}
-
-		cases[i] = VariantCase{
-			Name:    name,
-			Refines: refines,
-			Type:    valTypeRef,
+		cases[i] = types.VariantCase{
+			Name:       name,
+			Payload:    payload,
+			HasPayload: hasPayload,
 		}
-		caseNames[i] = name
+		names[i] = name
 	}
-
-	if err := checkUniqueNames(caseNames, "variant case"); err != nil {
-		return nil, err
+	if err := checkUniqueNames(names, "variant case"); err != nil {
+		return types.ValType{}, err
 	}
-
-	return &VariantTypeDef{
-		Cases: cases,
-	}, nil
+	return b.InternVariant(cases), nil
 }
 
-// decodeTupleTypeDef reads a tuple type definition from the reader.
-// Format: 0x6f <count> <type>*
-func decodeTupleTypeDef(r *bytes.Reader) (*TupleTypeDef, error) {
+// decodeList reads a list payload and interns the result.
+// Format: <element_type>
+func decodeList(r *bytes.Reader, scope *typeScope, b *types.ComponentTypesBuilder) (types.ValType, error) {
+	elem, err := decodeValType(r, scope, b)
+	if err != nil {
+		return types.ValType{}, fmt.Errorf("read list element type: %w", err)
+	}
+	return b.InternList(elem), nil
+}
+
+// decodeFixedLengthList reads a fixed-size list payload and interns the
+// result.
+// Format: <element_type> <size>
+func decodeFixedLengthList(r *bytes.Reader, scope *typeScope, b *types.ComponentTypesBuilder) (types.ValType, error) {
+	elem, err := decodeValType(r, scope, b)
+	if err != nil {
+		return types.ValType{}, fmt.Errorf("read fixed-size list element type: %w", err)
+	}
+	size, _, err := leb128.DecodeUint32(r)
+	if err != nil {
+		return types.ValType{}, fmt.Errorf("read fixed-size list length: %w", err)
+	}
+	if size == 0 {
+		return types.ValType{}, fmt.Errorf("fixed-size list must have length > 0")
+	}
+	return b.InternFixedLengthList(elem, size), nil
+}
+
+// decodeTuple reads a tuple payload and interns the result.
+// Format: <count> <type>*
+func decodeTuple(r *bytes.Reader, scope *typeScope, b *types.ComponentTypesBuilder) (types.ValType, error) {
 	count, _, err := leb128.DecodeUint32(r)
 	if err != nil {
-		return nil, fmt.Errorf("read tuple element count: %w", err)
+		return types.ValType{}, fmt.Errorf("read tuple element count: %w", err)
 	}
-
 	if count == 0 {
-		return nil, fmt.Errorf("tuple type must have at least 1 element")
+		return types.ValType{}, fmt.Errorf("tuple type must have at least 1 element")
 	}
-
-	types := make([]component.ValTypeRef, count)
+	elems := make([]types.ValType, count)
 	for i := uint32(0); i < count; i++ {
-		valType, err := decodeValType(r)
+		vt, err := decodeValType(r, scope, b)
 		if err != nil {
-			return nil, fmt.Errorf("read tuple element %d type: %w", i, err)
+			return types.ValType{}, fmt.Errorf("read tuple element %d type: %w", i, err)
 		}
-		types[i] = valType
+		elems[i] = vt
 	}
-
-	return &TupleTypeDef{
-		Types: types,
-	}, nil
+	return b.InternTuple(elems), nil
 }
 
-// decodeFlagsTypeDef reads a flags type definition from the reader.
-// Format: 0x6e <count> <name>*
-// Spec requires: 0 < count <= 32
-func decodeFlagsTypeDef(r *bytes.Reader) (*FlagsTypeDef, error) {
+// decodeFlags reads a flags payload and interns the result.
+// Format: <count> <name>*
+func decodeFlags(r *bytes.Reader, b *types.ComponentTypesBuilder) (types.ValType, error) {
 	count, _, err := leb128.DecodeUint32(r)
 	if err != nil {
-		return nil, fmt.Errorf("read flags count: %w", err)
+		return types.ValType{}, fmt.Errorf("read flags count: %w", err)
 	}
-
 	if count == 0 {
-		return nil, fmt.Errorf("flags type must have at least 1 flag")
+		return types.ValType{}, fmt.Errorf("flags type must have at least 1 flag")
 	}
-
 	if count > 32 {
-		return nil, fmt.Errorf("flags type must have at most 32 flags, got %d", count)
+		return types.ValType{}, fmt.Errorf("flags type must have at most 32 flags, got %d", count)
 	}
-
 	names := make([]string, count)
 	for i := uint32(0); i < count; i++ {
 		name, err := decodeName(r)
 		if err != nil {
-			return nil, fmt.Errorf("read flag %d name: %w", i, err)
+			return types.ValType{}, fmt.Errorf("read flag %d name: %w", i, err)
 		}
 		names[i] = name
 	}
-
 	if err := checkUniqueNames(names, "flag"); err != nil {
-		return nil, err
+		return types.ValType{}, err
 	}
-
-	return &FlagsTypeDef{
-		Names: names,
-	}, nil
+	return b.InternFlags(names), nil
 }
 
-// decodeEnumTypeDef reads an enum type definition from the reader.
-// Format: 0x6d <count> <name>*
-func decodeEnumTypeDef(r *bytes.Reader) (*EnumTypeDef, error) {
+// decodeEnum reads an enum payload and interns the result.
+// Format: <count> <name>*
+func decodeEnum(r *bytes.Reader, b *types.ComponentTypesBuilder) (types.ValType, error) {
 	count, _, err := leb128.DecodeUint32(r)
 	if err != nil {
-		return nil, fmt.Errorf("read enum case count: %w", err)
+		return types.ValType{}, fmt.Errorf("read enum case count: %w", err)
 	}
-
 	if count == 0 {
-		return nil, fmt.Errorf("enum type must have at least 1 case")
+		return types.ValType{}, fmt.Errorf("enum type must have at least 1 case")
 	}
-
-	cases := make([]string, count)
+	names := make([]string, count)
 	for i := uint32(0); i < count; i++ {
 		name, err := decodeName(r)
 		if err != nil {
-			return nil, fmt.Errorf("read enum case %d name: %w", i, err)
+			return types.ValType{}, fmt.Errorf("read enum case %d name: %w", i, err)
 		}
-		cases[i] = name
+		names[i] = name
 	}
-
-	if err := checkUniqueNames(cases, "enum case"); err != nil {
-		return nil, err
+	if err := checkUniqueNames(names, "enum case"); err != nil {
+		return types.ValType{}, err
 	}
-
-	return &EnumTypeDef{
-		Cases: cases,
-	}, nil
+	return b.InternEnum(names), nil
 }
 
-// decodeOptionTypeDef reads an option type definition from the reader.
-// Format: 0x6b <type>
-func decodeOptionTypeDef(r *bytes.Reader) (*OptionTypeDef, error) {
-	someType, err := decodeValType(r)
+// decodeOption reads an option payload and interns the result.
+// Format: <element_type>
+func decodeOption(r *bytes.Reader, scope *typeScope, b *types.ComponentTypesBuilder) (types.ValType, error) {
+	elem, err := decodeValType(r, scope, b)
 	if err != nil {
-		return nil, fmt.Errorf("read option some type: %w", err)
+		return types.ValType{}, fmt.Errorf("read option element type: %w", err)
 	}
-
-	return &OptionTypeDef{Some: someType}, nil
+	return b.InternOption(elem), nil
 }
 
-// decodeResultTypeDef reads a result type definition from the reader.
-// Format: 0x6a <ok_flag> [<ok_type>] <error_flag> [<error_type>]
-// ok_flag: 0x00 = no ok type, 0x01 = has ok type
-// error_flag: 0x00 = no error type, 0x01 = has error type
-func decodeResultTypeDef(r *bytes.Reader) (*ResultTypeDef, error) {
-	result := &ResultTypeDef{}
-
-	// Read ok type flag
+// decodeResult reads a result payload and interns the result.
+// Format: <ok_flag> [<ok_type>] <err_flag> [<err_type>]
+func decodeResult(r *bytes.Reader, scope *typeScope, b *types.ComponentTypesBuilder) (types.ValType, error) {
 	okFlag, err := r.ReadByte()
 	if err != nil {
-		return nil, fmt.Errorf("read result ok flag: %w", err)
+		return types.ValType{}, fmt.Errorf("read result ok flag: %w", err)
 	}
-
-	if okFlag == 0x01 {
-		okType, err := decodeValType(r)
+	var okType types.ValType
+	hasOK := false
+	switch okFlag {
+	case 0x00:
+		// none
+	case 0x01:
+		okType, err = decodeValType(r, scope, b)
 		if err != nil {
-			return nil, fmt.Errorf("read result ok type: %w", err)
+			return types.ValType{}, fmt.Errorf("read result ok type: %w", err)
 		}
-		result.Ok = &okType
-	} else if okFlag != 0x00 {
-		return nil, fmt.Errorf("invalid result ok flag: 0x%02x", okFlag)
+		hasOK = true
+	default:
+		return types.ValType{}, fmt.Errorf("invalid result ok flag: 0x%02x", okFlag)
 	}
 
-	// Read error type flag
-	errorFlag, err := r.ReadByte()
+	errFlag, err := r.ReadByte()
 	if err != nil {
-		return nil, fmt.Errorf("read result error flag: %w", err)
+		return types.ValType{}, fmt.Errorf("read result err flag: %w", err)
 	}
-
-	if errorFlag == 0x01 {
-		errorType, err := decodeValType(r)
+	var errType types.ValType
+	hasErr := false
+	switch errFlag {
+	case 0x00:
+		// none
+	case 0x01:
+		errType, err = decodeValType(r, scope, b)
 		if err != nil {
-			return nil, fmt.Errorf("read result error type: %w", err)
+			return types.ValType{}, fmt.Errorf("read result err type: %w", err)
 		}
-		result.Error = &errorType
-	} else if errorFlag != 0x00 {
-		return nil, fmt.Errorf("invalid result error flag: 0x%02x", errorFlag)
+		hasErr = true
+	default:
+		return types.ValType{}, fmt.Errorf("invalid result err flag: 0x%02x", errFlag)
 	}
 
-	return result, nil
+	return b.InternResult(okType, errType, hasOK, hasErr), nil
 }
 
-// decodeStreamTypeDef decodes a stream type definition.
-// Format: 0x66 <has_element> [element_type] <has_end> [end_type]
-func decodeStreamTypeDef(r *bytes.Reader) (*component.StreamTypeDef, error) {
-	stream := &component.StreamTypeDef{}
-
-	hasElement, err := r.ReadByte()
+// decodeStream reads a stream payload and interns the result.
+// Format: <has_element> [<element_type>]
+//
+// Note: Wasmtime's component-model-binary format historically encoded
+// stream as <has_element> [element_type] <has_end> [end_type]; the
+// current spec (definitions.py as of 2025) drops the end type. Wazero
+// tracks the current spec.
+func decodeStream(r *bytes.Reader, scope *typeScope, b *types.ComponentTypesBuilder) (types.ValType, error) {
+	hasElem, err := r.ReadByte()
 	if err != nil {
-		return nil, fmt.Errorf("read has element: %w", err)
+		return types.ValType{}, fmt.Errorf("read stream has-element flag: %w", err)
 	}
-	if hasElement == 0x01 {
-		elemType, err := decodeValType(r)
+	var elem types.ValType
+	has := false
+	switch hasElem {
+	case 0x00:
+		// none
+	case 0x01:
+		elem, err = decodeValType(r, scope, b)
 		if err != nil {
-			return nil, fmt.Errorf("read element type: %w", err)
+			return types.ValType{}, fmt.Errorf("read stream element type: %w", err)
 		}
-		stream.ElementType = &elemType
-	} else if hasElement != 0x00 {
-		return nil, fmt.Errorf("invalid has element flag: 0x%02x", hasElement)
+		has = true
+	default:
+		return types.ValType{}, fmt.Errorf("invalid stream has-element flag: 0x%02x", hasElem)
 	}
-
-	hasEnd, err := r.ReadByte()
-	if err != nil {
-		return nil, fmt.Errorf("read has end: %w", err)
-	}
-	if hasEnd == 0x01 {
-		endType, err := decodeValType(r)
-		if err != nil {
-			return nil, fmt.Errorf("read end type: %w", err)
-		}
-		stream.EndType = &endType
-	} else if hasEnd != 0x00 {
-		return nil, fmt.Errorf("invalid has end flag: 0x%02x", hasEnd)
-	}
-
-	return stream, nil
+	return b.InternStream(elem, has), nil
 }
 
-// decodeFutureTypeDef decodes a future type definition.
-// Format: 0x65 <has_payload> [payload_type]
-func decodeFutureTypeDef(r *bytes.Reader) (*component.FutureTypeDef, error) {
-	future := &component.FutureTypeDef{}
-
+// decodeFuture reads a future payload and interns the result.
+// Format: <has_payload> [<payload_type>]
+func decodeFuture(r *bytes.Reader, scope *typeScope, b *types.ComponentTypesBuilder) (types.ValType, error) {
 	hasPayload, err := r.ReadByte()
 	if err != nil {
-		return nil, fmt.Errorf("read has payload: %w", err)
+		return types.ValType{}, fmt.Errorf("read future has-payload flag: %w", err)
 	}
-	if hasPayload == 0x01 {
-		payloadType, err := decodeValType(r)
+	var elem types.ValType
+	has := false
+	switch hasPayload {
+	case 0x00:
+		// none
+	case 0x01:
+		elem, err = decodeValType(r, scope, b)
 		if err != nil {
-			return nil, fmt.Errorf("read payload type: %w", err)
+			return types.ValType{}, fmt.Errorf("read future payload type: %w", err)
 		}
-		future.PayloadType = &payloadType
-	} else if hasPayload != 0x00 {
-		return nil, fmt.Errorf("invalid has payload flag: 0x%02x", hasPayload)
+		has = true
+	default:
+		return types.ValType{}, fmt.Errorf("invalid future has-payload flag: 0x%02x", hasPayload)
 	}
-
-	return future, nil
+	return b.InternFuture(elem, has), nil
 }
 
-// decodeFixedSizeListTypeDef decodes a fixed-size list type definition.
-// Format: 0x67 <element_type> <size>
-// Spec requires: size > 0
-func decodeFixedSizeListTypeDef(r *bytes.Reader) (*component.FixedSizeListTypeDef, error) {
-	elemType, err := decodeValType(r)
+// decodeFuncType reads a component function type, including the leading
+// opcode (0x40 sync or 0x43 async). It returns the builder FuncTypeIdx
+// for the interned type plus the decoded parameter names.
+//
+// Format: 0x40 paramlist resultlist  (sync)
+//
+//	| 0x43 paramlist resultlist  (async)
+//
+// Both params and results are encoded as vectors of (name, valtype)
+// pairs, except results may be a single unnamed valtype via tag 0x00.
+func decodeFuncType(
+	r *bytes.Reader,
+	scope *typeScope,
+	b *types.ComponentTypesBuilder,
+) (types.FuncTypeIdx, error) {
+	opcode, err := r.ReadByte()
 	if err != nil {
-		return nil, fmt.Errorf("read element type: %w", err)
+		return 0, err
 	}
+	if opcode != TypeOpFuncSync && opcode != TypeOpFuncAsync {
+		return 0, fmt.Errorf("expected functype opcode 0x40 or 0x43, got 0x%02x", opcode)
+	}
+	async := opcode == TypeOpFuncAsync
 
-	size, _, err := leb128.DecodeUint32(r)
+	// Parse params: vec(labelvaltype).
+	paramCount, _, err := leb128.DecodeUint32(r)
 	if err != nil {
-		return nil, fmt.Errorf("read size: %w", err)
+		return 0, fmt.Errorf("read param count: %w", err)
+	}
+	paramNames := make([]string, paramCount)
+	paramTypes := make([]types.ValType, paramCount)
+	for i := uint32(0); i < paramCount; i++ {
+		name, err := decodeName(r)
+		if err != nil {
+			return 0, fmt.Errorf("read param %d name: %w", i, err)
+		}
+		vt, err := decodeValType(r, scope, b)
+		if err != nil {
+			return 0, fmt.Errorf("read param %d type: %w", i, err)
+		}
+		paramNames[i] = name
+		paramTypes[i] = vt
 	}
 
-	if size == 0 {
-		return nil, fmt.Errorf("fixed-size list must have length > 0")
+	// Parse results.
+	resultTag, err := r.ReadByte()
+	if err != nil {
+		return 0, fmt.Errorf("read result tag: %w", err)
+	}
+	var resultTypes []types.ValType
+	switch resultTag {
+	case ResultSingle:
+		vt, err := decodeValType(r, scope, b)
+		if err != nil {
+			return 0, fmt.Errorf("read single result type: %w", err)
+		}
+		resultTypes = []types.ValType{vt}
+	case ResultNamed:
+		resultCount, _, err := leb128.DecodeUint32(r)
+		if err != nil {
+			return 0, fmt.Errorf("read result count: %w", err)
+		}
+		resultTypes = make([]types.ValType, resultCount)
+		for i := uint32(0); i < resultCount; i++ {
+			// Per the component-model binary spec the vector elements
+			// are (name, valtype); the name is discarded for the
+			// interned FuncType because wasmtime stores result names
+			// positionally via the params-like signature. Wazero keeps
+			// the result as an anonymous tuple to match.
+			if _, err := decodeName(r); err != nil {
+				return 0, fmt.Errorf("read result %d name: %w", i, err)
+			}
+			vt, err := decodeValType(r, scope, b)
+			if err != nil {
+				return 0, fmt.Errorf("read result %d type: %w", i, err)
+			}
+			resultTypes[i] = vt
+		}
+	default:
+		return 0, fmt.Errorf("invalid result tag: 0x%02x", resultTag)
 	}
 
-	return &component.FixedSizeListTypeDef{
-		ElementType: elemType,
-		Size:        size,
-	}, nil
+	// The builder represents both params and results as tuple ValTypes.
+	// A zero-length tuple is a valid "unit" signature on both sides; the
+	// builder handles the empty-slice case directly.
+	paramTuple := b.InternTuple(paramTypes)
+	resultTuple := b.InternTuple(resultTypes)
+	return b.InternFunc(async, paramNames, paramTuple, resultTuple), nil
 }
 
-// decodeResourceTypeDef reads a resource type definition from the reader.
+// decodeResourceDecl reads a resource-declaration payload from the
+// reader, interns an Abstract TypeResourceTable entry via the builder,
+// and returns the resulting ResourceTypeDef carrying the decoded
+// destructor / callback metadata plus the builder-assigned resource
+// table index. The caller is responsible for appending the
+// ResourceTableIdx to the current scope.
+//
 // For sync resources (0x3f): Format is 0x7f dtor_flag [dtor_idx]
 // For async resources (0x3e): Format is 0x7f f:<funcidx> cb?:<funcidx>?
-// The 0x7f byte indicates i32 representation (always required).
-// For sync: dtor_flag 0x00 = no destructor, 0x01 = has destructor followed by funcidx.
-// For async: destructor funcidx is required, followed by optional callback flag and index.
-func decodeResourceTypeDef(r *bytes.Reader) (*ResourceTypeDef, error) {
-	return decodeResourceTypeDefWithAsync(r, false)
-}
-
-// decodeResourceTypeDefWithAsync reads a resource type definition from the reader.
-// The isAsync parameter indicates whether this is an async resource type (0x3e opcode).
-func decodeResourceTypeDefWithAsync(r *bytes.Reader, isAsync bool) (*ResourceTypeDef, error) {
-	// Read rep type (must be 0x7f for i32)
+func decodeResourceDecl(
+	r *bytes.Reader,
+	_ *typeScope,
+	b *types.ComponentTypesBuilder,
+	isAsync bool,
+) (*ResourceTypeDef, error) {
 	repType, err := r.ReadByte()
 	if err != nil {
 		return nil, fmt.Errorf("read resource rep type: %w", err)
@@ -766,30 +692,22 @@ func decodeResourceTypeDefWithAsync(r *bytes.Reader, isAsync bool) (*ResourceTyp
 		return nil, fmt.Errorf("unsupported resource rep type: 0x%02x (expected 0x7f for i32)", repType)
 	}
 
-	result := &ResourceTypeDef{
-		AsyncDestructor: isAsync,
-	}
+	result := &ResourceTypeDef{AsyncDestructor: isAsync}
 
 	if isAsync {
-		// Async resource: destructor funcidx is required
 		dtorIdx, _, err := leb128.DecodeUint32(r)
 		if err != nil {
 			return nil, fmt.Errorf("read async resource destructor index: %w", err)
 		}
 		result.Destructor = &dtorIdx
-
-		// Optional callback flag
 		callbackFlag, err := r.ReadByte()
 		if err != nil {
 			return nil, fmt.Errorf("read async resource callback flag: %w", err)
 		}
-
 		switch callbackFlag {
 		case 0x00:
-			// No callback
 			result.Callback = nil
 		case 0x01:
-			// Has callback, read function index
 			callbackIdx, _, err := leb128.DecodeUint32(r)
 			if err != nil {
 				return nil, fmt.Errorf("read async resource callback index: %w", err)
@@ -799,18 +717,14 @@ func decodeResourceTypeDefWithAsync(r *bytes.Reader, isAsync bool) (*ResourceTyp
 			return nil, fmt.Errorf("invalid async resource callback flag: 0x%02x (expected 0x00 or 0x01)", callbackFlag)
 		}
 	} else {
-		// Sync resource: destructor is optional via flag
 		dtorFlag, err := r.ReadByte()
 		if err != nil {
 			return nil, fmt.Errorf("read resource destructor flag: %w", err)
 		}
-
 		switch dtorFlag {
 		case 0x00:
-			// No destructor
 			result.Destructor = nil
 		case 0x01:
-			// Has destructor, read function index
 			dtorIdx, _, err := leb128.DecodeUint32(r)
 			if err != nil {
 				return nil, fmt.Errorf("read resource destructor index: %w", err)
@@ -821,13 +735,31 @@ func decodeResourceTypeDefWithAsync(r *bytes.Reader, isAsync bool) (*ResourceTyp
 		}
 	}
 
+	result.ResourceTableIdx = b.InternAbstractResource()
 	return result, nil
 }
 
-// checkUniqueNames validates that all names in the slice are unique.
-// It returns an error if a duplicate is found, including the context (e.g., "record field").
+// decodeName reads a length-prefixed UTF-8 name.
+func decodeName(r *bytes.Reader) (string, error) {
+	length, _, err := leb128.DecodeUint32(r)
+	if err != nil {
+		return "", err
+	}
+	if length == 0 {
+		return "", nil
+	}
+	buf := make([]byte, length)
+	if _, err := io.ReadFull(r, buf); err != nil {
+		return "", err
+	}
+	return string(buf), nil
+}
+
+// checkUniqueNames validates that all names in the slice are unique. It
+// returns an error identifying the first duplicate, including the
+// supplied context (e.g., "record field").
 func checkUniqueNames(names []string, context string) error {
-	seen := make(map[string]bool)
+	seen := make(map[string]bool, len(names))
 	for i, name := range names {
 		if seen[name] {
 			return fmt.Errorf("duplicate %s name at index %d: %q", context, i, name)

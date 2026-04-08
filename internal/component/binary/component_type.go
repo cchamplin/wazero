@@ -69,7 +69,12 @@ func decodeComponentDecl(r *bytes.Reader) (component.ComponentDecl, error) {
 		decl.Alias = &alias
 
 	case component.ComponentDeclKindImport:
-		imp, err := decodeImport(r)
+		// Session 0: nested component-type imports are parsed against a
+		// throwaway decodeContext so byte-level stream correctness is
+		// preserved. Session 2 threads the parent component's scope
+		// and builder through so the resolved types are reusable.
+		nestedDC := newDecodeContext()
+		imp, err := decodeImport(nestedDC, r)
 		if err != nil {
 			return decl, fmt.Errorf("decode import: %w", err)
 		}

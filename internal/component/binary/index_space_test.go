@@ -21,11 +21,11 @@ func TestIndexSpaceTracking_TypeSection(t *testing.T) {
 		{
 			name: "single function type",
 			typeSection: []byte{
-				0x01,      // 1 type definition
-				0x40,      // sync functype
-				0x00,      // 0 params
-				0x01,      // named results
-				0x00,      // 0 results
+				0x01, // 1 type definition
+				0x40, // sync functype
+				0x00, // 0 params
+				0x01, // named results
+				0x00, // 0 results
 			},
 			expectedTypeIdx: 1,
 		},
@@ -42,9 +42,9 @@ func TestIndexSpaceTracking_TypeSection(t *testing.T) {
 				0x40,      // sync functype
 				0x01,      // 1 param
 				0x01, 'a', // param name "a"
-				0x7a,      // s32
-				0x00,      // single result
-				0x7a,      // s32
+				0x7a, // s32
+				0x00, // single result
+				0x7a, // s32
 			},
 			expectedTypeIdx: 2,
 		},
@@ -65,7 +65,7 @@ func TestIndexSpaceTracking_TypeSection(t *testing.T) {
 				0x72,      // record opcode
 				0x01,      // 1 field
 				0x01, 'x', // field name "x"
-				0x7a,      // s32
+				0x7a, // s32
 			},
 			expectedTypeIdx: 3,
 		},
@@ -84,7 +84,10 @@ func TestIndexSpaceTracking_TypeSection(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, c)
 			require.Equal(t, tc.expectedTypeIdx, c.NextTypeIdx, "NextTypeIdx mismatch")
-			require.Equal(t, int(tc.expectedTypeIdx), len(c.Types), "Types slice length should match NextTypeIdx")
+			// Post-Task 13: Component.Types is the structural
+			// *ComponentTypes bag, not a []TypeDef slice keyed by the
+			// scope-local index. NextTypeIdx remains authoritative for
+			// binary-level index space tracking.
 		})
 	}
 }
@@ -189,17 +192,17 @@ func TestIndexSpaceTracking_AliasSection(t *testing.T) {
 		aliasSection := []byte{
 			0x03, // 3 aliases
 			// Alias 1: core export func
-			0x00,                // sort: core
-			0x00,                // core sort: func
-			0x01,                // target: core export
-			0x00,                // instance index
-			0x01, 'a',           // name: "a"
+			0x00,      // sort: core
+			0x00,      // core sort: func
+			0x01,      // target: core export
+			0x00,      // instance index
+			0x01, 'a', // name: "a"
 			// Alias 2: core export func (another one)
-			0x00,                // sort: core
-			0x00,                // core sort: func
-			0x01,                // target: core export
-			0x00,                // instance index
-			0x01, 'b',           // name: "b"
+			0x00,      // sort: core
+			0x00,      // core sort: func
+			0x01,      // target: core export
+			0x00,      // instance index
+			0x01, 'b', // name: "b"
 			// Alias 3: outer type
 			0x03, // sort: type
 			0x02, // target: outer
@@ -296,9 +299,9 @@ func TestIndexSpaceTracking_ExportSection(t *testing.T) {
 			0x01,                     // 1 export
 			0x00,                     // simple name
 			0x04, 't', 'e', 's', 't', // name "test"
-			0x01,                     // sort = func
-			0x00,                     // index = 0
-			0x00,                     // no externdesc
+			0x01, // sort = func
+			0x00, // index = 0
+			0x00, // no externdesc
 		}
 
 		c := &component.Component{}
@@ -309,12 +312,12 @@ func TestIndexSpaceTracking_ExportSection(t *testing.T) {
 
 	t.Run("type export does not increment NextFuncIdx", func(t *testing.T) {
 		exportSection := []byte{
-			0x01,                       // 1 export
-			0x00,                       // simple name
-			0x04, 'm', 'y', '-', 't',   // name "my-t"
-			0x05,                       // sort = type
-			0x00,                       // index = 0
-			0x00,                       // no externdesc
+			0x01,                     // 1 export
+			0x00,                     // simple name
+			0x04, 'm', 'y', '-', 't', // name "my-t"
+			0x05, // sort = type
+			0x00, // index = 0
+			0x00, // no externdesc
 		}
 
 		c := &component.Component{}

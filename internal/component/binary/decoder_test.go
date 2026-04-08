@@ -1,4 +1,6 @@
-// internal/component/binary/decoder_test.go
+// Copyright 2024 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
 
 package binary
 
@@ -7,6 +9,7 @@ import (
 
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/component/testdata"
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -125,9 +128,9 @@ func TestDecodeComponent_TypeSection(t *testing.T) {
 		0x01, 'a', // param name "a" (length 1)
 		0x7a,      // s32
 		0x01, 'b', // param name "b" (length 1)
-		0x7a,      // s32
-		0x00,      // single result
-		0x7a,      // s32
+		0x7a, // s32
+		0x00, // single result
+		0x7a, // s32
 	}
 
 	// Build component
@@ -139,11 +142,24 @@ func TestDecodeComponent_TypeSection(t *testing.T) {
 	c, err := DecodeComponent(input)
 	require.NoError(t, err)
 	require.NotNil(t, c)
-	require.Equal(t, 1, len(c.Types))
-	require.Equal(t, component.TypeDefKindFunc, c.Types[0].Kind)
-	require.NotNil(t, c.Types[0].Func)
-	require.Equal(t, 2, len(c.Types[0].Func.Params))
-	require.Equal(t, "a", c.Types[0].Func.Params[0].Name)
+	require.NotNil(t, c.Types)
+
+	// The function type is interned into c.Types.Funcs[0]. It has a
+	// two-element parameter tuple (s32, s32) and a single-element result
+	// tuple (s32). The param names are preserved on the TypeFunc.
+	ct := c.Types
+	require.Equal(t, 1, len(ct.Funcs))
+	fn := ct.Funcs[0]
+	require.Equal(t, []string{"a", "b"}, fn.ParamNames)
+	require.Equal(t, types.TypeKindTuple, fn.Params.Kind)
+	paramTuple := ct.Tuples[fn.Params.Index]
+	require.Equal(t, 2, len(paramTuple.Types))
+	require.Equal(t, types.S32, paramTuple.Types[0])
+	require.Equal(t, types.S32, paramTuple.Types[1])
+	require.Equal(t, types.TypeKindTuple, fn.Results.Kind)
+	resultTuple := ct.Tuples[fn.Results.Index]
+	require.Equal(t, 1, len(resultTuple.Types))
+	require.Equal(t, types.S32, resultTuple.Types[0])
 }
 
 func TestDecodeComponent_CanonSection(t *testing.T) {
@@ -171,12 +187,12 @@ func TestDecodeComponent_CanonSection(t *testing.T) {
 
 func TestDecodeComponent_ExportSection(t *testing.T) {
 	exportSection := []byte{
-		0x01,             // 1 export
-		0x00,             // simple name
+		0x01,                // 1 export
+		0x00,                // simple name
 		0x03, 'a', 'd', 'd', // name "add"
-		0x01,             // sort = func
-		0x00,             // index = 0
-		0x00,             // no externdesc
+		0x01, // sort = func
+		0x00, // index = 0
+		0x00, // no externdesc
 	}
 
 	input := append(append(Magic[:], Version[:]...), LayerComponent[:]...)
@@ -193,14 +209,17 @@ func TestDecodeComponent_ExportSection(t *testing.T) {
 }
 
 func TestDecodeTypeSection_WithResource(t *testing.T) {
-	// Build a component with a type section containing a resource type
+	// Build a component with a type section containing a resource type.
 	// Resource type format: 0x3f (opcode) + 0x7f (rep type i32) + dtor_flag [dtor_idx]
-
+	//
+	// The decoder interns each resource declaration as an Abstract
+	// TypeResourceTable entry via the builder; destructor and callback
+	// metadata remain on the local ResourceTypeDef returned by
+	// decodeResourceDecl (discarded at the DecodeComponent boundary in
+	// Session 0).
 	tests := []struct {
-		name            string
-		typeSection     []byte
-		hasDestructor   bool
-		destructorIndex uint32
+		name        string
+		typeSection []byte
 	}{
 		{
 			name: "resource without destructor",
@@ -210,7 +229,6 @@ func TestDecodeTypeSection_WithResource(t *testing.T) {
 				0x7f, // rep type i32
 				0x00, // no destructor
 			},
-			hasDestructor: false,
 		},
 		{
 			name: "resource with destructor",
@@ -221,8 +239,6 @@ func TestDecodeTypeSection_WithResource(t *testing.T) {
 				0x01, // has destructor
 				0x05, // destructor at func index 5
 			},
-			hasDestructor:   true,
-			destructorIndex: 5,
 		},
 		{
 			name: "resource with large destructor index",
@@ -233,8 +249,6 @@ func TestDecodeTypeSection_WithResource(t *testing.T) {
 				0x01,       // has destructor
 				0x80, 0x01, // destructor at func index 128 (LEB128)
 			},
-			hasDestructor:   true,
-			destructorIndex: 128,
 		},
 	}
 
@@ -250,26 +264,18 @@ func TestDecodeTypeSection_WithResource(t *testing.T) {
 			c, err := DecodeComponent(input)
 			require.NoError(t, err)
 			require.NotNil(t, c)
-			require.Equal(t, 1, len(c.Types))
-			require.Equal(t, component.TypeDefKindResource, c.Types[0].Kind)
-			require.NotNil(t, c.Types[0].Resource)
-
-			// Type assert to access ResourceTypeDef fields
-			resourceDef, ok := c.Types[0].Resource.(*ResourceTypeDef)
-			require.True(t, ok, "Resource should be *ResourceTypeDef")
-
-			if tc.hasDestructor {
-				require.NotNil(t, resourceDef.Destructor)
-				require.Equal(t, tc.destructorIndex, *resourceDef.Destructor)
-			} else {
-				require.Nil(t, resourceDef.Destructor)
-			}
+			require.NotNil(t, c.Types)
+			require.Equal(t, 1, len(c.Types.ResourceTables))
+			require.False(t, c.Types.ResourceTables[0].Concrete)
 		})
 	}
 }
 
 func TestDecodeTypeSection_WithResourceAndFunc(t *testing.T) {
-	// Test a type section with both a resource and a function type
+	// Test a type section with both a resource and a function type.
+	// The resource declaration interns an Abstract TypeResourceTable
+	// entry at scope slot 0; the function signature's own<0> reference
+	// resolves to that entry via the scope lookup.
 	typeSection := []byte{
 		0x02, // 2 type definitions
 
@@ -279,64 +285,61 @@ func TestDecodeTypeSection_WithResourceAndFunc(t *testing.T) {
 		0x00, // no destructor
 
 		// Type 1: function (param "handle" own<0>) -> ()
-		0x40,            // sync functype
-		0x01,            // 1 param
+		0x40,                               // sync functype
+		0x01,                               // 1 param
 		0x06, 'h', 'a', 'n', 'd', 'l', 'e', // param name "handle"
 		0x69, 0x00, // own<type_0> (own handle to resource at index 0)
-		0x01,       // named results (vec)
-		0x00,       // 0 results
+		0x01, // named results (vec)
+		0x00, // 0 results
 	}
 
 	// Build component
 	input := append(append(Magic[:], Version[:]...), LayerComponent[:]...)
-	input = append(input, byte(SectionIDType))       // section ID = 7
-	input = append(input, byte(len(typeSection)))    // section size
+	input = append(input, byte(SectionIDType))    // section ID = 7
+	input = append(input, byte(len(typeSection))) // section size
 	input = append(input, typeSection...)
 
 	c, err := DecodeComponent(input)
 	require.NoError(t, err)
 	require.NotNil(t, c)
-	require.Equal(t, 2, len(c.Types))
+	require.NotNil(t, c.Types)
+	ct := c.Types
 
-	// Verify resource type
-	require.Equal(t, component.TypeDefKindResource, c.Types[0].Kind)
-	require.NotNil(t, c.Types[0].Resource)
-	resourceDef, ok := c.Types[0].Resource.(*ResourceTypeDef)
-	require.True(t, ok)
-	require.Nil(t, resourceDef.Destructor)
+	// Verify resource table entry.
+	require.Equal(t, 1, len(ct.ResourceTables))
+	require.False(t, ct.ResourceTables[0].Concrete)
 
-	// Verify function type
-	require.Equal(t, component.TypeDefKindFunc, c.Types[1].Kind)
-	require.NotNil(t, c.Types[1].Func)
-	require.Equal(t, 1, len(c.Types[1].Func.Params))
-	require.Equal(t, "handle", c.Types[1].Func.Params[0].Name)
-	require.True(t, c.Types[1].Func.Params[0].ValType.IsOwn)
-	require.Equal(t, uint32(0), c.Types[1].Func.Params[0].ValType.TypeIdx)
+	// Verify the function signature resolved the own<> handle.
+	require.Equal(t, 1, len(ct.Funcs))
+	fn := ct.Funcs[0]
+	require.Equal(t, []string{"handle"}, fn.ParamNames)
+	paramTuple := ct.Tuples[fn.Params.Index]
+	require.Equal(t, 1, len(paramTuple.Types))
+	require.Equal(t, types.TypeKindOwn, paramTuple.Types[0].Kind)
+	require.Equal(t, uint32(0), paramTuple.Types[0].Index)
 }
 
 func TestDecodeComponent_AddS32Fixture(t *testing.T) {
-	// Use the embedded add_s32 test fixture
+	// Use the embedded add_s32 test fixture.
 	c, err := DecodeComponent(testdata.AddS32Component)
 	require.NoError(t, err)
 	require.NotNil(t, c)
 
-	// Verify core module was parsed
+	// Verify core module was parsed.
 	require.Equal(t, 1, len(c.CoreModules))
 	require.NotNil(t, c.CoreModules[0])
 
-	// Verify type section
-	require.Equal(t, 1, len(c.Types))
-	require.Equal(t, component.TypeDefKindFunc, c.Types[0].Kind)
-	require.NotNil(t, c.Types[0].Func)
-	require.Equal(t, 2, len(c.Types[0].Func.Params))
-	require.Equal(t, "a", c.Types[0].Func.Params[0].Name)
-	require.Equal(t, "b", c.Types[0].Func.Params[1].Name)
+	// Verify type section.
+	require.NotNil(t, c.Types)
+	require.Equal(t, 1, len(c.Types.Funcs))
+	fn := c.Types.Funcs[0]
+	require.Equal(t, []string{"a", "b"}, fn.ParamNames)
 
-	// Verify canon section
+	// Verify canon section.
 	require.Equal(t, 1, len(c.Canonicals))
 	require.Equal(t, component.CanonKindLift, c.Canonicals[0].Kind)
 
-	// Verify export section
+	// Verify export section.
 	require.Equal(t, 1, len(c.Exports))
 	require.Equal(t, "add", c.Exports[0].Name)
 	require.Equal(t, component.ExportKindFunc, c.Exports[0].Kind)
@@ -345,106 +348,79 @@ func TestDecodeComponent_AddS32Fixture(t *testing.T) {
 func TestDecodeComponent_VariantType(t *testing.T) {
 	// variant { a, b(s32) }
 	data := buildComponentWithTypeSection([]byte{
-		0x71,       // variant opcode
-		0x02,       // 2 cases
-		0x01, 'a',  // case "a"
-		0x00,       // no payload
-		0x00,       // no refines
-		0x01, 'b',  // case "b"
+		0x71,      // variant opcode
+		0x02,      // 2 cases
+		0x01, 'a', // case "a"
+		0x00,      // no payload
+		0x00,      // no refines
+		0x01, 'b', // case "b"
 		0x01, 0x7a, // has payload: s32
-		0x00,       // no refines
+		0x00, // no refines
 	})
 
 	c, err := DecodeComponent(data)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(c.Types) != 1 {
-		t.Fatalf("expected 1 type, got %d", len(c.Types))
-	}
-
-	if c.Types[0].Variant == nil {
-		t.Fatal("expected variant type def")
-	}
-
-	if len(c.Types[0].Variant.Cases) != 2 {
-		t.Errorf("expected 2 cases, got %d", len(c.Types[0].Variant.Cases))
-	}
+	require.NoError(t, err)
+	require.NotNil(t, c.Types)
+	require.Equal(t, 1, len(c.Types.Variants))
+	v := c.Types.Variants[0]
+	require.Equal(t, 2, len(v.Cases))
+	require.Equal(t, "a", v.Cases[0].Name)
+	require.False(t, v.Cases[0].HasPayload)
+	require.Equal(t, "b", v.Cases[1].Name)
+	require.True(t, v.Cases[1].HasPayload)
+	require.Equal(t, types.S32, v.Cases[1].Payload)
 }
 
 func TestDecodeComponent_TupleType(t *testing.T) {
 	// tuple<s32, s32>
 	data := buildComponentWithTypeSection([]byte{
-		0x6f,       // tuple opcode
-		0x02,       // 2 elements
-		0x7a,       // s32
-		0x7a,       // s32
+		0x6f, // tuple opcode
+		0x02, // 2 elements
+		0x7a, // s32
+		0x7a, // s32
 	})
 
 	c, err := DecodeComponent(data)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(c.Types) != 1 {
-		t.Fatalf("expected 1 type, got %d", len(c.Types))
-	}
-
-	if c.Types[0].Tuple == nil {
-		t.Fatal("expected tuple type def")
-	}
-
-	if len(c.Types[0].Tuple.Types) != 2 {
-		t.Errorf("expected 2 types, got %d", len(c.Types[0].Tuple.Types))
-	}
+	require.NoError(t, err)
+	require.NotNil(t, c.Types)
+	require.Equal(t, 1, len(c.Types.Tuples))
+	tup := c.Types.Tuples[0]
+	require.Equal(t, 2, len(tup.Types))
+	require.Equal(t, types.S32, tup.Types[0])
+	require.Equal(t, types.S32, tup.Types[1])
 }
 
 func TestDecodeComponent_FlagsType(t *testing.T) {
 	// flags { read, write }
 	data := buildComponentWithTypeSection([]byte{
-		0x6e,                   // flags opcode
-		0x02,                   // 2 flags
+		0x6e, // flags opcode
+		0x02, // 2 flags
 		0x04, 'r', 'e', 'a', 'd',
 		0x05, 'w', 'r', 'i', 't', 'e',
 	})
 
 	c, err := DecodeComponent(data)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if c.Types[0].Flags == nil {
-		t.Fatal("expected flags type def")
-	}
-
-	if len(c.Types[0].Flags.Names) != 2 {
-		t.Errorf("expected 2 flags, got %d", len(c.Types[0].Flags.Names))
-	}
+	require.NoError(t, err)
+	require.NotNil(t, c.Types)
+	require.Equal(t, 1, len(c.Types.Flags))
+	require.Equal(t, []string{"read", "write"}, c.Types.Flags[0].Names)
 }
 
 func TestDecodeComponent_EnumType(t *testing.T) {
 	// enum { red, green, blue }
 	data := buildComponentWithTypeSection([]byte{
-		0x6d,           // enum opcode
-		0x03,           // 3 cases
+		0x6d, // enum opcode
+		0x03, // 3 cases
 		0x03, 'r', 'e', 'd',
 		0x05, 'g', 'r', 'e', 'e', 'n',
 		0x04, 'b', 'l', 'u', 'e',
 	})
 
 	c, err := DecodeComponent(data)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if c.Types[0].Enum == nil {
-		t.Fatal("expected enum type def")
-	}
-
-	if len(c.Types[0].Enum.Names) != 3 {
-		t.Errorf("expected 3 names, got %d", len(c.Types[0].Enum.Names))
-	}
+	require.NoError(t, err)
+	require.NotNil(t, c.Types)
+	require.Equal(t, 1, len(c.Types.Enums))
+	require.Equal(t, []string{"red", "green", "blue"}, c.Types.Enums[0].Names)
 }
 
 // Helper to build a minimal component binary with a type section

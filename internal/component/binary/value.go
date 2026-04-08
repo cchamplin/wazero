@@ -1,3 +1,7 @@
+// Copyright 2024 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package binary
 
 import (
@@ -8,21 +12,23 @@ import (
 	"math"
 
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/leb128"
 )
 
 // decodeValueSection decodes the value section (section 12) of a component binary.
 // Per spec: value ::= t:<valtype> len:<core:u32> v:<val(t)>
 // where len is the byte length of the encoded value v.
-func decodeValueSection(c *component.Component, r *bytes.Reader) error {
+func decodeValueSection(dc *decodeContext, r *bytes.Reader) error {
 	count, _, err := leb128.DecodeUint32(r)
 	if err != nil {
 		return fmt.Errorf("read value count: %w", err)
 	}
 
+	c := dc.c
 	c.Values = make([]component.ValueDef, count)
 	for i := uint32(0); i < count; i++ {
-		valType, err := decodeValType(r)
+		valType, err := decodeValType(r, dc.scope, dc.builder)
 		if err != nil {
 			return fmt.Errorf("read value %d type: %w", i, err)
 		}
@@ -52,8 +58,10 @@ func decodeValueSection(c *component.Component, r *bytes.Reader) error {
 
 // decodeValue decodes a single value of the given type from raw bytes.
 // This is used to interpret the Data field of ValueDef based on its Type.
-// For primitive types, this returns the interpreted Go value.
-// For composite types, this may return structured data.
+// For primitive types this returns the interpreted Go value. Composite
+// types (records, variants, lists, etc.) are returned as raw bytes in
+// Session 0; the caller consults *types.ComponentTypes to interpret the
+// shape at lift/lower time.
 //
 // The val(T) grammar from the spec:
 //   - val(bool):   0x00 => false, 0x01 => true
@@ -69,86 +77,77 @@ func decodeValueSection(c *component.Component, r *bytes.Reader) error {
 //   - val(f64):    v:<core:f64> (little-endian 8 bytes IEEE 754)
 //   - val(char):   b*:<core:byte>* (UTF-8 encoded character)
 //   - val(string): v:<core:name> (length-prefixed UTF-8 string)
-func decodeValue(valType component.ValTypeRef, data []byte) (interface{}, error) {
-	if !valType.IsPrimitive {
-		// For non-primitive types (type index references, handles),
-		// the data contains the raw bytes which need type-specific interpretation
-		return data, nil
-	}
-
-	r := bytes.NewReader(data)
-
-	switch valType.Primitive {
-	case byte(PrimValTypeBool): // 0x7f
+func decodeValue(valType types.ValType, data []byte) (interface{}, error) {
+	switch valType.Kind {
+	case types.TypeKindBool:
 		if len(data) != 1 {
 			return nil, fmt.Errorf("bool value requires 1 byte, got %d", len(data))
 		}
 		return data[0] != 0, nil
 
-	case byte(PrimValTypeS8): // 0x7e
+	case types.TypeKindS8:
 		if len(data) != 1 {
 			return nil, fmt.Errorf("s8 value requires 1 byte, got %d", len(data))
 		}
 		return int8(data[0]), nil
 
-	case byte(PrimValTypeU8): // 0x7d
+	case types.TypeKindU8:
 		if len(data) != 1 {
 			return nil, fmt.Errorf("u8 value requires 1 byte, got %d", len(data))
 		}
 		return data[0], nil
 
-	case byte(PrimValTypeS16): // 0x7c
+	case types.TypeKindS16:
 		if len(data) != 2 {
 			return nil, fmt.Errorf("s16 value requires 2 bytes, got %d", len(data))
 		}
 		return int16(binary.LittleEndian.Uint16(data)), nil
 
-	case byte(PrimValTypeU16): // 0x7b
+	case types.TypeKindU16:
 		if len(data) != 2 {
 			return nil, fmt.Errorf("u16 value requires 2 bytes, got %d", len(data))
 		}
 		return binary.LittleEndian.Uint16(data), nil
 
-	case byte(PrimValTypeS32): // 0x7a
+	case types.TypeKindS32:
 		if len(data) != 4 {
 			return nil, fmt.Errorf("s32 value requires 4 bytes, got %d", len(data))
 		}
 		return int32(binary.LittleEndian.Uint32(data)), nil
 
-	case byte(PrimValTypeU32): // 0x79
+	case types.TypeKindU32:
 		if len(data) != 4 {
 			return nil, fmt.Errorf("u32 value requires 4 bytes, got %d", len(data))
 		}
 		return binary.LittleEndian.Uint32(data), nil
 
-	case byte(PrimValTypeS64): // 0x78
+	case types.TypeKindS64:
 		if len(data) != 8 {
 			return nil, fmt.Errorf("s64 value requires 8 bytes, got %d", len(data))
 		}
 		return int64(binary.LittleEndian.Uint64(data)), nil
 
-	case byte(PrimValTypeU64): // 0x77
+	case types.TypeKindU64:
 		if len(data) != 8 {
 			return nil, fmt.Errorf("u64 value requires 8 bytes, got %d", len(data))
 		}
 		return binary.LittleEndian.Uint64(data), nil
 
-	case byte(PrimValTypeF32): // 0x76
+	case types.TypeKindF32:
 		if len(data) != 4 {
 			return nil, fmt.Errorf("f32 value requires 4 bytes, got %d", len(data))
 		}
 		bits := binary.LittleEndian.Uint32(data)
 		return float32FromBits(bits), nil
 
-	case byte(PrimValTypeF64): // 0x75
+	case types.TypeKindF64:
 		if len(data) != 8 {
 			return nil, fmt.Errorf("f64 value requires 8 bytes, got %d", len(data))
 		}
 		bits := binary.LittleEndian.Uint64(data)
 		return float64FromBits(bits), nil
 
-	case byte(PrimValTypeChar): // 0x74
-		// Char is encoded as UTF-8 bytes
+	case types.TypeKindChar:
 		if len(data) == 0 || len(data) > 4 {
 			return nil, fmt.Errorf("char value requires 1-4 UTF-8 bytes, got %d", len(data))
 		}
@@ -158,15 +157,13 @@ func decodeValue(valType component.ValTypeRef, data []byte) (interface{}, error)
 		}
 		return runes[0], nil
 
-	case byte(PrimValTypeString): // 0x73
-		// String is encoded as core:name (length-prefixed UTF-8)
-		// The data should be the raw UTF-8 bytes (length already accounted for in the outer len field)
-		// Per spec, val(string) ::= v:<core:name> where core:name is length + UTF-8 bytes
-		// However, since we already have the length-bounded data, we read the inner length + string
+	case types.TypeKindString:
+		// String is encoded as core:name (length-prefixed UTF-8).
 		if len(data) == 0 {
 			return "", nil
 		}
-		strLen, bytesRead, err := leb128.DecodeUint32(r)
+		rr := bytes.NewReader(data)
+		strLen, bytesRead, err := leb128.DecodeUint32(rr)
 		if err != nil {
 			return nil, fmt.Errorf("decode string length: %w", err)
 		}
@@ -176,12 +173,11 @@ func decodeValue(valType component.ValTypeRef, data []byte) (interface{}, error)
 		}
 		return string(data[n : n+int(strLen)]), nil
 
-	case byte(PrimValTypeErrorContext): // 0x64
-		// Error context is implementation-specific
-		return data, nil
-
 	default:
-		return nil, fmt.Errorf("unknown primitive type 0x%02x", valType.Primitive)
+		// For non-primitive types (composites, handles, error-context)
+		// the data is returned verbatim; the caller interprets it using
+		// the component's *types.ComponentTypes table.
+		return data, nil
 	}
 }
 

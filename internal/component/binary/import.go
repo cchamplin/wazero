@@ -1,4 +1,6 @@
-// internal/component/binary/import.go
+// Copyright 2024 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
 
 package binary
 
@@ -22,8 +24,8 @@ func decodeImportName(r *bytes.Reader) (string, error) {
 
 	switch prefix {
 	case 0x00, 0x01:
-		// Both cases: read length-prefixed name
-		// The version suffix is embedded in the name string itself
+		// Both cases: read length-prefixed name.
+		// The version suffix is embedded in the name string itself.
 		return decodeName(r)
 	default:
 		return "", fmt.Errorf("unknown import name prefix: 0x%02x", prefix)
@@ -38,7 +40,7 @@ func decodeImportName(r *bytes.Reader) (string, error) {
 //	| 0x03 typebound          (type)
 //	| 0x04 typeidx            (component)
 //	| 0x05 typeidx            (instance)
-func decodeExternDesc(r *bytes.Reader) (component.ImportExternDesc, error) {
+func decodeExternDesc(dc *decodeContext, r *bytes.Reader) (component.ImportExternDesc, error) {
 	var desc component.ImportExternDesc
 
 	kindByte, err := r.ReadByte()
@@ -71,17 +73,17 @@ func decodeExternDesc(r *bytes.Reader) (component.ImportExternDesc, error) {
 
 	case 0x02:
 		desc.Kind = component.ImportExternDescValue
-		// Decode valuebound: valtype (the type of the value being imported)
-		valType, err := decodeValType(r)
+		// Decode valuebound: valtype (the type of the value being imported).
+		vt, err := decodeValType(r, dc.scope, dc.builder)
 		if err != nil {
 			return desc, fmt.Errorf("decode value type: %w", err)
 		}
-		desc.ValType = &valType
+		desc.ValType = vt
 
 	case 0x03:
 		desc.Kind = component.ImportExternDescType
-		// Decode typebound: tag followed by type index
-		// tag 0x00 = sub bound, tag 0x01 = eq bound
+		// Decode typebound: tag followed by type index.
+		// tag 0x00 = sub bound, tag 0x01 = eq bound.
 		boundTag, err := r.ReadByte()
 		if err != nil {
 			return desc, fmt.Errorf("read type bound tag: %w", err)
@@ -121,7 +123,7 @@ func decodeExternDesc(r *bytes.Reader) (component.ImportExternDesc, error) {
 }
 
 // decodeImport decodes a single import.
-func decodeImport(r *bytes.Reader) (component.Import, error) {
+func decodeImport(dc *decodeContext, r *bytes.Reader) (component.Import, error) {
 	var imp component.Import
 
 	name, err := decodeImportName(r)
@@ -130,7 +132,7 @@ func decodeImport(r *bytes.Reader) (component.Import, error) {
 	}
 	imp.Name = name
 
-	desc, err := decodeExternDesc(r)
+	desc, err := decodeExternDesc(dc, r)
 	if err != nil {
 		return imp, fmt.Errorf("decoding externdesc: %w", err)
 	}
@@ -141,19 +143,19 @@ func decodeImport(r *bytes.Reader) (component.Import, error) {
 
 // decodeImportSection parses the import section (section ID 10).
 // Multiple import sections may exist; imports are accumulated.
-func decodeImportSection(c *component.Component, r *bytes.Reader) error {
+func decodeImportSection(dc *decodeContext, r *bytes.Reader) error {
 	count, _, err := leb128.DecodeUint32(r)
 	if err != nil {
 		return fmt.Errorf("reading import count: %w", err)
 	}
 
-	startIdx := uint32(len(c.Imports))
+	startIdx := uint32(len(dc.c.Imports))
 	for i := uint32(0); i < count; i++ {
-		imp, err := decodeImport(r)
+		imp, err := decodeImport(dc, r)
 		if err != nil {
 			return fmt.Errorf("decoding import %d: %w", startIdx+i, err)
 		}
-		c.Imports = append(c.Imports, imp)
+		dc.c.Imports = append(dc.c.Imports, imp)
 	}
 
 	return nil

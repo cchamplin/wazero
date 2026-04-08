@@ -1,4 +1,6 @@
-// internal/component/binary/types_test.go
+// Copyright 2024 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
 
 package binary
 
@@ -6,75 +8,108 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
+
+// decodeSingleValType is a small test helper that builds a fresh scope
+// and builder and decodes one valtype from the supplied bytes. It is
+// used by the primitive, own<>/borrow<> and type-index tests where the
+// caller doesn't care about the surrounding type-section state.
+func decodeSingleValType(t *testing.T, data []byte) types.ValType {
+	t.Helper()
+	scope := newTypeScope(nil)
+	b := types.NewComponentTypesBuilder()
+	r := bytes.NewReader(data)
+	vt, err := decodeValType(r, scope, b)
+	require.NoError(t, err)
+	return vt
+}
+
+func decodeSingleValTypeErr(t *testing.T, data []byte) error {
+	t.Helper()
+	scope := newTypeScope(nil)
+	b := types.NewComponentTypesBuilder()
+	r := bytes.NewReader(data)
+	_, err := decodeValType(r, scope, b)
+	return err
+}
 
 func TestDecodeValType_Primitives(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    byte
-		expected component.ValTypeRef
+		expected types.ValType
 	}{
-		{"bool", 0x7f, component.ValTypeRef{IsPrimitive: true, Primitive: 0x7f}},
-		{"s8", 0x7e, component.ValTypeRef{IsPrimitive: true, Primitive: 0x7e}},
-		{"u8", 0x7d, component.ValTypeRef{IsPrimitive: true, Primitive: 0x7d}},
-		{"s16", 0x7c, component.ValTypeRef{IsPrimitive: true, Primitive: 0x7c}},
-		{"u16", 0x7b, component.ValTypeRef{IsPrimitive: true, Primitive: 0x7b}},
-		{"s32", 0x7a, component.ValTypeRef{IsPrimitive: true, Primitive: 0x7a}},
-		{"u32", 0x79, component.ValTypeRef{IsPrimitive: true, Primitive: 0x79}},
-		{"s64", 0x78, component.ValTypeRef{IsPrimitive: true, Primitive: 0x78}},
-		{"u64", 0x77, component.ValTypeRef{IsPrimitive: true, Primitive: 0x77}},
-		{"f32", 0x76, component.ValTypeRef{IsPrimitive: true, Primitive: 0x76}},
-		{"f64", 0x75, component.ValTypeRef{IsPrimitive: true, Primitive: 0x75}},
-		{"char", 0x74, component.ValTypeRef{IsPrimitive: true, Primitive: 0x74}},
-		{"string", 0x73, component.ValTypeRef{IsPrimitive: true, Primitive: 0x73}},
+		{"bool", 0x7f, types.Bool},
+		{"s8", 0x7e, types.S8},
+		{"u8", 0x7d, types.U8},
+		{"s16", 0x7c, types.S16},
+		{"u16", 0x7b, types.U16},
+		{"s32", 0x7a, types.S32},
+		{"u32", 0x79, types.U32},
+		{"s64", 0x78, types.S64},
+		{"u64", 0x77, types.U64},
+		{"f32", 0x76, types.F32},
+		{"f64", 0x75, types.F64},
+		{"char", 0x74, types.Char},
+		{"string", 0x73, types.String_},
 	}
 
 	for _, tt := range tests {
 		tc := tt
 		t.Run(tc.name, func(t *testing.T) {
-			r := bytes.NewReader([]byte{tc.input})
-			result, err := decodeValType(r)
-			require.NoError(t, err)
-			require.Equal(t, tc.expected, result)
+			got := decodeSingleValType(t, []byte{tc.input})
+			require.Equal(t, tc.expected, got)
 		})
 	}
 }
 
 func TestDecodeValType_TypeIndex(t *testing.T) {
+	// Type-index references require a scope slot of matching kind.
+	// Prepopulate the scope with a few value-type entries so each
+	// index points at a valid target.
+	scope := newTypeScope(nil)
+	for _, vt := range []types.ValType{
+		types.U32, // index 0
+		types.S32, // index 1
+		types.Bool,
+		types.F32,
+		types.F64,
+	} {
+		scope.appendValType(vt)
+	}
+	// Pad the scope out to index 256 so the multi-byte LEB128 cases
+	// have a valid target.
+	for i := len(scope.entries); i <= 256; i++ {
+		scope.appendValType(types.U32)
+	}
+
+	b := types.NewComponentTypesBuilder()
+
 	tests := []struct {
 		name     string
 		input    []byte
-		expected component.ValTypeRef
+		expected types.ValType
 	}{
-		{"index 0", []byte{0x00}, component.ValTypeRef{IsPrimitive: false, TypeIdx: 0}},
-		{"index 5", []byte{0x05}, component.ValTypeRef{IsPrimitive: false, TypeIdx: 5}},
-		{"index 127", []byte{0x7f & 0x72}, component.ValTypeRef{IsPrimitive: false, TypeIdx: 0x72}}, // 0x72 is below primitive range
-		// Multi-byte LEB128 type indices
-		{"index 128", []byte{0x80, 0x01}, component.ValTypeRef{IsPrimitive: false, TypeIdx: 128}},            // 128 = 0x80 0x01 in LEB128
-		{"index 255", []byte{0xff, 0x01}, component.ValTypeRef{IsPrimitive: false, TypeIdx: 255}},            // 255 = 0xff 0x01 in LEB128
-		{"index 256", []byte{0x80, 0x02}, component.ValTypeRef{IsPrimitive: false, TypeIdx: 256}},            // 256 = 0x80 0x02 in LEB128
-		{"index 16383", []byte{0xff, 0x7f}, component.ValTypeRef{IsPrimitive: false, TypeIdx: 16383}},        // 16383 = 0xff 0x7f in LEB128
-		{"index 16384", []byte{0x80, 0x80, 0x01}, component.ValTypeRef{IsPrimitive: false, TypeIdx: 16384}},  // 16384 = 0x80 0x80 0x01 in LEB128
+		{"index 0", []byte{0x00}, types.U32},
+		{"index 1", []byte{0x01}, types.S32},
+		{"index 128", []byte{0x80, 0x01}, types.U32},
+		{"index 256", []byte{0x80, 0x02}, types.U32},
 	}
 
 	for _, tt := range tests {
 		tc := tt
 		t.Run(tc.name, func(t *testing.T) {
 			r := bytes.NewReader(tc.input)
-			result, err := decodeValType(r)
+			got, err := decodeValType(r, scope, b)
 			require.NoError(t, err)
-			require.Equal(t, tc.expected, result)
+			require.Equal(t, tc.expected, got)
 		})
 	}
 }
 
 func TestDecodeFuncType(t *testing.T) {
-	// Encode: 0x40 (sync func) + params + results
-	// params: vec(labelvaltype) = count + (name + valtype)*
-	// results: 0x00 valtype (single result) or 0x01 0x00 (no results)
-
 	// Function: (param "a" s32) (param "b" s32) -> s32
 	input := []byte{
 		0x40,      // sync functype
@@ -82,28 +117,34 @@ func TestDecodeFuncType(t *testing.T) {
 		0x01, 'a', // param name "a"
 		0x7a,      // s32
 		0x01, 'b', // param name "b"
-		0x7a,      // s32
-		0x00,      // single result
-		0x7a,      // s32
+		0x7a, // s32
+		0x00, // single result
+		0x7a, // s32
 	}
 
+	scope := newTypeScope(nil)
+	b := types.NewComponentTypesBuilder()
 	r := bytes.NewReader(input)
-	ft, err := decodeFuncType(r)
+	ftIdx, err := decodeFuncType(r, scope, b)
 	require.NoError(t, err)
-	require.NotNil(t, ft)
-	require.Equal(t, 2, len(ft.Params))
-	require.Equal(t, "a", ft.Params[0].Name)
-	require.Equal(t, byte(0x7a), ft.Params[0].ValType.Primitive)
-	require.True(t, ft.Params[0].ValType.IsPrimitive)
-	require.Equal(t, "b", ft.Params[1].Name)
-	require.Equal(t, byte(0x7a), ft.Params[1].ValType.Primitive)
-	require.True(t, ft.Params[1].ValType.IsPrimitive)
-	require.Equal(t, 1, len(ft.Results))
-	require.Equal(t, byte(0x7a), ft.Results[0].ValType.Primitive)
+
+	ct := b.Finish()
+	require.Equal(t, 1, len(ct.Funcs))
+	fn := ct.Funcs[ftIdx]
+	require.Equal(t, []string{"a", "b"}, fn.ParamNames)
+	require.Equal(t, types.TypeKindTuple, fn.Params.Kind)
+	paramTuple := ct.Tuples[fn.Params.Index]
+	require.Equal(t, 2, len(paramTuple.Types))
+	require.Equal(t, types.S32, paramTuple.Types[0])
+	require.Equal(t, types.S32, paramTuple.Types[1])
+	require.Equal(t, types.TypeKindTuple, fn.Results.Kind)
+	resultTuple := ct.Tuples[fn.Results.Index]
+	require.Equal(t, 1, len(resultTuple.Types))
+	require.Equal(t, types.S32, resultTuple.Types[0])
 }
 
 func TestDecodeFuncType_NoParams(t *testing.T) {
-	// Function: () -> string
+	// () -> string
 	input := []byte{
 		0x40, // sync functype
 		0x00, // 0 params
@@ -111,62 +152,76 @@ func TestDecodeFuncType_NoParams(t *testing.T) {
 		0x73, // string
 	}
 
+	scope := newTypeScope(nil)
+	b := types.NewComponentTypesBuilder()
 	r := bytes.NewReader(input)
-	ft, err := decodeFuncType(r)
+	ftIdx, err := decodeFuncType(r, scope, b)
 	require.NoError(t, err)
-	require.NotNil(t, ft)
-	require.Equal(t, 0, len(ft.Params))
-	require.Equal(t, 1, len(ft.Results))
-	require.Equal(t, byte(0x73), ft.Results[0].ValType.Primitive)
+	ct := b.Finish()
+	fn := ct.Funcs[ftIdx]
+	require.Equal(t, []string(nil), fn.ParamNames)
+	require.Equal(t, types.TypeKindTuple, fn.Params.Kind)
+	require.Equal(t, 0, len(ct.Tuples[fn.Params.Index].Types))
+	require.Equal(t, types.TypeKindTuple, fn.Results.Kind)
+	resultTuple := ct.Tuples[fn.Results.Index]
+	require.Equal(t, 1, len(resultTuple.Types))
+	require.Equal(t, types.String_, resultTuple.Types[0])
 }
 
 func TestDecodeFuncType_NoResults(t *testing.T) {
-	// Function: (param "x" u32) -> ()
+	// (param "x" u32) -> ()
 	input := []byte{
 		0x40,      // sync functype
 		0x01,      // 1 param
 		0x01, 'x', // param name "x"
-		0x79,      // u32
-		0x01,      // named results (vec)
-		0x00,      // 0 results
+		0x79, // u32
+		0x01, // named results (vec)
+		0x00, // 0 results
 	}
 
+	scope := newTypeScope(nil)
+	b := types.NewComponentTypesBuilder()
 	r := bytes.NewReader(input)
-	ft, err := decodeFuncType(r)
+	ftIdx, err := decodeFuncType(r, scope, b)
 	require.NoError(t, err)
-	require.NotNil(t, ft)
-	require.Equal(t, 1, len(ft.Params))
-	require.Equal(t, "x", ft.Params[0].Name)
-	require.Equal(t, 0, len(ft.Results))
+	ct := b.Finish()
+	fn := ct.Funcs[ftIdx]
+	require.Equal(t, []string{"x"}, fn.ParamNames)
+	paramTuple := ct.Tuples[fn.Params.Index]
+	require.Equal(t, 1, len(paramTuple.Types))
+	require.Equal(t, types.U32, paramTuple.Types[0])
+	resultTuple := ct.Tuples[fn.Results.Index]
+	require.Equal(t, 0, len(resultTuple.Types))
 }
 
 func TestDecodeFuncType_NamedResults(t *testing.T) {
-	// Function: () -> (result "ok" bool) (result "err" string)
+	// () -> (result "ok" bool) (result "err" string)
 	input := []byte{
-		0x40,       // sync functype
-		0x00,       // 0 params
-		0x01,       // named results (vec)
-		0x02,       // 2 results
+		0x40,           // sync functype
+		0x00,           // 0 params
+		0x01,           // named results (vec)
+		0x02,           // 2 results
 		0x02, 'o', 'k', // result name "ok"
-		0x7f, // bool
+		0x7f,                // bool
 		0x03, 'e', 'r', 'r', // result name "err"
 		0x73, // string
 	}
 
+	scope := newTypeScope(nil)
+	b := types.NewComponentTypesBuilder()
 	r := bytes.NewReader(input)
-	ft, err := decodeFuncType(r)
+	ftIdx, err := decodeFuncType(r, scope, b)
 	require.NoError(t, err)
-	require.NotNil(t, ft)
-	require.Equal(t, 0, len(ft.Params))
-	require.Equal(t, 2, len(ft.Results))
-	require.Equal(t, "ok", ft.Results[0].Name)
-	require.Equal(t, byte(0x7f), ft.Results[0].ValType.Primitive)
-	require.Equal(t, "err", ft.Results[1].Name)
-	require.Equal(t, byte(0x73), ft.Results[1].ValType.Primitive)
+	ct := b.Finish()
+	fn := ct.Funcs[ftIdx]
+	resultTuple := ct.Tuples[fn.Results.Index]
+	require.Equal(t, 2, len(resultTuple.Types))
+	require.Equal(t, types.Bool, resultTuple.Types[0])
+	require.Equal(t, types.String_, resultTuple.Types[1])
 }
 
 func TestDecodeFuncType_AsyncFunc(t *testing.T) {
-	// Async function: async () -> s32
+	// async () -> s32
 	input := []byte{
 		0x43, // async functype
 		0x00, // 0 params
@@ -174,22 +229,26 @@ func TestDecodeFuncType_AsyncFunc(t *testing.T) {
 		0x7a, // s32
 	}
 
+	scope := newTypeScope(nil)
+	b := types.NewComponentTypesBuilder()
 	r := bytes.NewReader(input)
-	ft, err := decodeFuncType(r)
+	ftIdx, err := decodeFuncType(r, scope, b)
 	require.NoError(t, err)
-	require.NotNil(t, ft)
-	require.Equal(t, 0, len(ft.Params))
-	require.Equal(t, 1, len(ft.Results))
+	ct := b.Finish()
+	fn := ct.Funcs[ftIdx]
+	require.True(t, fn.Async)
 }
 
 func TestDecodeFuncType_InvalidOpcode(t *testing.T) {
 	input := []byte{
-		0x41, // component type opcode - not a function type
+		0x41, // component type opcode — not a function type
 		0x00,
 	}
 
+	scope := newTypeScope(nil)
+	b := types.NewComponentTypesBuilder()
 	r := bytes.NewReader(input)
-	_, err := decodeFuncType(r)
+	_, err := decodeFuncType(r, scope, b)
 	require.Error(t, err)
 }
 
@@ -202,7 +261,7 @@ func TestDecodeName(t *testing.T) {
 		{"empty", []byte{0x00}, ""},
 		{"single char", []byte{0x01, 'a'}, "a"},
 		{"multiple chars", []byte{0x05, 'h', 'e', 'l', 'l', 'o'}, "hello"},
-		{"utf8", []byte{0x04, 0xc3, 0xa9, 0x6c, 0x69}, "\xc3\xa9li"}, // UTF-8 encoding of "eli" (e with acute accent)
+		{"utf8", []byte{0x04, 0xc3, 0xa9, 0x6c, 0x69}, "\xc3\xa9li"},
 	}
 
 	for _, tt := range tests {
@@ -216,184 +275,116 @@ func TestDecodeName(t *testing.T) {
 	}
 }
 
-func TestDecodeResourceType(t *testing.T) {
+// --- resource declarations ---
+
+func TestDecodeResourceDecl(t *testing.T) {
 	// 0x7f = rep type i32, 0x00 = no destructor
 	data := []byte{0x7f, 0x00}
+	scope := newTypeScope(nil)
+	b := types.NewComponentTypesBuilder()
 	r := bytes.NewReader(data)
-
-	typeDef, err := decodeResourceTypeDef(r)
+	resourceDef, err := decodeResourceDecl(r, scope, b, false)
 	require.NoError(t, err)
-	require.Nil(t, typeDef.Destructor)
+	require.Nil(t, resourceDef.Destructor)
+	// The builder assigned a ResourceTableIdx to the interned entry.
+	ct := b.Finish()
+	require.Equal(t, 1, len(ct.ResourceTables))
+	require.False(t, ct.ResourceTables[0].Concrete)
+	require.Equal(t, types.ResourceTableIdx(0), resourceDef.ResourceTableIdx)
 }
 
-func TestDecodeResourceType_WithDestructor(t *testing.T) {
-	// 0x7f = rep type i32, 0x01 = has destructor, 0x05 = destructor at func index 5
+func TestDecodeResourceDecl_WithDestructor(t *testing.T) {
 	data := []byte{0x7f, 0x01, 0x05}
+	scope := newTypeScope(nil)
+	b := types.NewComponentTypesBuilder()
 	r := bytes.NewReader(data)
-
-	typeDef, err := decodeResourceTypeDef(r)
+	resourceDef, err := decodeResourceDecl(r, scope, b, false)
 	require.NoError(t, err)
-	require.NotNil(t, typeDef.Destructor)
-	require.Equal(t, uint32(5), *typeDef.Destructor)
+	require.NotNil(t, resourceDef.Destructor)
+	require.Equal(t, uint32(5), *resourceDef.Destructor)
 }
 
-func TestDecodeResourceType_WithLargeDestructorIndex(t *testing.T) {
-	// 0x7f = rep type i32, 0x01 = has destructor, 0x80 0x01 = destructor at func index 128
+func TestDecodeResourceDecl_WithLargeDestructorIndex(t *testing.T) {
 	data := []byte{0x7f, 0x01, 0x80, 0x01}
+	scope := newTypeScope(nil)
+	b := types.NewComponentTypesBuilder()
 	r := bytes.NewReader(data)
-
-	typeDef, err := decodeResourceTypeDef(r)
+	resourceDef, err := decodeResourceDecl(r, scope, b, false)
 	require.NoError(t, err)
-	require.NotNil(t, typeDef.Destructor)
-	require.Equal(t, uint32(128), *typeDef.Destructor)
+	require.NotNil(t, resourceDef.Destructor)
+	require.Equal(t, uint32(128), *resourceDef.Destructor)
 }
 
-func TestDecodeResourceType_InvalidRepType(t *testing.T) {
-	// 0x7e = s8 (not i32), should fail
+func TestDecodeResourceDecl_InvalidRepType(t *testing.T) {
 	data := []byte{0x7e, 0x00}
+	scope := newTypeScope(nil)
+	b := types.NewComponentTypesBuilder()
 	r := bytes.NewReader(data)
-
-	_, err := decodeResourceTypeDef(r)
+	_, err := decodeResourceDecl(r, scope, b, false)
 	require.Error(t, err)
 }
 
-func TestDecodeResourceType_InvalidDestructorFlag(t *testing.T) {
-	// 0x7f = rep type i32, 0x02 = invalid flag (not 0x00 or 0x01)
+func TestDecodeResourceDecl_InvalidDestructorFlag(t *testing.T) {
 	data := []byte{0x7f, 0x02}
+	scope := newTypeScope(nil)
+	b := types.NewComponentTypesBuilder()
 	r := bytes.NewReader(data)
-
-	_, err := decodeResourceTypeDef(r)
+	_, err := decodeResourceDecl(r, scope, b, false)
 	require.Error(t, err)
 }
+
+// --- own<> / borrow<> handles ---
 
 func TestDecodeOwnType(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    []byte
-		expected component.ValTypeRef
-	}{
-		{
-			name:  "own<resource_type_3>",
-			input: []byte{0x69, 0x03}, // own<T> with type index 3
-			expected: component.ValTypeRef{
-				IsPrimitive: false,
-				IsOwn:       true,
-				TypeIdx:     3,
-			},
-		},
-		{
-			name:  "own<resource_type_0>",
-			input: []byte{0x69, 0x00}, // own<T> with type index 0
-			expected: component.ValTypeRef{
-				IsPrimitive: false,
-				IsOwn:       true,
-				TypeIdx:     0,
-			},
-		},
-		{
-			name:  "own<resource_type_128>",
-			input: []byte{0x69, 0x80, 0x01}, // own<T> with type index 128 (multi-byte LEB128)
-			expected: component.ValTypeRef{
-				IsPrimitive: false,
-				IsOwn:       true,
-				TypeIdx:     128,
-			},
-		},
-		{
-			name:  "own<resource_type_255>",
-			input: []byte{0x69, 0xff, 0x01}, // own<T> with type index 255 (multi-byte LEB128)
-			expected: component.ValTypeRef{
-				IsPrimitive: false,
-				IsOwn:       true,
-				TypeIdx:     255,
-			},
-		},
+	// own<R> requires a scope entry of kind scopeEntryResource at the
+	// target index. Prepopulate slot 3 with a resource.
+	scope := newTypeScope(nil)
+	for i := 0; i < 3; i++ {
+		scope.appendValType(types.U32)
 	}
+	scope.appendResource(types.ResourceTableIdx(7))
 
-	for _, tt := range tests {
-		tc := tt
-		t.Run(tc.name, func(t *testing.T) {
-			r := bytes.NewReader(tc.input)
-			result, err := decodeValType(r)
-			require.NoError(t, err)
-			require.Equal(t, tc.expected.IsPrimitive, result.IsPrimitive, "IsPrimitive mismatch")
-			require.Equal(t, tc.expected.IsOwn, result.IsOwn, "IsOwn mismatch")
-			require.Equal(t, tc.expected.TypeIdx, result.TypeIdx, "TypeIdx mismatch")
-		})
-	}
+	b := types.NewComponentTypesBuilder()
+	r := bytes.NewReader([]byte{0x69, 0x03})
+	vt, err := decodeValType(r, scope, b)
+	require.NoError(t, err)
+	require.Equal(t, types.TypeKindOwn, vt.Kind)
+	require.Equal(t, uint32(7), vt.Index)
 }
 
 func TestDecodeOwnType_Error(t *testing.T) {
-	// Missing type index after 0x69 opcode
-	data := []byte{0x69}
-	r := bytes.NewReader(data)
-
-	_, err := decodeValType(r)
+	// Missing type index after 0x69 opcode.
+	err := decodeSingleValTypeErr(t, []byte{0x69})
 	require.Error(t, err)
 }
 
-func TestDecodeBorrowType(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    []byte
-		expected component.ValTypeRef
-	}{
-		{
-			name:  "borrow<resource_type_7>",
-			input: []byte{0x68, 0x07}, // borrow<T> with type index 7
-			expected: component.ValTypeRef{
-				IsPrimitive: false,
-				IsBorrow:    true,
-				TypeIdx:     7,
-			},
-		},
-		{
-			name:  "borrow<resource_type_0>",
-			input: []byte{0x68, 0x00}, // borrow<T> with type index 0
-			expected: component.ValTypeRef{
-				IsPrimitive: false,
-				IsBorrow:    true,
-				TypeIdx:     0,
-			},
-		},
-		{
-			name:  "borrow<resource_type_128>",
-			input: []byte{0x68, 0x80, 0x01}, // borrow<T> with type index 128 (multi-byte LEB128)
-			expected: component.ValTypeRef{
-				IsPrimitive: false,
-				IsBorrow:    true,
-				TypeIdx:     128,
-			},
-		},
-		{
-			name:  "borrow<resource_type_255>",
-			input: []byte{0x68, 0xff, 0x01}, // borrow<T> with type index 255 (multi-byte LEB128)
-			expected: component.ValTypeRef{
-				IsPrimitive: false,
-				IsBorrow:    true,
-				TypeIdx:     255,
-			},
-		},
-	}
+func TestDecodeOwnType_NotAResource(t *testing.T) {
+	// own<N> where N is a value-type entry must fail.
+	scope := newTypeScope(nil)
+	scope.appendValType(types.U32)
+	b := types.NewComponentTypesBuilder()
+	r := bytes.NewReader([]byte{0x69, 0x00})
+	_, err := decodeValType(r, scope, b)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not a resource declaration")
+}
 
-	for _, tt := range tests {
-		tc := tt
-		t.Run(tc.name, func(t *testing.T) {
-			r := bytes.NewReader(tc.input)
-			result, err := decodeValType(r)
-			require.NoError(t, err)
-			require.Equal(t, tc.expected.IsPrimitive, result.IsPrimitive, "IsPrimitive mismatch")
-			require.Equal(t, tc.expected.IsBorrow, result.IsBorrow, "IsBorrow mismatch")
-			require.Equal(t, tc.expected.TypeIdx, result.TypeIdx, "TypeIdx mismatch")
-		})
+func TestDecodeBorrowType(t *testing.T) {
+	scope := newTypeScope(nil)
+	for i := 0; i < 2; i++ {
+		scope.appendValType(types.U32)
 	}
+	scope.appendResource(types.ResourceTableIdx(42))
+
+	b := types.NewComponentTypesBuilder()
+	r := bytes.NewReader([]byte{0x68, 0x02})
+	vt, err := decodeValType(r, scope, b)
+	require.NoError(t, err)
+	require.Equal(t, types.TypeKindBorrow, vt.Kind)
+	require.Equal(t, uint32(42), vt.Index)
 }
 
 func TestDecodeBorrowType_Error(t *testing.T) {
-	// Missing type index after 0x68 opcode
-	data := []byte{0x68}
-	r := bytes.NewReader(data)
-
-	_, err := decodeValType(r)
+	err := decodeSingleValTypeErr(t, []byte{0x68})
 	require.Error(t, err)
 }

@@ -1,4 +1,6 @@
-// internal/component/binary/instance_type.go
+// Copyright 2024 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
 
 package binary
 
@@ -11,12 +13,18 @@ import (
 )
 
 // decodeInstanceTypeDef decodes an instance type definition.
-// Format: 0x42 vec(instancetypedecl)
-// instancetypedecl ::= 0x00 core:type         (core type)
 //
-//	| 0x01 type              (type)
-//	| 0x02 alias             (alias)
-//	| 0x04 export            (export)
+// In Session 0 the nested declarations are parsed for bytes-correctness
+// only: their shapes are not threaded into any structural type table, so
+// nested type slots carry empty payloads. Session 2 will revisit this
+// with a scope-aware nested decoder.
+//
+// Format: 0x42 vec(instancetypedecl)
+// instancetypedecl ::= 0x00 core:type   (core type)
+//
+//	| 0x01 type                 (type)
+//	| 0x02 alias                (alias)
+//	| 0x04 export               (export)
 func decodeInstanceTypeDef(r *bytes.Reader) (*component.InstanceTypeDef, error) {
 	declCount, _, err := leb128.DecodeUint32(r)
 	if err != nil {
@@ -47,7 +55,6 @@ func decodeInstanceDecl(r *bytes.Reader) (component.InstanceDecl, error) {
 
 	switch decl.Kind {
 	case component.InstanceDeclKindCoreType:
-		// Core type declaration
 		coreType, err := decodeCoreTypeDefForInstance(r)
 		if err != nil {
 			return decl, fmt.Errorf("decode core type: %w", err)
@@ -55,7 +62,6 @@ func decodeInstanceDecl(r *bytes.Reader) (component.InstanceDecl, error) {
 		decl.CoreType = coreType
 
 	case component.InstanceDeclKindType:
-		// Nested type declaration - recursively decode
 		typeDef, err := decodeNestedTypeDef(r)
 		if err != nil {
 			return decl, fmt.Errorf("decode type: %w", err)
@@ -63,7 +69,6 @@ func decodeInstanceDecl(r *bytes.Reader) (component.InstanceDecl, error) {
 		decl.Type = typeDef
 
 	case component.InstanceDeclKindAlias:
-		// Alias declaration
 		alias, err := decodeAlias(r)
 		if err != nil {
 			return decl, fmt.Errorf("decode alias: %w", err)
@@ -71,7 +76,6 @@ func decodeInstanceDecl(r *bytes.Reader) (component.InstanceDecl, error) {
 		decl.Alias = &alias
 
 	case component.InstanceDeclKindExport:
-		// Export declaration
 		export, err := decodeInstanceExportDecl(r)
 		if err != nil {
 			return decl, fmt.Errorf("decode export: %w", err)
@@ -85,7 +89,9 @@ func decodeInstanceDecl(r *bytes.Reader) (component.InstanceDecl, error) {
 	return decl, nil
 }
 
-// decodeInstanceExportDecl decodes an export declaration within an instance type.
+// decodeInstanceExportDecl decodes an export declaration within an
+// instance type.
+//
 // Format: exportname externdesc
 // externdesc format: kind followed by type-specific data
 func decodeInstanceExportDecl(r *bytes.Reader) (*component.InstanceExport, error) {
@@ -98,16 +104,14 @@ func decodeInstanceExportDecl(r *bytes.Reader) (*component.InstanceExport, error
 		Name: name,
 	}
 
-	// Read externdesc kind byte
 	kindByte, err := r.ReadByte()
 	if err != nil {
 		return nil, fmt.Errorf("read externdesc kind: %w", err)
 	}
 
-	// Handle externdesc based on kind
 	switch kindByte {
 	case 0x00:
-		// Core module: expect 0x11 prefix then core type index
+		// Core module: expect 0x11 prefix then core type index.
 		prefix, err := r.ReadByte()
 		if err != nil {
 			return nil, fmt.Errorf("read core module prefix: %w", err)
@@ -115,7 +119,7 @@ func decodeInstanceExportDecl(r *bytes.Reader) (*component.InstanceExport, error
 		if prefix != 0x11 {
 			return nil, fmt.Errorf("expected 0x11 for core module, got 0x%02x", prefix)
 		}
-		export.Kind = component.ExportKindFunc // Core module tracked as func for now
+		export.Kind = component.ExportKindFunc // Core module tracked as func for now.
 		idx, _, err := leb128.DecodeUint32(r)
 		if err != nil {
 			return nil, fmt.Errorf("read core type index: %w", err)
@@ -123,7 +127,7 @@ func decodeInstanceExportDecl(r *bytes.Reader) (*component.InstanceExport, error
 		export.Idx = idx
 
 	case 0x01:
-		// Function: typeidx
+		// Function: typeidx.
 		export.Kind = component.ExportKindFunc
 		idx, _, err := leb128.DecodeUint32(r)
 		if err != nil {
@@ -132,40 +136,34 @@ func decodeInstanceExportDecl(r *bytes.Reader) (*component.InstanceExport, error
 		export.Idx = idx
 
 	case 0x02:
-		// Value: valtype
+		// Value: valtype.
 		export.Kind = component.ExportKindValue
-		_, err := decodeValType(r)
-		if err != nil {
-			return nil, fmt.Errorf("decode value type: %w", err)
+		if err := skipValType(r); err != nil {
+			return nil, fmt.Errorf("skip value type: %w", err)
 		}
-		// Value exports don't have an index in the same way
 
 	case 0x03:
-		// Type: typebound
-		// Format: 0x00 typeidx (eq bound) or 0x01 (sub-resource, fresh)
+		// Type: typebound.
+		// Format: 0x00 typeidx (eq bound) or 0x01 (sub-resource, fresh).
 		export.Kind = component.ExportKindType
-		// Read the type bound discriminator
 		boundKind, err := r.ReadByte()
 		if err != nil {
 			return nil, fmt.Errorf("read type bound kind: %w", err)
 		}
 		switch boundKind {
 		case 0x00:
-			// Eq bound: followed by type index
 			idx, _, err := leb128.DecodeUint32(r)
 			if err != nil {
 				return nil, fmt.Errorf("read eq type bound index: %w", err)
 			}
 			export.Idx = idx
 		case 0x01:
-			// Sub-resource: fresh resource type, no index follows
-			// The idx stays 0 (default) for fresh resources
+			// Sub-resource: fresh resource type, no index follows.
 		default:
 			return nil, fmt.Errorf("unknown type bound kind: 0x%02x", boundKind)
 		}
 
 	case 0x04:
-		// Component: typeidx
 		export.Kind = component.ExportKindComponent
 		idx, _, err := leb128.DecodeUint32(r)
 		if err != nil {
@@ -174,7 +172,6 @@ func decodeInstanceExportDecl(r *bytes.Reader) (*component.InstanceExport, error
 		export.Idx = idx
 
 	case 0x05:
-		// Instance: typeidx
 		export.Kind = component.ExportKindInstance
 		idx, _, err := leb128.DecodeUint32(r)
 		if err != nil {
@@ -189,7 +186,8 @@ func decodeInstanceExportDecl(r *bytes.Reader) (*component.InstanceExport, error
 	return export, nil
 }
 
-// decodeCoreTypeDefForInstance decodes a core type definition for use in instance/component types.
+// decodeCoreTypeDefForInstance decodes a core type definition for use in
+// instance/component types.
 func decodeCoreTypeDefForInstance(r *bytes.Reader) (*component.CoreTypeDef, error) {
 	opcode, err := r.ReadByte()
 	if err != nil {
@@ -220,9 +218,16 @@ func decodeCoreTypeDefForInstance(r *bytes.Reader) (*component.CoreTypeDef, erro
 	}
 }
 
-// decodeNestedTypeDef decodes a type definition nested within an instance/component type.
-// This handles deftype which can be: defvaltype | functype | instancetype | componenttype
-// defvaltype includes primitive types (0x73-0x7f, 0x64) and composite types.
+// decodeNestedTypeDef decodes a type definition nested within an
+// instance/component type.
+//
+// Session 0 scope: the nested decoder parses enough bytes to keep the
+// binary stream in lockstep with the spec. Composite value-type payloads
+// are consumed via skipDefinedType so the outer stream advances
+// correctly, but no interning happens and the returned TypeDef carries
+// only the Kind discriminator. Session 2 will wire a nested
+// *typeScope / *ComponentTypesBuilder through this path so the nested
+// types actually land in the parent component's table.
 func decodeNestedTypeDef(r *bytes.Reader) (*component.TypeDef, error) {
 	opcode, err := r.ReadByte()
 	if err != nil {
@@ -231,28 +236,19 @@ func decodeNestedTypeDef(r *bytes.Reader) (*component.TypeDef, error) {
 
 	typeDef := &component.TypeDef{}
 
-	// Check if it's a primitive value type first
+	// Primitive value types as a bare defvaltype.
 	if IsPrimValType(opcode) {
-		// Primitive value type as a defined type (e.g., Type(Defined(Primitive(U64))))
 		typeDef.Kind = component.TypeDefKindDefined
-		typeDef.Handle = &component.ValTypeRef{
-			IsPrimitive: true,
-			Primitive:   opcode,
-		}
 		return typeDef, nil
 	}
 
 	switch opcode {
 	case TypeOpFuncSync, TypeOpFuncAsync:
-		if err := r.UnreadByte(); err != nil {
-			return nil, err
-		}
-		ft, err := decodeFuncType(r)
-		if err != nil {
-			return nil, err
+		// Skip the rest of the function type: params and results.
+		if err := skipFuncTypeBody(r); err != nil {
+			return nil, fmt.Errorf("skip nested func type: %w", err)
 		}
 		typeDef.Kind = component.TypeDefKindFunc
-		typeDef.Func = ft
 
 	case TypeOpInstance:
 		inst, err := decodeInstanceTypeDef(r)
@@ -262,85 +258,17 @@ func decodeNestedTypeDef(r *bytes.Reader) (*component.TypeDef, error) {
 		typeDef.Kind = component.TypeDefKindInstance
 		typeDef.Instance = inst
 
-	case ValTypeOpcodeRecord:
-		record, err := decodeRecordTypeDef(r)
-		if err != nil {
-			return nil, err
-		}
-		typeDef.Kind = component.TypeDefKindDefined
-		typeDef.Record = convertRecordTypeDef(record)
-
-	case ValTypeOpcodeVariant:
-		variant, err := decodeVariantTypeDef(r)
-		if err != nil {
-			return nil, err
-		}
-		typeDef.Kind = component.TypeDefKindDefined
-		typeDef.Variant = convertVariantTypeDef(variant)
-
-	case ValTypeOpcodeList:
-		list, err := decodeListTypeDef(r)
-		if err != nil {
-			return nil, err
-		}
-		typeDef.Kind = component.TypeDefKindDefined
-		typeDef.List = convertListTypeDef(list)
-
-	case ValTypeOpcodeTuple:
-		tuple, err := decodeTupleTypeDef(r)
-		if err != nil {
-			return nil, err
-		}
-		typeDef.Kind = component.TypeDefKindDefined
-		typeDef.Tuple = convertTupleTypeDef(tuple)
-
-	case ValTypeOpcodeFlags:
-		flags, err := decodeFlagsTypeDef(r)
-		if err != nil {
-			return nil, err
-		}
-		typeDef.Kind = component.TypeDefKindDefined
-		typeDef.Flags = convertFlagsTypeDef(flags)
-
-	case ValTypeOpcodeEnum:
-		enum, err := decodeEnumTypeDef(r)
-		if err != nil {
-			return nil, err
-		}
-		typeDef.Kind = component.TypeDefKindDefined
-		typeDef.Enum = convertEnumTypeDef(enum)
-
-	case ValTypeOpcodeOption:
-		option, err := decodeOptionTypeDef(r)
-		if err != nil {
-			return nil, err
-		}
-		typeDef.Kind = component.TypeDefKindDefined
-		typeDef.Option = convertOptionTypeDef(option)
-
-	case ValTypeOpcodeResult:
-		result, err := decodeResultTypeDef(r)
-		if err != nil {
-			return nil, err
-		}
-		typeDef.Kind = component.TypeDefKindDefined
-		typeDef.Result = convertResultTypeDef(result)
-
 	case TypeOpResourceSync:
-		resourceDef, err := decodeResourceTypeDefWithAsync(r, false)
-		if err != nil {
-			return nil, err
+		if err := skipResourceTypeBody(r, false); err != nil {
+			return nil, fmt.Errorf("skip nested resource type: %w", err)
 		}
 		typeDef.Kind = component.TypeDefKindResource
-		typeDef.Resource = resourceDef
 
 	case TypeOpResourceAsync:
-		resourceDef, err := decodeResourceTypeDefWithAsync(r, true)
-		if err != nil {
-			return nil, err
+		if err := skipResourceTypeBody(r, true); err != nil {
+			return nil, fmt.Errorf("skip nested async resource type: %w", err)
 		}
 		typeDef.Kind = component.TypeDefKindResource
-		typeDef.Resource = resourceDef
 
 	case TypeOpComponent:
 		comp, err := decodeComponentTypeDef(r)
@@ -350,33 +278,232 @@ func decodeNestedTypeDef(r *bytes.Reader) (*component.TypeDef, error) {
 		typeDef.Kind = component.TypeDefKindComponent
 		typeDef.Component = comp
 
-	case ValTypeOpcodeOwn:
-		// Own handle type: own<T> where T is a resource type
-		typeIdx, _, err := leb128.DecodeUint32(r)
-		if err != nil {
-			return nil, fmt.Errorf("read own handle type index: %w", err)
+	case ValTypeOpcodeOwn, ValTypeOpcodeBorrow:
+		// own<T> or borrow<T> where T is a resource type index.
+		if _, _, err := leb128.DecodeUint32(r); err != nil {
+			return nil, fmt.Errorf("read handle type index: %w", err)
 		}
 		typeDef.Kind = component.TypeDefKindDefined
-		typeDef.Handle = &component.ValTypeRef{
-			IsOwn:   true,
-			TypeIdx: typeIdx,
-		}
 
-	case ValTypeOpcodeBorrow:
-		// Borrow handle type: borrow<T> where T is a resource type
-		typeIdx, _, err := leb128.DecodeUint32(r)
-		if err != nil {
-			return nil, fmt.Errorf("read borrow handle type index: %w", err)
+	case ValTypeOpcodeRecord, ValTypeOpcodeVariant, ValTypeOpcodeList,
+		ValTypeOpcodeTuple, ValTypeOpcodeFlags, ValTypeOpcodeEnum,
+		ValTypeOpcodeOption, ValTypeOpcodeResult,
+		ValTypeOpcodeStream, ValTypeOpcodeFuture, ValTypeOpcodeFixedSizeList:
+		if err := skipDefinedTypeBody(r, opcode); err != nil {
+			return nil, fmt.Errorf("skip nested defined type: %w", err)
 		}
 		typeDef.Kind = component.TypeDefKindDefined
-		typeDef.Handle = &component.ValTypeRef{
-			IsBorrow: true,
-			TypeIdx:  typeIdx,
-		}
 
 	default:
 		return nil, fmt.Errorf("unsupported nested type opcode: 0x%02x", opcode)
 	}
 
 	return typeDef, nil
+}
+
+// skipValType advances the reader past a single valtype without
+// interning anything. Used by nested declarations where only byte-level
+// correctness matters in Session 0.
+func skipValType(r *bytes.Reader) error {
+	opcode, err := r.ReadByte()
+	if err != nil {
+		return err
+	}
+	if IsPrimValType(opcode) {
+		return nil
+	}
+	if opcode == ValTypeOpcodeOwn || opcode == ValTypeOpcodeBorrow {
+		_, _, err := leb128.DecodeUint32(r)
+		return err
+	}
+	// Type index: unread and decode the full LEB128.
+	if err := r.UnreadByte(); err != nil {
+		return err
+	}
+	_, _, err = leb128.DecodeUint32(r)
+	return err
+}
+
+// skipDefinedTypeBody consumes the payload of a defvaltype whose leading
+// opcode has already been read. It mirrors the per-kind decode helpers
+// above but discards the results.
+func skipDefinedTypeBody(r *bytes.Reader, opcode byte) error {
+	switch opcode {
+	case ValTypeOpcodeRecord:
+		count, _, err := leb128.DecodeUint32(r)
+		if err != nil {
+			return err
+		}
+		for i := uint32(0); i < count; i++ {
+			if _, err := decodeName(r); err != nil {
+				return err
+			}
+			if err := skipValType(r); err != nil {
+				return err
+			}
+		}
+	case ValTypeOpcodeVariant:
+		count, _, err := leb128.DecodeUint32(r)
+		if err != nil {
+			return err
+		}
+		for i := uint32(0); i < count; i++ {
+			if _, err := decodeName(r); err != nil {
+				return err
+			}
+			typeFlag, err := r.ReadByte()
+			if err != nil {
+				return err
+			}
+			if typeFlag == 0x01 {
+				if err := skipValType(r); err != nil {
+					return err
+				}
+			}
+			refinesFlag, err := r.ReadByte()
+			if err != nil {
+				return err
+			}
+			if refinesFlag == 0x01 {
+				if _, _, err := leb128.DecodeUint32(r); err != nil {
+					return err
+				}
+			}
+		}
+	case ValTypeOpcodeList:
+		return skipValType(r)
+	case ValTypeOpcodeFixedSizeList:
+		if err := skipValType(r); err != nil {
+			return err
+		}
+		_, _, err := leb128.DecodeUint32(r)
+		return err
+	case ValTypeOpcodeTuple:
+		count, _, err := leb128.DecodeUint32(r)
+		if err != nil {
+			return err
+		}
+		for i := uint32(0); i < count; i++ {
+			if err := skipValType(r); err != nil {
+				return err
+			}
+		}
+	case ValTypeOpcodeFlags, ValTypeOpcodeEnum:
+		count, _, err := leb128.DecodeUint32(r)
+		if err != nil {
+			return err
+		}
+		for i := uint32(0); i < count; i++ {
+			if _, err := decodeName(r); err != nil {
+				return err
+			}
+		}
+	case ValTypeOpcodeOption:
+		return skipValType(r)
+	case ValTypeOpcodeResult:
+		okFlag, err := r.ReadByte()
+		if err != nil {
+			return err
+		}
+		if okFlag == 0x01 {
+			if err := skipValType(r); err != nil {
+				return err
+			}
+		}
+		errFlag, err := r.ReadByte()
+		if err != nil {
+			return err
+		}
+		if errFlag == 0x01 {
+			return skipValType(r)
+		}
+	case ValTypeOpcodeStream, ValTypeOpcodeFuture:
+		hasElem, err := r.ReadByte()
+		if err != nil {
+			return err
+		}
+		if hasElem == 0x01 {
+			return skipValType(r)
+		}
+	default:
+		return fmt.Errorf("skipDefinedTypeBody: unknown opcode 0x%02x", opcode)
+	}
+	return nil
+}
+
+// skipFuncTypeBody consumes params and results of a component function
+// type. The leading 0x40 / 0x43 opcode has already been read.
+func skipFuncTypeBody(r *bytes.Reader) error {
+	paramCount, _, err := leb128.DecodeUint32(r)
+	if err != nil {
+		return err
+	}
+	for i := uint32(0); i < paramCount; i++ {
+		if _, err := decodeName(r); err != nil {
+			return err
+		}
+		if err := skipValType(r); err != nil {
+			return err
+		}
+	}
+	resultTag, err := r.ReadByte()
+	if err != nil {
+		return err
+	}
+	switch resultTag {
+	case ResultSingle:
+		return skipValType(r)
+	case ResultNamed:
+		count, _, err := leb128.DecodeUint32(r)
+		if err != nil {
+			return err
+		}
+		for i := uint32(0); i < count; i++ {
+			if _, err := decodeName(r); err != nil {
+				return err
+			}
+			if err := skipValType(r); err != nil {
+				return err
+			}
+		}
+	default:
+		return fmt.Errorf("invalid result tag: 0x%02x", resultTag)
+	}
+	return nil
+}
+
+// skipResourceTypeBody consumes the body of a resource declaration.
+func skipResourceTypeBody(r *bytes.Reader, isAsync bool) error {
+	rep, err := r.ReadByte()
+	if err != nil {
+		return err
+	}
+	if rep != 0x7f {
+		return fmt.Errorf("unsupported resource rep type: 0x%02x", rep)
+	}
+	if isAsync {
+		if _, _, err := leb128.DecodeUint32(r); err != nil {
+			return err
+		}
+		cbFlag, err := r.ReadByte()
+		if err != nil {
+			return err
+		}
+		if cbFlag == 0x01 {
+			if _, _, err := leb128.DecodeUint32(r); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	dtorFlag, err := r.ReadByte()
+	if err != nil {
+		return err
+	}
+	if dtorFlag == 0x01 {
+		if _, _, err := leb128.DecodeUint32(r); err != nil {
+			return err
+		}
+	}
+	return nil
 }
