@@ -33,7 +33,7 @@ func instantiateIncomingHandler(linker *component.Linker) error {
 // component's handle function with the given request and outparam handles.
 func NewHTTPHandler(callHandle func(ctx context.Context, requestHandle, outparamHandle runtime.Handle) error) gohttp.Handler {
 	return gohttp.HandlerFunc(func(w gohttp.ResponseWriter, r *gohttp.Request) {
-		table := runtime.NewResourceTable()
+		table := runtime.NewTable()
 
 		// Apply a default deadline so a misbehaving component cannot hang the
 		// host handler indefinitely. Callers wanting a different deadline can
@@ -61,11 +61,11 @@ func NewHTTPHandler(callHandle func(ctx context.Context, requestHandle, outparam
 		// r.Body is always non-nil for server requests; it returns EOF when
 		// there is no body.
 		req.SetBody(NewIncomingBodyFromReader(r.Body))
-		requestHandle := table.New(req, true)
+		requestHandle, _ := table.NewResourceHandle(req, true, httpIncomingRequestResourceType)
 
 		// Create response outparam with channel
 		outparam := NewResponseOutparam()
-		outparamHandle := table.New(outparam, true)
+		outparamHandle, _ := table.NewResourceHandle(outparam, true, httpOutgoingResponseResourceType)
 
 		// Ensure resources are cleaned up on every exit path. Delete is a
 		// no-op if the component already consumed the handle.

@@ -388,10 +388,13 @@ func TestDescriptorSetTimesAt_SetToNow(t *testing.T) {
 	require.NoError(t, err)
 	defer dirFile.Close()
 
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 	desc := NewDescriptor(dirFile, true, tmpDir, DescriptorFlagRead|DescriptorFlagWrite|DescriptorFlagMutateDirectory)
-	handle := table.New(desc, true)
+	handle, errH1 := table.NewResourceHandle(desc, true, descriptorResourceType)
+	if errH1 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH1)
+	}
 
 	selfHandle := types.ValBorrow(uint32(handle))
 	pathFlags := types.ValFlags(map[string]bool{"symlink-follow": true})
@@ -549,12 +552,18 @@ func TestDescriptorIsSameObject_SameFile(t *testing.T) {
 	require.NoError(t, err)
 	defer f2.Close()
 
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 	desc1 := NewDescriptor(f1, false, path, DescriptorFlagRead)
 	desc2 := NewDescriptor(f2, false, path, DescriptorFlagRead)
-	h1 := table.New(desc1, true)
-	h2 := table.New(desc2, true)
+	h1, errH2 := table.NewResourceHandle(desc1, true, descriptorResourceType)
+	if errH2 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH2)
+	}
+	h2, errH3 := table.NewResourceHandle(desc2, true, descriptorResourceType)
+	if errH3 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH3)
+	}
 
 	selfHandle := types.ValBorrow(uint32(h1))
 	otherHandle := types.ValBorrow(uint32(h2))
@@ -578,12 +587,18 @@ func TestDescriptorIsSameObject_DifferentFiles(t *testing.T) {
 	require.NoError(t, err)
 	defer f2.Close()
 
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 	desc1 := NewDescriptor(f1, false, path1, DescriptorFlagRead)
 	desc2 := NewDescriptor(f2, false, path2, DescriptorFlagRead)
-	h1 := table.New(desc1, true)
-	h2 := table.New(desc2, true)
+	h1, errH4 := table.NewResourceHandle(desc1, true, descriptorResourceType)
+	if errH4 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH4)
+	}
+	h2, errH5 := table.NewResourceHandle(desc2, true, descriptorResourceType)
+	if errH5 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH5)
+	}
 
 	selfHandle := types.ValBorrow(uint32(h1))
 	otherHandle := types.ValBorrow(uint32(h2))
@@ -601,10 +616,13 @@ func TestDescriptorMetadataHash(t *testing.T) {
 	require.NoError(t, err)
 	defer f.Close()
 
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 	desc := NewDescriptor(f, false, path, DescriptorFlagRead)
-	handle := table.New(desc, true)
+	handle, errH6 := table.NewResourceHandle(desc, true, descriptorResourceType)
+	if errH6 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH6)
+	}
 
 	selfHandle := types.ValBorrow(uint32(handle))
 
@@ -640,10 +658,16 @@ func TestDescriptorMetadataHash_DifferentFiles(t *testing.T) {
 	f2, _ := os.Open(path2)
 	defer f2.Close()
 
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
-	h1 := table.New(NewDescriptor(f1, false, path1, DescriptorFlagRead), true)
-	h2 := table.New(NewDescriptor(f2, false, path2, DescriptorFlagRead), true)
+	h1, errH7 := table.NewResourceHandle(NewDescriptor(f1, false, path1, DescriptorFlagRead), true, descriptorResourceType)
+	if errH7 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH7)
+	}
+	h2, errH8 := table.NewResourceHandle(NewDescriptor(f2, false, path2, DescriptorFlagRead), true, descriptorResourceType)
+	if errH8 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH8)
+	}
 
 	result1, _ := descriptorMetadataHash(ctx, []types.Val{types.ValBorrow(uint32(h1))})
 	result2, _ := descriptorMetadataHash(ctx, []types.Val{types.ValBorrow(uint32(h2))})
@@ -659,7 +683,7 @@ func TestDescriptorMetadataHash_DifferentFiles(t *testing.T) {
 }
 
 func TestDescriptorMetadataHash_BadDescriptor(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 	selfHandle := types.ValBorrow(0)
 	result, err := descriptorMetadataHash(ctx, []types.Val{selfHandle})
@@ -677,10 +701,13 @@ func TestDescriptorMetadataHashAt(t *testing.T) {
 	dirFile, _ := os.Open(tmpDir)
 	defer dirFile.Close()
 
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 	desc := NewDescriptor(dirFile, true, tmpDir, DescriptorFlagRead)
-	handle := table.New(desc, true)
+	handle, errH9 := table.NewResourceHandle(desc, true, descriptorResourceType)
+	if errH9 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH9)
+	}
 
 	selfHandle := types.ValBorrow(uint32(handle))
 	pathFlags := types.ValFlags(map[string]bool{"symlink-follow": true})
@@ -706,13 +733,16 @@ func TestFilesystemErrorCode(t *testing.T) {
 }
 
 func TestFilesystemErrorCode_WithFSError(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create an io.Error that wraps a FilesystemError
 	fsErr := &FilesystemError{Code: ErrorCodeAccess}
 	ioErr := wasipIO.NewError(fsErr)
-	handle := table.New(ioErr, true)
+	handle, errH10 := table.NewResourceHandle(ioErr, true, descriptorResourceType)
+	if errH10 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH10)
+	}
 
 	errHandle := types.ValBorrow(uint32(handle))
 	result, err := filesystemErrorCode(ctx, []types.Val{errHandle})
@@ -724,12 +754,15 @@ func TestFilesystemErrorCode_WithFSError(t *testing.T) {
 }
 
 func TestFilesystemErrorCode_NonFSError(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create an io.Error that wraps a plain Go error (not a FilesystemError)
 	ioErr := wasipIO.NewError(errors.New("some random error"))
-	handle := table.New(ioErr, true)
+	handle, errH11 := table.NewResourceHandle(ioErr, true, descriptorResourceType)
+	if errH11 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH11)
+	}
 
 	errHandle := types.ValBorrow(uint32(handle))
 	result, err := filesystemErrorCode(ctx, []types.Val{errHandle})
@@ -847,7 +880,7 @@ func TestErrorCodeValues(t *testing.T) {
 
 // createTestContext creates a context with a ResourceTable for testing.
 func createTestContext() context.Context {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	return component.WithResourceTable(context.Background(), table)
 }
 
@@ -862,7 +895,10 @@ func createTestDirDescriptor(t *testing.T, ctx context.Context) (uint32, string)
 	require.NoError(t, err)
 
 	desc := NewDescriptor(file, true, tmpDir, DescriptorFlagRead|DescriptorFlagWrite|DescriptorFlagMutateDirectory)
-	handle := table.New(desc, true)
+	handle, errH12 := table.NewResourceHandle(desc, true, descriptorResourceType)
+	if errH12 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH12)
+	}
 	return uint32(handle.Index()), tmpDir
 }
 
@@ -882,7 +918,10 @@ func createTestFileDescriptor(t *testing.T, ctx context.Context, content []byte)
 
 	path := tmpFile.Name()
 	desc := NewDescriptor(tmpFile, false, path, DescriptorFlagRead|DescriptorFlagWrite)
-	handle := table.New(desc, true)
+	handle, errH13 := table.NewResourceHandle(desc, true, descriptorResourceType)
+	if errH13 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH13)
+	}
 	return uint32(handle.Index()), path
 }
 
@@ -1339,7 +1378,8 @@ func TestDescriptorReadViaStream_HostFunction(t *testing.T) {
 	require.NotNil(t, table)
 
 	// Lookup the stream and read from it
-	entry, err := table.Get(runtime.Handle(streamHandle))
+	rawEntry1, err := table.Get(runtime.Handle(streamHandle))
+	entry, _ := rawEntry1.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
 	require.NotNil(t, entry)
 
@@ -1371,7 +1411,8 @@ func TestDescriptorReadViaStream_WithOffset(t *testing.T) {
 
 	// Verify the stream can read from offset
 	table := component.ResourceTableFromContext(ctx)
-	entry, err := table.Get(runtime.Handle(streamHandle))
+	rawEntry2, err := table.Get(runtime.Handle(streamHandle))
+	entry, _ := rawEntry2.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
 
 	inputStream, ok2 := entry.Rep.(*wasipIO.InputStream)
@@ -1442,7 +1483,8 @@ func TestDescriptorWriteViaStream_HostFunction(t *testing.T) {
 	table := component.ResourceTableFromContext(ctx)
 	require.NotNil(t, table)
 
-	entry, err := table.Get(runtime.Handle(streamHandle))
+	rawEntry3, err := table.Get(runtime.Handle(streamHandle))
+	entry, _ := rawEntry3.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
 	require.NotNil(t, entry)
 
@@ -1483,7 +1525,8 @@ func TestDescriptorWriteViaStream_WithOffset(t *testing.T) {
 
 	// Get the stream and write
 	table := component.ResourceTableFromContext(ctx)
-	entry, err := table.Get(runtime.Handle(streamHandle))
+	rawEntry4, err := table.Get(runtime.Handle(streamHandle))
+	entry, _ := rawEntry4.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
 
 	outputStream := entry.Rep.(*wasipIO.OutputStream)
@@ -1556,7 +1599,8 @@ func TestDescriptorAppendViaStream_HostFunction(t *testing.T) {
 
 	// Verify the stream can be used to append
 	table := component.ResourceTableFromContext(ctx)
-	entry, err := table.Get(runtime.Handle(streamHandle))
+	rawEntry5, err := table.Get(runtime.Handle(streamHandle))
+	entry, _ := rawEntry5.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
 
 	outputStream, isOutputStream := entry.Rep.(*wasipIO.OutputStream)
@@ -1664,7 +1708,10 @@ func TestDescriptorSetSize_NoWritePermission(t *testing.T) {
 
 	// Create descriptor with read-only flags
 	desc := NewDescriptor(tmpFile, false, tmpFile.Name(), DescriptorFlagRead)
-	handle := table.New(desc, true)
+	handle, errH14 := table.NewResourceHandle(desc, true, descriptorResourceType)
+	if errH14 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH14)
+	}
 
 	result, err := descriptorSetSize(ctx, []types.Val{
 		types.ValBorrow(uint32(handle.Index())),
@@ -1715,10 +1762,13 @@ func TestDescriptorSetTimes_SetToNow(t *testing.T) {
 	require.NoError(t, err)
 	defer f.Close()
 
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 	desc := NewDescriptor(f, false, path, DescriptorFlagRead|DescriptorFlagWrite)
-	handle := table.New(desc, true)
+	handle, errH15 := table.NewResourceHandle(desc, true, descriptorResourceType)
+	if errH15 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH15)
+	}
 
 	selfHandle := types.ValBorrow(uint32(handle))
 	accessTime := types.ValVariant("now", nil)
@@ -1747,10 +1797,13 @@ func TestDescriptorSetTimes_SetTimestamp(t *testing.T) {
 	require.NoError(t, err)
 	defer f.Close()
 
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 	desc := NewDescriptor(f, false, path, DescriptorFlagRead|DescriptorFlagWrite)
-	handle := table.New(desc, true)
+	handle, errH16 := table.NewResourceHandle(desc, true, descriptorResourceType)
+	if errH16 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH16)
+	}
 
 	selfHandle := types.ValBorrow(uint32(handle))
 	// timestamp(datetime) where datetime is record { seconds: u64, nanoseconds: u32 }
@@ -1782,10 +1835,13 @@ func TestDescriptorSetTimes_NoWritePermission(t *testing.T) {
 	require.NoError(t, err)
 	defer f.Close()
 
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 	desc := NewDescriptor(f, false, path, DescriptorFlagRead) // read-only
-	handle := table.New(desc, true)
+	handle, errH17 := table.NewResourceHandle(desc, true, descriptorResourceType)
+	if errH17 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH17)
+	}
 
 	selfHandle := types.ValBorrow(uint32(handle))
 	accessTime := types.ValVariant("now", nil)
@@ -1856,7 +1912,10 @@ func TestDescriptorLinkAt_NoMutateDirectory(t *testing.T) {
 	file, err := os.Open(tmpDir)
 	require.NoError(t, err)
 	desc := NewDescriptor(file, true, tmpDir, DescriptorFlagRead|DescriptorFlagWrite)
-	h := table.New(desc, true)
+	h, errH18 := table.NewResourceHandle(desc, true, descriptorResourceType)
+	if errH18 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH18)
+	}
 	handle := uint32(h.Index())
 
 	selfHandle := types.ValBorrow(handle)
@@ -1886,10 +1945,13 @@ func TestDescriptorAdvise_WithRealFile(t *testing.T) {
 	require.NoError(t, err)
 	defer f.Close()
 
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 	desc := NewDescriptor(f, false, path, DescriptorFlagRead)
-	handle := table.New(desc, true)
+	handle, errH19 := table.NewResourceHandle(desc, true, descriptorResourceType)
+	if errH19 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH19)
+	}
 
 	selfHandle := types.ValBorrow(uint32(handle))
 	offset := types.ValU64(0)
@@ -1907,7 +1969,7 @@ func TestDescriptorAdvise_WithRealFile(t *testing.T) {
 }
 
 func TestDescriptorAdvise_BadDescriptor(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 	selfHandle := types.ValBorrow(0)
 	offset := types.ValU64(0)

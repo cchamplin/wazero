@@ -100,7 +100,7 @@ func outgoingHandlerHandle(ctx context.Context, args []types.Val) ([]types.Val, 
 	}()
 
 	// Register the future in the resource table
-	futureHandle := table.New(future, true)
+	futureHandle, _ := table.NewResourceHandle(future, true, httpFutureIncomingResponseResourceType)
 
 	// Return success with the future handle
 	result := types.ValOwn(uint32(futureHandle))

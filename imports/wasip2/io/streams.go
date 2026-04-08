@@ -12,6 +12,16 @@ import (
 	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
+// Host-managed resource type singletons. One *ResourceType per host
+// resource kind. Impl is nil because these resources are host-owned;
+// destruction flows through the existing Destroyable interface on Rep.
+var (
+	inputStreamResourceType  = &runtime.ResourceType{}
+	outputStreamResourceType = &runtime.ResourceType{}
+	pollableResourceType     = &runtime.ResourceType{}
+	errorResourceType        = &runtime.ResourceType{}
+)
+
 // StreamError represents the stream-error variant type.
 type StreamError struct {
 	kind      streamErrorKind
@@ -315,7 +325,11 @@ func streamErrorToResultVal(ctx context.Context, err *StreamError) types.Val {
 	table := component.ResourceTableFromContext(ctx)
 	if table != nil && err.Error() != nil {
 		// Create an Error resource in the table
-		handle := table.New(err.Error(), true)
+		handle, hErr := table.NewResourceHandle(err.Error(), true, errorResourceType)
+		if hErr != nil {
+			closedVariant := types.ValVariant("closed", nil)
+			return types.ValResultError(&closedVariant)
+		}
 		handleVal := types.ValOwn(uint32(handle))
 		errVariant := types.ValVariant("last-operation-failed", &handleVal)
 		return types.ValResultError(&errVariant)
@@ -335,7 +349,11 @@ func getInputStream(ctx context.Context, handle uint32) (*InputStream, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid handle %d: %w", handle, err)
 	}
-	stream, ok := entry.Rep.(*InputStream)
+	resEntry, ok := entry.(*runtime.ResourceHandleEntry)
+	if !ok {
+		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
+	}
+	stream, ok := resEntry.Rep.(*InputStream)
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not an InputStream", handle)
 	}
@@ -352,7 +370,11 @@ func getOutputStream(ctx context.Context, handle uint32) (*OutputStream, error) 
 	if err != nil {
 		return nil, fmt.Errorf("invalid handle %d: %w", handle, err)
 	}
-	stream, ok := entry.Rep.(*OutputStream)
+	resEntry, ok := entry.(*runtime.ResourceHandleEntry)
+	if !ok {
+		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
+	}
+	stream, ok := resEntry.Rep.(*OutputStream)
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not an OutputStream", handle)
 	}
@@ -366,7 +388,10 @@ func createPollableHandle(ctx context.Context, pollable *Pollable) types.Val {
 		// No table, return placeholder handle 0
 		return types.ValOwn(0)
 	}
-	handle := table.New(pollable, true)
+	handle, err := table.NewResourceHandle(pollable, true, pollableResourceType)
+	if err != nil {
+		return types.ValOwn(0)
+	}
 	return types.ValOwn(uint32(handle))
 }
 

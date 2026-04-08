@@ -87,7 +87,11 @@ func createTcpSocket(ctx context.Context, args []types.Val) ([]types.Val, error)
 		return []types.Val{types.ValResultOk(&handle)}, nil
 	}
 
-	handle := table.New(sock, true)
+	handle, hErr := table.NewResourceHandle(sock, true, tcpSocketResourceType)
+	if hErr != nil {
+		handle := types.ValOwn(0)
+		return []types.Val{types.ValResultOk(&handle)}, nil
+	}
 	handleVal := types.ValOwn(uint32(handle))
 	return []types.Val{types.ValResultOk(&handleVal)}, nil
 }
@@ -259,8 +263,20 @@ func tcpSocketFinishConnect(ctx context.Context, args []types.Val) ([]types.Val,
 	inStream := NewTcpInputStream(sock)
 	outStream := NewTcpOutputStream(sock)
 
-	inHandle := table.New(inStream, true)
-	outHandle := table.New(outStream, true)
+	inHandle, hErr1 := table.NewResourceHandle(inStream, true, tcpInputStreamResourceType)
+	if hErr1 != nil {
+		inputStream := types.ValOwn(0)
+		outputStream := types.ValOwn(1)
+		tuple := types.ValTuple([]types.Val{inputStream, outputStream})
+		return []types.Val{types.ValResultOk(&tuple)}, nil
+	}
+	outHandle, hErr2 := table.NewResourceHandle(outStream, true, tcpOutputStreamResourceType)
+	if hErr2 != nil {
+		inputStream := types.ValOwn(uint32(inHandle))
+		outputStream := types.ValOwn(1)
+		tuple := types.ValTuple([]types.Val{inputStream, outputStream})
+		return []types.Val{types.ValResultOk(&tuple)}, nil
+	}
 
 	inputStreamVal := types.ValOwn(uint32(inHandle))
 	outputStreamVal := types.ValOwn(uint32(outHandle))
@@ -363,11 +379,11 @@ func tcpSocketAccept(ctx context.Context, args []types.Val) ([]types.Val, error)
 	}
 
 	// Create resources
-	sockHandle := table.New(acceptedSock, true)
+	sockHandle, _ := table.NewResourceHandle(acceptedSock, true, tcpSocketResourceType)
 	inStream := NewTcpInputStream(acceptedSock)
 	outStream := NewTcpOutputStream(acceptedSock)
-	inHandle := table.New(inStream, true)
-	outHandle := table.New(outStream, true)
+	inHandle, _ := table.NewResourceHandle(inStream, true, tcpInputStreamResourceType)
+	outHandle, _ := table.NewResourceHandle(outStream, true, tcpOutputStreamResourceType)
 
 	socketVal := types.ValOwn(uint32(sockHandle))
 	inputStreamVal := types.ValOwn(uint32(inHandle))
@@ -691,7 +707,10 @@ func tcpSocketSubscribe(ctx context.Context, args []types.Val) ([]types.Val, err
 	// TCP socket subscribe creates a pollable that is always ready since
 	// Go's net package handles TCP operations synchronously.
 	pollable := wasipIO.NewReadyPollable()
-	pollHandle := table.New(pollable, true)
+	pollHandle, hErr := table.NewResourceHandle(pollable, true, socketsPollableResourceType)
+	if hErr != nil {
+		return []types.Val{types.ValOwn(0)}, nil
+	}
 	return []types.Val{types.ValOwn(uint32(pollHandle))}, nil
 }
 

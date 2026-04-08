@@ -338,12 +338,15 @@ func TestFieldsClone(t *testing.T) {
 }
 
 func TestFieldsHas_WithResourceTable(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	fields := NewFields()
 	fields.Set("Content-Type", [][]byte{[]byte("text/html")})
-	handle := table.New(fields, true)
+	handle, errH1 := table.NewResourceHandle(fields, true, httpFieldsResourceType)
+	if errH1 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH1)
+	}
 
 	selfHandle := types.ValBorrow(uint32(handle))
 
@@ -569,7 +572,7 @@ func TestIncomingRequestConsume(t *testing.T) {
 // returns the correct HTTP method from a registered incoming request.
 func TestIncomingRequest_Method_WithResourceTable(t *testing.T) {
 	// Create resource table and context
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create an incoming request with POST method
@@ -580,7 +583,10 @@ func TestIncomingRequest_Method_WithResourceTable(t *testing.T) {
 	req := NewIncomingRequest(MethodPost, &scheme, &authority, &path, headers)
 
 	// Register in resource table
-	handle := table.New(req, true)
+	handle, errH2 := table.NewResourceHandle(req, true, httpFieldsResourceType)
+	if errH2 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH2)
+	}
 
 	// Call method accessor
 	selfHandle := types.ValBorrow(uint32(handle))
@@ -598,7 +604,7 @@ func TestIncomingRequest_Method_WithResourceTable(t *testing.T) {
 // accessor returns the correct path from a registered incoming request.
 func TestIncomingRequest_PathWithQuery_WithResourceTable(t *testing.T) {
 	// Create resource table and context
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create an incoming request with path
@@ -609,7 +615,10 @@ func TestIncomingRequest_PathWithQuery_WithResourceTable(t *testing.T) {
 	req := NewIncomingRequest(MethodGet, &scheme, &authority, &path, headers)
 
 	// Register in resource table
-	handle := table.New(req, true)
+	handle, errH3 := table.NewResourceHandle(req, true, httpFieldsResourceType)
+	if errH3 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH3)
+	}
 
 	// Call path-with-query accessor
 	selfHandle := types.ValBorrow(uint32(handle))
@@ -628,7 +637,7 @@ func TestIncomingRequest_PathWithQuery_WithResourceTable(t *testing.T) {
 // returns the correct scheme from a registered incoming request.
 func TestIncomingRequest_Scheme_WithResourceTable(t *testing.T) {
 	// Create resource table and context
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create an incoming request with HTTPS scheme
@@ -639,7 +648,10 @@ func TestIncomingRequest_Scheme_WithResourceTable(t *testing.T) {
 	req := NewIncomingRequest(MethodGet, &scheme, &authority, &path, headers)
 
 	// Register in resource table
-	handle := table.New(req, true)
+	handle, errH4 := table.NewResourceHandle(req, true, httpFieldsResourceType)
+	if errH4 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH4)
+	}
 
 	// Call scheme accessor
 	selfHandle := types.ValBorrow(uint32(handle))
@@ -660,7 +672,7 @@ func TestIncomingRequest_Scheme_WithResourceTable(t *testing.T) {
 // returns the correct authority from a registered incoming request.
 func TestIncomingRequest_Authority_WithResourceTable(t *testing.T) {
 	// Create resource table and context
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create an incoming request with authority
@@ -671,7 +683,10 @@ func TestIncomingRequest_Authority_WithResourceTable(t *testing.T) {
 	req := NewIncomingRequest(MethodGet, &scheme, &authority, &path, headers)
 
 	// Register in resource table
-	handle := table.New(req, true)
+	handle, errH5 := table.NewResourceHandle(req, true, httpFieldsResourceType)
+	if errH5 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH5)
+	}
 
 	// Call authority accessor
 	selfHandle := types.ValBorrow(uint32(handle))
@@ -690,7 +705,7 @@ func TestIncomingRequest_Authority_WithResourceTable(t *testing.T) {
 // returns a valid headers handle from a registered incoming request.
 func TestIncomingRequest_Headers_WithResourceTable(t *testing.T) {
 	// Create resource table and context
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create an incoming request with headers
@@ -703,7 +718,10 @@ func TestIncomingRequest_Headers_WithResourceTable(t *testing.T) {
 	req := NewIncomingRequest(MethodGet, &scheme, &authority, &path, headers)
 
 	// Register in resource table
-	handle := table.New(req, true)
+	handle, errH6 := table.NewResourceHandle(req, true, httpFieldsResourceType)
+	if errH6 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH6)
+	}
 
 	// Call headers accessor
 	selfHandle := types.ValBorrow(uint32(handle))
@@ -714,7 +732,8 @@ func TestIncomingRequest_Headers_WithResourceTable(t *testing.T) {
 
 	// Verify the returned handle points to valid headers
 	headersHandle := runtime.Handle(result[0].Own())
-	entry, err := table.Get(headersHandle)
+	rawEntry1, err := table.Get(headersHandle)
+	entry, _ := rawEntry1.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
 	require.NotNil(t, entry)
 
@@ -732,7 +751,7 @@ func TestIncomingRequest_Headers_WithResourceTable(t *testing.T) {
 // returns a valid incoming body handle from a registered incoming request.
 func TestIncomingRequest_Consume_WithResourceTable(t *testing.T) {
 	// Create resource table and context
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create an incoming request
@@ -743,7 +762,10 @@ func TestIncomingRequest_Consume_WithResourceTable(t *testing.T) {
 	req := NewIncomingRequest(MethodPost, &scheme, &authority, &path, headers)
 
 	// Register in resource table
-	handle := table.New(req, true)
+	handle, errH7 := table.NewResourceHandle(req, true, httpFieldsResourceType)
+	if errH7 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH7)
+	}
 
 	// Call consume
 	selfHandle := types.ValBorrow(uint32(handle))
@@ -761,7 +783,8 @@ func TestIncomingRequest_Consume_WithResourceTable(t *testing.T) {
 	bodyHandle := runtime.Handle(ok.Own())
 	require.NotEqual(t, runtime.Handle(0), bodyHandle, "body handle should not be 0")
 
-	entry, err := table.Get(bodyHandle)
+	rawEntry2, err := table.Get(bodyHandle)
+	entry, _ := rawEntry2.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
 	require.NotNil(t, entry)
 
@@ -788,7 +811,7 @@ func TestIncomingRequest_AllMethods(t *testing.T) {
 
 	for _, tc := range methods {
 		t.Run(tc.expectedName, func(t *testing.T) {
-			table := runtime.NewResourceTable()
+			table := runtime.NewTable()
 			ctx := component.WithResourceTable(context.Background(), table)
 
 			headers := NewFields()
@@ -797,7 +820,10 @@ func TestIncomingRequest_AllMethods(t *testing.T) {
 			scheme := NewSchemeHTTP()
 			req := NewIncomingRequest(tc.method, &scheme, &authority, &path, headers)
 
-			handle := table.New(req, true)
+			handle, errH8 := table.NewResourceHandle(req, true, httpFieldsResourceType)
+			if errH8 != nil {
+				t.Fatalf("NewResourceHandle failed: %v", errH8)
+			}
 			selfHandle := types.ValBorrow(uint32(handle))
 
 			result, err := incomingRequestMethod(ctx, []types.Val{selfHandle})
@@ -811,7 +837,7 @@ func TestIncomingRequest_AllMethods(t *testing.T) {
 
 // TestIncomingRequest_NilScheme tests handling of nil scheme.
 func TestIncomingRequest_NilScheme(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	headers := NewFields()
@@ -819,7 +845,10 @@ func TestIncomingRequest_NilScheme(t *testing.T) {
 	authority := "localhost"
 	req := NewIncomingRequest(MethodGet, nil, &authority, &path, headers)
 
-	handle := table.New(req, true)
+	handle, errH9 := table.NewResourceHandle(req, true, httpFieldsResourceType)
+	if errH9 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH9)
+	}
 	selfHandle := types.ValBorrow(uint32(handle))
 
 	result, err := incomingRequestScheme(ctx, []types.Val{selfHandle})
@@ -833,7 +862,7 @@ func TestIncomingRequest_NilScheme(t *testing.T) {
 
 // TestIncomingRequest_NilPathWithQuery tests handling of nil path.
 func TestIncomingRequest_NilPathWithQuery(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	headers := NewFields()
@@ -841,7 +870,10 @@ func TestIncomingRequest_NilPathWithQuery(t *testing.T) {
 	scheme := NewSchemeHTTP()
 	req := NewIncomingRequest(MethodGet, &scheme, &authority, nil, headers)
 
-	handle := table.New(req, true)
+	handle, errH10 := table.NewResourceHandle(req, true, httpFieldsResourceType)
+	if errH10 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH10)
+	}
 	selfHandle := types.ValBorrow(uint32(handle))
 
 	result, err := incomingRequestPathWithQuery(ctx, []types.Val{selfHandle})
@@ -855,7 +887,7 @@ func TestIncomingRequest_NilPathWithQuery(t *testing.T) {
 
 // TestIncomingRequest_NilAuthority tests handling of nil authority.
 func TestIncomingRequest_NilAuthority(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	headers := NewFields()
@@ -863,7 +895,10 @@ func TestIncomingRequest_NilAuthority(t *testing.T) {
 	scheme := NewSchemeHTTP()
 	req := NewIncomingRequest(MethodGet, &scheme, nil, &path, headers)
 
-	handle := table.New(req, true)
+	handle, errH11 := table.NewResourceHandle(req, true, httpFieldsResourceType)
+	if errH11 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH11)
+	}
 	selfHandle := types.ValBorrow(uint32(handle))
 
 	result, err := incomingRequestAuthority(ctx, []types.Val{selfHandle})
@@ -937,17 +972,20 @@ func TestOutgoingResponseBody(t *testing.T) {
 }
 
 func TestOutgoingResponseConstructor_WithResourceTable(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Occupy slot 0 so that when headers (slot 1) is removed,
 	// the response gets allocated in a fresh slot (slot 2) with generation 0.
-	table.New("padding", false)
+	_, _ = table.NewResourceHandle("padding", false, httpFieldsResourceType)
 
 	// Create headers
 	headers := NewFields()
 	headers.Set("X-Test", [][]byte{[]byte("value")})
-	headersHandle := table.New(headers, true)
+	headersHandle, errH12 := table.NewResourceHandle(headers, true, httpFieldsResourceType)
+	if errH12 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH12)
+	}
 
 	headersVal := types.ValOwn(uint32(headersHandle))
 	result, err := outgoingResponseConstructor(ctx, []types.Val{headersVal})
@@ -963,12 +1001,15 @@ func TestOutgoingResponseConstructor_WithResourceTable(t *testing.T) {
 }
 
 func TestOutgoingResponseStatusCode_WithResourceTable(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	resp := NewOutgoingResponse(NewFields())
 	resp.SetStatusCode(404)
-	handle := table.New(resp, true)
+	handle, errH13 := table.NewResourceHandle(resp, true, httpFieldsResourceType)
+	if errH13 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH13)
+	}
 
 	selfHandle := types.ValBorrow(uint32(handle))
 	result, err := outgoingResponseStatusCode(ctx, []types.Val{selfHandle})
@@ -977,11 +1018,14 @@ func TestOutgoingResponseStatusCode_WithResourceTable(t *testing.T) {
 }
 
 func TestOutgoingResponseSetStatusCode_WithResourceTable(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	resp := NewOutgoingResponse(NewFields())
-	handle := table.New(resp, true)
+	handle, errH14 := table.NewResourceHandle(resp, true, httpFieldsResourceType)
+	if errH14 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH14)
+	}
 
 	selfHandle := types.ValBorrow(uint32(handle))
 	status := types.ValU16(500)
@@ -993,11 +1037,14 @@ func TestOutgoingResponseSetStatusCode_WithResourceTable(t *testing.T) {
 }
 
 func TestOutgoingResponseBody_WithResourceTable(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	resp := NewOutgoingResponse(NewFields())
-	handle := table.New(resp, true)
+	handle, errH15 := table.NewResourceHandle(resp, true, httpFieldsResourceType)
+	if errH15 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH15)
+	}
 
 	selfHandle := types.ValBorrow(uint32(handle))
 	result, err := outgoingResponseBody(ctx, []types.Val{selfHandle})
@@ -1159,7 +1206,7 @@ func TestFutureTrailersSubscribe(t *testing.T) {
 }
 
 func TestIncomingBodyFinish_ReturnsFutureTrailers(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Use a non-existent body handle — incomingBodyFinish handles this
@@ -1178,12 +1225,15 @@ func TestIncomingBodyFinish_ReturnsFutureTrailers(t *testing.T) {
 }
 
 func TestFutureTrailersGet_NoTrailers(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create a ready FutureTrailers directly (no body removal to avoid slot reuse)
 	ft := NewFutureTrailersReady(nil, nil)
-	ftHandle := table.New(ft, true)
+	ftHandle, errH16 := table.NewResourceHandle(ft, true, httpFieldsResourceType)
+	if errH16 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH16)
+	}
 
 	ftBorrow := types.ValBorrow(uint32(ftHandle))
 
@@ -1196,11 +1246,14 @@ func TestFutureTrailersGet_NoTrailers(t *testing.T) {
 }
 
 func TestFutureTrailersGet_ConsumedOnSecondCall(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	ft := NewFutureTrailersReady(nil, nil)
-	ftHandle := table.New(ft, true)
+	ftHandle, errH17 := table.NewResourceHandle(ft, true, httpFieldsResourceType)
+	if errH17 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH17)
+	}
 
 	ftBorrow := types.ValBorrow(uint32(ftHandle))
 
@@ -1215,11 +1268,14 @@ func TestFutureTrailersGet_ConsumedOnSecondCall(t *testing.T) {
 }
 
 func TestFutureTrailersSubscribe_ReturnsValidPollable(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	ft := NewFutureTrailersReady(nil, nil)
-	ftHandle := table.New(ft, true)
+	ftHandle, errH18 := table.NewResourceHandle(ft, true, httpFieldsResourceType)
+	if errH18 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH18)
+	}
 
 	ftBorrow := types.ValBorrow(uint32(ftHandle))
 	result, err := futureTrailersSubscribe(ctx, []types.Val{ftBorrow})
@@ -2054,15 +2110,21 @@ func TestIncomingBody_StreamRead(t *testing.T) {
 }
 
 func TestResponseOutparamSet_OkResponse(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	outparam := NewResponseOutparam()
-	outparamHandle := table.New(outparam, true)
+	outparamHandle, errH19 := table.NewResourceHandle(outparam, true, httpFieldsResourceType)
+	if errH19 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH19)
+	}
 
 	resp := NewOutgoingResponse(NewFields())
 	resp.SetStatusCode(200)
-	respHandle := table.New(resp, true)
+	respHandle, errH20 := table.NewResourceHandle(resp, true, httpFieldsResourceType)
+	if errH20 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH20)
+	}
 
 	// Build args: own<response-outparam>, result<own<outgoing-response>, error-code>
 	outparamVal := types.ValOwn(uint32(outparamHandle))
@@ -2082,11 +2144,14 @@ func TestResponseOutparamSet_OkResponse(t *testing.T) {
 }
 
 func TestResponseOutparamSet_ErrorResponse(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	outparam := NewResponseOutparam()
-	outparamHandle := table.New(outparam, true)
+	outparamHandle, errH21 := table.NewResourceHandle(outparam, true, httpFieldsResourceType)
+	if errH21 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH21)
+	}
 
 	outparamVal := types.ValOwn(uint32(outparamHandle))
 	errCodeVal := types.ValVariant("connection-refused", nil)
@@ -2109,11 +2174,14 @@ func TestResponseOutparamSet_ErrorResponse(t *testing.T) {
 // returning Err(internal-error), which must NOT trap and must be delivered through the
 // outparam channel.
 func TestResponseOutparamSet_BadOutgoingResponseHandle(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	outparam := NewResponseOutparam()
-	outparamHandle := table.New(outparam, true)
+	outparamHandle, errH22 := table.NewResourceHandle(outparam, true, httpFieldsResourceType)
+	if errH22 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH22)
+	}
 
 	// Bogus outgoing-response handle that has nothing in the table.
 	const bogusRespHandleIdx uint32 = 9999
@@ -2142,7 +2210,7 @@ func TestResponseOutparamSet_BadOutgoingResponseHandle(t *testing.T) {
 // payload is well-formed. Per CanonicalABI.md (lift_own), an own handle that does not
 // exist in the table must trap.
 func TestResponseOutparamSet_BadOutparamHandle(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Bogus outparam handle that has nothing in the table.
@@ -2160,7 +2228,7 @@ func TestResponseOutparamSet_BadOutparamHandle(t *testing.T) {
 }
 
 func TestIncomingRequestConsume_WithBody(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	bodyReader := goio.NopCloser(strings.NewReader("request body content"))
@@ -2170,7 +2238,10 @@ func TestIncomingRequestConsume_WithBody(t *testing.T) {
 	pathStr := "/api"
 	req := NewIncomingRequest(MethodPost, &scheme, nil, &pathStr, NewFields())
 	req.SetBody(body)
-	handle := table.New(req, true)
+	handle, errH23 := table.NewResourceHandle(req, true, httpFieldsResourceType)
+	if errH23 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH23)
+	}
 
 	selfHandle := types.ValBorrow(uint32(handle))
 	result, err := incomingRequestConsume(ctx, []types.Val{selfHandle})
@@ -2180,7 +2251,8 @@ func TestIncomingRequestConsume_WithBody(t *testing.T) {
 
 	// Verify body is accessible
 	bodyHandle := bodyHandleVal.Own()
-	entry, err := table.Get(runtime.Handle(bodyHandle))
+	rawEntry3, err := table.Get(runtime.Handle(bodyHandle))
+	entry, _ := rawEntry3.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
 	inBody, ok := entry.Rep.(*IncomingBody)
 	require.True(t, ok)
@@ -2188,13 +2260,16 @@ func TestIncomingRequestConsume_WithBody(t *testing.T) {
 }
 
 func TestIncomingRequestConsume_BodyAlreadyConsumed(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	scheme := NewSchemeHTTPS()
 	pathStr := "/api"
 	req := NewIncomingRequest(MethodPost, &scheme, nil, &pathStr, NewFields())
-	handle := table.New(req, true)
+	handle, errH24 := table.NewResourceHandle(req, true, httpFieldsResourceType)
+	if errH24 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH24)
+	}
 
 	selfHandle := types.ValBorrow(uint32(handle))
 
@@ -2214,12 +2289,15 @@ func TestIncomingRequestConsume_BodyAlreadyConsumed(t *testing.T) {
 }
 
 func TestHttpErrorCode_WithHTTPError(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	httpErr := &HTTPError{Code: ErrorCodeConnectionRefused}
 	ioErr := io.NewError(httpErr)
-	handle := table.New(ioErr, true)
+	handle, errH25 := table.NewResourceHandle(ioErr, true, httpFieldsResourceType)
+	if errH25 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH25)
+	}
 
 	errHandle := types.ValBorrow(uint32(handle))
 	result, err := httpErrorCode(ctx, []types.Val{errHandle})
@@ -2237,7 +2315,8 @@ func TestNewHTTPHandler_SimpleGET(t *testing.T) {
 		table := component.ResourceTableFromContext(ctx)
 
 		// Read request
-		entry, _ := table.Get(requestHandle)
+		rawEntry4, _ := table.Get(requestHandle)
+		entry, _ := rawEntry4.(*runtime.ResourceHandleEntry)
 		req := entry.Rep.(*IncomingRequest)
 		require.Equal(t, MethodGet, req.Method())
 		require.Equal(t, "/test", *req.PathWithQuery())
@@ -2249,8 +2328,9 @@ func TestNewHTTPHandler_SimpleGET(t *testing.T) {
 		resp.SetStatusCode(200)
 
 		// Send response through outparam channel
-		entry, _ = table.Get(outparamHandle)
-		outparam := entry.Rep.(*ResponseOutparam)
+		rawOutparam, _ := table.Get(outparamHandle)
+		outparamEntry, _ := rawOutparam.(*runtime.ResourceHandleEntry)
+		outparam := outparamEntry.Rep.(*ResponseOutparam)
 		outparam.result <- ResponseResult{Response: resp}
 
 		return nil
@@ -2279,7 +2359,8 @@ func TestNewHTTPHandler_CallHandleError(t *testing.T) {
 func TestNewHTTPHandler_ErrorCodeResponse(t *testing.T) {
 	handler := NewHTTPHandler(func(ctx context.Context, requestHandle, outparamHandle runtime.Handle) error {
 		table := component.ResourceTableFromContext(ctx)
-		entry, _ := table.Get(outparamHandle)
+		rawEntry5, _ := table.Get(outparamHandle)
+		entry, _ := rawEntry5.(*runtime.ResourceHandleEntry)
 		outparam := entry.Rep.(*ResponseOutparam)
 		errCode := ErrorCodeConnectionRefused
 		outparam.result <- ResponseResult{Err: &errCode}
@@ -2297,7 +2378,8 @@ func TestNewHTTPHandler_HeadersAreLowercased(t *testing.T) {
 	var sawLowercase bool
 	handler := NewHTTPHandler(func(ctx context.Context, requestHandle, outparamHandle runtime.Handle) error {
 		table := component.ResourceTableFromContext(ctx)
-		entry, _ := table.Get(requestHandle)
+		rawEntry6, _ := table.Get(requestHandle)
+		entry, _ := rawEntry6.(*runtime.ResourceHandleEntry)
 		req := entry.Rep.(*IncomingRequest)
 		// Component-side lookup uses lowercase key.
 		sawLowercase = req.Headers().Has("x-test-header")
@@ -2305,8 +2387,9 @@ func TestNewHTTPHandler_HeadersAreLowercased(t *testing.T) {
 		respHeaders := NewFields()
 		resp := NewOutgoingResponse(respHeaders)
 		resp.SetStatusCode(200)
-		entry, _ = table.Get(outparamHandle)
-		outparam := entry.Rep.(*ResponseOutparam)
+		rawOutparam2, _ := table.Get(outparamHandle)
+		outparamEntry2, _ := rawOutparam2.(*runtime.ResourceHandleEntry)
+		outparam := outparamEntry2.Rep.(*ResponseOutparam)
 		outparam.result <- ResponseResult{Response: resp}
 		return nil
 	})
@@ -2321,11 +2404,14 @@ func TestNewHTTPHandler_HeadersAreLowercased(t *testing.T) {
 }
 
 func TestHttpErrorCode_WithNonHTTPError(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	ioErr := io.NewError(errors.New("some random error"))
-	handle := table.New(ioErr, true)
+	handle, errH26 := table.NewResourceHandle(ioErr, true, httpFieldsResourceType)
+	if errH26 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH26)
+	}
 
 	errHandle := types.ValBorrow(uint32(handle))
 	result, err := httpErrorCode(ctx, []types.Val{errHandle})

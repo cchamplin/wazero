@@ -108,7 +108,7 @@ func TestInstantiateMonotonicClock_Duplicate(t *testing.T) {
 // Tests for host functions with ResourceTable
 
 func TestSubscribeDuration_HostFunction(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Subscribe for a 10ms duration
@@ -125,7 +125,8 @@ func TestSubscribeDuration_HostFunction(t *testing.T) {
 	handle := runtime.Handle(results[0].Own())
 
 	// Verify the pollable was registered correctly by retrieving it
-	entry, err := table.Get(handle)
+	rawEntry1, err := table.Get(handle)
+	entry, _ := rawEntry1.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
 	require.True(t, entry.Own, "expected owned handle")
 
@@ -143,7 +144,7 @@ func TestSubscribeDuration_HostFunction(t *testing.T) {
 }
 
 func TestSubscribeDuration_HostFunction_Zero(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Zero duration should be immediately ready
@@ -156,7 +157,8 @@ func TestSubscribeDuration_HostFunction_Zero(t *testing.T) {
 	require.Equal(t, 1, len(results))
 
 	handle := runtime.Handle(results[0].Own())
-	entry, err := table.Get(handle)
+	rawEntry2, err := table.Get(handle)
+	entry, _ := rawEntry2.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
 
 	pollable, ok := entry.Rep.(*wasip2io.Pollable)
@@ -181,7 +183,7 @@ func TestSubscribeDuration_HostFunction_NoResourceTable(t *testing.T) {
 }
 
 func TestSubscribeInstant_HostFunction(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Subscribe for an instant 10ms in the future
@@ -198,7 +200,8 @@ func TestSubscribeInstant_HostFunction(t *testing.T) {
 	handle := runtime.Handle(results[0].Own())
 
 	// Verify the pollable was registered correctly by retrieving it
-	entry, err := table.Get(handle)
+	rawEntry3, err := table.Get(handle)
+	entry, _ := rawEntry3.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
 	require.True(t, entry.Own, "expected owned handle")
 
@@ -216,7 +219,7 @@ func TestSubscribeInstant_HostFunction(t *testing.T) {
 }
 
 func TestSubscribeInstant_HostFunction_Past(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Past instant (0) should be immediately ready
@@ -229,7 +232,8 @@ func TestSubscribeInstant_HostFunction_Past(t *testing.T) {
 	require.Equal(t, 1, len(results))
 
 	handle := runtime.Handle(results[0].Own())
-	entry, err := table.Get(handle)
+	rawEntry4, err := table.Get(handle)
+	entry, _ := rawEntry4.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
 
 	pollable, ok := entry.Rep.(*wasip2io.Pollable)

@@ -1111,7 +1111,7 @@ func TestDatagramStreams(t *testing.T) {
 
 // Helper to create a context with resource table
 func contextWithResourceTable() context.Context {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	return component.WithResourceTable(context.Background(), table)
 }
 
@@ -1600,7 +1600,8 @@ func TestInstanceNetwork_ReturnsValidHandle(t *testing.T) {
 	handle := result[0].Own()
 	// Handle should be non-zero (valid resource)
 	table := component.ResourceTableFromContext(ctx)
-	entry, err := table.Get(runtime.Handle(handle))
+	rawEntry1, err := table.Get(runtime.Handle(handle))
+	entry, _ := rawEntry1.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
 	_, ok := entry.Rep.(*Network)
 	require.True(t, ok, "handle should resolve to a Network resource")
@@ -1622,7 +1623,10 @@ func TestTcpSocketSubscribe_ReturnsValidPollable(t *testing.T) {
 	table := component.ResourceTableFromContext(ctx)
 
 	sock := NewTcpSocket(IpAddressFamilyIpv4)
-	handle := table.New(sock, true)
+	handle, errH1 := table.NewResourceHandle(sock, true, socketsPollableResourceType)
+	if errH1 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH1)
+	}
 	selfHandle := types.ValBorrow(uint32(handle))
 
 	result, err := tcpSocketSubscribe(ctx, []types.Val{selfHandle})
@@ -1632,7 +1636,8 @@ func TestTcpSocketSubscribe_ReturnsValidPollable(t *testing.T) {
 	require.True(t, pollHandle > 0, "should return valid pollable handle")
 
 	// Verify it's a real Pollable in the table
-	entry, err := table.Get(runtime.Handle(pollHandle))
+	rawEntry2, err := table.Get(runtime.Handle(pollHandle))
+	entry, _ := rawEntry2.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
 	_, ok := entry.Rep.(*wasipIO.Pollable)
 	require.True(t, ok, "handle should resolve to a Pollable")
@@ -1643,14 +1648,18 @@ func TestUdpSocketSubscribe_ImmediatelyReady(t *testing.T) {
 	table := component.ResourceTableFromContext(ctx)
 
 	sock := NewUdpSocket(IpAddressFamilyIpv4)
-	handle := table.New(sock, true)
+	handle, errH2 := table.NewResourceHandle(sock, true, socketsPollableResourceType)
+	if errH2 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH2)
+	}
 	selfHandle := types.ValBorrow(uint32(handle))
 
 	result, err := udpSocketSubscribe(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
 	pollHandle := result[0].Own()
 
-	entry, err := table.Get(runtime.Handle(pollHandle))
+	rawEntry3, err := table.Get(runtime.Handle(pollHandle))
+	entry, _ := rawEntry3.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
 	pollable := entry.Rep.(*wasipIO.Pollable)
 	require.True(t, pollable.Ready(), "UDP socket pollable should be immediately ready")
@@ -1662,14 +1671,18 @@ func TestIncomingDatagramStreamSubscribe_ReturnsValidPollable(t *testing.T) {
 
 	sock := NewUdpSocket(IpAddressFamilyIpv4)
 	stream := NewIncomingDatagramStream(sock)
-	handle := table.New(stream, true)
+	handle, errH3 := table.NewResourceHandle(stream, true, socketsPollableResourceType)
+	if errH3 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH3)
+	}
 	selfHandle := types.ValBorrow(uint32(handle))
 
 	result, err := incomingDatagramStreamSubscribe(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
 	pollHandle := result[0].Own()
 
-	entry, err := table.Get(runtime.Handle(pollHandle))
+	rawEntry4, err := table.Get(runtime.Handle(pollHandle))
+	entry, _ := rawEntry4.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
 	pollable := entry.Rep.(*wasipIO.Pollable)
 	require.True(t, pollable.Ready(), "incoming datagram stream pollable should be immediately ready")
@@ -1681,14 +1694,18 @@ func TestOutgoingDatagramStreamSubscribe_ReturnsValidPollable(t *testing.T) {
 
 	sock := NewUdpSocket(IpAddressFamilyIpv4)
 	stream := NewOutgoingDatagramStream(sock)
-	handle := table.New(stream, true)
+	handle, errH4 := table.NewResourceHandle(stream, true, socketsPollableResourceType)
+	if errH4 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH4)
+	}
 	selfHandle := types.ValBorrow(uint32(handle))
 
 	result, err := outgoingDatagramStreamSubscribe(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
 	pollHandle := result[0].Own()
 
-	entry, err := table.Get(runtime.Handle(pollHandle))
+	rawEntry5, err := table.Get(runtime.Handle(pollHandle))
+	entry, _ := rawEntry5.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
 	pollable := entry.Rep.(*wasipIO.Pollable)
 	require.True(t, pollable.Ready(), "outgoing datagram stream pollable should be ready when sendState is idle")
@@ -1701,14 +1718,18 @@ func TestOutgoingDatagramStreamSubscribe_WaitingState(t *testing.T) {
 	sock := NewUdpSocket(IpAddressFamilyIpv4)
 	stream := NewOutgoingDatagramStream(sock)
 	stream.sendState = sendStateWaiting
-	handle := table.New(stream, true)
+	handle, errH5 := table.NewResourceHandle(stream, true, socketsPollableResourceType)
+	if errH5 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH5)
+	}
 	selfHandle := types.ValBorrow(uint32(handle))
 
 	result, err := outgoingDatagramStreamSubscribe(ctx, []types.Val{selfHandle})
 	require.NoError(t, err)
 	pollHandle := result[0].Own()
 
-	entry, err := table.Get(runtime.Handle(pollHandle))
+	rawEntry6, err := table.Get(runtime.Handle(pollHandle))
+	entry, _ := rawEntry6.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
 	pollable := entry.Rep.(*wasipIO.Pollable)
 	require.False(t, pollable.Ready(), "outgoing datagram stream pollable should NOT be ready when sendState is waiting")
@@ -1720,7 +1741,10 @@ func TestOutgoingDatagramStreamCheckSend_InitialPermit(t *testing.T) {
 
 	sock := NewUdpSocket(IpAddressFamilyIpv4)
 	stream := NewOutgoingDatagramStream(sock)
-	handle := table.New(stream, true)
+	handle, errH6 := table.NewResourceHandle(stream, true, socketsPollableResourceType)
+	if errH6 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH6)
+	}
 
 	borrow := types.ValBorrow(uint32(handle))
 	result, err := outgoingDatagramStreamCheckSend(ctx, []types.Val{borrow})
@@ -1736,7 +1760,10 @@ func TestOutgoingDatagramStreamCheckSend_StablePermit(t *testing.T) {
 
 	sock := NewUdpSocket(IpAddressFamilyIpv4)
 	stream := NewOutgoingDatagramStream(sock)
-	handle := table.New(stream, true)
+	handle, errH7 := table.NewResourceHandle(stream, true, socketsPollableResourceType)
+	if errH7 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH7)
+	}
 
 	borrow := types.ValBorrow(uint32(handle))
 	// First call grants permit
@@ -1783,7 +1810,10 @@ func TestOutgoingDatagramStreamSend_TrapsOnMissingCheckSend(t *testing.T) {
 	sock := NewUdpSocket(IpAddressFamilyIpv4)
 	stream := NewOutgoingDatagramStream(sock)
 	// Default sendState is sendStateIdle — no check-send has been called.
-	handle := table.New(stream, true)
+	handle, errH8 := table.NewResourceHandle(stream, true, socketsPollableResourceType)
+	if errH8 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH8)
+	}
 	selfHandle := types.ValBorrow(uint32(handle))
 
 	datagrams := types.ValList([]types.Val{
@@ -1804,7 +1834,10 @@ func TestOutgoingDatagramStreamSend_TrapsOnDatagramsExceedingPermit(t *testing.T
 
 	sock := NewUdpSocket(IpAddressFamilyIpv4)
 	stream := NewOutgoingDatagramStream(sock)
-	handle := table.New(stream, true)
+	handle, errH9 := table.NewResourceHandle(stream, true, socketsPollableResourceType)
+	if errH9 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH9)
+	}
 	selfHandle := types.ValBorrow(uint32(handle))
 
 	// Grant a permit of 16 via check-send.
@@ -1838,7 +1871,10 @@ func TestOutgoingDatagramStreamSend_NoTrapWhenWithinPermit(t *testing.T) {
 
 	sock := NewUdpSocket(IpAddressFamilyIpv4)
 	stream := NewOutgoingDatagramStream(sock)
-	handle := table.New(stream, true)
+	handle, errH10 := table.NewResourceHandle(stream, true, socketsPollableResourceType)
+	if errH10 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH10)
+	}
 	selfHandle := types.ValBorrow(uint32(handle))
 
 	// Grant a permit via check-send.
@@ -1868,7 +1904,10 @@ func TestNetworkErrorCode_WithSocketError(t *testing.T) {
 	// Create an io.Error that wraps a SocketError
 	sockErr := &SocketError{Code: ErrorCodeConnectionRefused}
 	ioErr := wasipIO.NewError(sockErr)
-	handle := table.New(ioErr, true)
+	handle, errH11 := table.NewResourceHandle(ioErr, true, socketsPollableResourceType)
+	if errH11 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH11)
+	}
 
 	errHandle := types.ValBorrow(uint32(handle))
 	result, err := networkErrorCode(ctx, []types.Val{errHandle})
@@ -1885,7 +1924,10 @@ func TestNetworkErrorCode_NonSocketError(t *testing.T) {
 	table := component.ResourceTableFromContext(ctx)
 
 	ioErr := wasipIO.NewError(errors.New("some random error"))
-	handle := table.New(ioErr, true)
+	handle, errH12 := table.NewResourceHandle(ioErr, true, socketsPollableResourceType)
+	if errH12 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH12)
+	}
 
 	errHandle := types.ValBorrow(uint32(handle))
 	result, err := networkErrorCode(ctx, []types.Val{errHandle})

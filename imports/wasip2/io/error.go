@@ -145,10 +145,14 @@ func errorToDebugString(ctx context.Context, args []types.Val) ([]types.Val, err
 		return []types.Val{types.ValString("invalid error handle")}, nil
 	}
 
-	wasiErr, ok := entry.Rep.(*Error)
+	resEntry, ok := entry.(*cmpruntime.ResourceHandleEntry)
+	if !ok {
+		return []types.Val{types.ValString("not a resource handle")}, nil
+	}
+	wasiErr, ok := resEntry.Rep.(*Error)
 	if !ok {
 		// Try to handle as generic error
-		if genericErr, ok := entry.Rep.(error); ok {
+		if genericErr, ok := resEntry.Rep.(error); ok {
 			return []types.Val{types.ValString(genericErr.Error())}, nil
 		}
 		return []types.Val{types.ValString("not an error resource")}, nil

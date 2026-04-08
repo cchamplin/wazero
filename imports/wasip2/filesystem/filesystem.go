@@ -18,6 +18,16 @@ import (
 	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
+// Host-managed resource type singletons. One *ResourceType per host
+// resource kind. Impl is nil because these resources are host-owned;
+// destruction flows through the existing Destroyable interface on Rep.
+var (
+	descriptorResourceType       = &runtime.ResourceType{}
+	dirEntryStreamResourceType   = &runtime.ResourceType{}
+	fsInputStreamResourceType    = &runtime.ResourceType{}
+	fsOutputStreamResourceType   = &runtime.ResourceType{}
+)
+
 // getDescriptor retrieves a Descriptor from the ResourceTable using a handle.
 func getDescriptor(ctx context.Context, handle uint32) (*Descriptor, error) {
 	table := component.ResourceTableFromContext(ctx)
@@ -28,7 +38,11 @@ func getDescriptor(ctx context.Context, handle uint32) (*Descriptor, error) {
 	if err != nil {
 		return nil, err
 	}
-	desc, ok := entry.Rep.(*Descriptor)
+	resEntry, ok := entry.(*runtime.ResourceHandleEntry)
+	if !ok {
+		return nil, errors.New("handle is not a resource handle")
+	}
+	desc, ok := resEntry.Rep.(*Descriptor)
 	if !ok {
 		return nil, errors.New("handle is not a Descriptor")
 	}
@@ -45,7 +59,11 @@ func getDirEntryStream(ctx context.Context, handle uint32) (*DirectoryEntryStrea
 	if err != nil {
 		return nil, err
 	}
-	stream, ok := entry.Rep.(*DirectoryEntryStream)
+	resEntry, ok := entry.(*runtime.ResourceHandleEntry)
+	if !ok {
+		return nil, errors.New("handle is not a resource handle")
+	}
+	stream, ok := resEntry.Rep.(*DirectoryEntryStream)
 	if !ok {
 		return nil, errors.New("handle is not a DirectoryEntryStream")
 	}
@@ -238,7 +256,11 @@ func descriptorReadViaStream(ctx context.Context, args []types.Val) ([]types.Val
 	inputStream := wasipIO.NewInputStream(file)
 
 	// Add the stream to the resource table
-	streamHandle := table.New(inputStream, true)
+	streamHandle, hErr := table.NewResourceHandle(inputStream, true, fsInputStreamResourceType)
+	if hErr != nil {
+		file.Close()
+		return errorResult(ErrorCodeIO), nil
+	}
 	handleVal := types.ValOwn(uint32(streamHandle.Index()))
 	return []types.Val{types.ValResultOk(&handleVal)}, nil
 }
@@ -288,7 +310,11 @@ func descriptorWriteViaStream(ctx context.Context, args []types.Val) ([]types.Va
 	outputStream := wasipIO.NewOutputStream(file)
 
 	// Add the stream to the resource table
-	streamHandle := table.New(outputStream, true)
+	streamHandle, hErr := table.NewResourceHandle(outputStream, true, fsOutputStreamResourceType)
+	if hErr != nil {
+		file.Close()
+		return errorResult(ErrorCodeIO), nil
+	}
 	handleVal := types.ValOwn(uint32(streamHandle.Index()))
 	return []types.Val{types.ValResultOk(&handleVal)}, nil
 }
@@ -328,7 +354,11 @@ func descriptorAppendViaStream(ctx context.Context, args []types.Val) ([]types.V
 	outputStream := wasipIO.NewOutputStream(file)
 
 	// Add the stream to the resource table
-	streamHandle := table.New(outputStream, true)
+	streamHandle, hErr := table.NewResourceHandle(outputStream, true, fsOutputStreamResourceType)
+	if hErr != nil {
+		file.Close()
+		return errorResult(ErrorCodeIO), nil
+	}
 	handleVal := types.ValOwn(uint32(streamHandle.Index()))
 	return []types.Val{types.ValResultOk(&handleVal)}, nil
 }
@@ -629,7 +659,10 @@ func descriptorReadDirectory(ctx context.Context, args []types.Val) ([]types.Val
 		return errorResult(ErrorCodeIO), nil
 	}
 
-	newHandle := table.New(stream, true)
+	newHandle, hErr := table.NewResourceHandle(stream, true, dirEntryStreamResourceType)
+	if hErr != nil {
+		return errorResult(ErrorCodeIO), nil
+	}
 	handleVal := types.ValOwn(uint32(newHandle.Index()))
 	return []types.Val{types.ValResultOk(&handleVal)}, nil
 }
@@ -996,7 +1029,11 @@ func descriptorOpenAt(ctx context.Context, args []types.Val) ([]types.Val, error
 		return errorResult(ErrorCodeIO), nil
 	}
 
-	newHandle := table.New(newDesc, true)
+	newHandle, hErr := table.NewResourceHandle(newDesc, true, descriptorResourceType)
+	if hErr != nil {
+		file.Close()
+		return errorResult(ErrorCodeIO), nil
+	}
 	handleVal := types.ValOwn(uint32(newHandle.Index()))
 	return []types.Val{types.ValResultOk(&handleVal)}, nil
 }
@@ -1331,7 +1368,11 @@ func filesystemErrorCode(ctx context.Context, args []types.Val) ([]types.Val, er
 		return []types.Val{types.ValOption(nil)}, nil
 	}
 
-	ioErr, ok := entry.Rep.(*wasipIO.Error)
+	resEntry, ok := entry.(*runtime.ResourceHandleEntry)
+	if !ok {
+		return []types.Val{types.ValOption(nil)}, nil
+	}
+	ioErr, ok := resEntry.Rep.(*wasipIO.Error)
 	if !ok {
 		return []types.Val{types.ValOption(nil)}, nil
 	}

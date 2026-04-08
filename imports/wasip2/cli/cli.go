@@ -9,7 +9,17 @@ import (
 
 	wasip2io "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/component/types"
+)
+
+// Host-managed resource type singletons. One *ResourceType per host
+// resource kind. Impl is nil because these resources are host-owned.
+var (
+	cliInputStreamResourceType    = &runtime.ResourceType{}
+	cliOutputStreamResourceType   = &runtime.ResourceType{}
+	cliTerminalInputResourceType  = &runtime.ResourceType{}
+	cliTerminalOutputResourceType = &runtime.ResourceType{}
 )
 
 // ExitError is returned when a WASI program calls exit with an error status.
@@ -153,12 +163,7 @@ func instantiateStdin(linker *component.Linker) error {
 	inst := linker.DefineInstance("wasi:cli/stdin@0.2.0")
 
 	// get-stdin: func() -> own<input-stream>
-	inst.Func("get-stdin", &component.FuncType{
-		Params: []component.NamedValType{},
-		Results: []component.NamedValType{
-			{ValType: component.ValTypeRef{IsOwn: true}},
-		},
-	}, getStdin)
+	inst.FuncNoType("get-stdin", getStdin)
 
 	return inst.SkipValidation().Build()
 }
@@ -177,8 +182,10 @@ func getStdin(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	stream := wasip2io.NewInputStream(config.Stdin())
 
 	// Register in resource table and get handle
-	handle := table.New(stream, true)
-
+	handle, hErr := table.NewResourceHandle(stream, true, cliInputStreamResourceType)
+	if hErr != nil {
+		return []types.Val{types.ValOwn(0)}, nil
+	}
 	return []types.Val{types.ValOwn(uint32(handle))}, nil
 }
 
@@ -187,12 +194,7 @@ func instantiateStdout(linker *component.Linker) error {
 	inst := linker.DefineInstance("wasi:cli/stdout@0.2.0")
 
 	// get-stdout: func() -> own<output-stream>
-	inst.Func("get-stdout", &component.FuncType{
-		Params: []component.NamedValType{},
-		Results: []component.NamedValType{
-			{ValType: component.ValTypeRef{IsOwn: true}},
-		},
-	}, getStdout)
+	inst.FuncNoType("get-stdout", getStdout)
 
 	return inst.SkipValidation().Build()
 }
@@ -211,8 +213,10 @@ func getStdout(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	stream := wasip2io.NewOutputStream(config.Stdout())
 
 	// Register in resource table and get handle
-	handle := table.New(stream, true)
-
+	handle, hErr := table.NewResourceHandle(stream, true, cliOutputStreamResourceType)
+	if hErr != nil {
+		return []types.Val{types.ValOwn(1)}, nil
+	}
 	return []types.Val{types.ValOwn(uint32(handle))}, nil
 }
 
@@ -221,12 +225,7 @@ func instantiateStderr(linker *component.Linker) error {
 	inst := linker.DefineInstance("wasi:cli/stderr@0.2.0")
 
 	// get-stderr: func() -> own<output-stream>
-	inst.Func("get-stderr", &component.FuncType{
-		Params: []component.NamedValType{},
-		Results: []component.NamedValType{
-			{ValType: component.ValTypeRef{IsOwn: true}},
-		},
-	}, getStderr)
+	inst.FuncNoType("get-stderr", getStderr)
 
 	return inst.SkipValidation().Build()
 }
@@ -245,8 +244,10 @@ func getStderr(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	stream := wasip2io.NewOutputStream(config.Stderr())
 
 	// Register in resource table and get handle
-	handle := table.New(stream, true)
-
+	handle, hErr := table.NewResourceHandle(stream, true, cliOutputStreamResourceType)
+	if hErr != nil {
+		return []types.Val{types.ValOwn(2)}, nil
+	}
 	return []types.Val{types.ValOwn(uint32(handle))}, nil
 }
 
@@ -306,7 +307,10 @@ func getTerminalStdin(ctx context.Context, args []types.Val) ([]types.Val, error
 	if table == nil {
 		return []types.Val{types.ValOption(nil)}, nil
 	}
-	handle := table.New(&TerminalInput{}, true)
+	handle, hErr := table.NewResourceHandle(&TerminalInput{}, true, cliTerminalInputResourceType)
+	if hErr != nil {
+		return []types.Val{types.ValOption(nil)}, nil
+	}
 	val := types.ValOwn(uint32(handle))
 	return []types.Val{types.ValOption(&val)}, nil
 }
@@ -347,7 +351,10 @@ func getTerminalStdout(ctx context.Context, args []types.Val) ([]types.Val, erro
 	if table == nil {
 		return []types.Val{types.ValOption(nil)}, nil
 	}
-	handle := table.New(&TerminalOutput{}, true)
+	handle, hErr := table.NewResourceHandle(&TerminalOutput{}, true, cliTerminalOutputResourceType)
+	if hErr != nil {
+		return []types.Val{types.ValOption(nil)}, nil
+	}
 	val := types.ValOwn(uint32(handle))
 	return []types.Val{types.ValOption(&val)}, nil
 }
@@ -388,7 +395,10 @@ func getTerminalStderr(ctx context.Context, args []types.Val) ([]types.Val, erro
 	if table == nil {
 		return []types.Val{types.ValOption(nil)}, nil
 	}
-	handle := table.New(&TerminalOutput{}, true)
+	handle, hErr := table.NewResourceHandle(&TerminalOutput{}, true, cliTerminalOutputResourceType)
+	if hErr != nil {
+		return []types.Val{types.ValOption(nil)}, nil
+	}
 	val := types.ValOwn(uint32(handle))
 	return []types.Val{types.ValOption(&val)}, nil
 }

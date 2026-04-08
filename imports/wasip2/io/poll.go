@@ -144,7 +144,11 @@ func getPollable(ctx context.Context, handle uint32) (*Pollable, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid handle %d: %w", handle, err)
 	}
-	pollable, ok := entry.Rep.(*Pollable)
+	resEntry, ok := entry.(*runtime.ResourceHandleEntry)
+	if !ok {
+		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
+	}
+	pollable, ok := resEntry.Rep.(*Pollable)
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not a Pollable", handle)
 	}

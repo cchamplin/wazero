@@ -18,6 +18,21 @@ import (
 	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
+// Host-managed resource type singletons. One *ResourceType per host
+// resource kind. Impl is nil because these resources are host-owned;
+// destruction flows through the existing Destroyable interface on Rep.
+var (
+	networkResourceType              = &runtime.ResourceType{}
+	tcpSocketResourceType            = &runtime.ResourceType{}
+	tcpInputStreamResourceType       = &runtime.ResourceType{}
+	tcpOutputStreamResourceType      = &runtime.ResourceType{}
+	udpSocketResourceType            = &runtime.ResourceType{}
+	incomingDatagramStreamResourceType = &runtime.ResourceType{}
+	outgoingDatagramStreamResourceType = &runtime.ResourceType{}
+	resolveAddressStreamResourceType = &runtime.ResourceType{}
+	socketsPollableResourceType      = &runtime.ResourceType{}
+)
+
 // IpAddressFamily represents the IP address family (IPv4 or IPv6).
 // Matches wasi:sockets/network ip-address-family enum.
 type IpAddressFamily uint8
@@ -773,7 +788,11 @@ func getTcpSocket(ctx context.Context, handle uint32) (*TcpSocket, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid handle %d: %w", handle, err)
 	}
-	sock, ok := entry.Rep.(*TcpSocket)
+	resEntry, ok := entry.(*runtime.ResourceHandleEntry)
+	if !ok {
+		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
+	}
+	sock, ok := resEntry.Rep.(*TcpSocket)
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not a TcpSocket", handle)
 	}
@@ -790,7 +809,11 @@ func getUdpSocket(ctx context.Context, handle uint32) (*UdpSocket, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid handle %d: %w", handle, err)
 	}
-	sock, ok := entry.Rep.(*UdpSocket)
+	resEntry, ok := entry.(*runtime.ResourceHandleEntry)
+	if !ok {
+		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
+	}
+	sock, ok := resEntry.Rep.(*UdpSocket)
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not a UdpSocket", handle)
 	}
@@ -807,7 +830,11 @@ func getIncomingDatagramStream(ctx context.Context, handle uint32) (*IncomingDat
 	if err != nil {
 		return nil, fmt.Errorf("invalid handle %d: %w", handle, err)
 	}
-	stream, ok := entry.Rep.(*IncomingDatagramStream)
+	resEntry, ok := entry.(*runtime.ResourceHandleEntry)
+	if !ok {
+		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
+	}
+	stream, ok := resEntry.Rep.(*IncomingDatagramStream)
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not an IncomingDatagramStream", handle)
 	}
@@ -824,7 +851,11 @@ func getOutgoingDatagramStream(ctx context.Context, handle uint32) (*OutgoingDat
 	if err != nil {
 		return nil, fmt.Errorf("invalid handle %d: %w", handle, err)
 	}
-	stream, ok := entry.Rep.(*OutgoingDatagramStream)
+	resEntry, ok := entry.(*runtime.ResourceHandleEntry)
+	if !ok {
+		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
+	}
+	stream, ok := resEntry.Rep.(*OutgoingDatagramStream)
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not an OutgoingDatagramStream", handle)
 	}

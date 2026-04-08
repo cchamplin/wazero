@@ -49,6 +49,13 @@ import (
 	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
+// Host-managed resource type singletons for composition tests.
+var (
+	compositionLoggerResourceType  = &runtime.ResourceType{}
+	compositionRequestResourceType = &runtime.ResourceType{}
+	compositionResponseResourceType = &runtime.ResourceType{}
+)
+
 // Request represents a host-side request resource.
 type Request struct {
 	headers [][]byte // flattened: [key1, val1, key2, val2, ...]
@@ -182,7 +189,7 @@ func TestServiceMiddlewareComposition_InstantiateService(t *testing.T) {
 	defer compiledService.Close(ctx)
 
 	// Set up resource table and logger tracking
-	resourceTable := runtime.NewResourceTable()
+	resourceTable := runtime.NewTable()
 	testCtx := component.WithResourceTable(ctx, resourceTable)
 
 	// Create a shared logger for the test
@@ -250,7 +257,7 @@ func TestServiceMiddlewareComposition_FullComposition(t *testing.T) {
 	defer compiledMiddleware.Close(ctx)
 
 	// Set up shared resource table and logger
-	resourceTable := runtime.NewResourceTable()
+	resourceTable := runtime.NewTable()
 	testCtx := component.WithResourceTable(ctx, resourceTable)
 	sharedLogger := NewLogger()
 
@@ -339,7 +346,10 @@ func TestServiceMiddlewareComposition_FullComposition(t *testing.T) {
 	)
 
 	// Store request in resource table
-	requestHandle := resourceTable.New(testRequest, true)
+	requestHandle, hErr := resourceTable.NewResourceHandle(testRequest, true, compositionRequestResourceType)
+	if hErr != nil {
+		t.Fatalf("NewResourceHandle failed: %v", hErr)
+	}
 	t.Logf("Created request handle: %d", requestHandle)
 
 	// Call the middleware's execute function
@@ -371,13 +381,17 @@ func TestServiceMiddlewareComposition_FullComposition(t *testing.T) {
 	t.Logf("Got response handle: %d", responseHandle)
 
 	// Retrieve the response from resource table
-	responseEntry, err := resourceTable.Get(runtime.Handle(responseHandle))
+	rawResponseEntry, err := resourceTable.Get(runtime.Handle(responseHandle))
 	if err != nil {
 		t.Fatalf("Failed to get response from resource table: %v", err)
 	}
-
-	response, ok := responseEntry.Rep.(*Response)
+	responseEntry, ok := rawResponseEntry.(*runtime.ResourceHandleEntry)
 	if !ok {
+		t.Fatalf("responseEntry is not ResourceHandleEntry: %T", rawResponseEntry)
+	}
+
+	response, ok2 := responseEntry.Rep.(*Response)
+	if !ok2 {
 		t.Fatalf("Response is not *Response: %T", responseEntry.Rep)
 	}
 
@@ -434,7 +448,7 @@ func TestServiceMiddlewareComposition_ErrorHandling(t *testing.T) {
 }
 
 // Helper function to define the logging interface for a linker
-func defineLoggingInterface(linker *component.ComponentLinker, table *runtime.ResourceTable, sharedLogger *Logger) error {
+func defineLoggingInterface(linker *component.ComponentLinker, table *runtime.Table, sharedLogger *Logger) error {
 	// Use basic Linker for FuncNoType support, then merge into ComponentLinker
 	basicLinker := component.NewLinker()
 
@@ -448,7 +462,10 @@ func defineLoggingInterface(linker *component.ComponentLinker, table *runtime.Re
 			if rt == nil {
 				rt = table
 			}
-			handle := rt.New(sharedLogger, true)
+			handle, hErr := rt.NewResourceHandle(sharedLogger, true, compositionLoggerResourceType)
+			if hErr != nil {
+				return nil, hErr
+			}
 			return []types.Val{types.ValOwn(uint32(handle))}, nil
 		}).
 		FuncNoType("[method]logger.log", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
@@ -469,8 +486,12 @@ func defineLoggingInterface(linker *component.ComponentLinker, table *runtime.Re
 			if err != nil {
 				return []types.Val{}, nil
 			}
+			resEntry, resOk := entry.(*runtime.ResourceHandleEntry)
+			if !resOk {
+				return []types.Val{}, nil
+			}
 
-			logger, ok := entry.Rep.(*Logger)
+			logger, ok := resEntry.Rep.(*Logger)
 			if ok {
 				logger.Log(message)
 			}
@@ -489,7 +510,7 @@ func defineLoggingInterface(linker *component.ComponentLinker, table *runtime.Re
 }
 
 // Helper function to define the types interface for a linker
-func defineTypesInterface(linker *component.ComponentLinker, table *runtime.ResourceTable) error {
+func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Table) error {
 	// Use basic Linker for FuncNoType support, then merge into ComponentLinker
 	basicLinker := component.NewLinker()
 
@@ -542,7 +563,10 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Reso
 			}
 
 			req := NewRequest(headers, body)
-			handle := rt.New(req, true)
+			handle, hErr := rt.NewResourceHandle(req, true, compositionRequestResourceType)
+			if hErr != nil {
+				return nil, hErr
+			}
 			return []types.Val{types.ValOwn(uint32(handle))}, nil
 		}).
 		FuncNoType("[method]request.headers", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
@@ -556,8 +580,12 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Reso
 			if err != nil {
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
+			resEntry, resOk := entry.(*runtime.ResourceHandleEntry)
+			if !resOk {
+				return []types.Val{types.ValList([]types.Val{})}, nil
+			}
 
-			req, ok := entry.Rep.(*Request)
+			req, ok := resEntry.Rep.(*Request)
 			if !ok {
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
@@ -596,8 +624,12 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Reso
 			if err != nil {
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
+			resEntry, resOk := entry.(*runtime.ResourceHandleEntry)
+			if !resOk {
+				return []types.Val{types.ValList([]types.Val{})}, nil
+			}
 
-			req, ok := entry.Rep.(*Request)
+			req, ok := resEntry.Rep.(*Request)
 			if !ok {
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
@@ -648,7 +680,10 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Reso
 			}
 
 			resp := NewResponse(headers, body)
-			handle := rt.New(resp, true)
+			handle, hErr := rt.NewResourceHandle(resp, true, compositionResponseResourceType)
+			if hErr != nil {
+				return nil, hErr
+			}
 			return []types.Val{types.ValOwn(uint32(handle))}, nil
 		}).
 		FuncNoType("[method]response.headers", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
@@ -662,8 +697,12 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Reso
 			if err != nil {
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
+			resEntry, resOk := entry.(*runtime.ResourceHandleEntry)
+			if !resOk {
+				return []types.Val{types.ValList([]types.Val{})}, nil
+			}
 
-			resp, ok := entry.Rep.(*Response)
+			resp, ok := resEntry.Rep.(*Response)
 			if !ok {
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
@@ -702,8 +741,12 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Reso
 			if err != nil {
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
+			resEntry, resOk := entry.(*runtime.ResourceHandleEntry)
+			if !resOk {
+				return []types.Val{types.ValList([]types.Val{})}, nil
+			}
 
-			resp, ok := entry.Rep.(*Response)
+			resp, ok := resEntry.Rep.(*Response)
 			if !ok {
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
@@ -735,7 +778,7 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Reso
 }
 
 // Helper function to define the handler interface that forwards to a service
-func defineHandlerInterface(linker *component.ComponentLinker, serviceExecute *component.ExportedFunc, table *runtime.ResourceTable) error {
+func defineHandlerInterface(linker *component.ComponentLinker, serviceExecute *component.ExportedFunc, table *runtime.Table) error {
 	// Use basic Linker for FuncNoType support, then merge into ComponentLinker
 	basicLinker := component.NewLinker()
 

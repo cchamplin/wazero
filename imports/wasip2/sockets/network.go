@@ -47,7 +47,10 @@ func instanceNetwork(ctx context.Context, args []types.Val) ([]types.Val, error)
 	}
 
 	network := NewNetwork()
-	handle := table.New(network, true)
+	handle, hErr := table.NewResourceHandle(network, true, networkResourceType)
+	if hErr != nil {
+		return []types.Val{types.ValOwn(0)}, nil
+	}
 	return []types.Val{types.ValOwn(uint32(handle))}, nil
 }
 
@@ -101,7 +104,11 @@ func resolveAddresses(ctx context.Context, args []types.Val) ([]types.Val, error
 	if ip := net.ParseIP(name); ip != nil {
 		addr := netIPToIpAddress(ip)
 		stream := NewResolveAddressStream([]IpAddress{addr})
-		handle := table.New(stream, true)
+		handle, hErr := table.NewResourceHandle(stream, true, resolveAddressStreamResourceType)
+		if hErr != nil {
+			errVal := types.ValEnum("invalid-argument")
+			return []types.Val{types.ValResultError(&errVal)}, nil
+		}
 		handleVal := types.ValOwn(uint32(handle))
 		return []types.Val{types.ValResultOk(&handleVal)}, nil
 	}
@@ -109,7 +116,12 @@ func resolveAddresses(ctx context.Context, args []types.Val) ([]types.Val, error
 	// Async DNS resolution with cancellable context
 	dnsCtx, cancel := context.WithCancel(context.Background())
 	stream := NewResolveAddressStreamAsync(cancel)
-	handle := table.New(stream, true)
+	handle, hErr := table.NewResourceHandle(stream, true, resolveAddressStreamResourceType)
+	if hErr != nil {
+		cancel()
+		errVal := types.ValEnum("invalid-argument")
+		return []types.Val{types.ValResultError(&errVal)}, nil
+	}
 
 	go func() {
 		addrs, err := net.DefaultResolver.LookupHost(dnsCtx, name)
@@ -147,7 +159,12 @@ func resolveNextAddress(ctx context.Context, args []types.Val) ([]types.Val, err
 		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
-	stream, ok := entry.Rep.(*ResolveAddressStream)
+	resEntry, ok := entry.(*runtime.ResourceHandleEntry)
+	if !ok {
+		errVal := types.ValEnum("invalid-argument")
+		return []types.Val{types.ValResultError(&errVal)}, nil
+	}
+	stream, ok := resEntry.Rep.(*ResolveAddressStream)
 	if !ok {
 		errVal := types.ValEnum("invalid-argument")
 		return []types.Val{types.ValResultError(&errVal)}, nil
@@ -189,7 +206,11 @@ func resolveAddressStreamSubscribe(ctx context.Context, args []types.Val) ([]typ
 		return []types.Val{types.ValOwn(0)}, nil
 	}
 
-	stream, ok := entry.Rep.(*ResolveAddressStream)
+	resEntry, ok := entry.(*runtime.ResourceHandleEntry)
+	if !ok {
+		return []types.Val{types.ValOwn(0)}, nil
+	}
+	stream, ok := resEntry.Rep.(*ResolveAddressStream)
 	if !ok {
 		return []types.Val{types.ValOwn(0)}, nil
 	}
@@ -198,7 +219,10 @@ func resolveAddressStreamSubscribe(ctx context.Context, args []types.Val) ([]typ
 		func() bool { return stream.IsReady() },
 		func() { <-stream.done },
 	)
-	pollHandle := table.New(pollable, true)
+	pollHandle, hErr := table.NewResourceHandle(pollable, true, socketsPollableResourceType)
+	if hErr != nil {
+		return []types.Val{types.ValOwn(0)}, nil
+	}
 	return []types.Val{types.ValOwn(uint32(pollHandle))}, nil
 }
 
@@ -217,7 +241,11 @@ func networkErrorCode(ctx context.Context, args []types.Val) ([]types.Val, error
 		return []types.Val{types.ValOption(nil)}, nil
 	}
 
-	ioErr, ok := entry.Rep.(*wasipIO.Error)
+	resEntry, ok := entry.(*runtime.ResourceHandleEntry)
+	if !ok {
+		return []types.Val{types.ValOption(nil)}, nil
+	}
+	ioErr, ok := resEntry.Rep.(*wasipIO.Error)
 	if !ok {
 		return []types.Val{types.ValOption(nil)}, nil
 	}

@@ -111,10 +111,10 @@ var (
 
 // ResourceTable manages resource handles with generation counting.
 // It implements the Component Model's handle table semantics.
-type ResourceTable = runtime.ResourceTable
+type ResourceTable = runtime.Table
 
 // NewResourceTable creates an empty resource table.
-var NewResourceTable = runtime.NewResourceTable
+var NewResourceTable = runtime.NewTable
 
 // WithResourceTable returns a new context with the given ResourceTable stored.
 // The table can later be retrieved using ResourceTableFromContext on the

@@ -268,7 +268,7 @@ func TestGetStdin_WithConfig(t *testing.T) {
 	stdinData := bytes.NewReader([]byte("hello world"))
 	config := &testConfig{stdin: stdinData}
 
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 	ctx = component.WithWASIConfig(ctx, config)
 
@@ -279,7 +279,8 @@ func TestGetStdin_WithConfig(t *testing.T) {
 
 	handle := result[0].Own()
 	// Should have created a real handle (not placeholder 0)
-	entry, err := table.Get(runtime.Handle(handle))
+	rawEntry1, err := table.Get(runtime.Handle(handle))
+	entry, _ := rawEntry1.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
 	require.NotNil(t, entry)
 
@@ -325,7 +326,7 @@ func TestGetStdout_WithConfig(t *testing.T) {
 	var stdoutBuf bytes.Buffer
 	config := &testConfig{stdout: &stdoutBuf}
 
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 	ctx = component.WithWASIConfig(ctx, config)
 
@@ -336,7 +337,8 @@ func TestGetStdout_WithConfig(t *testing.T) {
 
 	handle := result[0].Own()
 	// Should have created a real handle
-	entry, err := table.Get(runtime.Handle(handle))
+	rawEntry2, err := table.Get(runtime.Handle(handle))
+	entry, _ := rawEntry2.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
 	require.NotNil(t, entry)
 
@@ -382,7 +384,7 @@ func TestGetStderr_WithConfig(t *testing.T) {
 	var stderrBuf bytes.Buffer
 	config := &testConfig{stderr: &stderrBuf}
 
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 	ctx = component.WithWASIConfig(ctx, config)
 
@@ -393,7 +395,8 @@ func TestGetStderr_WithConfig(t *testing.T) {
 
 	handle := result[0].Own()
 	// Should have created a real handle
-	entry, err := table.Get(runtime.Handle(handle))
+	rawEntry3, err := table.Get(runtime.Handle(handle))
+	entry, _ := rawEntry3.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
 	require.NotNil(t, entry)
 
@@ -552,7 +555,7 @@ func TestGetTerminalStdin_ModeCustom_True(t *testing.T) {
 		terminalMode:    component.TerminalModeCustom,
 		stdinIsTerminal: true,
 	}
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 	ctx = component.WithWASIConfig(ctx, config)
 
@@ -566,7 +569,8 @@ func TestGetTerminalStdin_ModeCustom_True(t *testing.T) {
 
 	// Verify the resource was created in the table
 	handle := opt.Own()
-	entry, err := table.Get(runtime.Handle(handle))
+	rawEntry4, err := table.Get(runtime.Handle(handle))
+	entry, _ := rawEntry4.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
 	require.NotNil(t, entry)
 	_, ok := entry.Rep.(*TerminalInput)
@@ -613,7 +617,7 @@ func TestGetTerminalStdout_ModeCustom_True(t *testing.T) {
 		terminalMode:     component.TerminalModeCustom,
 		stdoutIsTerminal: true,
 	}
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 	ctx = component.WithWASIConfig(ctx, config)
 
@@ -623,7 +627,8 @@ func TestGetTerminalStdout_ModeCustom_True(t *testing.T) {
 	require.NotNil(t, opt, "should return Some when stdoutIsTerminal=true")
 
 	handle := opt.Own()
-	entry, err := table.Get(runtime.Handle(handle))
+	rawEntry5, err := table.Get(runtime.Handle(handle))
+	entry, _ := rawEntry5.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
 	_, ok := entry.Rep.(*TerminalOutput)
 	require.True(t, ok, "expected TerminalOutput resource")
@@ -668,7 +673,7 @@ func TestGetTerminalStderr_ModeCustom_True(t *testing.T) {
 		terminalMode:     component.TerminalModeCustom,
 		stderrIsTerminal: true,
 	}
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 	ctx = component.WithWASIConfig(ctx, config)
 
@@ -678,7 +683,8 @@ func TestGetTerminalStderr_ModeCustom_True(t *testing.T) {
 	require.NotNil(t, opt, "should return Some when stderrIsTerminal=true")
 
 	handle := opt.Own()
-	entry, err := table.Get(runtime.Handle(handle))
+	rawEntry6, err := table.Get(runtime.Handle(handle))
+	entry, _ := rawEntry6.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
 	_, ok := entry.Rep.(*TerminalOutput)
 	require.True(t, ok, "expected TerminalOutput resource")

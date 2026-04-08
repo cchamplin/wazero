@@ -8,8 +8,13 @@ import (
 
 	wasip2io "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/component/types"
 )
+
+// Host-managed resource type singletons. One *ResourceType per host
+// resource kind. Impl is nil because these resources are host-owned.
+var clocksPollableResourceType = &runtime.ResourceType{}
 
 // monotonicBase is the starting point for monotonic time measurement.
 var monotonicBase = time.Now()
@@ -89,7 +94,10 @@ func monotonicClockSubscribeInstant(ctx context.Context, args []types.Val) ([]ty
 	}
 
 	// Register the pollable in the resource table and return the handle
-	handle := table.New(pollable, true)
+	handle, hErr := table.NewResourceHandle(pollable, true, clocksPollableResourceType)
+	if hErr != nil {
+		return []types.Val{types.ValOwn(0)}, nil
+	}
 	return []types.Val{types.ValOwn(uint32(handle))}, nil
 }
 
@@ -111,6 +119,9 @@ func monotonicClockSubscribeDuration(ctx context.Context, args []types.Val) ([]t
 	}
 
 	// Register the pollable in the resource table and return the handle
-	handle := table.New(pollable, true)
+	handle, hErr := table.NewResourceHandle(pollable, true, clocksPollableResourceType)
+	if hErr != nil {
+		return []types.Val{types.ValOwn(0)}, nil
+	}
 	return []types.Val{types.ValOwn(uint32(handle))}, nil
 }

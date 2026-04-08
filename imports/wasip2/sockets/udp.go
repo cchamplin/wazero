@@ -86,7 +86,11 @@ func createUdpSocket(ctx context.Context, args []types.Val) ([]types.Val, error)
 		return []types.Val{types.ValResultOk(&handle)}, nil
 	}
 
-	handle := table.New(sock, true)
+	handle, hErr := table.NewResourceHandle(sock, true, udpSocketResourceType)
+	if hErr != nil {
+		handle := types.ValOwn(0)
+		return []types.Val{types.ValResultOk(&handle)}, nil
+	}
 	handleVal := types.ValOwn(uint32(handle))
 	return []types.Val{types.ValResultOk(&handleVal)}, nil
 }
@@ -217,8 +221,8 @@ func udpSocketStream(ctx context.Context, args []types.Val) ([]types.Val, error)
 	inStream := NewIncomingDatagramStream(sock)
 	outStream := NewOutgoingDatagramStream(sock)
 
-	inHandle := table.New(inStream, true)
-	outHandle := table.New(outStream, true)
+	inHandle, _ := table.NewResourceHandle(inStream, true, incomingDatagramStreamResourceType)
+	outHandle, _ := table.NewResourceHandle(outStream, true, outgoingDatagramStreamResourceType)
 
 	incomingStreamVal := types.ValOwn(uint32(inHandle))
 	outgoingStreamVal := types.ValOwn(uint32(outHandle))
@@ -386,7 +390,10 @@ func udpSocketSubscribe(ctx context.Context, args []types.Val) ([]types.Val, err
 	// Per wasmtime: UDP socket subscribe ready() is a no-op — UDP operations
 	// don't block at socket level. Blocking happens on datagram streams.
 	pollable := wasipIO.NewReadyPollable()
-	pollHandle := table.New(pollable, true)
+	pollHandle, hErr := table.NewResourceHandle(pollable, true, socketsPollableResourceType)
+	if hErr != nil {
+		return []types.Val{types.ValOwn(0)}, nil
+	}
 	return []types.Val{types.ValOwn(uint32(pollHandle))}, nil
 }
 
@@ -462,7 +469,10 @@ func incomingDatagramStreamSubscribe(ctx context.Context, args []types.Val) ([]t
 	// Since we don't have a non-destructive readability check, use a ready pollable.
 	// In practice, WASI components poll then call receive().
 	pollable := wasipIO.NewReadyPollable()
-	pollHandle := table.New(pollable, true)
+	pollHandle, hErr := table.NewResourceHandle(pollable, true, socketsPollableResourceType)
+	if hErr != nil {
+		return []types.Val{types.ValOwn(0)}, nil
+	}
 	return []types.Val{types.ValOwn(uint32(pollHandle))}, nil
 }
 
@@ -628,7 +638,10 @@ func outgoingDatagramStreamSubscribe(ctx context.Context, args []types.Val) ([]t
 	if err != nil {
 		// Return a ready pollable on error - guest will discover error on next operation
 		pollable := wasipIO.NewReadyPollable()
-		pollHandle := table.New(pollable, true)
+		pollHandle, hErr := table.NewResourceHandle(pollable, true, socketsPollableResourceType)
+		if hErr != nil {
+			return []types.Val{types.ValOwn(0)}, nil
+		}
 		return []types.Val{types.ValOwn(uint32(pollHandle))}, nil
 	}
 
@@ -646,7 +659,10 @@ func outgoingDatagramStreamSubscribe(ctx context.Context, args []types.Val) ([]t
 			}
 		},
 	)
-	pollHandle := table.New(pollable, true)
+	pollHandle, hErr := table.NewResourceHandle(pollable, true, socketsPollableResourceType)
+	if hErr != nil {
+		return []types.Val{types.ValOwn(0)}, nil
+	}
 	return []types.Val{types.ValOwn(uint32(pollHandle))}, nil
 }
 

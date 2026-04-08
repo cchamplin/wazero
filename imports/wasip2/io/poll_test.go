@@ -106,12 +106,15 @@ func TestInstantiatePoll_Duplicate(t *testing.T) {
 // Tests for host functions with ResourceTable
 
 func TestPollableReady_HostFunction(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create a pollable that is ready
 	pollable := NewReadyPollable()
-	handle := table.New(pollable, true)
+	handle, errHandle113 := table.NewResourceHandle(pollable, true, pollableResourceType)
+	if errHandle113 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errHandle113)
+	}
 
 	args := []types.Val{
 		types.ValBorrow(uint32(handle)),
@@ -123,12 +126,15 @@ func TestPollableReady_HostFunction(t *testing.T) {
 }
 
 func TestPollableReady_HostFunction_NotReady(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create a pollable that is not ready
 	pollable := NewPollable(func() bool { return false }, nil)
-	handle := table.New(pollable, true)
+	handle, errHandle130 := table.NewResourceHandle(pollable, true, pollableResourceType)
+	if errHandle130 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errHandle130)
+	}
 
 	args := []types.Val{
 		types.ValBorrow(uint32(handle)),
@@ -140,7 +146,7 @@ func TestPollableReady_HostFunction_NotReady(t *testing.T) {
 }
 
 func TestPollableReady_HostFunction_InvalidHandle(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	args := []types.Val{
@@ -163,11 +169,14 @@ func TestPollableReady_HostFunction_NoResourceTable(t *testing.T) {
 }
 
 func TestPollableReady_HostFunction_WrongType(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Add something that's not a Pollable
-	handle := table.New("not a pollable", true)
+	handle, errHandle := table.NewResourceHandle("not a pollable", true, pollableResourceType)
+	if errHandle != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errHandle)
+	}
 
 	args := []types.Val{
 		types.ValBorrow(uint32(handle)),
@@ -178,7 +187,7 @@ func TestPollableReady_HostFunction_WrongType(t *testing.T) {
 }
 
 func TestPollableBlock_HostFunction(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create a pollable that blocks and then becomes ready
@@ -187,7 +196,10 @@ func TestPollableBlock_HostFunction(t *testing.T) {
 		func() bool { return blocked },
 		func() { blocked = true },
 	)
-	handle := table.New(pollable, true)
+	handle, errHandle189 := table.NewResourceHandle(pollable, true, pollableResourceType)
+	if errHandle189 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errHandle189)
+	}
 
 	// Verify not ready before block
 	require.False(t, pollable.Ready())
@@ -204,12 +216,15 @@ func TestPollableBlock_HostFunction(t *testing.T) {
 }
 
 func TestPollableBlock_HostFunction_NilBlockFn(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create a pollable with no block function
 	pollable := NewReadyPollable()
-	handle := table.New(pollable, true)
+	handle, errHandle211 := table.NewResourceHandle(pollable, true, pollableResourceType)
+	if errHandle211 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errHandle211)
+	}
 
 	args := []types.Val{
 		types.ValBorrow(uint32(handle)),
@@ -221,7 +236,7 @@ func TestPollableBlock_HostFunction_NilBlockFn(t *testing.T) {
 }
 
 func TestPollableBlock_HostFunction_InvalidHandle(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	args := []types.Val{
@@ -233,16 +248,25 @@ func TestPollableBlock_HostFunction_InvalidHandle(t *testing.T) {
 }
 
 func TestPoll_AllReady(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create three ready pollables
 	p1 := NewReadyPollable()
 	p2 := NewReadyPollable()
 	p3 := NewReadyPollable()
-	h1 := table.New(p1, true)
-	h2 := table.New(p2, true)
-	h3 := table.New(p3, true)
+	h1, errHandle242 := table.NewResourceHandle(p1, true, pollableResourceType)
+	if errHandle242 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errHandle242)
+	}
+	h2, errHandle243 := table.NewResourceHandle(p2, true, pollableResourceType)
+	if errHandle243 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errHandle243)
+	}
+	h3, errHandle244 := table.NewResourceHandle(p3, true, pollableResourceType)
+	if errHandle244 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errHandle244)
+	}
 
 	args := []types.Val{
 		types.ValList([]types.Val{
@@ -264,16 +288,25 @@ func TestPoll_AllReady(t *testing.T) {
 }
 
 func TestPoll_SomeReady(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create pollables: first ready, second not ready, third ready
 	p1 := NewReadyPollable()
 	p2 := NewPollable(func() bool { return false }, nil)
 	p3 := NewReadyPollable()
-	h1 := table.New(p1, true)
-	h2 := table.New(p2, true)
-	h3 := table.New(p3, true)
+	h1, errHandle273 := table.NewResourceHandle(p1, true, pollableResourceType)
+	if errHandle273 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errHandle273)
+	}
+	h2, errHandle274 := table.NewResourceHandle(p2, true, pollableResourceType)
+	if errHandle274 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errHandle274)
+	}
+	h3, errHandle275 := table.NewResourceHandle(p3, true, pollableResourceType)
+	if errHandle275 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errHandle275)
+	}
 
 	args := []types.Val{
 		types.ValList([]types.Val{
@@ -294,7 +327,7 @@ func TestPoll_SomeReady(t *testing.T) {
 }
 
 func TestPoll_NoneReady_WithBlock(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create pollables that are initially not ready but become ready after block
@@ -303,7 +336,10 @@ func TestPoll_NoneReady_WithBlock(t *testing.T) {
 		func() bool { return ready },
 		func() { ready = true },
 	)
-	h1 := table.New(p1, true)
+	h1, errHandle305 := table.NewResourceHandle(p1, true, pollableResourceType)
+	if errHandle305 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errHandle305)
+	}
 
 	args := []types.Val{
 		types.ValList([]types.Val{
@@ -321,14 +357,17 @@ func TestPoll_NoneReady_WithBlock(t *testing.T) {
 }
 
 func TestPoll_NoneReady_NoBlockFn(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create pollable that is not ready and has no block function
 	// This is an edge case - in practice, pollables should either be ready
 	// or have a way to become ready via blocking
 	p1 := NewPollable(func() bool { return false }, nil)
-	h1 := table.New(p1, true)
+	h1, errHandle330 := table.NewResourceHandle(p1, true, pollableResourceType)
+	if errHandle330 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errHandle330)
+	}
 
 	args := []types.Val{
 		types.ValList([]types.Val{
@@ -345,7 +384,7 @@ func TestPoll_NoneReady_NoBlockFn(t *testing.T) {
 }
 
 func TestPoll_EmptyList(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	args := []types.Val{
@@ -361,7 +400,7 @@ func TestPoll_EmptyList(t *testing.T) {
 }
 
 func TestPoll_InvalidHandle(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	args := []types.Val{
@@ -375,7 +414,7 @@ func TestPoll_InvalidHandle(t *testing.T) {
 }
 
 func TestPoll_BlockConcurrent(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create a pollable that becomes ready from another goroutine
@@ -395,7 +434,10 @@ func TestPoll_BlockConcurrent(t *testing.T) {
 			mu.Unlock()
 		},
 	)
-	h1 := table.New(p1, true)
+	h1, errHandle397 := table.NewResourceHandle(p1, true, pollableResourceType)
+	if errHandle397 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errHandle397)
+	}
 
 	args := []types.Val{
 		types.ValList([]types.Val{
@@ -419,11 +461,14 @@ func TestPoll_BlockConcurrent(t *testing.T) {
 }
 
 func TestGetPollable(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	pollable := NewReadyPollable()
-	handle := table.New(pollable, true)
+	handle, errHandle425 := table.NewResourceHandle(pollable, true, pollableResourceType)
+	if errHandle425 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errHandle425)
+	}
 
 	retrieved, err := getPollable(ctx, uint32(handle))
 	require.NoError(t, err)
@@ -439,7 +484,7 @@ func TestGetPollable_NoTable(t *testing.T) {
 }
 
 func TestGetPollable_InvalidHandle(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	_, err := getPollable(ctx, 999)
@@ -448,10 +493,13 @@ func TestGetPollable_InvalidHandle(t *testing.T) {
 }
 
 func TestGetPollable_WrongType(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
-	handle := table.New("not a pollable", true)
+	handle, errHandle := table.NewResourceHandle("not a pollable", true, pollableResourceType)
+	if errHandle != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errHandle)
+	}
 
 	_, err := getPollable(ctx, uint32(handle))
 	require.Error(t, err)
@@ -461,7 +509,7 @@ func TestGetPollable_WrongType(t *testing.T) {
 // Tests for poll multiplexing - Task 3.4
 
 func TestPoll_MultiplePollables_FastOneReturnsFirst(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create three pollables with different ready times:
@@ -516,9 +564,18 @@ func TestPoll_MultiplePollables_FastOneReturnsFirst(t *testing.T) {
 		},
 	)
 
-	h1 := table.New(p1, true)
-	h2 := table.New(p2, true)
-	h3 := table.New(p3, true)
+	h1, errHandle518 := table.NewResourceHandle(p1, true, pollableResourceType)
+	if errHandle518 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errHandle518)
+	}
+	h2, errHandle519 := table.NewResourceHandle(p2, true, pollableResourceType)
+	if errHandle519 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errHandle519)
+	}
+	h3, errHandle520 := table.NewResourceHandle(p3, true, pollableResourceType)
+	if errHandle520 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errHandle520)
+	}
 
 	args := []types.Val{
 		types.ValList([]types.Val{
@@ -556,7 +613,7 @@ func TestPoll_MultiplePollables_FastOneReturnsFirst(t *testing.T) {
 }
 
 func TestPoll_MultiplePollables_AllReadyAtOnce(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create pollables that all become ready at about the same time
@@ -583,9 +640,18 @@ func TestPoll_MultiplePollables_AllReadyAtOnce(t *testing.T) {
 	p2 := makePollable()
 	p3 := makePollable()
 
-	h1 := table.New(p1, true)
-	h2 := table.New(p2, true)
-	h3 := table.New(p3, true)
+	h1, errHandle585 := table.NewResourceHandle(p1, true, pollableResourceType)
+	if errHandle585 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errHandle585)
+	}
+	h2, errHandle586 := table.NewResourceHandle(p2, true, pollableResourceType)
+	if errHandle586 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errHandle586)
+	}
+	h3, errHandle587 := table.NewResourceHandle(p3, true, pollableResourceType)
+	if errHandle587 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errHandle587)
+	}
 
 	args := []types.Val{
 		types.ValList([]types.Val{
@@ -605,7 +671,7 @@ func TestPoll_MultiplePollables_AllReadyAtOnce(t *testing.T) {
 }
 
 func TestPoll_ChannelBasedPollable(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create a pollable with a channel for signaling readiness
@@ -625,7 +691,10 @@ func TestPoll_ChannelBasedPollable(t *testing.T) {
 		},
 	)
 
-	h := table.New(p, true)
+	h, errHandle627 := table.NewResourceHandle(p, true, pollableResourceType)
+	if errHandle627 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errHandle627)
+	}
 
 	// Signal readiness after a short delay
 	go func() {

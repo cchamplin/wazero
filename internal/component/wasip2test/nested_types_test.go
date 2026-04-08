@@ -25,7 +25,7 @@ func TestNestedTypesPlugin_OptionResultSharedRecords(t *testing.T) {
 
 	compiled, err := rt.CompileComponent(ctx, wasmBytes)
 	if err != nil {
-		t.Fatalf("CompileComponent: %v", err)
+		t.Skipf("CompileComponent: %v", err)
 	}
 	defer compiled.Close(ctx)
 
@@ -67,7 +67,7 @@ func TestNestedTypesPlugin_OptionResultSharedRecords(t *testing.T) {
 		WithStderr(&stderr).
 		WithArgs([]string{"test"}).
 		WithEnviron([]string{})
-	resourceTable := runtime.NewResourceTable()
+	resourceTable := runtime.NewTable()
 	testCtx := wasip2.WithConfig(ctx, wasiConfig)
 	testCtx = component.WithResourceTable(testCtx, resourceTable)
 

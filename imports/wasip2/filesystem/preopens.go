@@ -74,7 +74,11 @@ func getDirectories(ctx context.Context, args []types.Val) ([]types.Val, error) 
 		desc := NewDescriptor(file, true, hostPath, DescriptorFlagRead|DescriptorFlagWrite|DescriptorFlagMutateDirectory)
 
 		// Add to resource table
-		handle := table.New(desc, true)
+		handle, hErr := table.NewResourceHandle(desc, true, descriptorResourceType)
+		if hErr != nil {
+			file.Close()
+			continue
+		}
 
 		// Create tuple: (own<descriptor>, string)
 		handleVal := types.ValOwn(uint32(handle.Index()))

@@ -548,13 +548,16 @@ func TestInstantiateStreams_Duplicate(t *testing.T) {
 // Tests for host functions with ResourceTable
 
 func TestInputStreamRead_HostFunction(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create input stream and add to table
 	reader := bytes.NewReader([]byte("hello world"))
 	stream := NewInputStream(reader)
-	handle := table.New(stream, true)
+	handle, errH1 := table.NewResourceHandle(stream, true, inputStreamResourceType)
+	if errH1 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH1)
+	}
 
 	// Call host function
 	args := []types.Val{
@@ -581,14 +584,17 @@ func TestInputStreamRead_HostFunction(t *testing.T) {
 }
 
 func TestInputStreamRead_ClosedStream(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create closed input stream
 	reader := bytes.NewReader([]byte("hello"))
 	stream := NewInputStream(reader)
 	stream.Close()
-	handle := table.New(stream, true)
+	handle, errH2 := table.NewResourceHandle(stream, true, inputStreamResourceType)
+	if errH2 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH2)
+	}
 
 	args := []types.Val{
 		types.ValBorrow(uint32(handle)),
@@ -604,12 +610,15 @@ func TestInputStreamRead_ClosedStream(t *testing.T) {
 }
 
 func TestInputStreamSkip_HostFunction(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	reader := bytes.NewReader([]byte("hello world"))
 	stream := NewInputStream(reader)
-	handle := table.New(stream, true)
+	handle, errH3 := table.NewResourceHandle(stream, true, inputStreamResourceType)
+	if errH3 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH3)
+	}
 
 	args := []types.Val{
 		types.ValBorrow(uint32(handle)),
@@ -626,12 +635,15 @@ func TestInputStreamSkip_HostFunction(t *testing.T) {
 }
 
 func TestInputStreamSubscribe_HostFunction(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	reader := bytes.NewReader([]byte("test"))
 	stream := NewInputStream(reader)
-	handle := table.New(stream, true)
+	handle, errH4 := table.NewResourceHandle(stream, true, inputStreamResourceType)
+	if errH4 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH4)
+	}
 
 	args := []types.Val{
 		types.ValBorrow(uint32(handle)),
@@ -647,12 +659,15 @@ func TestInputStreamSubscribe_HostFunction(t *testing.T) {
 }
 
 func TestOutputStreamCheckWrite_HostFunction(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	buf := &bytes.Buffer{}
 	stream := NewOutputStream(buf)
-	handle := table.New(stream, true)
+	handle, errH5 := table.NewResourceHandle(stream, true, inputStreamResourceType)
+	if errH5 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH5)
+	}
 
 	args := []types.Val{
 		types.ValBorrow(uint32(handle)),
@@ -668,12 +683,15 @@ func TestOutputStreamCheckWrite_HostFunction(t *testing.T) {
 }
 
 func TestOutputStreamWrite_HostFunction(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	buf := &bytes.Buffer{}
 	stream := NewOutputStream(buf)
-	handle := table.New(stream, true)
+	handle, errH6 := table.NewResourceHandle(stream, true, inputStreamResourceType)
+	if errH6 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH6)
+	}
 
 	// Create list<u8> for "hello"
 	data := []byte("hello")
@@ -698,12 +716,15 @@ func TestOutputStreamWrite_HostFunction(t *testing.T) {
 }
 
 func TestOutputStreamFlush_HostFunction(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	buf := &flushableWriter{}
 	stream := NewOutputStream(buf)
-	handle := table.New(stream, true)
+	handle, errH7 := table.NewResourceHandle(stream, true, inputStreamResourceType)
+	if errH7 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH7)
+	}
 
 	args := []types.Val{
 		types.ValBorrow(uint32(handle)),
@@ -718,12 +739,15 @@ func TestOutputStreamFlush_HostFunction(t *testing.T) {
 }
 
 func TestOutputStreamWriteZeroes_HostFunction(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	buf := &bytes.Buffer{}
 	stream := NewOutputStream(buf)
-	handle := table.New(stream, true)
+	handle, errH8 := table.NewResourceHandle(stream, true, inputStreamResourceType)
+	if errH8 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH8)
+	}
 
 	args := []types.Val{
 		types.ValBorrow(uint32(handle)),
@@ -743,16 +767,22 @@ func TestOutputStreamWriteZeroes_HostFunction(t *testing.T) {
 }
 
 func TestOutputStreamSplice_HostFunction(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	srcReader := bytes.NewReader([]byte("source data"))
 	srcStream := NewInputStream(srcReader)
-	srcHandle := table.New(srcStream, true)
+	srcHandle, errH9 := table.NewResourceHandle(srcStream, true, inputStreamResourceType)
+	if errH9 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH9)
+	}
 
 	dstBuf := &bytes.Buffer{}
 	dstStream := NewOutputStream(dstBuf)
-	dstHandle := table.New(dstStream, true)
+	dstHandle, errH10 := table.NewResourceHandle(dstStream, true, inputStreamResourceType)
+	if errH10 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH10)
+	}
 
 	args := []types.Val{
 		types.ValBorrow(uint32(dstHandle)),
@@ -771,12 +801,15 @@ func TestOutputStreamSplice_HostFunction(t *testing.T) {
 }
 
 func TestOutputStreamSubscribe_HostFunction(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	buf := &bytes.Buffer{}
 	stream := NewOutputStream(buf)
-	handle := table.New(stream, true)
+	handle, errH11 := table.NewResourceHandle(stream, true, inputStreamResourceType)
+	if errH11 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH11)
+	}
 
 	args := []types.Val{
 		types.ValBorrow(uint32(handle)),
@@ -790,7 +823,7 @@ func TestOutputStreamSubscribe_HostFunction(t *testing.T) {
 }
 
 func TestHostFunction_InvalidHandle(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Use an invalid handle
@@ -817,13 +850,16 @@ func TestHostFunction_NoResourceTable(t *testing.T) {
 }
 
 func TestHostFunction_WrongResourceType(t *testing.T) {
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create an OutputStream but try to use it as InputStream
 	buf := &bytes.Buffer{}
 	stream := NewOutputStream(buf)
-	handle := table.New(stream, true)
+	handle, errH12 := table.NewResourceHandle(stream, true, inputStreamResourceType)
+	if errH12 != nil {
+		t.Fatalf("NewResourceHandle failed: %v", errH12)
+	}
 
 	args := []types.Val{
 		types.ValBorrow(uint32(handle)),

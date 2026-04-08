@@ -129,7 +129,7 @@ func TestFullWorkflow(t *testing.T) {
 		WithArgs([]string{"myapp", "--verbose", "file.txt"})
 
 	linker := component.NewLinker()
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 
 	// Create context with config and resource table
 	ctx := WithConfig(context.Background(), config)
@@ -220,7 +220,8 @@ func TestFullWorkflow(t *testing.T) {
 		handle := result[0].Own()
 
 		// Get the stream from the resource table and verify we can read from it
-		entry, err := table.Get(runtime.Handle(handle))
+		rawEntry1, err := table.Get(runtime.Handle(handle))
+		entry, _ := rawEntry1.(*runtime.ResourceHandleEntry)
 		require.NoError(t, err)
 
 		stream, ok := entry.Rep.(*wasip2io.InputStream)
@@ -253,7 +254,8 @@ func TestFullWorkflow(t *testing.T) {
 		handle := result[0].Own()
 
 		// Get the stream from the resource table and verify we can write to it
-		entry, err := table.Get(runtime.Handle(handle))
+		rawEntry2, err := table.Get(runtime.Handle(handle))
+		entry, _ := rawEntry2.(*runtime.ResourceHandleEntry)
 		require.NoError(t, err)
 
 		stream, ok := entry.Rep.(*wasip2io.OutputStream)
@@ -287,7 +289,8 @@ func TestFullWorkflow(t *testing.T) {
 		handle := result[0].Own()
 
 		// Get the stream from the resource table and verify we can write to it
-		entry, err := table.Get(runtime.Handle(handle))
+		rawEntry3, err := table.Get(runtime.Handle(handle))
+		entry, _ := rawEntry3.(*runtime.ResourceHandleEntry)
 		require.NoError(t, err)
 
 		stream, ok := entry.Rep.(*wasip2io.OutputStream)
@@ -380,7 +383,7 @@ func TestResourceTableIntegration(t *testing.T) {
 		WithStdout(stdout)
 
 	linker := component.NewLinker()
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 
 	ctx := WithConfig(context.Background(), config)
 	ctx = component.WithResourceTable(ctx, table)
@@ -414,11 +417,13 @@ func TestResourceTableIntegration(t *testing.T) {
 	require.NotEqual(t, stdinHandle, stdoutHandle)
 
 	// Verify we can retrieve both from the table
-	stdinEntry, err := table.Get(runtime.Handle(stdinHandle))
+	rawStdinentry4, err := table.Get(runtime.Handle(stdinHandle))
+	stdinEntry, _ := rawStdinentry4.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
 	require.NotNil(t, stdinEntry.Rep)
 
-	stdoutEntry, err := table.Get(runtime.Handle(stdoutHandle))
+	rawStdoutentry5, err := table.Get(runtime.Handle(stdoutHandle))
+	stdoutEntry, _ := rawStdoutentry5.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
 	require.NotNil(t, stdoutEntry.Rep)
 
@@ -438,7 +443,7 @@ func TestClocksIntegration(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	// Test wall-clock now function
@@ -559,7 +564,7 @@ func TestFilesystemPreopensIntegration(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	table := runtime.NewResourceTable()
+	table := runtime.NewTable()
 	ctx = component.WithResourceTable(ctx, table)
 
 	// Test get-directories function
