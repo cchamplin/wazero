@@ -422,8 +422,15 @@ func skipDefinedTypeBody(r *bytes.Reader, opcode byte) error {
 		if err != nil {
 			return err
 		}
-		if hasElem == 0x01 {
-			return skipValType(r)
+		switch hasElem {
+		case 0x00:
+			// no element/payload
+		case 0x01:
+			if err := skipValType(r); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("skipDefinedTypeBody: invalid stream/future has-element flag 0x%02x", hasElem)
 		}
 	default:
 		return fmt.Errorf("skipDefinedTypeBody: unknown opcode 0x%02x", opcode)
