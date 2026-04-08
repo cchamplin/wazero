@@ -47,14 +47,22 @@ func TestComponentInstance_EnterLeave(t *testing.T) {
 	}
 }
 
+// TestComponentInstance_IsMayLeave verifies the spec's may_leave flag is
+// independent of enterCount. Session 1 Task B1 (Decision 3 IsMayLeave
+// semantic fix, design lines 254-263) decoupled the two fields: the spec
+// at definitions.py:260, 270, 1955, 1973, 2065, 2135, 2143 treats
+// may_leave as a standalone boolean, with no coupling to reentrance
+// tracking. The pre-Session-1 assertion that IsMayLeave() returned false
+// during Enter() was a wazero divergence and has been removed.
 func TestComponentInstance_IsMayLeave(t *testing.T) {
 	c := NewComponentInstance(0, nil)
 	if !c.IsMayLeave() {
 		t.Errorf("IsMayLeave on fresh instance = false, want true")
 	}
+	// Session 1 Task B1: IsMayLeave is orthogonal to Enter/Leave.
 	c.Enter()
-	if c.IsMayLeave() {
-		t.Errorf("IsMayLeave during enter = true, want false")
+	if !c.IsMayLeave() {
+		t.Errorf("IsMayLeave during enter = false, want true (spec: enterCount is orthogonal to may_leave)")
 	}
 	c.Leave()
 	c.MayLeave = false

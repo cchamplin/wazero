@@ -95,10 +95,17 @@ func (c *ComponentInstance) Leave() {
 // EnterCount returns the current nesting depth.
 func (c *ComponentInstance) EnterCount() int { return c.enterCount }
 
-// IsMayLeave returns whether the instance may leave — both MayLeave is
-// true and enterCount is zero.
+// IsMayLeave reports the spec's may_leave flag. The flag is toggled
+// by lower_flat_values (definitions.py:1955 / :1973) and checked by
+// canon.lower and canon.resource.* (definitions.py:2065, :2135, :2143).
+// It is ORTHOGONAL to enterCount — the spec has two independent
+// fields, and wazero must not couple them.
+//
+// Session 1 fix: the prior body `return c.MayLeave && c.enterCount == 0`
+// was a wazero divergence that conflated reentrance with can-leave
+// semantics. The two are now fully independent.
 func (c *ComponentInstance) IsMayLeave() bool {
-	return c.MayLeave && c.enterCount == 0
+	return c.MayLeave
 }
 
 // LookupResourceType resolves a (RuntimeComponentInstanceIdx, ResourceIdx)

@@ -988,8 +988,15 @@ func TestTable_NewWithMayLeaveCheck(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint32(42), entry.Rep.(uint32))
 
-	// When may_leave is false, New fails
-	inst.Enter()
+	// When may_leave is false, New fails.
+	//
+	// Session 1 Task B1 (Decision 3 IsMayLeave semantic fix, design
+	// lines 254-263): toggling IsMayLeave() now requires setting the
+	// MayLeave field directly. The previous `inst.Enter()` trick
+	// relied on the buggy coupling of enterCount into IsMayLeave(),
+	// which the spec at definitions.py:260, 270, 1955, 1973, 2065,
+	// 2135, 2143 does not permit.
+	inst.MayLeave = false
 	_, err = table.NewWithMayLeaveCheck(uint32(43), true, rt, inst)
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrMayNotLeave)
