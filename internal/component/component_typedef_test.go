@@ -48,3 +48,29 @@ func TestTypeDefResourceDtorFields(t *testing.T) {
 		t.Fatalf("ResourceDtorCallback = %v, want 9", td.ResourceDtorCallback)
 	}
 }
+
+// TestComponentTypeDefsField asserts Component.TypeDefs exists as an
+// accessible []TypeDef slice — the single source of truth for type-section
+// slot → canonical-bag index resolution.
+//
+// No counterpart (justified): this is a wazero engineering convenience to
+// carry per-slot type kind through the decoder → linker boundary. The
+// spec's type section is a linear slot sequence; wazero models it as a
+// slice alongside the canonical *types.ComponentTypes bag.
+func TestComponentTypeDefsField(t *testing.T) {
+	c := &Component{
+		TypeDefs: []TypeDef{
+			{Kind: TypeDefKindFunc, Func: types.FuncTypeIdx(0)},
+			{Kind: TypeDefKindResource, Resource: types.ResourceTableIdx(0)},
+		},
+	}
+	if len(c.TypeDefs) != 2 {
+		t.Fatalf("len(c.TypeDefs) = %d, want 2", len(c.TypeDefs))
+	}
+	if c.TypeDefs[0].Kind != TypeDefKindFunc {
+		t.Fatalf("TypeDefs[0].Kind = %v, want TypeDefKindFunc", c.TypeDefs[0].Kind)
+	}
+	if c.TypeDefs[1].Kind != TypeDefKindResource {
+		t.Fatalf("TypeDefs[1].Kind = %v, want TypeDefKindResource", c.TypeDefs[1].Kind)
+	}
+}

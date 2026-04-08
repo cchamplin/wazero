@@ -30,6 +30,18 @@ type Component struct {
 	// components; individual TypeDef entries reference into it.
 	Types *types.ComponentTypes
 
+	// TypeDefs is one entry per type-section slot in the binary, in the
+	// order the slots were decoded. Every caller that previously used
+	// CanonicalDef.TypeIdx / ImportExternDesc.TypeIdx / Export.TypeIdx /
+	// InstanceExport.TypeIdx resolves the raw type-section index through
+	// this slice: `slot := c.TypeDefs[canon.TypeIdx]` and switches on
+	// slot.Kind. The private decoder maps `funcTypeIdx` and `resourceDefs`
+	// are deleted in Task A4; Component.TypeDefs is the single source of
+	// truth.
+	//
+	// Session 1 design: Decision 5 (lines 382-448).
+	TypeDefs []TypeDef
+
 	// Canonicals contains canonical function definitions (section ID 8).
 	// These define lift/lower wrappers around core functions.
 	Canonicals []CanonicalDef
