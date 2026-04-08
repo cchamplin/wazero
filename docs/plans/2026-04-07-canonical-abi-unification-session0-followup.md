@@ -169,6 +169,30 @@ must replace each stub with the actual test suite.
 - `internal/component/conformance/wasi_streams_test.go` —
   `TestWASIStreamsDeferredToSession1`: WASI streams world conformance.
 
+**internal/component/abi/ test files (Task 15 rewrite):**
+
+These test files were rewritten from scratch in Task 15 with minimal new
+coverage that exercises the new kind-switch dispatch arms. The original
+breadth was lost and Session 1 must restore it via the builder API:
+
+- `internal/component/abi/lift_test.go` — was 2925 lines; now minimal
+  coverage. Original tests covered: scalar round-trips, record/variant/
+  list/tuple/option/result/flags/enum lift dispatch, surrogate pair
+  handling in chars, fixed-length lists, variant join semantics at all
+  widths, error path coverage.
+- `internal/component/abi/lower_test.go` — was 1856 lines; now minimal
+  coverage. Original tests covered: scalar lower round-trips, all
+  composite lower dispatch, the same-instance borrow optimization,
+  cross-instance borrow paths, error/trap coverage for invalid handles.
+- `internal/component/abi/flatten_test.go` — was 349 lines; now minimal
+  coverage. Original tests covered: per-kind flattening to core
+  (api.ValueType) signatures, MAX_FLAT_PARAMS overflow, MAX_FLAT_RESULTS
+  overflow, fixed-length list flattening.
+
+Session 1 must rewrite these test cases against the new builder-based
+API, exercising the kind-switch dispatch arms with the same coverage
+breadth.
+
 **abi/ unit tests with partial skips (wazerotest.NewMemory harness issue):**
 
 - `internal/component/abi/context_test.go` — 7 tests skipped:
