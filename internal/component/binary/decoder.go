@@ -219,6 +219,16 @@ func decodeTypeSection(dc *decodeContext, r *bytes.Reader) error {
 		return fmt.Errorf("read type count: %w", err)
 	}
 
+	// Invariant baseline: TypeDefs may already hold entries from earlier
+	// type sections in the same component. Each iteration of the loop
+	// below appends exactly one entry, so len(TypeDefs) must grow by
+	// `count` by the time this section is done. Alias-section handling
+	// is out of scope for Task A3 — outer / export type aliases bump
+	// NextTypeIdx without populating TypeDefs, which is why the
+	// invariant below checks the delta across this single call rather
+	// than equality with NextTypeIdx.
+	beforeTypeDefs := len(dc.c.TypeDefs)
+
 	for i := uint32(0); i < count; i++ {
 		slot := dc.c.NextTypeIdx
 		opcode, err := r.ReadByte()
@@ -237,6 +247,10 @@ func decodeTypeSection(dc *decodeContext, r *bytes.Reader) error {
 			}
 			dc.funcTypeIdx[slot] = ftIdx
 			dc.scope.appendOther()
+			dc.c.TypeDefs = append(dc.c.TypeDefs, component.TypeDef{
+				Kind: component.TypeDefKindFunc,
+				Func: ftIdx,
+			})
 
 		case TypeOpResourceSync:
 			resourceDef, err := decodeResourceDecl(r, dc.scope, dc.builder, false)
@@ -245,6 +259,13 @@ func decodeTypeSection(dc *decodeContext, r *bytes.Reader) error {
 			}
 			dc.resourceDefs[slot] = resourceDef
 			dc.scope.appendResource(resourceDef.ResourceTableIdx)
+			dc.c.TypeDefs = append(dc.c.TypeDefs, component.TypeDef{
+				Kind:                 component.TypeDefKindResource,
+				Resource:             resourceDef.ResourceTableIdx,
+				ResourceDtor:         resourceDef.Destructor,
+				ResourceDtorAsync:    resourceDef.AsyncDestructor,
+				ResourceDtorCallback: resourceDef.Callback,
+			})
 
 		case TypeOpResourceAsync:
 			resourceDef, err := decodeResourceDecl(r, dc.scope, dc.builder, true)
@@ -253,23 +274,41 @@ func decodeTypeSection(dc *decodeContext, r *bytes.Reader) error {
 			}
 			dc.resourceDefs[slot] = resourceDef
 			dc.scope.appendResource(resourceDef.ResourceTableIdx)
+			dc.c.TypeDefs = append(dc.c.TypeDefs, component.TypeDef{
+				Kind:                 component.TypeDefKindResource,
+				Resource:             resourceDef.ResourceTableIdx,
+				ResourceDtor:         resourceDef.Destructor,
+				ResourceDtorAsync:    resourceDef.AsyncDestructor,
+				ResourceDtorCallback: resourceDef.Callback,
+			})
 
 		case TypeOpInstance:
 			// Session 2 work: nested instance types still parse as
 			// opaque declarations so the scope index space stays in
-			// sync with the binary format. The decoded structure is
-			// discarded for Session 0.
-			if _, err := decodeInstanceTypeDef(r); err != nil {
+			// sync with the binary format. The decoded declaration
+			// list is now surfaced via Component.TypeDefs so later
+			// passes can walk it structurally.
+			itd, err := decodeInstanceTypeDef(r)
+			if err != nil {
 				return fmt.Errorf("decode instance type %d: %w", slot, err)
 			}
 			dc.scope.appendOther()
+			dc.c.TypeDefs = append(dc.c.TypeDefs, component.TypeDef{
+				Kind:     component.TypeDefKindInstance,
+				Instance: itd,
+			})
 
 		case TypeOpComponent:
 			// See TypeOpInstance note above.
-			if _, err := decodeComponentTypeDef(r); err != nil {
+			ctd, err := decodeComponentTypeDef(r)
+			if err != nil {
 				return fmt.Errorf("decode component type %d: %w", slot, err)
 			}
 			dc.scope.appendOther()
+			dc.c.TypeDefs = append(dc.c.TypeDefs, component.TypeDef{
+				Kind:      component.TypeDefKindComponent,
+				Component: ctd,
+			})
 
 		case ValTypeOpcodeRecord:
 			vt, err := decodeRecord(r, dc.scope, dc.builder)
@@ -277,6 +316,10 @@ func decodeTypeSection(dc *decodeContext, r *bytes.Reader) error {
 				return fmt.Errorf("decode record type %d: %w", slot, err)
 			}
 			dc.scope.appendValType(vt)
+			dc.c.TypeDefs = append(dc.c.TypeDefs, component.TypeDef{
+				Kind:    component.TypeDefKindDefined,
+				ValType: vt,
+			})
 
 		case ValTypeOpcodeVariant:
 			vt, err := decodeVariant(r, dc.scope, dc.builder)
@@ -284,6 +327,10 @@ func decodeTypeSection(dc *decodeContext, r *bytes.Reader) error {
 				return fmt.Errorf("decode variant type %d: %w", slot, err)
 			}
 			dc.scope.appendValType(vt)
+			dc.c.TypeDefs = append(dc.c.TypeDefs, component.TypeDef{
+				Kind:    component.TypeDefKindDefined,
+				ValType: vt,
+			})
 
 		case ValTypeOpcodeList:
 			vt, err := decodeList(r, dc.scope, dc.builder)
@@ -291,6 +338,10 @@ func decodeTypeSection(dc *decodeContext, r *bytes.Reader) error {
 				return fmt.Errorf("decode list type %d: %w", slot, err)
 			}
 			dc.scope.appendValType(vt)
+			dc.c.TypeDefs = append(dc.c.TypeDefs, component.TypeDef{
+				Kind:    component.TypeDefKindDefined,
+				ValType: vt,
+			})
 
 		case ValTypeOpcodeFixedSizeList:
 			vt, err := decodeFixedLengthList(r, dc.scope, dc.builder)
@@ -298,6 +349,10 @@ func decodeTypeSection(dc *decodeContext, r *bytes.Reader) error {
 				return fmt.Errorf("decode fixed-size list type %d: %w", slot, err)
 			}
 			dc.scope.appendValType(vt)
+			dc.c.TypeDefs = append(dc.c.TypeDefs, component.TypeDef{
+				Kind:    component.TypeDefKindDefined,
+				ValType: vt,
+			})
 
 		case ValTypeOpcodeTuple:
 			vt, err := decodeTuple(r, dc.scope, dc.builder)
@@ -305,6 +360,10 @@ func decodeTypeSection(dc *decodeContext, r *bytes.Reader) error {
 				return fmt.Errorf("decode tuple type %d: %w", slot, err)
 			}
 			dc.scope.appendValType(vt)
+			dc.c.TypeDefs = append(dc.c.TypeDefs, component.TypeDef{
+				Kind:    component.TypeDefKindDefined,
+				ValType: vt,
+			})
 
 		case ValTypeOpcodeFlags:
 			vt, err := decodeFlags(r, dc.builder)
@@ -312,6 +371,10 @@ func decodeTypeSection(dc *decodeContext, r *bytes.Reader) error {
 				return fmt.Errorf("decode flags type %d: %w", slot, err)
 			}
 			dc.scope.appendValType(vt)
+			dc.c.TypeDefs = append(dc.c.TypeDefs, component.TypeDef{
+				Kind:    component.TypeDefKindDefined,
+				ValType: vt,
+			})
 
 		case ValTypeOpcodeEnum:
 			vt, err := decodeEnum(r, dc.builder)
@@ -319,6 +382,10 @@ func decodeTypeSection(dc *decodeContext, r *bytes.Reader) error {
 				return fmt.Errorf("decode enum type %d: %w", slot, err)
 			}
 			dc.scope.appendValType(vt)
+			dc.c.TypeDefs = append(dc.c.TypeDefs, component.TypeDef{
+				Kind:    component.TypeDefKindDefined,
+				ValType: vt,
+			})
 
 		case ValTypeOpcodeOption:
 			vt, err := decodeOption(r, dc.scope, dc.builder)
@@ -326,6 +393,10 @@ func decodeTypeSection(dc *decodeContext, r *bytes.Reader) error {
 				return fmt.Errorf("decode option type %d: %w", slot, err)
 			}
 			dc.scope.appendValType(vt)
+			dc.c.TypeDefs = append(dc.c.TypeDefs, component.TypeDef{
+				Kind:    component.TypeDefKindDefined,
+				ValType: vt,
+			})
 
 		case ValTypeOpcodeResult:
 			vt, err := decodeResult(r, dc.scope, dc.builder)
@@ -333,6 +404,10 @@ func decodeTypeSection(dc *decodeContext, r *bytes.Reader) error {
 				return fmt.Errorf("decode result type %d: %w", slot, err)
 			}
 			dc.scope.appendValType(vt)
+			dc.c.TypeDefs = append(dc.c.TypeDefs, component.TypeDef{
+				Kind:    component.TypeDefKindDefined,
+				ValType: vt,
+			})
 
 		case ValTypeOpcodeStream:
 			vt, err := decodeStream(r, dc.scope, dc.builder)
@@ -340,6 +415,10 @@ func decodeTypeSection(dc *decodeContext, r *bytes.Reader) error {
 				return fmt.Errorf("decode stream type %d: %w", slot, err)
 			}
 			dc.scope.appendValType(vt)
+			dc.c.TypeDefs = append(dc.c.TypeDefs, component.TypeDef{
+				Kind:    component.TypeDefKindDefined,
+				ValType: vt,
+			})
 
 		case ValTypeOpcodeFuture:
 			vt, err := decodeFuture(r, dc.scope, dc.builder)
@@ -347,6 +426,10 @@ func decodeTypeSection(dc *decodeContext, r *bytes.Reader) error {
 				return fmt.Errorf("decode future type %d: %w", slot, err)
 			}
 			dc.scope.appendValType(vt)
+			dc.c.TypeDefs = append(dc.c.TypeDefs, component.TypeDef{
+				Kind:    component.TypeDefKindDefined,
+				ValType: vt,
+			})
 
 		default:
 			// Primitive value types can appear as bare type-section
@@ -361,12 +444,25 @@ func decodeTypeSection(dc *decodeContext, r *bytes.Reader) error {
 					return fmt.Errorf("decode primitive type %d: %w", slot, err)
 				}
 				dc.scope.appendValType(vt)
+				dc.c.TypeDefs = append(dc.c.TypeDefs, component.TypeDef{
+					Kind:    component.TypeDefKindDefined,
+					ValType: vt,
+				})
 				break
 			}
 			return fmt.Errorf("unsupported type opcode 0x%02x at index %d", opcode, slot)
 		}
 
 		dc.c.NextTypeIdx++
+		// Invariant: each slot above appends exactly one TypeDef
+		// entry. A missing append in a new opcode case would leave
+		// TypeDefs short of (beforeTypeDefs + i + 1); flag that here
+		// so a misbehaving branch surfaces as an internal error
+		// rather than a silently misaligned TypeDefs slice.
+		if len(dc.c.TypeDefs) != beforeTypeDefs+int(i)+1 {
+			return fmt.Errorf("decoder invariant: TypeDefs length %d != expected %d after slot %d",
+				len(dc.c.TypeDefs), beforeTypeDefs+int(i)+1, slot)
+		}
 	}
 
 	return nil

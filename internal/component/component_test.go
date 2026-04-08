@@ -255,11 +255,34 @@ func TestComponent_NestedComponents(t *testing.T) {
 }
 
 func TestNewTypeDefs(t *testing.T) {
-	// Session 0 compile-fix: the old top-level VariantTypeDef / TupleTypeDef
-	// / FlagsTypeDef / EnumTypeDef shapes were deleted in Task 2 and their
-	// data now lives on *types.ComponentTypes via interned table entries.
-	// See types/composite.go.
-	t.Skip("session 1 work: see docs/plans/2026-04-07-canonical-abi-unification-session0-followup.md")
+	// Session 1 Decision 5 (option A): TypeDef is the single-source-of-truth
+	// per-type-section-slot entry populated by the decoder. Each Kind selects
+	// one of: canonical-bag FuncTypeIdx, canonical-bag ResourceTableIdx, a
+	// nested InstanceTypeDef / ComponentTypeDef, or a defvaltype ValType
+	// reference into the bag. This test asserts only the in-memory shape —
+	// the decoder-population contract is exercised by
+	// TestDecoderPopulatesTypeDefs in internal/component/binary.
+	//
+	// No spec counterpart: definitions.py encodes the same linear type
+	// index space as a Python list indexed by position; the Kind
+	// discriminator is a wazero decoder contract, not a canonical-ABI
+	// observable, so run_tests.py does not exercise it directly.
+	fn := TypeDef{Kind: TypeDefKindFunc}
+	require.Equal(t, TypeDefKindFunc, fn.Kind)
+
+	res := TypeDef{Kind: TypeDefKindResource}
+	require.Equal(t, TypeDefKindResource, res.Kind)
+
+	inst := TypeDef{Kind: TypeDefKindInstance, Instance: &InstanceTypeDef{}}
+	require.Equal(t, TypeDefKindInstance, inst.Kind)
+	require.NotNil(t, inst.Instance)
+
+	comp := TypeDef{Kind: TypeDefKindComponent, Component: &ComponentTypeDef{}}
+	require.Equal(t, TypeDefKindComponent, comp.Kind)
+	require.NotNil(t, comp.Component)
+
+	defined := TypeDef{Kind: TypeDefKindDefined}
+	require.Equal(t, TypeDefKindDefined, defined.Kind)
 }
 
 func TestInstanceTypeDef(t *testing.T) {

@@ -423,6 +423,107 @@ func TestDecodeComponent_EnumType(t *testing.T) {
 	require.Equal(t, []string{"red", "green", "blue"}, c.Types.Enums[0].Names)
 }
 
+// TestDecoderPopulatesTypeDefs asserts the binary decoder produces a
+// Component.TypeDefs slice in declaration order, with each entry's Kind
+// + kind-specific field set to the decoder's canonical bag index (or
+// nested type-def pointer for instance/component slots, or interned
+// ValType for defvaltype slots).
+//
+// Spec: definitions.py section "Type Section" — the type section is
+// a linear slot space, numbered in declaration order, with one
+// deftype per slot. No separate anchor beyond the general type
+// system shape.
+// No counterpart (justified): this is a wazero decoder-to-linker
+// indirection contract (Session 1 Decision 5), not a canonical-ABI
+// observable — run_tests.py does not exercise the decoder's slice.
+func TestDecoderPopulatesTypeDefs(t *testing.T) {
+	// Assemble a type section with one slot per TypeDefKind so the
+	// test exercises every branch of the switch in decodeTypeSection.
+	//
+	// Slot 0: function type — (func (param "x" s32) (result s32))
+	// Slot 1: resource type — abstract resource, no destructor
+	// Slot 2: instance type — empty instance type declaration
+	// Slot 3: component type — empty component type declaration
+	// Slot 4: defined valtype — tuple<s32, s32>
+	typeSection := []byte{
+		0x05, // 5 type definitions
+
+		// Slot 0: sync functype (param "x" s32) (result s32)
+		0x40,      // sync functype opcode
+		0x01,      // 1 param
+		0x01, 'x', // param name "x"
+		0x7a, // s32
+		0x00, // single result form
+		0x7a, // s32
+
+		// Slot 1: resource without destructor
+		0x3f, // resource type opcode
+		0x7f, // rep type i32
+		0x00, // no destructor
+
+		// Slot 2: empty instance type
+		0x42, // instance type opcode
+		0x00, // 0 declarations
+
+		// Slot 3: empty component type
+		0x41, // component type opcode
+		0x00, // 0 declarations
+
+		// Slot 4: tuple<s32, s32>
+		0x6f, // tuple opcode
+		0x02, // 2 elements
+		0x7a, // s32
+		0x7a, // s32
+	}
+
+	input := append(append(Magic[:], Version[:]...), LayerComponent[:]...)
+	input = append(input, byte(SectionIDType))
+	input = append(input, byte(len(typeSection)))
+	input = append(input, typeSection...)
+
+	c, err := DecodeComponent(input)
+	require.NoError(t, err)
+	require.NotNil(t, c)
+
+	// One TypeDef entry per decoded type-section slot, in order.
+	require.Equal(t, 5, len(c.TypeDefs))
+
+	// Slot 0: function — Kind == Func, Func is the FuncTypeIdx that
+	// resolves to the interned TypeFunc with param name "x".
+	require.Equal(t, component.TypeDefKindFunc, c.TypeDefs[0].Kind)
+	require.Equal(t, types.FuncTypeIdx(0), c.TypeDefs[0].Func)
+	require.Equal(t, []string{"x"}, c.Types.Funcs[c.TypeDefs[0].Func].ParamNames)
+
+	// Slot 1: resource — Kind == Resource, Resource is the
+	// ResourceTableIdx of the Abstract table slot.
+	require.Equal(t, component.TypeDefKindResource, c.TypeDefs[1].Kind)
+	require.Equal(t, types.ResourceTableIdx(0), c.TypeDefs[1].Resource)
+	require.False(t, c.Types.ResourceTables[c.TypeDefs[1].Resource].Concrete)
+	// The encoded resource has no destructor, so ResourceDtor is nil.
+	require.Nil(t, c.TypeDefs[1].ResourceDtor)
+	require.False(t, c.TypeDefs[1].ResourceDtorAsync)
+	require.Nil(t, c.TypeDefs[1].ResourceDtorCallback)
+
+	// Slot 2: instance — Kind == Instance, Instance is non-nil.
+	require.Equal(t, component.TypeDefKindInstance, c.TypeDefs[2].Kind)
+	require.NotNil(t, c.TypeDefs[2].Instance)
+	require.Equal(t, 0, len(c.TypeDefs[2].Instance.Declarations))
+
+	// Slot 3: component — Kind == Component, Component is non-nil.
+	require.Equal(t, component.TypeDefKindComponent, c.TypeDefs[3].Kind)
+	require.NotNil(t, c.TypeDefs[3].Component)
+	require.Equal(t, 0, len(c.TypeDefs[3].Component.Declarations))
+
+	// Slot 4: defvaltype — Kind == Defined, ValType is the interned
+	// tuple reference produced by decodeTuple.
+	require.Equal(t, component.TypeDefKindDefined, c.TypeDefs[4].Kind)
+	require.Equal(t, types.TypeKindTuple, c.TypeDefs[4].ValType.Kind)
+	tup := c.Types.Tuples[c.TypeDefs[4].ValType.Index]
+	require.Equal(t, 2, len(tup.Types))
+	require.Equal(t, types.S32, tup.Types[0])
+	require.Equal(t, types.S32, tup.Types[1])
+}
+
 // Helper to build a minimal component binary with a type section
 func buildComponentWithTypeSection(typeData []byte) []byte {
 	typeSectionContent := append([]byte{0x01}, typeData...)
