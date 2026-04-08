@@ -21,18 +21,17 @@ import (
 // *types.ComponentTypesBuilder and the root *typeScope, so that
 // multiple type sections (plus alias pull-ins) all land in the same
 // interned table and share the same scope-local index space.
+//
+// Per-slot function and resource metadata lives on
+// `dc.c.TypeDefs[slot]` (Session 1 Decision 5: Component.TypeDefs is
+// the single source of truth). Callers that need a builder-assigned
+// FuncTypeIdx read `dc.c.TypeDefs[slot].Func` after asserting
+// `Kind == TypeDefKindFunc`; destructor / callback metadata for a
+// resource slot lives on `TypeDef.Resource*` fields.
 type decodeContext struct {
 	c       *component.Component
 	builder *types.ComponentTypesBuilder
 	scope   *typeScope
-	// funcTypeIdx tracks, per type-section slot that was a function
-	// declaration, the builder-assigned FuncTypeIdx. Used by callers
-	// that need to look up a signature by its type-section index.
-	funcTypeIdx map[uint32]types.FuncTypeIdx
-	// resourceDefs tracks, per type-section slot that was a resource
-	// declaration, the decoded ResourceTypeDef (destructor / callback
-	// metadata plus builder resource-table index).
-	resourceDefs map[uint32]*ResourceTypeDef
 }
 
 func newDecodeContext() *decodeContext {
@@ -40,10 +39,8 @@ func newDecodeContext() *decodeContext {
 		c: &component.Component{
 			FuncIdxToCanonical: make(map[uint32]uint32),
 		},
-		builder:      types.NewComponentTypesBuilder(),
-		scope:        newTypeScope(nil),
-		funcTypeIdx:  make(map[uint32]types.FuncTypeIdx),
-		resourceDefs: make(map[uint32]*ResourceTypeDef),
+		builder: types.NewComponentTypesBuilder(),
+		scope:   newTypeScope(nil),
 	}
 }
 
@@ -203,11 +200,13 @@ func decodeCoreModuleSection(c *component.Component, content []byte) error {
 //
 // For each entry the decoder dispatches on the leading opcode:
 //
-//   - 0x40 / 0x43                 → function type; interned via b.InternFunc,
-//     stored in dc.funcTypeIdx and appended to the scope as scopeEntryOther
+//   - 0x40 / 0x43                 → function type; interned via b.InternFunc
+//     and appended to the scope as scopeEntryOther. The builder-assigned
+//     FuncTypeIdx is recorded on dc.c.TypeDefs[slot].Func.
 //   - 0x3f / 0x3e                 → resource declaration; interned via
-//     b.InternAbstractResource, stored in dc.resourceDefs and appended to
-//     the scope as a scopeEntryResource
+//     b.InternAbstractResource and appended to the scope as a
+//     scopeEntryResource. The destructor / callback metadata is recorded
+//     on dc.c.TypeDefs[slot].Resource* fields.
 //   - 0x41 / 0x42                 → component / instance type declaration;
 //     decoded with the per-kind helpers and appended to the scope as
 //     scopeEntryOther (Session 2 work upgrades these to first-class slots)
@@ -245,7 +244,6 @@ func decodeTypeSection(dc *decodeContext, r *bytes.Reader) error {
 			if err != nil {
 				return fmt.Errorf("decode functype %d: %w", slot, err)
 			}
-			dc.funcTypeIdx[slot] = ftIdx
 			dc.scope.appendOther()
 			dc.c.TypeDefs = append(dc.c.TypeDefs, component.TypeDef{
 				Kind: component.TypeDefKindFunc,
@@ -257,7 +255,6 @@ func decodeTypeSection(dc *decodeContext, r *bytes.Reader) error {
 			if err != nil {
 				return fmt.Errorf("decode resource type %d: %w", slot, err)
 			}
-			dc.resourceDefs[slot] = resourceDef
 			dc.scope.appendResource(resourceDef.ResourceTableIdx)
 			dc.c.TypeDefs = append(dc.c.TypeDefs, component.TypeDef{
 				Kind:                 component.TypeDefKindResource,
@@ -272,7 +269,6 @@ func decodeTypeSection(dc *decodeContext, r *bytes.Reader) error {
 			if err != nil {
 				return fmt.Errorf("decode async resource type %d: %w", slot, err)
 			}
-			dc.resourceDefs[slot] = resourceDef
 			dc.scope.appendResource(resourceDef.ResourceTableIdx)
 			dc.c.TypeDefs = append(dc.c.TypeDefs, component.TypeDef{
 				Kind:                 component.TypeDefKindResource,
