@@ -162,8 +162,8 @@ func (l *ComponentLinker) resolveTypeAlias(parent *Instance, c *Component, typeI
 // slice and relied on TypeIdxToStoredIdx plus a buildLocalTypeIndex helper
 // that walked the old InstanceTypeDef declarations. All of those shapes
 // have been reworked by Tasks 2, 12 and will be rebuilt by Task 13's
-// binary decoder. Until then this returns nil rather than dereference
-// into a partially-migrated type bag.
+// binary decoder. Until then this panics with a Session 1 followup-note
+// pointer rather than dereference into a partially-migrated type bag.
 func (l *ComponentLinker) resolveExportTypeAlias(parent *Instance, c *Component, alias *Alias) *TypeDef {
 	_ = parent
 	_ = c
