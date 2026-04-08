@@ -672,6 +672,79 @@ func (t *Table) ValidateType(h Handle, expected *ResourceType) error {
 }
 ```
 
+### Host-managed resource types
+
+Host code that creates resource handles outside the component-model linker — most importantly the wasi:io / wasi:filesystem / wasi:sockets / etc. host modules under `imports/wasip2/` — does not have a guest-defined component instance to bind its resources to. Each host-managed resource kind needs a `*runtime.ResourceType` for handle tagging and validation, but its `Impl` is `nil` (no defining component instance) and its destructor uses Go's `Destroyable` interface (already in the existing `runtime/resource_table.go:32-34`) rather than a guest core function index.
+
+**Wasmtime parity.** Wasmtime's `ResourceType` (`crates/wasmtime/src/runtime/component/resources/ty.rs:23-142`) is a tagged union with five variants: `Host(TypeId)`, `HostDynamic(u32)`, `Guest{store, instance, id}`, `Uninstantiated`, `Abstract`. The `Host(TypeId)` variant uses Rust's compile-time-stable `TypeId::of::<T>()` so `ResourceType::host::<InputStream>()` is the same value at every call site. The `Guest` variant identifies an instantiation by `(store, *const ComponentInstance as usize, DefinedResourceIndex)`. Two `ResourceType`s are equal iff their tagged union content is equal. Identity propagates through the inner fields.
+
+**Go translation.** Wazero uses pointer identity on a single `*runtime.ResourceType` struct in place of wasmtime's tagged union. The semantic equivalent of `ResourceType::host::<T>()` is a **package-level singleton `*runtime.ResourceType`** with `Impl: nil`. The semantic equivalent of `ResourceType::guest(...)` is one `*runtime.ResourceType` per `(ResourceIdx, ComponentInstance)` allocated at instantiation time (Session 2 work). Pointer comparison gives the same observable behavior as wasmtime's structural-tagged comparison because the inner fields ensure each value is unique.
+
+**Pattern for `imports/wasip2/io/streams.go` (and analogous host modules):**
+
+```go
+package io
+
+import "github.com/tetratelabs/wazero/internal/component/runtime"
+
+// Host-managed resource type singletons. One *ResourceType per host
+// resource kind that this module exposes to guests. Impl is nil because
+// these resources are host-owned, not bound to any guest component
+// instance. Destruction is handled via the Destroyable interface on the
+// stream's Rep value, not via the guest-side Dtor field.
+//
+// Equivalent to wasmtime's ResourceType::host::<InputStream>(),
+// ResourceType::host::<OutputStream>(), etc. at
+// crates/wasmtime/src/runtime/component/resources/ty.rs:44.
+var (
+    inputStreamResourceType  = &runtime.ResourceType{}
+    outputStreamResourceType = &runtime.ResourceType{}
+    pollableResourceType     = &runtime.ResourceType{}
+    errorResourceType        = &runtime.ResourceType{}
+)
+
+// Minting an input-stream handle (replaces the old table.New(rep, true)):
+func mintInputStream(table *runtime.Table, stream *InputStream) uint32 {
+    handle := table.NewResourceHandle(stream, true /* own */, inputStreamResourceType)
+    return uint32(handle)
+}
+
+// Retrieving an input-stream handle (replaces the old entry.Rep direct
+// access; type assertion required because Table.Get returns the generic
+// runtime.TableEntry interface):
+func getInputStream(table *runtime.Table, handle uint32) (*InputStream, error) {
+    entry, err := table.Get(runtime.Handle(handle))
+    if err != nil {
+        return nil, err
+    }
+    resEntry, ok := entry.(*runtime.ResourceHandleEntry)
+    if !ok {
+        return nil, fmt.Errorf("handle %d is not a resource handle", handle)
+    }
+    // Optional: verify the host resource type matches what this getter expects.
+    // resEntry.RT == inputStreamResourceType prevents an output-stream handle
+    // from being silently treated as an input-stream handle.
+    if resEntry.RT != inputStreamResourceType {
+        return nil, fmt.Errorf("handle %d is not an input-stream", handle)
+    }
+    stream, ok := resEntry.Rep.(*InputStream)
+    if !ok {
+        return nil, fmt.Errorf("handle %d rep is not *InputStream (got %T)", handle, resEntry.Rep)
+    }
+    return stream, nil
+}
+```
+
+**Why pointer identity is correct here:**
+
+- Two distinct host modules that each declare a singleton `*ResourceType` for their own "stream" concept produce two distinct pointers, and a handle minted by one module is rejected by the other's `ValidateType`. This matches the spec's `is` check at `definitions.py:1345`.
+- The same module across different `runtime.ComponentInstance`s reuses the same singleton pointer, so handles round-trip correctly within a process.
+- Across processes / restarts there is no state to preserve; pointer identity is process-local, which matches the lifetime of the resource handles themselves (handles do not survive process restart either).
+
+**Destructors for host resources** flow through wazero's existing `runtime.Destroyable` interface. When `Table.Delete(handle)` is called on an owned handle, the table checks whether the entry's `Rep` implements `Destroyable` and, if so, calls `Rep.Destroy()`. This is preserved across the Session 0 rename of `ResourceTable → Table`. Host modules whose resource types need cleanup (e.g., `InputStream` closes its underlying `io.Reader` if it implements `io.Closer`) implement `Destroy()` on their Rep type, exactly as `imports/wasip2/io/streams.go:137` and `:268` already do for `InputStream` and `OutputStream`. The `*runtime.ResourceType` struct's `Dtor *uint32` field stays `nil` for host resources because there is no guest core function index to call — the destructor is Go code reached via the interface.
+
+**Single-table-per-instance still holds.** Host-minted resources go into the same `runtime.Table` as guest-minted resources because the spec at `definitions.py:259` mandates one `Table` per `ComponentInstance` and the wasip2 host modules write into the calling instance's table so the guest can subsequently read the handle back. Wasmtime separately maintains a `host_table: &mut HandleTable` on its `LiftContext` for some cross-instance host bookkeeping, but that is a wasmtime optimization, not a spec requirement; wazero's design follows the spec literally.
+
 ### Unified handle table — `runtime/table.go`
 
 The spec at `definitions.py:303-315` defines `class Table` with a single `array: list[any]` holding handles of **any** kind. `cx.inst.table.add(h)` is called for resource handles (`:1643, 1651`), streams (`:1656`), futures (`:1661`), error-contexts (`:1583`), and subtasks (`:2121`) — all into the same table. Handle indices are unique across all kinds within an instance.
@@ -1501,6 +1574,19 @@ Each numbered step is independently reviewable. Steps with shared dependencies r
     - For `Borrow`: `IncrementLends`; track in per-call borrow scope; apply same-instance optimization (`ctx.Instance == expectedRT.Impl` → return rep directly, no handle allocation, per `CanonicalABI.md:2677-2683`).
 
     Add trap arms for `TypeKindStream`/`TypeKindFuture`/`TypeKindErrorContext`. Update `FlattenParams`, `FlattenResults`, `flattenType`, `CoreSignature` to take `*types.ComponentTypes` and dispatch on `TypeKind`. Depends on steps 1-6, 11.
+
+12a. **External runtime symbol callers — V5b corrective sweep.** Run the audit command from the V5b verification section to find every caller of the renamed/deleted runtime symbols across `api/`, `imports/`, and `internal/` (not just `internal/component/`). For each hit, apply the per-symbol fix from the V5b table:
+
+    - **`api/component/component.go`** — update the `type ResourceTable = runtime.ResourceTable` alias and `var NewResourceTable = runtime.NewResourceTable` to point at the renamed `runtime.Table` and `runtime.NewTable`. Update `WithResourceTable` and `ResourceTableFromContext` accessor signatures and bodies. Pre-production status (Non-Goals) permits public surface change.
+
+    - **`imports/wasip2/io/{streams,error,poll}.go`** — at the top of `streams.go`, declare per-kind `*runtime.ResourceType{}` singletons (`inputStreamResourceType`, `outputStreamResourceType`, `pollableResourceType`, `errorResourceType`) per the "Host-managed resource types" pattern in the Resource Identity section. Replace `table.New(rep, true)` calls with `table.NewResourceHandle(rep, true, <kind>ResourceType)`. Replace `entry.Rep` accesses with `entry.(*runtime.ResourceHandleEntry).Rep` (type assertion required because `Table.Get` returns the generic `runtime.TableEntry` interface). Existing `Destroy()` methods on `*InputStream`/`*OutputStream`/`*Error` are unchanged — host destructors continue to flow through the `runtime.Destroyable` interface.
+
+    - **Other `imports/wasip2/{filesystem,sockets,http,cli,clocks,...}` host modules** — apply the same pattern to any flagged hits. Each module declares its own per-kind `*runtime.ResourceType` singletons.
+
+    - **`internal/component/wasip2test/*.go`** — update test fixtures that call `runtime.NewResourceTypeID()` (e.g., `kv_store_test.go`) to declare a fresh `*runtime.ResourceType` for the test's resource kind. If a test exercises behavior that the new runtime API does not yet support in Session 0 (e.g., needs Session 2's Concrete promotion plumbing to be meaningful), `t.Skip("session 1 work: <reason>")` and reference the followup note rather than leaving a broken build.
+
+    Depends on steps 7-7e (the runtime/ refactor must be done first; the new types must exist before external callers can be updated to use them). Must complete before step 13 (the wholesale deletes); otherwise external callers reference symbols that no longer exist and `go build ./api/... ./imports/... ./internal/...` fails. Verification: `go build ./api/... ./imports/... ./internal/...` returns clean.
+
 13. **Delete wholesale:**
     - `internal/component/type_resolver.go` (entire file)
     - `internal/component/type_resolver_test.go` (entire file)
@@ -1514,14 +1600,14 @@ Each numbered step is independently reviewable. Steps with shared dependencies r
     - `internal/component/runtime/instance_state_test.go` (tests migrated to the new `component_instance_test.go`)
     - `internal/component/abi/lower.go` symbols `LowerOwn` (line 683) and `LowerBorrow` (line 699) — inlined into dispatch, not whole file
     - `internal/component/component_linker.go` lines 701-884: `resolveValTypeRef`, `resolveToValType`, `typeDefToValType`, `valTypeRefToValType`
-    Depends on steps 7e, 9-12.
+    Depends on steps 7e, 9-12, **and 12a** (external callers must be migrated off the runtime symbols being deleted before this step removes them).
 14. **internal/component/abi/*_test.go** — Update tests to build types via the builder, pass `*types.ComponentTypes` + `*runtime.ComponentInstance` through the context. Port Own/Borrow dispatch tests from the deleted `resource_lower_test.go`. Depends on steps 5, 7, 11-12.
 15. **Compile-fix** broken call sites in `internal/component/component_linker.go` and `internal/component/instance.go`. Bodies may be logically wrong but must compile. Mechanical `switch typ.(type)` → `switch typ.Kind`. Every reference to `component.FuncType` or `component.NamedValType` updates to `*types.TypeFunc` / the tuple-based params/results pattern. Document deficiencies in followup note. Depends on step 13.
 16. **internal/component/conformance/*_test.go** — Update the 12 test files to build types via `ComponentTypesBuilder` and pass `*types.ComponentTypes` + `*runtime.ComponentInstance` through `LiftContext`. Depends on steps 5, 7, 11-12.
 17. **Write followup note** at `docs/plans/2026-04-07-canonical-abi-unification-session0-followup.md`. Depends on all prior steps so the list is accurate.
-18. **Run full test suite.** Confirm: `types/`, `runtime/`, `binary/`, `abi/`, `conformance/` green; `component/` top-level compile-green with documented test skips. Depends on step 17.
+18. **Run full test suite.** Confirm: `types/`, `runtime/`, `binary/`, `abi/`, `conformance/` green; `api/component/`, `imports/wasip2/...`, `internal/component/wasip2test/` build-green and test-green except for documented `t.Skip("session 1 work: ...")` calls; `component/` top-level compile-green with documented test skips. Run `go build ./api/... ./imports/... ./internal/...` and `go vet ./api/... ./imports/... ./internal/...` as the build-completeness gate. Depends on step 17.
 
-**Parallelism:** Steps 2, 3, 6, 7 run in parallel after step 1 (step 7 is independent of steps 1-6 entirely). Step 12 depends on step 11 but once step 11 is done, step 12 can run in parallel with steps 9-10.
+**Parallelism:** Steps 2, 3, 6, 7 run in parallel after step 1 (step 7 is independent of steps 1-6 entirely). Step 12 depends on step 11 but once step 11 is done, step 12 can run in parallel with steps 9-10. Step 12a (V5b external caller corrective sweep) depends on the runtime refactor (steps 7-7e) and must complete before step 13's wholesale deletes; it can run in parallel with the abi/ rewrite (steps 11-12).
 
 ## Testing Strategy
 
@@ -1832,6 +1918,16 @@ the follow-up work.
 - `internal/component/instance.go` lift/lower sites at lines 794, 1205, 1242, 1518, 1527, 1546, 1601, 2009 (`liftResolvedType`, `liftResolvedPrimitiveVal`, `liftFieldFromMemory`, `lowerParam`, `lowerTyped`, `lowerToMemory`, `typeCanCoerce`, `typeMatchesKind`): compile-fix only, bodies slated for Session 1 deletion
 - `internal/component/types/val.go`: `ValKind.String()` at lines 301-352 extended for new constants
 - All call sites in `internal/component/`, `internal/component/binary/`, `internal/component/abi/`, and their tests that previously used `*component.FuncType` or `component.NamedValType` — mechanical rename to `*types.TypeFunc` (Decision 7). Planning agent must `grep -rn "component\.FuncType\|component\.NamedValType" internal/` and update each hit.
+- `api/component/component.go:114` (`type ResourceTable = runtime.ResourceTable`) — RHS updated to `runtime.Table`. Public alias name `ResourceTable` may be preserved or renamed; the underlying type is the renamed `runtime.Table`. Pre-production, no backwards-compat constraint.
+- `api/component/component.go:117` (`var NewResourceTable = runtime.NewResourceTable`) — RHS updated to `runtime.NewTable`.
+- `api/component/component.go:122-124` (`WithResourceTable(ctx, table *ResourceTable) context.Context`) — signature/body updated to use the renamed type.
+- `api/component/component.go` — any other re-export or accessor that touches a runtime symbol caught by the V5b audit must be updated in the same pass.
+- `imports/wasip2/io/streams.go:318, 369` (`table.New(rep, true)` calls inside `lastOperationFailedError` and `createPollableHandle`) — replaced by `table.NewResourceHandle(rep, true, errorResourceType)` and `table.NewResourceHandle(rep, true, pollableResourceType)` respectively. Requires declaring per-kind host resource type singletons at the top of the package per the "Host-managed resource types" section above.
+- `imports/wasip2/io/streams.go:338, 355` (`entry.Rep.(*InputStream)` and `entry.Rep.(*OutputStream)`) — replaced by `entry.(*runtime.ResourceHandleEntry).Rep.(*InputStream)` and `entry.(*runtime.ResourceHandleEntry).Rep.(*OutputStream)`. Type-assertion required because `Table.Get` now returns the generic `runtime.TableEntry` interface.
+- `imports/wasip2/io/error.go:148, 151` and `imports/wasip2/io/poll.go:147` — same `entry.Rep` → `entry.(*runtime.ResourceHandleEntry).Rep` migration.
+- `imports/wasip2/io/streams.go` (top of file): declare package-level `inputStreamResourceType`, `outputStreamResourceType`, `pollableResourceType`, `errorResourceType` as `*runtime.ResourceType{}` singletons per the "Host-managed resource types" pattern. The `Destroy()` methods on `*InputStream` (line 137), `*OutputStream` (line 268), and `*Error` (`error.go:117`) are unchanged — host destructors flow through the existing `Destroyable` interface.
+- `imports/wasip2/io/{streams,error,poll}.go` plus any other `imports/wasip2/{filesystem,sockets,http,cli,clocks,...}/*.go` flagged by the audit command — same pattern applied per host module. Each host module declares its own per-kind `*runtime.ResourceType` singletons.
+- `internal/component/wasip2test/kv_store_test.go` — `runtime.NewResourceTypeID()` call replaced by a fresh `*runtime.ResourceType` declared in the test fixture. If the test exercises behavior that the new runtime API genuinely no longer supports in Session 0, the test may instead `t.Skip("session 1 work: ...")` and reference the followup note.
 
 ## Implementation Verification Checklist
 
@@ -1943,6 +2039,47 @@ Grep for `component\.FuncType|component\.NamedValType|\bFuncType\b|\bNamedValTyp
 - `internal/component/conformance/nested_test.go`
 
 Each file's updates are mechanical: a `NamedValType{Name: "x", ValType: someValTypeRef}` becomes a contribution to the `ParamNames + InternTuple` pattern. `*FuncType` in method signatures becomes `*types.TypeFunc`.
+
+### V5b — Repo-wide runtime-symbol caller audit (deleted/renamed runtime symbols)
+
+V5 was originally scoped only to FuncType/NamedValType. The runtime-side renames (Decision 5, Decision 6) also have callers outside `internal/component/` that must be migrated. **Audit command (run before any code changes in the runtime refactor):**
+
+```
+grep -rn "runtime\.\(ResourceTable\|NewResourceTable\|HandleEntry\|ResourceTypeID\|NewResourceTypeID\|InvalidResourceTypeID\|ResourceTypeInfo\|NewResourceTypeInfo\)\|table\.New(" api/ imports/ internal/
+```
+
+Symbols that the audit catches and the corresponding fix per call site:
+
+| Old symbol | New form | Fix pattern |
+|---|---|---|
+| `runtime.ResourceTable` (type) | `runtime.Table` | mechanical type rename |
+| `*runtime.ResourceTable` | `*runtime.Table` | mechanical type rename |
+| `runtime.NewResourceTable` | `runtime.NewTable` | mechanical func rename |
+| `runtime.HandleEntry` | `runtime.ResourceHandleEntry` (via `runtime.TableEntry` interface) | type assertion required at retrieval |
+| `entry.Rep` (where `entry` is from `Table.Get`) | `entry.(*runtime.ResourceHandleEntry).Rep` | type assertion to the concrete entry kind |
+| `entry.RT` (handle entry's resource type tag) | `entry.(*runtime.ResourceHandleEntry).RT` (now `*ResourceType`) | type assertion + pointer-identity comparison |
+| `runtime.ResourceTypeID` | `*runtime.ResourceType` | pointer-identity replaces uint32 alias |
+| `runtime.NewResourceTypeID(idx)` | declare or look up a `*runtime.ResourceType` and use it directly | no-op constructor; pointer comes from a singleton or instance pool |
+| `runtime.InvalidResourceTypeID()` | `nil` (`*ResourceType`) or omit the field | no separate "invalid" sentinel; `nil` pointer is the unset case |
+| `runtime.ResourceTypeInfo` (composite struct) | `*runtime.ResourceType` | pointer replaces composite |
+| `runtime.NewResourceTypeInfo(idx, instID)` | declare a `*runtime.ResourceType` per kind | no composite constructor needed |
+| `(*Table).New(rep, own)` (the no-type-info constructor) | `(*Table).NewResourceHandle(rep, own, *ResourceType)` | a `*ResourceType` must be passed; see "Host-managed resource types" below |
+| `(*Table).NewWithType(rep, own, rtID)` | `(*Table).NewResourceHandle(rep, own, *ResourceType)` | same |
+| `(*Table).GetType(h)` returning `ResourceTypeID` | `(*Table).GetResourceType(h)` returning `*ResourceType, error` | type assertion happens inside the helper |
+| `(*Table).ValidateType(h, rtID)` | `(*Table).ValidateType(h, *ResourceType)` | pointer comparison body; spec's `is` check |
+| Public re-exports in `api/component/component.go` (e.g. `type ResourceTable = runtime.ResourceTable`, `var NewResourceTable = runtime.NewResourceTable`, `WithResourceTable`, `ResourceTableFromContext`) | Update the right-hand side to the renamed types/funcs. The public alias name `ResourceTable` may be preserved on the api side (it is just an alias and external Go consumers reference it by the api/component name); the underlying type is `runtime.Table`. | mechanical RHS rename plus signature alignment |
+
+**Files known affected at design time (2026-04-08 audit):**
+
+- `api/component/component.go` — `type ResourceTable = runtime.ResourceTable`, `var NewResourceTable = runtime.NewResourceTable`, `WithResourceTable`, `ResourceTableFromContext` accessors
+- `imports/wasip2/io/streams.go` — `table.New(streamPtr, true)` calls at lines 318, 369; `entry.Rep` accesses at lines 338, 355
+- `imports/wasip2/io/error.go` — `entry.Rep` accesses at lines 148, 151
+- `imports/wasip2/io/poll.go` — `entry.Rep` access at line 147
+- `internal/component/wasip2test/kv_store_test.go` — `runtime.NewResourceTypeID()` call
+
+**Other `imports/wasip2/` modules** (filesystem, sockets, http, cli, clocks) and the broader imports tree may have additional callers; the audit command above must be run to produce a complete list at implementation time. The pattern for each is identical: declare host resource type singletons per kind, replace `New(rep, own)` with `NewResourceHandle(rep, own, hostResourceType)`, type-assert at retrieval.
+
+**Non-Goals reminder:** the design's Non-Goals section says backwards compatibility with `api/component`'s public API is not a goal (`api/component` is pre-production and pre-use). The plan SHOULD update `api/component` to the new types; it should NOT add transitional shims that preserve the old runtime API alongside the new one. No parallel paths.
 
 ### V6 — ValTypeOpcode constants are all present
 
