@@ -8,9 +8,17 @@
 // the runtime.NewResourceTable / runtime.MakeHandle symbols that were
 // removed in Tasks 10-12. Each test has been reduced to t.Skip pointing
 // at the Session 1 followup note. Task 19 collects the full list.
+//
+// Session 1 Task B3 adds the TestInstance{EmbedsRuntimeComponentInstance,
+// MayLeaveDelegatesToRuntime, CallMightBeRecursiveUsesReentranceTracker}
+// tests at the bottom of this file.
 package component
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/tetratelabs/wazero/internal/testing/require"
+)
 
 const instanceTestSkipMsg = "session 1 work: see docs/plans/2026-04-07-canonical-abi-unification-session0-followup.md"
 
@@ -240,4 +248,53 @@ func TestLiftResolvedType_LargeRecordRetptr(t *testing.T) {
 
 func TestLiftFieldFromMemory_AllPrimitiveTypes(t *testing.T) {
 	t.Skip(instanceTestSkipMsg)
+}
+
+// --- Session 1 Task B3 tests ---------------------------------------------
+//
+// These exercise the new shape in which Instance embeds a
+// *runtime.ComponentInstance and delegates spec-level state to it.
+
+// TestInstanceEmbedsRuntimeComponentInstance asserts Instance carries
+// a *runtime.ComponentInstance and delegates spec-level state.
+//
+// Spec: definitions.py:256-273 class ComponentInstance.
+// Wasmtime parallel: runtime/component/instance.rs:710-743 (Instantiator).
+func TestInstanceEmbedsRuntimeComponentInstance(t *testing.T) {
+	c := &Component{}
+	inst := newInstance(c, 0, nil)
+	require.NotNil(t, inst.Runtime())
+	// Spec: definitions.py:260 may_leave defaults true.
+	require.True(t, inst.MayLeave())
+	require.Equal(t, 0, inst.ActiveCallDepth())
+}
+
+// TestInstanceMayLeaveDelegatesToRuntime asserts MayLeave/SetMayLeave
+// read/write runtime state directly, not a duplicate wrapper field.
+//
+// Spec: definitions.py:260 may_leave field.
+func TestInstanceMayLeaveDelegatesToRuntime(t *testing.T) {
+	inst := newInstance(&Component{}, 0, nil)
+	inst.SetMayLeave(false)
+	require.False(t, inst.Runtime().MayLeave)
+	inst.SetMayLeave(true)
+	require.True(t, inst.Runtime().MayLeave)
+}
+
+// TestInstanceCallMightBeRecursiveUsesReentranceTracker asserts the
+// wrapper's CallMightBeRecursive uses the runtime ReentranceTracker,
+// not direct caller == i equality.
+//
+// Spec: definitions.py:290-299 call_might_be_recursive.
+func TestInstanceCallMightBeRecursiveUsesReentranceTracker(t *testing.T) {
+	a := newInstance(&Component{}, 1, nil)
+	b := newInstance(&Component{}, 2, nil)
+
+	// Neither has entered: nothing is recursive.
+	require.False(t, a.CallMightBeRecursive(b))
+
+	// a.EnterCall() activates instance id 1. Calling a (callee=a) is now recursive.
+	a.EnterCall()
+	defer a.ExitCall()
+	require.True(t, a.CallMightBeRecursive(a))
 }

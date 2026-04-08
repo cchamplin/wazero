@@ -1,25 +1,22 @@
 // internal/component/instance.go
 //
-// SESSION 0 COMPILE-FIX STUB (Task 17).
+// Session 1 Task B3: Instance embeds *runtime.ComponentInstance.
 //
-// The previous implementation of Instance and ExportedFunc — including the
-// entire ExportedFunc.Call lift/lower path, liftResolvedType, lowerTyped,
-// lowerToMemory, liftResultFromMemory and the resource-table helpers — has
-// been reduced to panic stubs so the top-level internal/component/ package
-// can compile against the new types.ValType / types.TypeFunc /
-// runtime.ComponentInstance shapes.
+// Per-instance runtime state matching the canonical-abi spec's
+// ComponentInstance (definitions.py:256-273) lives on the embedded
+// *runtime.ComponentInstance. Wrapper-level state (core module instances,
+// component-level exports, linker-time index spaces) stays on this struct
+// because runtime/ cannot import component/ without an import cycle.
 //
-// Every method that depends on the broken lift/lower path panics with a
-// precise error pointing at the Session 1 followup note. Session 1 will
-// delete these stubs and replace them with direct calls into the rewritten
-// internal/component/abi/ package.
-//
-// Design: docs/superpowers/specs/2026-04-07-canonical-abi-type-unification-design.md
-// Work Order: step 15 (compile-fix); V5 caller audit (design lines 1927-1945).
+// Design: docs/superpowers/specs/2026-04-08-canonical-abi-session1-design.md
+//   Decision 3 (design lines 185-253); Instance Layering After (760-827).
+// Spec: definitions.py:256-273 (class ComponentInstance).
+// Wasmtime parallel: runtime/component/instance.rs:710-833 (Instantiator).
 package component
 
 import (
 	"context"
+	"errors"
 
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/internal/component/runtime"
@@ -43,40 +40,32 @@ func WithCallerInstance(ctx context.Context, caller *Instance) context.Context {
 	return context.WithValue(ctx, callerInstanceKey{}, caller)
 }
 
-// Instance represents an instantiated component.
+// Instance is the linker/compile-time wrapper around a running component
+// instantiation. Per-instance runtime state matching the canonical-abi
+// spec's ComponentInstance (definitions.py:256-273) lives on the embedded
+// *runtime.ComponentInstance. Wrapper-level state (core module instances,
+// component-level exports, linker-time index spaces) stays on this struct
+// because runtime/ cannot import component/ without an import cycle.
 //
-// Session 0 compile-fix: the shape is preserved so that other files in the
-// package compile. All lift/lower-dependent methods panic.
+// Session 1 design: Decision 3 (design lines 185-253).
 type Instance struct {
-	component     *Component
-	coreInstances []api.Module
-	exports       map[string]*ExportedFunc
+	// rt is the per-instance runtime state. One-to-one with this Instance
+	// and non-nil after newInstance.
+	rt *runtime.ComponentInstance
 
-	// componentFuncs maps component function indices to their implementations.
+	// Linker-time state.
+	component      *Component
+	coreInstances  []api.Module
+	exports        map[string]*ExportedFunc
 	componentFuncs map[uint32]ComponentFunc
-
-	// Resource management.
-	// table holds resource handles and other per-instance handle entries.
-	// The old *runtime.ResourceTable type has been unified into runtime.Table.
-	table       *runtime.Table
-	destructors map[uint32]func(any)
-	callContext *runtime.CallContext
-
-	// mayLeaveDisabled mirrors runtime.ComponentInstance.MayLeave for the
-	// legacy entry/leave surface. Session 1 will merge this with the runtime
-	// ComponentInstance.
-	mayLeaveDisabled bool
-
-	// activeCallDepth tracks the number of active calls into this instance
-	// for legacy reentrance checks. Session 1 replaces this with
-	// runtime.ComponentInstance's Enter/Leave counter.
-	activeCallDepth int32
 
 	// Value index space for start function support.
 	values         []types.Val
 	valuesConsumed []bool
 
-	// Nested component support.
+	// Wrapper-layer instance tree. rt.Parent holds the runtime-layer
+	// back-pointer; parent / children hold *component.Instance wrapper
+	// pointers so linker code can navigate without going through rt.
 	parent   *Instance
 	children []*Instance
 
@@ -87,6 +76,28 @@ type Instance struct {
 
 	// Exported instances for API access.
 	exportedInstances map[string]*Instance
+}
+
+// newInstance constructs an Instance together with its embedded
+// *runtime.ComponentInstance. If parent is non-nil its rt is used as the
+// runtime-layer parent pointer; the wrapper-layer parent is set on this
+// Instance as well so linker traversal stays within the component/ package.
+//
+// Spec: definitions.py:256-273 (ComponentInstance shape).
+// Design: Decision 3 (design lines 185-253).
+func newInstance(c *Component, id uint32, parent *Instance) *Instance {
+	var parentRT *runtime.ComponentInstance
+	if parent != nil {
+		parentRT = parent.rt
+	}
+	return &Instance{
+		component:      c,
+		rt:             runtime.NewComponentInstance(id, parentRT),
+		coreInstances:  make([]api.Module, 0),
+		exports:        make(map[string]*ExportedFunc),
+		componentFuncs: make(map[uint32]ComponentFunc),
+		parent:         parent,
+	}
 }
 
 // ComponentFunc represents a callable component-level function.
@@ -202,78 +213,66 @@ func (i *Instance) ResourceDrop(handleIdx uint32, resourceTypeIdx uint32) error 
 	panic("compile-fix stub: see Session 1 followup note — instance.go resource.drop scheduled for Session 1 deletion")
 }
 
-// SetDestructor registers a destructor function for a resource type.
-func (i *Instance) SetDestructor(resourceTypeIdx uint32, dtor func(any)) {
-	if i.destructors == nil {
-		i.destructors = make(map[uint32]func(any))
-	}
-	i.destructors[resourceTypeIdx] = dtor
-}
+// Runtime returns the embedded *runtime.ComponentInstance.
+func (i *Instance) Runtime() *runtime.ComponentInstance { return i.rt }
 
-// SetCallContext sets the current call context for borrow tracking.
-func (i *Instance) SetCallContext(ctx *runtime.CallContext) {
-	i.callContext = ctx
-}
+// Table returns the per-instance runtime handle table.
+//
+// Spec: definitions.py:259, class Table at :303-315.
+func (i *Instance) Table() *runtime.Table { return i.rt.Table }
 
-// CallContext returns the current call context.
-func (i *Instance) CallContext() *runtime.CallContext {
-	return i.callContext
-}
+// MayLeave reports the spec may_leave flag. Spec: definitions.py:260.
+func (i *Instance) MayLeave() bool { return i.rt.IsMayLeave() }
 
-// MayLeave returns whether this instance is allowed to call out.
-func (i *Instance) MayLeave() bool {
-	return !i.mayLeaveDisabled
-}
+// SetMayLeave writes the spec may_leave flag.
+// Spec: definitions.py:1955, :1973 (lower_flat_values toggles may_leave).
+func (i *Instance) SetMayLeave(allowed bool) { i.rt.MayLeave = allowed }
 
-// SetMayLeave sets whether this instance is allowed to call out.
-func (i *Instance) SetMayLeave(allowed bool) {
-	i.mayLeaveDisabled = !allowed
-}
+// ActiveCallDepth returns the current reentrance nesting count.
+func (i *Instance) ActiveCallDepth() int { return i.rt.EnterCount() }
 
-// ActiveCallDepth returns the number of active calls into this instance.
-func (i *Instance) ActiveCallDepth() int {
-	if i == nil {
-		return 0
-	}
-	return int(i.activeCallDepth)
-}
-
-// EnterCall increments the active call depth.
+// EnterCall increments the call-depth counter and registers the instance
+// on the ReentranceTracker so CallMightBeRecursive can detect recursive
+// re-entries. Spec: definitions.py:290-299 call_might_be_recursive.
 func (i *Instance) EnterCall() {
-	if i != nil {
-		i.activeCallDepth++
-	}
+	i.rt.Enter()
+	i.rt.Reentrance.EnterInstance(i.rt.ID)
 }
 
-// ExitCall decrements the active call depth.
+// ExitCall is the inverse of EnterCall.
 func (i *Instance) ExitCall() {
-	if i != nil && i.activeCallDepth > 0 {
-		i.activeCallDepth--
-	}
+	i.rt.Reentrance.LeaveInstance(i.rt.ID)
+	i.rt.Leave()
 }
 
-// CallMightBeRecursive checks if a call from caller into this instance might
-// cause recursive reentrance.
+// CallMightBeRecursive reports whether calling i from caller would be
+// recursive given the active ReentranceTracker state.
+//
+// Spec: definitions.py:290-299 call_might_be_recursive.
 func (i *Instance) CallMightBeRecursive(caller *Instance) bool {
-	if i == nil || caller == nil {
+	if i == nil || i.rt == nil {
 		return false
 	}
-	if caller == i && i.activeCallDepth > 0 {
+	// Check whether i is currently active on the shared ReentranceTracker.
+	if i.rt.Reentrance.CallMightBeRecursive(i.rt.ID) {
 		return true
+	}
+	// Also consult the caller's tracker in case they are on disjoint
+	// trackers (cross-instance call chains). In Session 1's local-only
+	// model this is typically the same tracker via the shared runtime.
+	if caller != nil && caller.rt != nil && caller.rt.Reentrance != nil {
+		return caller.rt.Reentrance.CallMightBeRecursive(i.rt.ID)
 	}
 	return false
 }
 
-// ValidateMayLeave checks if this instance is allowed to make outgoing calls.
+// ValidateMayLeave traps if the instance cannot currently leave.
+// Spec: definitions.py:2065, :2135, :2143.
 func (i *Instance) ValidateMayLeave() error {
-	if i == nil {
+	if i == nil || i.rt == nil {
 		return nil
 	}
-	if !i.MayLeave() {
-		// Preserve the original error message shape for any caller that
-		// scrapes it during assertions. Session 1 replaces this with a
-		// direct runtime.ErrMayNotLeave return once the lift/lower path
-		// is unified.
+	if !i.rt.IsMayLeave() {
 		return errMayNotLeave
 	}
 	return nil
@@ -287,17 +286,12 @@ func (i *Instance) ValidateNotRecursive(caller *Instance) error {
 	return nil
 }
 
-// errMayNotLeave and errReentrance are sentinel errors preserved from the
-// original string shape so that tests relying on message substrings still
-// match. Session 1 swaps them for runtime.ErrMayNotLeave / runtime.ErrReentrance.
+// errMayNotLeave and errReentrance are sentinel errors returned from the
+// spec-level validation helpers.
 var (
-	errMayNotLeave = instanceError("trap: cannot call out of component while lowering values")
-	errReentrance  = instanceError("trap: recursive call into same component instance")
+	errMayNotLeave = errors.New("component instance cannot leave (may_leave=false)")
+	errReentrance  = errors.New("trap: recursive call into same component instance")
 )
-
-type instanceError string
-
-func (e instanceError) Error() string { return string(e) }
 
 // --- Value index space ---------------------------------------------------
 
@@ -358,7 +352,8 @@ func valueConsumedError(idx uint32) error    { return valueErrorConsumed{idx: id
 
 // --- Nested component support --------------------------------------------
 
-// Parent returns this instance's parent, or nil if top-level.
+// Parent returns the wrapper-layer parent, paired with rt.Parent at
+// construction time.
 func (i *Instance) Parent() *Instance { return i.parent }
 
 // Children returns this instance's child instances.
