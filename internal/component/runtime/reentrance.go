@@ -36,12 +36,29 @@ func (r *ReentranceTracker) LeaveInstance(instanceID uint32) {
 	}
 }
 
-// CallMightBeRecursive returns true if calling the given instance would be recursive.
-// This implements the spec's call_might_be_recursive check.
+// CallMightBeRecursive reports whether calling the given instance would be
+// recursive given the currently-active instance stack. An instance is
+// considered active between EnterInstance(id) and LeaveInstance(id). A call
+// is recursive if the callee is already on the active stack.
 //
-// From spec: A call to an instance is recursive if that instance is already
-// on the current call stack.
+// Spec: definitions.py:290-299 call_might_be_recursive(caller, callee_inst)
+// uses reflexive_ancestors() overlap between caller and callee; wazero's
+// tracker models this by maintaining the per-instance active set on the
+// shared tracker used by all instances on a call stack. Populating the
+// tracker with every ancestor instance on Enter/Leave (done by the runtime
+// delegator in component_instance.go) makes a plain membership query
+// equivalent to the spec's reflexive-ancestor overlap check.
 func (r *ReentranceTracker) CallMightBeRecursive(instanceID uint32) bool {
+	if r == nil {
+		return false
+	}
+	return r.isActive(instanceID)
+}
+
+// isActive reports whether the given instance ID is currently on the
+// active call stack (i.e. has more EnterInstance calls than LeaveInstance
+// calls outstanding). Internal helper for CallMightBeRecursive.
+func (r *ReentranceTracker) isActive(instanceID uint32) bool {
 	return r.activeCalls[instanceID] > 0
 }
 
