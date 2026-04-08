@@ -379,3 +379,216 @@ Integration: A1→A2→A3→A4 composes cleanly. At no commit is there a partial
 
 Checkpoint B (runtime instance embedding) does NOT depend on either of these and can proceed immediately.
 
+---
+
+# Checkpoint B — `component.Instance` embeds `*runtime.ComponentInstance`
+
+## Task B1 — Decouple IsMayLeave from enterCount
+
+**Code commit:** `f831c4ee`
+**Base:** `daf31065`
+**Files changed:**
+- `internal/component/runtime/component_instance.go` — `IsMayLeave()` returns `c.MayLeave` directly; updated doc cites definitions.py:260, 270, 1955, 1973, 2065, 2135, 2143 and the Session 1 fix rationale.
+- `internal/component/runtime/component_instance_may_leave_test.go` — new file with `TestIsMayLeaveIsStandaloneBoolean`.
+- `internal/component/runtime/component_instance_test.go` — `TestComponentInstance_IsMayLeave` assertion flipped with citation.
+- `internal/component/runtime/table_test.go` — `TestTable_NewWithMayLeaveCheck` updated (replaced `inst.Enter()` indirection with direct `inst.MayLeave = false`) with citation.
+
+### Spec-compliance reviewer
+
+**Verdict:** ✅ SPEC COMPLIANT.
+
+- Confirmed all 7 cited spec lines by reading `definitions.py` directly.
+- Citation block present on new test and both pre-existing test rewrites.
+- Wasmtime parallel verified (note: design's `concurrent_disabled.rs:159` citation is imprecise — true may_leave parallel lives at `vm/component.rs:1000-1128` where flags are distinct bits. This reinforces Decision 3's orthogonality thesis).
+- No cross-package callers of `runtime.ComponentInstance.IsMayLeave`. Parallel path `component.Instance.MayLeave()` at `instance.go:223-226` reads separate `mayLeaveDisabled` field — correctly out of B1 scope (target for Checkpoint B embedding task).
+- Build + full runtime package green.
+
+### Code quality reviewer
+
+**Verdict:** APPROVED.
+
+- Strengths: minimal 1-line production change; root cause explained in code + commit; test exhausts 2×2 state matrix; pre-existing tests rewritten without weakening unrelated assertions.
+- MINOR (non-blocking): test coverage between new file and `TestComponentInstance_IsMayLeave` partially overlaps; file placement (standalone vs append) is defensible but not strictly justified; new test file header could link Session 1 Decision 3 directly.
+
+### Correctives
+
+None.
+
+### Task status
+
+✅ Complete. Proceeding to Task B2.
+
+---
+
+## Task B2 — ReentranceTracker.CallMightBeRecursive (isActive helper + doc)
+
+**Code commit:** `c0a745c9` + corrective `cb15ffc4`
+**Base:** `f831c4ee`
+**Files changed:**
+- `internal/component/runtime/reentrance.go` — extracted `isActive` helper, added nil-receiver guard, expanded docstring.
+- `internal/component/runtime/reentrance_test.go` — new `TestReentranceTrackerCallMightBeRecursive` scenario test.
+
+Implementer discovered the method already existed with correct behavior; refactored per plan's "do NOT replace" constraint.
+
+**Spec review:** ✅ SPEC COMPLIANT (2 docs-only nits: forward-looking "done by runtime delegator" hedge and inaccurate Python paraphrase, both addressed in corrective `cb15ffc4`).
+
+**Code quality review:** APPROVED.
+
+### Task status
+
+✅ Complete. Proceeding to Task B3.
+
+---
+
+## Task B3 — Rewrite component.Instance to embed *runtime.ComponentInstance
+
+**Code commit:** `4da3d03d`
+**Base:** `cb15ffc4`
+**Files changed:**
+- `internal/component/instance.go` — struct rewrite; `rt *runtime.ComponentInstance` as first field; 5 duplicated fields deleted; 10 delegator methods added/rewritten; 3 methods deleted (SetCallContext, CallContext, SetDestructor old signature); errMayNotLeave sentinel added.
+- `internal/component/instance_test.go` — 3 new tests with citation blocks.
+
+**Status: DONE_WITH_CONCERNS** (intentional per plan — build broken at `nested_component.go:49` for B4 to fix; 3 new tests deferred to B5).
+
+### Spec-compliance reviewer
+
+**Verdict:** ✅ SPEC COMPLIANT.
+
+- Struct shape matches Decision 3 exactly; rt is first field.
+- All runtime.ComponentInstance dependencies (ID, MayLeave, IsMayLeave, Enter/Leave, EnterCount, Reentrance, Table, Destructors, Parent) present.
+- Delegators semantically correct against definitions.py:256-273.
+- No silent field drops (12 linker-time fields preserved; 5 deleted per plan).
+- SetDestructor deletion legitimate: zero live call sites; old `(uint32, func(any))` signature incompatible with spec-correct `(*ResourceType, DestructorFunc)`.
+- Build broken only at expected single site (nested_component.go:49).
+
+### Code quality reviewer
+
+**Verdict:** APPROVED.
+
+Strengths: faithful plan execution; rt field placement is ideal (first field); thin delegators; spec line citations; IsMayLeave divergence visibly fixed.
+
+Suggestions (non-blocking): rt field name rationale; errMayNotLeave could hoist to runtime package; no FuncType positive-path test.
+
+### Task status
+
+✅ Complete. Proceeding to Task B4.
+
+---
+
+## Task B4 — Migrate call sites to embedded shape + precise error stubs
+
+**Code commit:** `5c800896` + corrective `b74f5558` + polish `90f43a29` + checkpoint-close `bca037da`
+**Base:** `4da3d03d`
+**Files changed:**
+- `internal/component/instance.go` — panic stubs replaced with precise "rebuild in progress" errors citing Task C5 (ExportedFunc.Call) and Task E5 (Resource*). NewInstance exported helper added. Nil-safety guards restored on ActiveCallDepth/EnterCall/ExitCall.
+- `internal/component/nested_component.go` — struct literal migrated to newInstance.
+- `internal/component/instantiate.go`, `internal/component/linker.go` — struct literals migrated.
+- `internal/component/edge_case_test.go`, `internal/component/outer_alias_test.go` — test fixtures migrated.
+- `internal/component/conformance/may_leave_test.go`, `internal/component/conformance/reentrance_test.go` — test fixtures migrated + error-substring assertions updated.
+
+### Spec-compliance reviewer (B4 initial)
+
+**Verdict:** ✅ SPEC COMPLIANT. Build + B3 accessor tests green.
+
+**Test failures flagged** (not a B4 regression): 5 conformance subtests failing because they encoded old wazero-specific `caller == i && depth > 0` semantics. Tests predate B3; implementation gap is the tracker-based CallMightBeRecursive not implementing the spec's reflexive-ancestor overlap.
+
+### B4 corrective (`b74f5558`)
+
+Rewrote `Instance.CallMightBeRecursive` as a structural parent-chain walk via new `isReflexiveAncestor` helper. Matches `definitions.py:290-299` exactly. Rewrote 2 spec-wrong subtests (`same_instance_no_active_call`, `no_active_call_passes` → renamed `no_active_call_still_recursive`). All previously-failing conformance subtests now pass.
+
+### B4 polish (`90f43a29`)
+
+Documentation-only: Decision 3 in design doc updated to show structural walk + "tracker must not be reintroduced" warning; instance.go docstring hedge removed; reentrance.go docstring rewritten to cite definitions.py:3664-3667 (its actual purpose, task-level concurrency trap) instead of :290-299.
+
+### Code quality reviewer (full B4)
+
+**Verdict:** APPROVED_WITH_MINOR.
+
+3 IMPORTANT docs-only findings (all addressed in `bca037da` Checkpoint B close commit):
+- I1: Design doc line 833-835 stale CallMightBeRecursive sketch → rewritten to structural walk with warning.
+- I2: instance.go docstring hedge "may be supplemented by tracker" → firmed up.
+- I3: reentrance.go docstring cited :290-299 → rewritten to cite :3664-3667.
+
+Strengths: commit hygiene exemplary; nil-safety uniform; test fixture migration complete; precise error stubs match Decision 7 signatures; B4 corrective untangled two conflated spec checks with defense-in-depth warnings in 3 locations.
+
+### Task status
+
+✅ Complete. Proceeding to Task B5.
+
+---
+
+## Task B5 — Checkpoint B verification
+
+**Code commit:** `bca037da` (doc fixes from checkpoint-level review findings)
+
+Automated exit criteria (B5.1-B5.5): all pass.
+
+| Check | Command | Result |
+|---|---|---|
+| B5.1 Build | `go build ./internal/component/... ./imports/wasip2/...` | ✅ empty |
+| B5.2 Runtime tests | `go test ./internal/component/runtime/... -count=1` | ✅ green |
+| B5.3 Accessor tests | `go test ./internal/component/ -run 'TestInstance(Embeds|MayLeave|CallMight)'` | ✅ green |
+| B5.4 V6 | `grep 'table.*runtime\.Table\|mayLeaveDisabled\|activeCallDepth' internal/component/instance.go` | ✅ empty |
+| B5.5 Working tree | `git status --porcelain` | ✅ only .env/.envrc |
+
+### Checkpoint-level spec-compliance reviewer
+
+**Verdict:** APPROVED_WITH_MINOR → APPROVED after applying I1 fix (stale design doc sketch at lines 833-835).
+
+### Checkpoint-level code quality reviewer
+
+**Verdict:** APPROVED_WITH_MINOR (non-blocking).
+
+Minor items (deferred to Checkpoint C / E where those files will be touched):
+- I1: `reentrance_test.go:49-60` stale citation → **addressed in `bca037da`**.
+- I2: Test name `TestInstanceCallMightBeRecursiveUsesReentranceTracker` is now a lie. Kept for plan traceability (plan line 1063); can rename later.
+
+### Task status
+
+✅ Complete. Checkpoint B closed.
+
+---
+
+## Checkpoint B Summary
+
+**Commits:** 10 (5 task commits + 5 correctives/polish)
+- `f831c4ee` B1: decouple IsMayLeave from enterCount
+- `c0a745c9` B2: ReentranceTracker.CallMightBeRecursive refactor
+- `cb15ffc4` B2 corrective: docstring softening
+- `4da3d03d` B3: Instance embeds *runtime.ComponentInstance (intentional broken build)
+- `5c800896` B4: call-site migration
+- `b74f5558` B4 corrective: structural CallMightBeRecursive
+- `90f43a29` B4 polish: Decision 3 + docstring hygiene
+- `bca037da` B5 close: stale sketch + test citation
+
+**Files touched:** 11
+- `internal/component/instance.go`
+- `internal/component/instance_test.go`
+- `internal/component/runtime/component_instance.go`
+- `internal/component/runtime/component_instance_may_leave_test.go` (new)
+- `internal/component/runtime/component_instance_test.go`
+- `internal/component/runtime/reentrance.go`
+- `internal/component/runtime/reentrance_test.go`
+- `internal/component/runtime/table_test.go`
+- `internal/component/nested_component.go`
+- `internal/component/instantiate.go`
+- `internal/component/linker.go`
+- `internal/component/conformance/may_leave_test.go`
+- `internal/component/conformance/reentrance_test.go`
+- `internal/component/edge_case_test.go`
+- `internal/component/outer_alias_test.go`
+- `docs/superpowers/specs/2026-04-08-canonical-abi-session1-design.md`
+
+**Key architectural delivery:**
+- `IsMayLeave` decoupled from `enterCount` (spec-orthogonal).
+- `component.Instance` embeds `*runtime.ComponentInstance` via `rt` field.
+- 5 duplicated fields deleted, 10 delegator methods added.
+- `CallMightBeRecursive` correctly implements `definitions.py:290-299` structural reflexive-ancestor walk.
+- `ReentranceTracker` retained for its separate purpose (`definitions.py:3664-3667` task-level concurrency trap).
+- Precise "rebuild in progress" error stubs replace panics on `ExportedFunc.Call` and `Resource*` with citations to the Tasks that will fill them in (C5, E5).
+- Build green on `./internal/component/...` and `./imports/wasip2/...`.
+
+**Still tracked for Checkpoint C start:**
+1. ⚠️ Alias-sparsity in `Component.TypeDefs` — user decision needed (densify vs. resolver helper).
+2. ⚠️ `internal/component/binary/import.go:83-102` typebound inversion bug — user decision needed (fix as corrective or Session 2 followup).
+
