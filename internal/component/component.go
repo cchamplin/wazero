@@ -30,16 +30,25 @@ type Component struct {
 	// components; individual TypeDef entries reference into it.
 	Types *types.ComponentTypes
 
-	// TypeDefs is one entry per type-section slot in the binary, in the
-	// order the slots were decoded. Every caller that previously used
-	// CanonicalDef.TypeIdx / ImportExternDesc.TypeIdx / Export.TypeIdx /
-	// InstanceExport.TypeIdx resolves the raw type-section index through
-	// this slice: `slot := c.TypeDefs[canon.TypeIdx]` and switches on
-	// slot.Kind. The private decoder maps `funcTypeIdx` and `resourceDefs`
-	// are deleted in Task A4; Component.TypeDefs is the single source of
-	// truth.
+	// TypeDefs carries per-slot metadata produced by the binary decoder.
+	// Each entry's Kind discriminates which kind-specific field is
+	// populated (Func, Resource, ValType, Instance, or Component); the
+	// ResourceDtor*, Instance, and Component fields carry decoder-extracted
+	// metadata that would otherwise live on throw-away private maps.
 	//
-	// Session 1 design: Decision 5 (lines 382-448).
+	// Indexing caveat — this slice is NOT densely aligned with the
+	// component's global type-index space. Only type-section slots produce
+	// TypeDefs entries; type aliases (binary/alias.go) bump
+	// Component.NextTypeIdx without appending, so `len(TypeDefs) <=
+	// NextTypeIdx`. Callers that need to resolve a `canon.TypeIdx` /
+	// `Export.TypeIdx` / `ImportExternDesc.TypeIdx` / `InstanceExport.TypeIdx`
+	// to a TypeDef must go through an alias-aware resolver (added in
+	// Checkpoint C) rather than indexing this slice directly. Direct
+	// `c.TypeDefs[i]` access is valid only for test fixtures that hand-
+	// populate the slice with a 1:1 index mapping.
+	//
+	// Session 1 design: Decision 5 (lines 382-448). Alias-aware resolution
+	// is tracked as a Checkpoint C prerequisite in the review log.
 	TypeDefs []TypeDef
 
 	// Canonicals contains canonical function definitions (section ID 8).

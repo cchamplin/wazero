@@ -22,12 +22,15 @@ import (
 // multiple type sections (plus alias pull-ins) all land in the same
 // interned table and share the same scope-local index space.
 //
-// Per-slot function and resource metadata lives on
-// `dc.c.TypeDefs[slot]` (Session 1 Decision 5: Component.TypeDefs is
-// the single source of truth). Callers that need a builder-assigned
-// FuncTypeIdx read `dc.c.TypeDefs[slot].Func` after asserting
-// `Kind == TypeDefKindFunc`; destructor / callback metadata for a
-// resource slot lives on `TypeDef.Resource*` fields.
+// Per-slot function and resource metadata is recorded on
+// `dc.c.TypeDefs` (Session 1 Decision 5: TypeDefs is the single source
+// of truth for type-section metadata). Inside decodeTypeSection the
+// local `slot` variable equals the global `dc.c.NextTypeIdx`, so the
+// just-appended entry is `dc.c.TypeDefs[len(dc.c.TypeDefs)-1]`. Outside
+// that function, callers must NOT assume `dc.c.TypeDefs[canon.TypeIdx]`
+// resolves correctly — type aliases bump NextTypeIdx without appending
+// to TypeDefs, creating sparsity. An alias-aware resolver is added in
+// Checkpoint C for those call sites.
 type decodeContext struct {
 	c       *component.Component
 	builder *types.ComponentTypesBuilder
