@@ -4,6 +4,7 @@ package http
 
 import (
 	"context"
+	"fmt"
 	gohttp "net/http"
 
 	"github.com/tetratelabs/wazero/internal/component"
@@ -100,7 +101,10 @@ func outgoingHandlerHandle(ctx context.Context, args []types.Val) ([]types.Val, 
 	}()
 
 	// Register the future in the resource table
-	futureHandle, _ := table.NewResourceHandle(future, true, httpFutureIncomingResponseResourceType)
+	futureHandle, err := table.NewResourceHandle(future, true, httpFutureIncomingResponseResourceType)
+	if err != nil {
+		return nil, fmt.Errorf("create resource handle: %w", err)
+	}
 
 	// Return success with the future handle
 	result := types.ValOwn(uint32(futureHandle))

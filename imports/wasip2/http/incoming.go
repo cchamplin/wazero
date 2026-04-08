@@ -4,6 +4,7 @@ package http
 
 import (
 	"context"
+	"fmt"
 	gohttp "net/http"
 	"strings"
 	"time"
@@ -61,11 +62,17 @@ func NewHTTPHandler(callHandle func(ctx context.Context, requestHandle, outparam
 		// r.Body is always non-nil for server requests; it returns EOF when
 		// there is no body.
 		req.SetBody(NewIncomingBodyFromReader(r.Body))
-		requestHandle, _ := table.NewResourceHandle(req, true, httpIncomingRequestResourceType)
+		requestHandle, err := table.NewResourceHandle(req, true, httpIncomingRequestResourceType)
+		if err != nil {
+			panic(fmt.Errorf("create resource handle: %w", err))
+		}
 
 		// Create response outparam with channel
 		outparam := NewResponseOutparam()
-		outparamHandle, _ := table.NewResourceHandle(outparam, true, httpOutgoingResponseResourceType)
+		outparamHandle, err := table.NewResourceHandle(outparam, true, httpOutgoingResponseResourceType)
+		if err != nil {
+			panic(fmt.Errorf("create resource handle: %w", err))
+		}
 
 		// Ensure resources are cleaned up on every exit path. Delete is a
 		// no-op if the component already consumed the handle.
