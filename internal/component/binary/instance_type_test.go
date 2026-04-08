@@ -229,6 +229,12 @@ func TestDecodeInstanceTypeWithNestedType(t *testing.T) {
 // the expected *InstanceTypeDef shape for an instance type that exports
 // a core module (externdesc kind 0x00 with the 0x11 core-module prefix).
 //
+// Session 0 caveat: decodeInstanceExportDecl (instance_type.go:113-127)
+// currently maps externdesc 0x00 (core module) to ExportKindFunc with an
+// inline "tracked as func for now" comment. This test deliberately does
+// not assert decl.Export.Kind so the assertion won't have to be rewritten
+// when a dedicated ExportKindCoreModule is added in a later task.
+//
 // Spec: Binary.md "Instance Type" section (see debug-vendored/component-model/design/mvp/Binary.md).
 // No counterpart (justified): wazero decoder test; run_tests.py does not cover decoder behavior.
 func TestDecodeInstanceTypeCoreModuleExport(t *testing.T) {
@@ -332,8 +338,16 @@ func TestDecodeInstanceTypeComponentExport(t *testing.T) {
 
 // TestDecodeInstanceTypeValueExport asserts the decoder produces the
 // expected *InstanceTypeDef shape for an instance type that exports a
-// value (externdesc kind 0x02). In Session 0 the valtype payload is
-// consumed via skipValType, so only the export kind is asserted.
+// value (externdesc kind 0x02).
+//
+// Session 0 caveat: decodeInstanceExportDecl currently reads a bare
+// valtype after the 0x02 externdesc kind. Per Binary.md lines 241-242
+// the spec expects a valuebound (`0x00 i:<valueidx>` or `0x01 t:<valtype>`)
+// — i.e. a discriminator-prefixed value. The decoder's shim-style read is
+// a Session 0 incompleteness flagged at instance_type.go:138-143, and this
+// test only asserts the externdesc kind so it does not lock in the shim
+// encoding. A later task will make the decoder spec-correct and this test
+// will gain structural assertions on the decoded valtype.
 //
 // Spec: Binary.md "Instance Type" section (see debug-vendored/component-model/design/mvp/Binary.md).
 // No counterpart (justified): wazero decoder test; run_tests.py does not cover decoder behavior.

@@ -201,3 +201,97 @@ MINOR observations from the code-quality review (not blocking, not fixed):
 ⚠️ **Checkpoint C prerequisite** raised: alias-aware TypeDefs resolver needs a
 design decision before C1 starts. Must flag to user.
 
+---
+
+## Task A5 — Restore 8 component_type_test.go tests
+
+**Code commit:** `0c395a96`
+**Base:** `06b95970`
+**Files changed:**
+- `internal/component/binary/component_type_test.go` — 8 restored tests with citation blocks, migrated to `c.TypeDefs[i]` + `require.*` helpers, explicit byte-builder style.
+
+Tests restored: TestDecodeComponentType, TestDecodeComponentTypeEmpty, TestDecodeComponentTypeWithExport, TestDecodeComponentTypeWithAlias, TestDecodeComponentTypeWithCoreType, TestDecodeComponentTypeWithNestedType, TestDecodeComponentTypeMultipleDeclarations, TestDecodeComponentTypeImportInstance.
+
+One non-mechanical rewrite: `TestDecodeComponentTypeWithNestedType` — old body asserted `decl.Type.Record != nil`; `TypeDef` no longer carries Record. Reworked to assert `Kind == TypeDefKindDefined` with a Session 0 caveat comment pointing at Session 2 for structural assertion restoration.
+
+### Spec-compliance reviewer
+
+**Verdict:** ✅ SPEC COMPLIANT.
+
+- 8 functions present, zero session-1-work skips.
+- Citation blocks on each (all within 15 lines of declaration).
+- Nested-type rework verified: `decodeNestedTypeDef` at `instance_type.go:288-295` sets `Kind = TypeDefKindDefined` without populating Record — assertion matches decoder.
+- Cited `Binary.md` line ranges confirmed (component-type 0x41, externdesc 0x01/0x04/0x05, alias sort encoding).
+- No new TODO/FIXME/XXX markers.
+- No duplicates.
+- Build + 8/8 tests green.
+
+### Code quality reviewer
+
+**Verdict:** APPROVED.
+
+- Strengths: faithful plan execution; stronger assertions than originals (added Import.ExternDesc.Kind checks); uniform citation format; byte-builder style preserved per convention.
+- No CRITICAL / IMPORTANT / MINOR blockers.
+- Soft suggestions for later polish: add alias OuterIdx assertion; add TODO-placed marker near nested-type caveat to be visible at assertion-site.
+
+### Correctives
+
+None.
+
+### Task status
+
+✅ Complete. Proceeding to Task A6.
+
+---
+
+## Task A6 — Restore 10 instance_type_test.go tests
+
+**Code commit:** `55c8081e`
+**Base:** `0c395a96`
+**Files changed:**
+- `internal/component/binary/instance_type_test.go` — 10 restored tests with citation blocks.
+
+Tests restored: TestDecodeInstanceType, TestDecodeInstanceTypeWithAlias, TestDecodeInstanceTypeEmpty, TestDecodeInstanceTypeMultipleExports, TestDecodeInstanceTypeWithCoreType, TestDecodeInstanceTypeWithNestedType, TestDecodeInstanceTypeCoreModuleExport, TestDecodeInstanceTypeInstanceExport, TestDecodeInstanceTypeComponentExport, TestDecodeInstanceTypeValueExport.
+
+Three non-mechanical rewrites:
+1. `TestDecodeInstanceTypeMultipleExports`: eq-bound encoding 0x01 → 0x00 (current `decodeInstanceExportDecl` at instance_type.go:153-164 uses 0x00=eq with typeidx, 0x01=sub-resource without index — spec-correct per Binary.md:239).
+2. `TestDecodeInstanceTypeWithNestedType`: old `decl.Type.Record != nil` weakened to `Kind == TypeDefKindDefined`. Decoder doesn't populate Record yet (Session 2 scope).
+3. `TestDecodeInstanceTypeCoreModuleExport`: deliberately does not assert `Export.Kind` because the decoder currently shims externdesc 0x00 → ExportKindFunc as a temporary placeholder.
+
+### Spec-compliance reviewer
+
+**Verdict:** ✅ SPEC COMPLIANT.
+
+- 10 functions, zero skips.
+- Citation blocks within 15 lines of every declaration.
+- All three non-mechanical rewrites verified against current decoder source and Binary.md spec.
+- Every encoded byte sequence in every test verified against Binary.md grammar (lines 224-242).
+- No TODO/FIXME/XXX markers.
+- No duplicates.
+- Build + 10/10 tests green.
+- Soft finding: pre-existing valuebound discriminator shim at `instance_type.go:138-143` and `import.go:74-82` — the decoder reads a bare valtype after externdesc 0x02 instead of the spec's `valuebound` discriminator. Out of A6 scope; worth a Session 2 follow-up.
+
+### Code quality reviewer
+
+**Verdict:** APPROVED_WITH_MINOR.
+
+- Strengths: exact plan alignment; strictly stronger assertions than originals; uniform style with component_type_test.go; 366-line file remains readable; `require.*` throughout.
+- MINOR 1: `TestDecodeInstanceTypeCoreModuleExport` docstring should explain why Export.Kind is not asserted (consistency with nested-type caveat).
+- MINOR 2: `TestDecodeInstanceTypeValueExport` docstring phrasing "In Session 0" is misleading; should reference the `valuebound` discriminator shim explicitly.
+- MINOR 3: Coverage gaps worth flagging for Session 2 follow-up (nested-record structural content, valuebound payload, core-module Kind, alias Kind assertion in TestDecodeInstanceTypeWithAlias).
+- **MINOR 4 / IMPORTANT flag: pre-existing `import.go:83-102` typebound inversion bug** — comment and code say `0x00=sub, 0x01=eq` but spec (Binary.md:239-240) and `instance_type.go:145-164` correctly say `0x00=eq, 0x01=sub resource`. The import-side decoder has swapped tags AND unconditionally reads a typeidx even for the sub-resource case (which has no following index per spec). Existing `import_test.go:195-236` locks in the wrong behavior. This is a real spec bug, not an A6 regression, and must be raised with the user before Checkpoint A is signed off.
+
+### Correctives applied in A6 corrective commit
+
+1. Added Session 0 caveat to `TestDecodeInstanceTypeCoreModuleExport` docstring explaining the ExportKindFunc shim.
+2. Rewrote `TestDecodeInstanceTypeValueExport` docstring to reference the valuebound discriminator shim and Binary.md:241-242.
+
+### Deferred for user decision (Checkpoint A close)
+
+- ⚠️ **import.go typebound inversion (real spec bug)**: Must be raised with user. Options are (a) fix now as a new corrective task before Checkpoint A closes, (b) file as Session 2 followup.
+- ⚠️ **Checkpoint C prerequisite (from Task A4 corrective)**: alias-aware TypeDefs resolver.
+
+### Task status
+
+✅ Complete. Proceeding to Task A7.
+
