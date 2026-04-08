@@ -120,14 +120,23 @@ type Component struct {
 	NextModuleIdx uint32
 }
 
-// TypeDef is a component-level type-section entry. The composite content
-// has been hoisted into the canonical ComponentTypes table; TypeDef now
-// carries only the kind discriminator plus references into that table.
+// TypeDef is one entry per type-section slot in the binary, populated by
+// the decoder. Every Kind-specific field is populated only when Kind
+// matches; other fields are zero.
+//
+// Session 1 Decision 5 option A: TypeDef.Func is a types.FuncTypeIdx
+// (not a *types.TypeFunc) so it remains stable across canonical bag
+// growth. Callers that need the *types.TypeFunc do:
+//
+//	&c.Types.Funcs[td.Func]
+//
+// after the bag is finalized, or use the FuncType helper below.
 type TypeDef struct {
 	Kind TypeDefKind
 
-	// Func is the function type when Kind == TypeDefKindFunc.
-	Func *types.TypeFunc
+	// Func is the function-type index into Component.Types.Funcs when
+	// Kind == TypeDefKindFunc.
+	Func types.FuncTypeIdx
 
 	// Resource is the resource-table index when Kind == TypeDefKindResource.
 	// Refers into Component.Types.ResourceTables.
@@ -137,10 +146,27 @@ type TypeDef struct {
 	// Refers into Component.Types via the ValType.Index field.
 	ValType types.ValType
 
-	// Instance and Component remain as before (sub-component / sub-instance
-	// type declarations).
-	Instance  *InstanceTypeDef
+	// Instance is the instance-type declaration when Kind == TypeDefKindInstance.
+	Instance *InstanceTypeDef
+
+	// Component is the component-type declaration when Kind == TypeDefKindComponent.
 	Component *ComponentTypeDef
+
+	// ResourceDtor, ResourceDtorAsync, ResourceDtorCallback carry the
+	// destructor metadata the decoder extracts for TypeDefKindResource
+	// slots. bindResourceTypes reads these at Instantiate time to
+	// populate runtime.ResourceType fields. Spec: definitions.py:351-361.
+	ResourceDtor         *uint32
+	ResourceDtorAsync    bool
+	ResourceDtorCallback *uint32
+}
+
+// FuncType resolves TypeDef.Func to its canonical *types.TypeFunc in the
+// component's interned bag. Kind must be TypeDefKindFunc; callers are
+// responsible for ensuring the canonical bag has been finalized before
+// taking this pointer (Session 1 Decision 5 option A).
+func (td *TypeDef) FuncType(c *Component) *types.TypeFunc {
+	return &c.Types.Funcs[td.Func]
 }
 
 // TypeDefKind identifies the kind of type definition.
