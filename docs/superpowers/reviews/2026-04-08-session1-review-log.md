@@ -658,3 +658,95 @@ Low-priority suggestions tracked for Session 2 followup:
 
 Both prerequisites resolved. Proceeding to Task C1.
 
+---
+
+(Review log entries for Tasks C1–C8 were not recorded in this file during
+their original execution; the commits `d398fa09..d9fb7516` and their
+per-task dual reviews landed on 2026-04-09 alongside the Decision 6
+revision. Entries resume at C9 below.)
+
+---
+
+## Task C9 — Restore `linker_test.go` (34 tests)
+
+**Base commit:** `d9fb7516`
+**Task commits (4):**
+- `33c622ef` — 5 tests: `TestNewLinker` + `TestLinker_Define{Func,Func_Duplicate,Instance,Resource}`
+- `50ce6c96` — 10 tests: `TestLinker_DefineResource_Duplicate` + `Get_{Direct,NotFound,Instance}` + `MatchImport_{OldImportNewItem,NewImportOldItem,SelectsMax,DirectMatch}` + `Instantiate_{Basic,WithImports}`
+- `0c62cfab` — 10 tests: `Instantiate_MissingImport` + `GetExportedFunc{,_NotFound,_ExportOldGetNew,_ExportNewGetOld,_SelectsMax}` + `RelaxedSemverMatching_{FuncImport,InstanceImport,DifferentMinor,Post1_0}`
+- `226d92f6` — 9 tests: `MatchLockedDep{,_NotFound}` + `MatchUnlockedDep{,_MatchAll,_NoMatch}` + `MatchURLImport` + `MatchHashImport` + `MatchPlainImport` + `MatchInterfaceImport_Unchanged`; plus deletion of dead `linkerTestSkipMsg` const and Session 0 stub header.
+
+**Files changed:** `internal/component/linker_test.go` only (+895/-75). Pre-Session-0 body pulled from `98b3bbc3:internal/component/linker_test.go` via `/tmp/old_linker_test.go`.
+
+**Mechanical adaptations applied to every test:**
+- Dropped the registration-time `*FuncType` parameter from `DefineFunc(ns, name, funcType, fn)` → `DefineFunc(ns, name, fn)` per the wasmtime func_new dynamic-host model (Decision 6).
+- Dropped `Component.Types: []TypeDef{{Kind: TypeDefKindFunc, Func: funcType}}` literals; `Component.Types` is now `*types.ComponentTypes` pointer and the legacy `Linker.Instantiate` path doesn't read Types (verified against `linker.go:483-489, :492-496`).
+- Updated `FuncDef.Callback(ctx, nil)` → `FuncDef.Callback(ctx, nil, nil)` to match the new 3-arg `HostFunc` signature (`func(ctx, fnType, args)`).
+- `InstanceBuilder.FuncNoType` → `InstanceBuilder.Func` (the post-Session-0 `Func` IS the no-type variant; `FuncNoType` does not exist in the current API).
+
+### Spec-compliance reviewer
+
+**Verdict:** ✅ SPEC COMPLIANT.
+
+All 15 Session 1 amended-checklist items pass:
+1. Every test cites spec / wasmtime ref.
+2. Every citation block is within 15 lines of its `func Test...` declaration.
+3. Random spot-check of 5 citations (plus ~12 additional) — all resolved against actual wasmtime files at cited line ranges:
+   - `TestNewLinker` → `linker.rs:61-68` (struct Linker with NameMap<usize, Definition> field) ✓
+   - `TestLinker_DefineFunc` → `linker.rs:665-675` (LinkerInstance::func_new dynamic host path) ✓
+   - `TestLinker_MatchImport_SelectsMax` → `tests/all/component_model/linker.rs:81` (missing_import_selects_max) ✓
+   - `TestInstance_GetExportedFunc_ExportOldGetNew` → `tests/all/component_model/instance.rs:66` (export_old_get_new) ✓
+   - `TestLinker_MatchImport_DirectMatch` → `environ/src/component/names.rs:105-117` (NameMap::get) ✓
+4. Assertions cross-checked against current wazero linker behavior (`linker.go:104-498`).
+5. No definitions.py / wasmtime contradictions.
+6. Zero TODO/FIXME/panic/return-default-on-error.
+7. No parallel paths to `internal/component/abi/`.
+8. Dedup: 34 uniquely-named tests.
+9. No Session 2 deferrals in this file.
+10. Honored "no parallel paths" / "spec over preservation" (edited in place).
+11. V4 grep: `PASS: all Test functions have citation blocks`.
+12. Tests pass: `go test ./internal/component/ -run TestLinker` ok; `-run TestInstance_GetExportedFunc` ok; full package green.
+13. `linkerTestSkipMsg` const fully deleted.
+14. Session 0 stub header deleted.
+15. `grep -c '^func Test' linker_test.go` = 34.
+
+### Code quality reviewer (superpowers:code-reviewer)
+
+**Verdict:** APPROVED. No CRITICAL or IMPORTANT findings.
+
+**Strengths:**
+1. File is pure test body — 34 top-level functions, 0 helpers, 0 stub artifacts.
+2. Citation discipline uniform: narrative + `Wasmtime parallel:` with precise line ranges + `No counterpart (justified):` tail. Wazero-specific extensions (`RelaxedSemverMatching`, `matchLockedDep`, `matchUnlockedDep`) explicitly identify the divergence and name the production source.
+3. Selection assertions use callback invocation (`TestLinker_MatchImport_SelectsMax` asserts `results[0].S32() == 102`; `TestInstance_GetExportedFunc_SelectsMax` cross-checks `fn.name`).
+4. Strict-then-relaxed pattern in `TestLinker_RelaxedSemverMatching_FuncImport` exemplary: same linker instance verifies strict rejection AND relaxed acceptance.
+5. Test isolation perfect: every test calls `NewLinker()` at top; no state leaks.
+6. Loop-closure safety: Go 1.24 per-iteration loop-var scoping; no capture bugs.
+7. Correct pinning to legacy `Linker.Instantiate` path via inline comments citing `linker.go:492-496`.
+
+**Minor findings (all non-blocking, none require corrective):**
+- M1: `TestLinker_MatchUnlockedDep` / `_MatchAll` use `require.NotNil(t, def)` only, don't independently verify which version was selected. **Pre-existing weakness** carried forward from `98b3bbc3`. Restoration fidelity preserved. Defensible as-is.
+- M2: `TestInstance_GetExportedFunc_SelectsMax` reads unexported `fn.name` field. Public `Name()` exists at `instance.go:175`; stylistic preference.
+- M3: `TestLinker_Instantiate_WithImports` only asserts `NotNil(inst)` — the production path (`linker.go:488`) doesn't actually store resolved imports yet; test is correctly pinned to what the legacy path can prove. Flag-for-later when `linker.go:488` is filled in.
+- M4: `RelaxedSemverMatching_DifferentMinor` / `_Post1_0` lack strict-mode baseline that `_FuncImport` has. Stylistic.
+
+### Correctives
+
+None. No CRITICAL or IMPORTANT findings from either reviewer. Per the project's execution discipline (correctives only for CRITICAL/IMPORTANT), M1-M4 are tracked here for a future cleanup pass but do not block Task C10.
+
+### Verification at task close
+
+```
+go test ./internal/component/ -run TestLinker -count=1            ✅ ok
+go test ./internal/component/ -run TestInstance_GetExportedFunc   ✅ ok
+go test ./internal/component/... -count=1                         ✅ green
+go build ./internal/component/...                                 ✅ clean
+go vet ./internal/component/...                                   ✅ clean
+git status --porcelain                                            ✅ only .env/.envrc
+grep -c 't\.Skip' internal/component/linker_test.go               ✅ 0
+grep -c '^func Test' internal/component/linker_test.go            ✅ 34
+```
+
+### Task status
+
+✅ Complete. Proceeding to Task C10.
+
