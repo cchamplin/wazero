@@ -80,8 +80,10 @@ func TestComponentTypeDefsField(t *testing.T) {
 // wasmparser::Validator.component_any_type_at(typeidx) which
 // transparently follows alias chains at use sites.
 //
-// Spec: Binary.md:263-265 ("In the (eq i) case, the new type index
-// is effectively an alias to type i").
+// Spec: Binary.md:118-122 (aliastarget grammar — outer alias 0x02
+// ct idx consumes a slot in the current component's type index
+// space) + Explainer.md:326-338 ("the id of the alias is bound to
+// the new index added by the alias").
 // Wasmtime: crates/environ/src/component/translate.rs:796-801
 // (translator calls validator.types(0).component_any_type_at(type_index)
 // at every canon.lift use site, which walks alias chains for free).

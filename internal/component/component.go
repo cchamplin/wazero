@@ -195,8 +195,8 @@ type TypeDef struct {
 // AliasTarget records the unresolved target of a type alias. Exactly
 // one of the two target-kinds is populated per instance:
 //
-//   - Outer*: this alias is an outer alias (Binary.md:118 aliastarget
-//     0x01 ct:<u32> idx:<u32>). OuterCount is the de Bruijn count
+//   - Outer*: this alias is an outer alias (Binary.md:121 aliastarget
+//     0x02 ct:<u32> idx:<u32>). OuterCount is the de Bruijn count
 //     (0 = same scope, 1 = enclosing, ...). OuterIndex is the type
 //     index within that scope.
 //
@@ -205,7 +205,8 @@ type TypeDef struct {
 //     InstanceIdx is the instance index; ExportName is the name of
 //     the type export on that instance.
 //
-// Spec: Binary.md:118-126 aliastarget grammar and validation.
+// Spec: Binary.md:118-122 aliastarget grammar; Explainer.md:326-338
+// (alias binds new index in the current component's type index space).
 type AliasTarget struct {
 	// IsExport selects between the two variants: true = export-alias
 	// (InstanceIdx + ExportName), false = outer-alias (OuterCount +
@@ -275,7 +276,6 @@ func (c *Component) ResolveTypeDef(typeIdx uint32) (*TypeDef, uint32, error) {
 		typeIdx = td.Alias.OuterIndex
 	}
 }
-
 
 // TypeDefKind identifies the kind of type definition.
 type TypeDefKind uint8
