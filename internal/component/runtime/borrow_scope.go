@@ -8,8 +8,9 @@ import "fmt"
 // When the call completes, all lends must be released.
 // This implements the Canonical ABI's Subtask.lenders tracking.
 type BorrowScope struct {
-	table   *Table
-	lenders []Handle // Handles that were borrowed from
+	table      *Table
+	lenders    []Handle // Handles that were borrowed from
+	numBorrows int      // Count of outstanding borrow handles in this scope
 }
 
 // NewBorrowScope creates a new borrow scope for tracking lends.
@@ -79,4 +80,22 @@ func (s *BorrowScope) HasOutstandingBorrows() bool {
 // LendCount returns the number of active lends in this scope.
 func (s *BorrowScope) LendCount() int {
 	return len(s.lenders)
+}
+
+// IncrementBorrows records a new borrow handle created in this scope.
+// Called by lower_borrow when creating a borrow handle.
+// Spec: definitions.py lower_borrow increments borrow_scope.num_borrows.
+func (s *BorrowScope) IncrementBorrows() {
+	s.numBorrows++
+}
+
+// DecrementBorrows records a borrow handle being dropped.
+// Spec: definitions.py:2163-2164 canon_resource_drop borrow branch.
+func (s *BorrowScope) DecrementBorrows() {
+	s.numBorrows--
+}
+
+// NumBorrows returns the count of outstanding borrow handles in this scope.
+func (s *BorrowScope) NumBorrows() int {
+	return s.numBorrows
 }

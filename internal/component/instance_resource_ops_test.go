@@ -195,8 +195,12 @@ func TestInstanceResourceDropBorrowBranch(t *testing.T) {
 	borrowEntry := borrowEntryIface.(*runtime.ResourceHandleEntry)
 	borrowEntry.BorrowScope = scope
 
+	// Increment the scope's borrow counter (simulates what lower_borrow does).
+	scope.IncrementBorrows()
+
 	lendsBefore := ownEntry.NumLends
 	require.True(t, lendsBefore > 0, "lender should have outstanding lends")
+	require.Equal(t, 1, scope.NumBorrows(), "scope should have 1 outstanding borrow before drop")
 
 	// Step 3: drop the borrow handle via ResourceDrop.
 	err = inst.ResourceDrop(types.ResourceIdx(0), borrowFull.Index())
@@ -204,6 +208,9 @@ func TestInstanceResourceDropBorrowBranch(t *testing.T) {
 
 	// Step 4: destructor was NOT called (borrow branch — spec :2163-2164).
 	require.Equal(t, 0, destructorCalls)
+
+	// Step 4b: scope's borrow counter was decremented (spec :2163-2164).
+	require.Equal(t, 0, scope.NumBorrows(), "scope borrow counter should be decremented after drop")
 
 	// Step 5: lender's NumLends is NOT decremented at borrow-drop time.
 	// Per wasmtime (resources.rs:338-345), lender NumLends cleanup happens

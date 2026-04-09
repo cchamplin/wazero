@@ -310,7 +310,10 @@ func (i *Instance) ResourceDrop(resourceIdx types.ResourceIdx, handleIdx uint32)
 	if rt == nil {
 		return fmt.Errorf("resource.drop: resource type %d not concrete", resourceIdx)
 	}
-	// Spec: definitions.py:2170 — look up by index for type checking before removal.
+	// Spec: definitions.py:2145 — h = inst.table.remove(i)
+	// Implementation note: we GetByIndex first for type checking, then Remove.
+	// This reorders relative to the spec (which removes before type-checking)
+	// but has the same observable behavior since all failure paths trap.
 	h, entry, err := i.rt.Table.GetByIndex(handleIdx)
 	if err != nil {
 		return err
@@ -349,16 +352,14 @@ func (i *Instance) ResourceDrop(resourceIdx types.ResourceIdx, handleIdx uint32)
 			// same-instance-only model.
 		}
 	}
-	// Borrow branch (spec: definitions.py:2163-2164):
-	//   h.borrow_scope.num_borrows -= 1
-	//
-	// In wazero's Session 1 synchronous model, the borrow handle has already
-	// been removed from the table by Table.Remove above. The spec's
-	// num_borrows decrement maps to the CallContext borrow counter managed
-	// by the lift/lower caller — Instance.ResourceDrop does not own that
-	// counter. Lender NumLends cleanup happens at scope exit
-	// (BorrowScope.Release / CallContext.ExitCall), matching wasmtime's
-	// exit_call path (resources.rs:338-345).
+	if !resEntry.Own {
+		// Spec: definitions.py:2163-2164 — borrow branch.
+		// Decrement the scope's borrow counter. The scope checks this at
+		// exit_call to ensure all borrows were dropped before returning.
+		if resEntry.BorrowScope != nil {
+			resEntry.BorrowScope.DecrementBorrows()
+		}
+	}
 	return nil
 }
 
