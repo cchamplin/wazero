@@ -1129,3 +1129,57 @@ grep -rn 'TestXxxDeferredToSession1' (restored files)                       ✅ 
 
 ✅ All 6 tasks (C13-C18) complete. Proceeding to Task C19.
 
+---
+
+## Task C19 — Restore `value_import_test.go` (1 test)
+
+**Base commit:** `bd35a8c9`
+**Task commit:** `f1bd2012` ("component: Task C19 — restore value_import_test.go (1 test)")
+**Files changed:** `internal/component/value_import_test.go` only (+54/-8, 14 → 60 lines).
+
+**Adaptation:** Replaces raw `t.Errorf`/`t.Fatalf` with `require.*` helpers. Citation block within 15 lines of `func TestValueImport` citing `definitions.py:256-273` (ComponentInstance) + `Wasmtime parallel:` (wasmtime has no public host value-import API; wazero's `DefineValue`/`GetValue` is a wazero-specific embedder affordance) + "No counterpart (justified): run_tests.py exercises lift/lower value paths only; embedder-facing wiring is a host-layer concern." Inline reference to `component_linker.go:755-768 populateValueImports` pins the index-0 ordering invariant.
+
+### Spec-compliance reviewer
+
+**Verdict:** ✅ SPEC COMPLIANT.
+
+8/8 checklist items pass. Production cross-check verified:
+- `component_linker.go:99-107` `DefineValue` stores key `namespace+"/"+name` → `"config/name"` matches import name ✓
+- `component_linker.go:755-768` `populateValueImports` appends to `inst.values` in declaration order ✓
+- `instance.go:363-369` `GetValue(0) (Val, error)` ✓
+- `types/val.go:134` `StringVal()` returns string ✓
+
+V4 grep PASS. Test passes. Build + vet clean. Session 0 stub header removed.
+
+### Code quality reviewer (superpowers:code-reviewer)
+
+**Verdict:** APPROVED. No findings at any severity.
+
+**Strengths:**
+1. Clean stub-to-real conversion; no dead comments.
+2. Idiomatic `require.*` usage with placement that fails fast.
+3. Citation block substantive (Wasmtime note explains *why* divergence exists; run_tests.py exclusion justified on scope).
+4. Inline reference comment pulls its weight (pins index-0 ordering to specific production line range).
+5. `"config/name"` key derivation documented (non-obvious coupling handled).
+6. Import hygiene minimal (4 imports, all used).
+7. Test verifies full DefineValue → Instantiate → GetValue round-trip.
+
+### Correctives
+
+None. Both reviewers approved with zero findings.
+
+### Verification at task close
+
+```
+go test ./internal/component/ -run TestValueImport -count=1  ✅ ok
+go build ./internal/component/...                            ✅ clean
+go vet ./internal/component/...                              ✅ clean
+V4 grep                                                      ✅ PASS
+git diff --stat bd35a8c9..f1bd2012                           ✅ 1 file: value_import_test.go
+git status --porcelain                                       ✅ only .env/.envrc
+```
+
+### Task status
+
+✅ Complete. Proceeding to Task C20 (Checkpoint C verification).
+
