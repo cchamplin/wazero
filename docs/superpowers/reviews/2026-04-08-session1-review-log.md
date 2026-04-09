@@ -1360,3 +1360,31 @@ All tests pass after corrective. `go vet` clean. Diff shows exactly 3 changes (c
 
 ✅ Complete. Proceeding to Task D4.
 
+---
+
+## Task D4 — Extend `executeStartFunction` to full body
+
+**Base commit:** `85154663`
+**Task commit:** `635abe20` ("component: implement executeStartFunction with full start semantics (Task D4)")
+**Files changed:** `component_linker.go` (replaced stub, ~35 lines) + `start_function_test.go` (10 tests restored from stubs).
+
+**Implementation:** 4-step start function execution: (1) componentFuncs[FuncIdx] lookup, (2) arg consumption via ConsumeValue (marks values consumed, errors on double-consume), (3) invocation via HostFunc signature, (4) result count validation + result storage via AddValue. All error paths covered with descriptive messages + `%w` wrapping.
+
+### Spec-compliance reviewer
+
+**Verdict:** ✅ SPEC COMPLIANT. All 10 checklist items pass. Explainer.md:2436-2476 start function section verified exact match. ConsumeValue semantics correct. Result count validation present.
+
+### Code quality reviewer
+
+**Verdict:** PASS. No CRITICAL/IMPORTANT. Implementation is clean, well-structured, 4 clearly labeled steps. Correct use of ConsumeValue over GetValue. Results stored via AddValue.
+
+Minor: M1 hand-rolled `containsString` helper instead of `strings.Contains`; M2 repetitive per-test spec comments (file-level header suffices); M3 unchecked ConsumeValue error in test setup line.
+
+### Correctives
+
+None. Both reviewers approved with only Minor findings. M1-M3 tracked for follow-up.
+
+### Task status
+
+✅ Complete. Proceeding to Task D5-D12 (test restorations).
+
