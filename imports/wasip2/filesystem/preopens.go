@@ -1,5 +1,8 @@
 // imports/wasip2/filesystem/preopens.go
 
+// WIT source of truth: debug-vendored/WASI/proposals/filesystem/wit/preopens.wit
+// Package version: wasi:filesystem@0.2.9 (wazero targets wasi:filesystem@0.2.0)
+//
 package filesystem
 
 import (
@@ -20,14 +23,14 @@ type PreopensConfig interface {
 func instantiatePreopens(linker *component.Linker) error {
 	inst := linker.DefineInstance("wasi:filesystem/preopens@0.2.0")
 
-	inst.FuncNoType("get-directories", getDirectories)
+	inst.Func("get-directories", getDirectories)
 
 	return inst.SkipValidation().Build()
 }
 
 // getDirectories returns the list of preopened directories.
 // Signature: func() -> list<tuple<own<descriptor>, string>>
-func getDirectories(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func getDirectories(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	table := component.ResourceTableFromContext(ctx)
 	if table == nil {
 		// No resource table, return empty list

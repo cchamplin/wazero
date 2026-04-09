@@ -564,7 +564,7 @@ func TestInputStreamRead_HostFunction(t *testing.T) {
 		types.ValBorrow(uint32(handle)),
 		types.ValU64(5),
 	}
-	results, err := inputStreamRead(ctx, args)
+	results, err := inputStreamRead(ctx, nil, args)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results))
 
@@ -600,7 +600,7 @@ func TestInputStreamRead_ClosedStream(t *testing.T) {
 		types.ValBorrow(uint32(handle)),
 		types.ValU64(5),
 	}
-	results, err := inputStreamRead(ctx, args)
+	results, err := inputStreamRead(ctx, nil, args)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results))
 
@@ -624,7 +624,7 @@ func TestInputStreamSkip_HostFunction(t *testing.T) {
 		types.ValBorrow(uint32(handle)),
 		types.ValU64(6),
 	}
-	results, err := inputStreamSkip(ctx, args)
+	results, err := inputStreamSkip(ctx, nil, args)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results))
 
@@ -648,7 +648,7 @@ func TestInputStreamSubscribe_HostFunction(t *testing.T) {
 	args := []types.Val{
 		types.ValBorrow(uint32(handle)),
 	}
-	results, err := inputStreamSubscribe(ctx, args)
+	results, err := inputStreamSubscribe(ctx, nil, args)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results))
 
@@ -672,7 +672,7 @@ func TestOutputStreamCheckWrite_HostFunction(t *testing.T) {
 	args := []types.Val{
 		types.ValBorrow(uint32(handle)),
 	}
-	results, err := outputStreamCheckWrite(ctx, args)
+	results, err := outputStreamCheckWrite(ctx, nil, args)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results))
 
@@ -704,7 +704,7 @@ func TestOutputStreamWrite_HostFunction(t *testing.T) {
 		types.ValBorrow(uint32(handle)),
 		types.ValList(listVals),
 	}
-	results, err := outputStreamWrite(ctx, args)
+	results, err := outputStreamWrite(ctx, nil, args)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results))
 
@@ -729,7 +729,7 @@ func TestOutputStreamFlush_HostFunction(t *testing.T) {
 	args := []types.Val{
 		types.ValBorrow(uint32(handle)),
 	}
-	results, err := outputStreamFlush(ctx, args)
+	results, err := outputStreamFlush(ctx, nil, args)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results))
 
@@ -753,7 +753,7 @@ func TestOutputStreamWriteZeroes_HostFunction(t *testing.T) {
 		types.ValBorrow(uint32(handle)),
 		types.ValU64(10),
 	}
-	results, err := outputStreamWriteZeroes(ctx, args)
+	results, err := outputStreamWriteZeroes(ctx, nil, args)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results))
 
@@ -789,7 +789,7 @@ func TestOutputStreamSplice_HostFunction(t *testing.T) {
 		types.ValBorrow(uint32(srcHandle)),
 		types.ValU64(6),
 	}
-	results, err := outputStreamSplice(ctx, args)
+	results, err := outputStreamSplice(ctx, nil, args)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results))
 
@@ -814,7 +814,7 @@ func TestOutputStreamSubscribe_HostFunction(t *testing.T) {
 	args := []types.Val{
 		types.ValBorrow(uint32(handle)),
 	}
-	results, err := outputStreamSubscribe(ctx, args)
+	results, err := outputStreamSubscribe(ctx, nil, args)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results))
 
@@ -831,7 +831,7 @@ func TestHostFunction_InvalidHandle(t *testing.T) {
 		types.ValBorrow(999),
 		types.ValU64(5),
 	}
-	_, err := inputStreamRead(ctx, args)
+	_, err := inputStreamRead(ctx, nil, args)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid handle")
 }
@@ -844,7 +844,7 @@ func TestHostFunction_NoResourceTable(t *testing.T) {
 		types.ValBorrow(0),
 		types.ValU64(5),
 	}
-	_, err := inputStreamRead(ctx, args)
+	_, err := inputStreamRead(ctx, nil, args)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "no resource table")
 }
@@ -865,7 +865,7 @@ func TestHostFunction_WrongResourceType(t *testing.T) {
 		types.ValBorrow(uint32(handle)),
 		types.ValU64(5),
 	}
-	_, err := inputStreamRead(ctx, args)
+	_, err := inputStreamRead(ctx, nil, args)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "not an InputStream")
 }

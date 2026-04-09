@@ -16,8 +16,22 @@ package api
 import (
 	"context"
 
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/internalapi"
 )
+
+// HostFunc is the canonical host function callback for component
+// imports. Mirrors wasmtime's func_new dynamic host path
+// (debug-vendored/wasmtime/.../runtime/component/linker.rs:665-675).
+//
+// fnType is the component's declared import type, supplied by the
+// runtime at call time. The host has no type to declare at
+// registration; the component's import IS the source of truth. Most
+// callers ignore fnType with `_`.
+//
+// See [github.com/tetratelabs/wazero/api/component.HostFunc] for the
+// re-exported alias used by host modules.
+type HostFunc = func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error)
 
 // ComponentExportKind classifies component exports.
 type ComponentExportKind byte
@@ -119,9 +133,11 @@ type ComponentFunc interface {
 //     All implementations are in wazero.
 type ComponentLinker interface {
 	// DefineFunc defines a host function that can satisfy a component import.
-	// The fn parameter should be a component.HostFunc from the api/component
-	// package. See DefineInstance for defining functions within an instance.
-	DefineFunc(namespace, name string, fn any) error
+	// fn is the canonical typed [HostFunc]. The component-declared import
+	// type is supplied to fn as its second argument at call time; the host
+	// has no type to declare. Mirrors wasmtime LinkerInstance::func_new
+	// (linker.rs:665-675).
+	DefineFunc(namespace, name string, fn HostFunc) error
 
 	// DefineInstance starts building an instance definition with multiple
 	// exports. This is the primary way to provide host implementations for
@@ -151,8 +167,10 @@ type ComponentLinker interface {
 
 // ComponentInstanceBuilder builds an instance definition with multiple exports.
 type ComponentInstanceBuilder interface {
-	// Func adds a function export to the instance being built.
-	Func(name string, fn any) ComponentInstanceBuilder
+	// Func adds a function export to the instance being built. fn is
+	// the canonical typed [HostFunc]; the host has no type to declare
+	// (the component's import is the source of truth).
+	Func(name string, fn HostFunc) ComponentInstanceBuilder
 
 	// Resource adds a resource type definition to the instance.
 	Resource(name string, dtor func(rep uint32)) ComponentInstanceBuilder

@@ -35,19 +35,10 @@ func NewComponentLinkerWrapper(rt any) *ComponentLinkerWrapper {
 }
 
 // DefineFunc defines a host function that can satisfy component imports.
-func (l *ComponentLinkerWrapper) DefineFunc(namespace, name string, fn any) error {
-	// Convert the Go function to our internal HostFunc format.
-	// For now, we accept HostFunc directly; a fuller implementation
-	// would introspect fn's signature and create a wrapper.
-	if hf, ok := fn.(HostFunc); ok {
-		return l.linker.DefineFunc(namespace, name, hf)
-	}
-	// For non-HostFunc, wrap it (simplified - just stores a placeholder)
-	wrapper := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
-		// Placeholder - full implementation would call fn with converted args
-		return nil, nil
-	}
-	return l.linker.DefineFunc(namespace, name, wrapper)
+// Direct pass-through under the wasmtime func_new model; the host
+// has no type to declare.
+func (l *ComponentLinkerWrapper) DefineFunc(namespace, name string, fn api.HostFunc) error {
+	return l.linker.DefineFunc(namespace, name, HostFunc(fn))
 }
 
 // DefineInstance starts building an instance definition with multiple exports.
@@ -99,17 +90,9 @@ type ComponentInstanceBuilderWrapper struct {
 }
 
 // Func adds a function export to the instance being built.
-func (b *ComponentInstanceBuilderWrapper) Func(name string, fn any) api.ComponentInstanceBuilder {
-	// Convert fn to HostFunc
-	if hf, ok := fn.(HostFunc); ok {
-		b.builder.Func(name, nil, hf)
-	} else {
-		// Wrap non-HostFunc (simplified)
-		wrapper := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
-			return nil, nil
-		}
-		b.builder.Func(name, nil, wrapper)
-	}
+// Direct pass-through under the wasmtime func_new model.
+func (b *ComponentInstanceBuilderWrapper) Func(name string, fn api.HostFunc) api.ComponentInstanceBuilder {
+	b.builder.Func(name, HostFunc(fn))
 	return b
 }
 
@@ -138,17 +121,9 @@ type ComponentInstanceBuilderWrapper2 struct {
 }
 
 // Func adds a function export to the instance being built.
-func (b *ComponentInstanceBuilderWrapper2) Func(name string, fn any) api.ComponentInstanceBuilder {
-	// Convert fn to HostFunc
-	if hf, ok := fn.(HostFunc); ok {
-		b.builder.Func(name, hf)
-	} else {
-		// Wrap non-HostFunc (simplified)
-		wrapper := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
-			return nil, nil
-		}
-		b.builder.Func(name, wrapper)
-	}
+// Direct pass-through under the wasmtime func_new model.
+func (b *ComponentInstanceBuilderWrapper2) Func(name string, fn api.HostFunc) api.ComponentInstanceBuilder {
+	b.builder.Func(name, HostFunc(fn))
 	return b
 }
 

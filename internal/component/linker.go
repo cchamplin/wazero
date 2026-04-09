@@ -10,8 +10,24 @@ import (
 	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
-// HostFunc is a host function that can be called from a component.
-type HostFunc func(ctx context.Context, args []types.Val) ([]types.Val, error)
+// HostFunc is the canonical host function callback. It mirrors
+// wasmtime's func_new dynamic host path:
+//
+//	debug-vendored/wasmtime/crates/wasmtime/src/runtime/component/linker.rs:665-675
+//	debug-vendored/wasmtime/crates/wasmtime/src/runtime/component/func/host.rs:619-626
+//	debug-vendored/wasmtime/crates/wasmtime/src/runtime/component/func/host.rs:640-694
+//
+// fnType is the *types.TypeFunc looked up from the component's import
+// declaration at call time and supplied by the runtime. The host has
+// no type to declare — the component's import IS the source of truth.
+// Most callers ignore fnType and read args directly; complex hosts
+// (e.g., generic dispatchers) may inspect it.
+//
+// Spec: definitions.py:1997 (canon_lift), :2089 (canon_lower) lift
+// the args against the component's import type and pass them as
+// []types.Val to the host. The host returns []types.Val which the
+// runtime lowers back per the same import type.
+type HostFunc func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error)
 
 // Definition is an item that can satisfy a component import.
 type Definition interface {
@@ -20,10 +36,11 @@ type Definition interface {
 
 // FuncDef is a function definition.
 //
-// Type is the component function type. After Task 5 / Decision 9 it is a
-// *types.TypeFunc — a flat record with interned params/results on the
-// canonical ComponentTypes table. Callers that don't have a type handy
-// (tests, FuncNoType) leave it nil.
+// Type is the component function type. Under the wasmtime func_new
+// dynamic-host model, Type is populated by the type checker at
+// instantiate time from the component's import declaration via
+// Component.ResolveTypeDef. At registration time Type is nil —
+// reading it before instantiate is a programming error.
 type FuncDef struct {
 	Type     *types.TypeFunc
 	Callback HostFunc
@@ -97,13 +114,20 @@ func (l *Linker) RelaxedSemverMatching() bool {
 	return l.relaxedSemver
 }
 
-// DefineFunc adds a host function definition.
-func (l *Linker) DefineFunc(namespace, name string, typ *types.TypeFunc, fn HostFunc) error {
+// DefineFunc adds a host function definition. The host has no type
+// to declare — the component's import declaration IS the canonical
+// type, looked up by the type checker at instantiate time and
+// supplied to the host's HostFunc callback at call time. Mirrors
+// wasmtime LinkerInstance::func_new (linker.rs:665-675).
+func (l *Linker) DefineFunc(namespace, name string, fn HostFunc) error {
+	if fn == nil {
+		return fmt.Errorf("DefineFunc: nil HostFunc for %q.%q", namespace, name)
+	}
 	key := namespace + "/" + name
 	if _, exists := l.definitions[key]; exists {
 		return fmt.Errorf("definition already exists: %s", key)
 	}
-	l.definitions[key] = &FuncDef{Type: typ, Callback: fn}
+	l.definitions[key] = &FuncDef{Callback: fn}
 	return nil
 }
 
@@ -134,22 +158,16 @@ func (l *Linker) DefineInstance(namespace string) *InstanceBuilder {
 	}
 }
 
-// Func adds a function export to the instance.
-func (b *InstanceBuilder) Func(name string, typ *types.TypeFunc, fn HostFunc) *InstanceBuilder {
-	b.exports[name] = &FuncDef{Type: typ, Callback: fn}
+// Func adds a function export to the instance. The host has no type
+// to declare; see HostFunc / DefineFunc doc.
+func (b *InstanceBuilder) Func(name string, fn HostFunc) *InstanceBuilder {
+	b.exports[name] = &FuncDef{Callback: fn}
 	return b
 }
 
 // Resource adds a resource type definition with its destructor to the instance.
 func (b *InstanceBuilder) Resource(name string, destructor func(rep uint32)) *InstanceBuilder {
 	b.exports[name] = &ResourceDef{Destructor: destructor}
-	return b
-}
-
-// FuncNoType adds a function export without explicit type info.
-// Useful for host functions that handle dynamic Val arguments.
-func (b *InstanceBuilder) FuncNoType(name string, fn HostFunc) *InstanceBuilder {
-	b.exports[name] = &FuncDef{Type: nil, Callback: fn}
 	return b
 }
 

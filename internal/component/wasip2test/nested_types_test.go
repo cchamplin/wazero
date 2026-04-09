@@ -48,7 +48,7 @@ func TestNestedTypesPlugin_OptionResultSharedRecords(t *testing.T) {
 
 	// store import - returns some(item) for id=1, none for others
 	err = hostLinker.DefineInstance("test:nested-types/store").
-		FuncNoType("get-item", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		Func("get-item", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 			// For now, return a simple option<item> as none
 			// The exact ABI encoding of option<record> depends on the lowering
 			return []types.Val{types.ValOption(nil)}, nil

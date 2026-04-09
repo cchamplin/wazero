@@ -1,5 +1,8 @@
 // imports/wasip2/io/streams.go
 
+// WIT source of truth: debug-vendored/WASI/proposals/io/wit/streams.wit
+// Package version: wasi:io@0.2.9 (wazero targets wasi:io@0.2.0)
+//
 package io
 
 import (
@@ -400,24 +403,24 @@ func instantiateStreams(linker *component.Linker) error {
 
 	// input-stream resource
 	inst.Resource("input-stream", func(rep uint32) {})
-	inst.FuncNoType("[method]input-stream.read", inputStreamRead)
-	inst.FuncNoType("[method]input-stream.blocking-read", inputStreamBlockingRead)
-	inst.FuncNoType("[method]input-stream.skip", inputStreamSkip)
-	inst.FuncNoType("[method]input-stream.blocking-skip", inputStreamBlockingSkip)
-	inst.FuncNoType("[method]input-stream.subscribe", inputStreamSubscribe)
+	inst.Func("[method]input-stream.read", inputStreamRead)
+	inst.Func("[method]input-stream.blocking-read", inputStreamBlockingRead)
+	inst.Func("[method]input-stream.skip", inputStreamSkip)
+	inst.Func("[method]input-stream.blocking-skip", inputStreamBlockingSkip)
+	inst.Func("[method]input-stream.subscribe", inputStreamSubscribe)
 
 	// output-stream resource
 	inst.Resource("output-stream", func(rep uint32) {})
-	inst.FuncNoType("[method]output-stream.check-write", outputStreamCheckWrite)
-	inst.FuncNoType("[method]output-stream.write", outputStreamWrite)
-	inst.FuncNoType("[method]output-stream.blocking-write-and-flush", outputStreamBlockingWriteAndFlush)
-	inst.FuncNoType("[method]output-stream.flush", outputStreamFlush)
-	inst.FuncNoType("[method]output-stream.blocking-flush", outputStreamBlockingFlush)
-	inst.FuncNoType("[method]output-stream.subscribe", outputStreamSubscribe)
-	inst.FuncNoType("[method]output-stream.write-zeroes", outputStreamWriteZeroes)
-	inst.FuncNoType("[method]output-stream.blocking-write-zeroes-and-flush", outputStreamBlockingWriteZeroesAndFlush)
-	inst.FuncNoType("[method]output-stream.splice", outputStreamSplice)
-	inst.FuncNoType("[method]output-stream.blocking-splice", outputStreamBlockingSplice)
+	inst.Func("[method]output-stream.check-write", outputStreamCheckWrite)
+	inst.Func("[method]output-stream.write", outputStreamWrite)
+	inst.Func("[method]output-stream.blocking-write-and-flush", outputStreamBlockingWriteAndFlush)
+	inst.Func("[method]output-stream.flush", outputStreamFlush)
+	inst.Func("[method]output-stream.blocking-flush", outputStreamBlockingFlush)
+	inst.Func("[method]output-stream.subscribe", outputStreamSubscribe)
+	inst.Func("[method]output-stream.write-zeroes", outputStreamWriteZeroes)
+	inst.Func("[method]output-stream.blocking-write-zeroes-and-flush", outputStreamBlockingWriteZeroesAndFlush)
+	inst.Func("[method]output-stream.splice", outputStreamSplice)
+	inst.Func("[method]output-stream.blocking-splice", outputStreamBlockingSplice)
 
 	return inst.SkipValidation().Build()
 }
@@ -426,7 +429,7 @@ func instantiateStreams(linker *component.Linker) error {
 
 // inputStreamRead implements [method]input-stream.read
 // Signature: func(self: borrow<input-stream>, len: u64) -> result<list<u8>, stream-error>
-func inputStreamRead(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func inputStreamRead(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	maxLen := args[1].U64()
 
@@ -446,7 +449,7 @@ func inputStreamRead(ctx context.Context, args []types.Val) ([]types.Val, error)
 
 // inputStreamBlockingRead implements [method]input-stream.blocking-read
 // Signature: func(self: borrow<input-stream>, len: u64) -> result<list<u8>, stream-error>
-func inputStreamBlockingRead(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func inputStreamBlockingRead(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	maxLen := args[1].U64()
 
@@ -466,7 +469,7 @@ func inputStreamBlockingRead(ctx context.Context, args []types.Val) ([]types.Val
 
 // inputStreamSkip implements [method]input-stream.skip
 // Signature: func(self: borrow<input-stream>, len: u64) -> result<u64, stream-error>
-func inputStreamSkip(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func inputStreamSkip(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	length := args[1].U64()
 
@@ -486,7 +489,7 @@ func inputStreamSkip(ctx context.Context, args []types.Val) ([]types.Val, error)
 
 // inputStreamBlockingSkip implements [method]input-stream.blocking-skip
 // Signature: func(self: borrow<input-stream>, len: u64) -> result<u64, stream-error>
-func inputStreamBlockingSkip(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func inputStreamBlockingSkip(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	length := args[1].U64()
 
@@ -506,7 +509,7 @@ func inputStreamBlockingSkip(ctx context.Context, args []types.Val) ([]types.Val
 
 // inputStreamSubscribe implements [method]input-stream.subscribe
 // Signature: func(self: borrow<input-stream>) -> own<pollable>
-func inputStreamSubscribe(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func inputStreamSubscribe(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	stream, err := getInputStream(ctx, handle)
@@ -520,7 +523,7 @@ func inputStreamSubscribe(ctx context.Context, args []types.Val) ([]types.Val, e
 
 // outputStreamCheckWrite implements [method]output-stream.check-write
 // Signature: func(self: borrow<output-stream>) -> result<u64, stream-error>
-func outputStreamCheckWrite(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func outputStreamCheckWrite(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	stream, err := getOutputStream(ctx, handle)
@@ -539,7 +542,7 @@ func outputStreamCheckWrite(ctx context.Context, args []types.Val) ([]types.Val,
 
 // outputStreamWrite implements [method]output-stream.write
 // Signature: func(self: borrow<output-stream>, contents: list<u8>) -> result<_, stream-error>
-func outputStreamWrite(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func outputStreamWrite(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	contents := listU8ToBytes(args[1])
 
@@ -558,7 +561,7 @@ func outputStreamWrite(ctx context.Context, args []types.Val) ([]types.Val, erro
 
 // outputStreamBlockingWriteAndFlush implements [method]output-stream.blocking-write-and-flush
 // Signature: func(self: borrow<output-stream>, contents: list<u8>) -> result<_, stream-error>
-func outputStreamBlockingWriteAndFlush(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func outputStreamBlockingWriteAndFlush(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	contents := listU8ToBytes(args[1])
 
@@ -577,7 +580,7 @@ func outputStreamBlockingWriteAndFlush(ctx context.Context, args []types.Val) ([
 
 // outputStreamFlush implements [method]output-stream.flush
 // Signature: func(self: borrow<output-stream>) -> result<_, stream-error>
-func outputStreamFlush(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func outputStreamFlush(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	stream, err := getOutputStream(ctx, handle)
@@ -595,7 +598,7 @@ func outputStreamFlush(ctx context.Context, args []types.Val) ([]types.Val, erro
 
 // outputStreamBlockingFlush implements [method]output-stream.blocking-flush
 // Signature: func(self: borrow<output-stream>) -> result<_, stream-error>
-func outputStreamBlockingFlush(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func outputStreamBlockingFlush(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	stream, err := getOutputStream(ctx, handle)
@@ -613,7 +616,7 @@ func outputStreamBlockingFlush(ctx context.Context, args []types.Val) ([]types.V
 
 // outputStreamSubscribe implements [method]output-stream.subscribe
 // Signature: func(self: borrow<output-stream>) -> own<pollable>
-func outputStreamSubscribe(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func outputStreamSubscribe(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	stream, err := getOutputStream(ctx, handle)
@@ -627,7 +630,7 @@ func outputStreamSubscribe(ctx context.Context, args []types.Val) ([]types.Val, 
 
 // outputStreamWriteZeroes implements [method]output-stream.write-zeroes
 // Signature: func(self: borrow<output-stream>, len: u64) -> result<_, stream-error>
-func outputStreamWriteZeroes(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func outputStreamWriteZeroes(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	length := args[1].U64()
 
@@ -646,7 +649,7 @@ func outputStreamWriteZeroes(ctx context.Context, args []types.Val) ([]types.Val
 
 // outputStreamBlockingWriteZeroesAndFlush implements [method]output-stream.blocking-write-zeroes-and-flush
 // Signature: func(self: borrow<output-stream>, len: u64) -> result<_, stream-error>
-func outputStreamBlockingWriteZeroesAndFlush(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func outputStreamBlockingWriteZeroesAndFlush(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	length := args[1].U64()
 
@@ -665,7 +668,7 @@ func outputStreamBlockingWriteZeroesAndFlush(ctx context.Context, args []types.V
 
 // outputStreamSplice implements [method]output-stream.splice
 // Signature: func(self: borrow<output-stream>, src: borrow<input-stream>, len: u64) -> result<u64, stream-error>
-func outputStreamSplice(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func outputStreamSplice(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	dstHandle := args[0].Borrow()
 	srcHandle := args[1].Borrow()
 	length := args[2].U64()
@@ -691,7 +694,7 @@ func outputStreamSplice(ctx context.Context, args []types.Val) ([]types.Val, err
 
 // outputStreamBlockingSplice implements [method]output-stream.blocking-splice
 // Signature: func(self: borrow<output-stream>, src: borrow<input-stream>, len: u64) -> result<u64, stream-error>
-func outputStreamBlockingSplice(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func outputStreamBlockingSplice(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	dstHandle := args[0].Borrow()
 	srcHandle := args[1].Borrow()
 	length := args[2].U64()

@@ -1,5 +1,8 @@
 // Package random implements the wasi:random interfaces for WASI Preview 2.
 // It provides cryptographically secure and insecure random number generation.
+//
+// WIT source of truth: debug-vendored/WASI/proposals/random/wit/random.wit
+// Package version: wasi:random@0.2.9 (wazero targets wasi:random@0.2.0)
 package random
 
 import (
@@ -47,13 +50,13 @@ func GetRandomU64() uint64 {
 func instantiateRandom(linker *component.Linker) error {
 	inst := linker.DefineInstance("wasi:random/random@0.2.0")
 
-	inst.FuncNoType("get-random-bytes", getRandomBytes)
-	inst.FuncNoType("get-random-u64", getRandomU64)
+	inst.Func("get-random-bytes", getRandomBytes)
+	inst.Func("get-random-u64", getRandomU64)
 
 	return inst.SkipValidation().Build()
 }
 
-func getRandomBytes(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func getRandomBytes(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	length := args[0].U64()
 	bytes := GetRandomBytes(length)
 
@@ -65,6 +68,6 @@ func getRandomBytes(ctx context.Context, args []types.Val) ([]types.Val, error) 
 	return []types.Val{types.ValList(vals)}, nil
 }
 
-func getRandomU64(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func getRandomU64(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	return []types.Val{types.ValU64(GetRandomU64())}, nil
 }

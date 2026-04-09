@@ -85,7 +85,7 @@ func TestComponentConvert(t *testing.T) {
 
 	var multiplyCallCount int
 	err = linker.DefineInstance("host:math/ops").
-		FuncNoType("multiply", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		Func("multiply", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 			multiplyCallCount++
 			a := args[0].S32()
 			b := args[1].S32()
@@ -186,7 +186,7 @@ func TestComponentConvert_NegativeTemperature(t *testing.T) {
 
 	linker := component.NewLinker()
 	err = linker.DefineInstance("host:math/ops").
-		FuncNoType("multiply", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		Func("multiply", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 			a := args[0].S32()
 			b := args[1].S32()
 			return []types.Val{types.ValS32(a * b)}, nil
@@ -285,7 +285,7 @@ func TestComponentConvert_Zero(t *testing.T) {
 
 	linker := component.NewLinker()
 	err = linker.DefineInstance("host:math/ops").
-		FuncNoType("multiply", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		Func("multiply", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 			a := args[0].S32()
 			b := args[1].S32()
 			return []types.Val{types.ValS32(a * b)}, nil
@@ -392,7 +392,7 @@ func TestComponentConvert_HostFunctionCalled(t *testing.T) {
 	var multiplyCallCount int
 	var lastMultiplyArgs [2]int32
 	err = linker.DefineInstance("host:math/ops").
-		FuncNoType("multiply", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		Func("multiply", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 			multiplyCallCount++
 			a := args[0].S32()
 			b := args[1].S32()
@@ -505,7 +505,7 @@ func TestComponentConvert_MultipleConversions(t *testing.T) {
 
 	linker := component.NewLinker()
 	err = linker.DefineInstance("host:math/ops").
-		FuncNoType("multiply", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		Func("multiply", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 			a := args[0].S32()
 			b := args[1].S32()
 			return []types.Val{types.ValS32(a * b)}, nil

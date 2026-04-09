@@ -1,5 +1,8 @@
 // Package cli implements the wasi:cli interfaces for WASI Preview 2.
 // It provides environment, arguments, standard streams, and terminal access.
+// WIT source of truth: debug-vendored/WASI/proposals/cli/wit/{environment,exit,stdio,terminal}.wit
+// Package version: wasi:cli@0.2.9 (wazero targets wasi:cli@0.2.0)
+//
 package cli
 
 import (
@@ -74,15 +77,15 @@ func Instantiate(linker *component.Linker) error {
 func instantiateEnvironment(linker *component.Linker) error {
 	inst := linker.DefineInstance("wasi:cli/environment@0.2.0")
 
-	inst.FuncNoType("get-environment", getEnvironment)
-	inst.FuncNoType("get-arguments", getArguments)
-	inst.FuncNoType("initial-cwd", initialCwd)
+	inst.Func("get-environment", getEnvironment)
+	inst.Func("get-arguments", getArguments)
+	inst.Func("initial-cwd", initialCwd)
 
 	return inst.SkipValidation().Build()
 }
 
 // getEnvironment returns the environment variables as list<tuple<string, string>>
-func getEnvironment(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func getEnvironment(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	config := component.WASIConfigFromContext(ctx)
 	if config == nil {
 		// No config, return empty list
@@ -107,7 +110,7 @@ func getEnvironment(ctx context.Context, args []types.Val) ([]types.Val, error) 
 }
 
 // getArguments returns command line arguments as list<string>
-func getArguments(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func getArguments(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	config := component.WASIConfigFromContext(ctx)
 	if config == nil {
 		// No config, return empty list
@@ -124,7 +127,7 @@ func getArguments(ctx context.Context, args []types.Val) ([]types.Val, error) {
 }
 
 // initialCwd returns the initial working directory as option<string>
-func initialCwd(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func initialCwd(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		// Unable to get cwd, return None
@@ -139,13 +142,13 @@ func initialCwd(ctx context.Context, args []types.Val) ([]types.Val, error) {
 func instantiateExit(linker *component.Linker) error {
 	inst := linker.DefineInstance("wasi:cli/exit@0.2.0")
 
-	inst.FuncNoType("exit", exit)
+	inst.Func("exit", exit)
 
 	return inst.SkipValidation().Build()
 }
 
 // exit handles program termination with result<_, _>
-func exit(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func exit(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	// The argument is result<_, _> where ok (discriminant 0) means success, error (discriminant 1) means failure
 	if len(args) > 0 {
 		isOk, _, _ := args[0].Result()
@@ -163,13 +166,13 @@ func instantiateStdin(linker *component.Linker) error {
 	inst := linker.DefineInstance("wasi:cli/stdin@0.2.0")
 
 	// get-stdin: func() -> own<input-stream>
-	inst.FuncNoType("get-stdin", getStdin)
+	inst.Func("get-stdin", getStdin)
 
 	return inst.SkipValidation().Build()
 }
 
 // getStdin returns stdin as own<input-stream>
-func getStdin(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func getStdin(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	table := component.ResourceTableFromContext(ctx)
 	config := component.WASIConfigFromContext(ctx)
 
@@ -194,13 +197,13 @@ func instantiateStdout(linker *component.Linker) error {
 	inst := linker.DefineInstance("wasi:cli/stdout@0.2.0")
 
 	// get-stdout: func() -> own<output-stream>
-	inst.FuncNoType("get-stdout", getStdout)
+	inst.Func("get-stdout", getStdout)
 
 	return inst.SkipValidation().Build()
 }
 
 // getStdout returns stdout as own<output-stream>
-func getStdout(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func getStdout(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	table := component.ResourceTableFromContext(ctx)
 	config := component.WASIConfigFromContext(ctx)
 
@@ -225,13 +228,13 @@ func instantiateStderr(linker *component.Linker) error {
 	inst := linker.DefineInstance("wasi:cli/stderr@0.2.0")
 
 	// get-stderr: func() -> own<output-stream>
-	inst.FuncNoType("get-stderr", getStderr)
+	inst.Func("get-stderr", getStderr)
 
 	return inst.SkipValidation().Build()
 }
 
 // getStderr returns stderr as own<output-stream>
-func getStderr(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func getStderr(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	table := component.ResourceTableFromContext(ctx)
 	config := component.WASIConfigFromContext(ctx)
 
@@ -276,13 +279,13 @@ func instantiateTerminalStdin(linker *component.Linker) error {
 	inst := linker.DefineInstance("wasi:cli/terminal-stdin@0.2.0")
 
 	// get-terminal-stdin: func() -> option<own<terminal-input>>
-	inst.FuncNoType("get-terminal-stdin", getTerminalStdin)
+	inst.Func("get-terminal-stdin", getTerminalStdin)
 
 	return inst.SkipValidation().Build()
 }
 
 // getTerminalStdin returns Some(terminal-input) if stdin is a terminal, None otherwise
-func getTerminalStdin(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func getTerminalStdin(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	config := component.WASIConfigFromContext(ctx)
 	if config == nil {
 		return []types.Val{types.ValOption(nil)}, nil
@@ -320,13 +323,13 @@ func instantiateTerminalStdout(linker *component.Linker) error {
 	inst := linker.DefineInstance("wasi:cli/terminal-stdout@0.2.0")
 
 	// get-terminal-stdout: func() -> option<own<terminal-output>>
-	inst.FuncNoType("get-terminal-stdout", getTerminalStdout)
+	inst.Func("get-terminal-stdout", getTerminalStdout)
 
 	return inst.SkipValidation().Build()
 }
 
 // getTerminalStdout returns Some(terminal-output) if stdout is a terminal, None otherwise
-func getTerminalStdout(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func getTerminalStdout(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	config := component.WASIConfigFromContext(ctx)
 	if config == nil {
 		return []types.Val{types.ValOption(nil)}, nil
@@ -364,13 +367,13 @@ func instantiateTerminalStderr(linker *component.Linker) error {
 	inst := linker.DefineInstance("wasi:cli/terminal-stderr@0.2.0")
 
 	// get-terminal-stderr: func() -> option<own<terminal-output>>
-	inst.FuncNoType("get-terminal-stderr", getTerminalStderr)
+	inst.Func("get-terminal-stderr", getTerminalStderr)
 
 	return inst.SkipValidation().Build()
 }
 
 // getTerminalStderr returns Some(terminal-output) if stderr is a terminal, None otherwise
-func getTerminalStderr(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func getTerminalStderr(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	config := component.WASIConfigFromContext(ctx)
 	if config == nil {
 		return []types.Val{types.ValOption(nil)}, nil

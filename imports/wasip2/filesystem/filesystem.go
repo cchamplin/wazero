@@ -1,5 +1,8 @@
 // Package filesystem implements the wasi:filesystem interfaces for WASI Preview 2.
 // It provides filesystem access through descriptors and preopened directories.
+// WIT source of truth: debug-vendored/WASI/proposals/filesystem/wit/types.wit
+// Package version: wasi:filesystem@0.2.9 (wazero targets wasi:filesystem@0.2.0)
+//
 package filesystem
 
 import (
@@ -171,49 +174,49 @@ func instantiateTypes(linker *component.Linker) error {
 	})
 
 	// descriptor methods
-	inst.FuncNoType("[method]descriptor.read-via-stream", descriptorReadViaStream)
-	inst.FuncNoType("[method]descriptor.write-via-stream", descriptorWriteViaStream)
-	inst.FuncNoType("[method]descriptor.append-via-stream", descriptorAppendViaStream)
-	inst.FuncNoType("[method]descriptor.advise", descriptorAdvise)
-	inst.FuncNoType("[method]descriptor.sync-data", descriptorSyncData)
-	inst.FuncNoType("[method]descriptor.get-flags", descriptorGetFlags)
-	inst.FuncNoType("[method]descriptor.get-type", descriptorGetType)
-	inst.FuncNoType("[method]descriptor.set-size", descriptorSetSize)
-	inst.FuncNoType("[method]descriptor.set-times", descriptorSetTimes)
-	inst.FuncNoType("[method]descriptor.read", descriptorRead)
-	inst.FuncNoType("[method]descriptor.write", descriptorWrite)
-	inst.FuncNoType("[method]descriptor.read-directory", descriptorReadDirectory)
-	inst.FuncNoType("[method]descriptor.sync", descriptorSync)
-	inst.FuncNoType("[method]descriptor.create-directory-at", descriptorCreateDirectoryAt)
-	inst.FuncNoType("[method]descriptor.stat", descriptorStat)
-	inst.FuncNoType("[method]descriptor.stat-at", descriptorStatAt)
-	inst.FuncNoType("[method]descriptor.set-times-at", descriptorSetTimesAt)
-	inst.FuncNoType("[method]descriptor.link-at", descriptorLinkAt)
-	inst.FuncNoType("[method]descriptor.open-at", descriptorOpenAt)
-	inst.FuncNoType("[method]descriptor.readlink-at", descriptorReadlinkAt)
-	inst.FuncNoType("[method]descriptor.remove-directory-at", descriptorRemoveDirectoryAt)
-	inst.FuncNoType("[method]descriptor.rename-at", descriptorRenameAt)
-	inst.FuncNoType("[method]descriptor.symlink-at", descriptorSymlinkAt)
-	inst.FuncNoType("[method]descriptor.unlink-file-at", descriptorUnlinkFileAt)
-	inst.FuncNoType("[method]descriptor.is-same-object", descriptorIsSameObject)
-	inst.FuncNoType("[method]descriptor.metadata-hash", descriptorMetadataHash)
-	inst.FuncNoType("[method]descriptor.metadata-hash-at", descriptorMetadataHashAt)
+	inst.Func("[method]descriptor.read-via-stream", descriptorReadViaStream)
+	inst.Func("[method]descriptor.write-via-stream", descriptorWriteViaStream)
+	inst.Func("[method]descriptor.append-via-stream", descriptorAppendViaStream)
+	inst.Func("[method]descriptor.advise", descriptorAdvise)
+	inst.Func("[method]descriptor.sync-data", descriptorSyncData)
+	inst.Func("[method]descriptor.get-flags", descriptorGetFlags)
+	inst.Func("[method]descriptor.get-type", descriptorGetType)
+	inst.Func("[method]descriptor.set-size", descriptorSetSize)
+	inst.Func("[method]descriptor.set-times", descriptorSetTimes)
+	inst.Func("[method]descriptor.read", descriptorRead)
+	inst.Func("[method]descriptor.write", descriptorWrite)
+	inst.Func("[method]descriptor.read-directory", descriptorReadDirectory)
+	inst.Func("[method]descriptor.sync", descriptorSync)
+	inst.Func("[method]descriptor.create-directory-at", descriptorCreateDirectoryAt)
+	inst.Func("[method]descriptor.stat", descriptorStat)
+	inst.Func("[method]descriptor.stat-at", descriptorStatAt)
+	inst.Func("[method]descriptor.set-times-at", descriptorSetTimesAt)
+	inst.Func("[method]descriptor.link-at", descriptorLinkAt)
+	inst.Func("[method]descriptor.open-at", descriptorOpenAt)
+	inst.Func("[method]descriptor.readlink-at", descriptorReadlinkAt)
+	inst.Func("[method]descriptor.remove-directory-at", descriptorRemoveDirectoryAt)
+	inst.Func("[method]descriptor.rename-at", descriptorRenameAt)
+	inst.Func("[method]descriptor.symlink-at", descriptorSymlinkAt)
+	inst.Func("[method]descriptor.unlink-file-at", descriptorUnlinkFileAt)
+	inst.Func("[method]descriptor.is-same-object", descriptorIsSameObject)
+	inst.Func("[method]descriptor.metadata-hash", descriptorMetadataHash)
+	inst.Func("[method]descriptor.metadata-hash-at", descriptorMetadataHashAt)
 
 	// filesystem-error-code function
-	inst.FuncNoType("filesystem-error-code", filesystemErrorCode)
+	inst.Func("filesystem-error-code", filesystemErrorCode)
 
 	// directory-entry-stream resource
 	inst.Resource("directory-entry-stream", func(rep uint32) {
 		// Destructor - release directory entry stream
 	})
-	inst.FuncNoType("[method]directory-entry-stream.read-directory-entry", directoryEntryStreamReadEntry)
+	inst.Func("[method]directory-entry-stream.read-directory-entry", directoryEntryStreamReadEntry)
 
 	return inst.SkipValidation().Build()
 }
 
 // descriptorReadViaStream returns an input-stream for reading from a descriptor at an offset.
 // Signature: func(self: borrow<descriptor>, offset: u64) -> result<own<input-stream>, error-code>
-func descriptorReadViaStream(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func descriptorReadViaStream(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	descHandle := args[0].Borrow()
 	offset := args[1].U64()
 
@@ -267,7 +270,7 @@ func descriptorReadViaStream(ctx context.Context, args []types.Val) ([]types.Val
 
 // descriptorWriteViaStream returns an output-stream for writing to a descriptor at an offset.
 // Signature: func(self: borrow<descriptor>, offset: u64) -> result<own<output-stream>, error-code>
-func descriptorWriteViaStream(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func descriptorWriteViaStream(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	descHandle := args[0].Borrow()
 	offset := args[1].U64()
 
@@ -321,7 +324,7 @@ func descriptorWriteViaStream(ctx context.Context, args []types.Val) ([]types.Va
 
 // descriptorAppendViaStream returns an output-stream for appending to a descriptor.
 // Signature: func(self: borrow<descriptor>) -> result<own<output-stream>, error-code>
-func descriptorAppendViaStream(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func descriptorAppendViaStream(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	descHandle := args[0].Borrow()
 
 	table := component.ResourceTableFromContext(ctx)
@@ -365,7 +368,7 @@ func descriptorAppendViaStream(ctx context.Context, args []types.Val) ([]types.V
 
 // descriptorAdvise provides advice about expected access patterns.
 // Signature: func(self: borrow<descriptor>, offset: u64, length: u64, advice: advice) -> result<_, error-code>
-func descriptorAdvise(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func descriptorAdvise(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	offset := args[1].U64()
 	length := args[2].U64()
@@ -389,7 +392,7 @@ func descriptorAdvise(ctx context.Context, args []types.Val) ([]types.Val, error
 
 // descriptorSyncData synchronizes file data to storage.
 // Signature: func(self: borrow<descriptor>) -> result<_, error-code>
-func descriptorSyncData(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func descriptorSyncData(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	desc, err := getDescriptor(ctx, handle)
@@ -407,7 +410,7 @@ func descriptorSyncData(ctx context.Context, args []types.Val) ([]types.Val, err
 
 // descriptorGetFlags returns the flags of a descriptor.
 // Signature: func(self: borrow<descriptor>) -> result<descriptor-flags, error-code>
-func descriptorGetFlags(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func descriptorGetFlags(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	desc, err := getDescriptor(ctx, handle)
@@ -430,7 +433,7 @@ func descriptorGetFlags(ctx context.Context, args []types.Val) ([]types.Val, err
 
 // descriptorGetType returns the type of a descriptor.
 // Signature: func(self: borrow<descriptor>) -> result<descriptor-type, error-code>
-func descriptorGetType(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func descriptorGetType(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	desc, err := getDescriptor(ctx, handle)
@@ -451,7 +454,7 @@ func descriptorGetType(ctx context.Context, args []types.Val) ([]types.Val, erro
 
 // descriptorSetSize sets the size of a file.
 // Signature: func(self: borrow<descriptor>, size: u64) -> result<_, error-code>
-func descriptorSetSize(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func descriptorSetSize(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	size := args[1].U64()
 
@@ -497,7 +500,7 @@ func parseNewTimestamp(v types.Val, fallback time.Time) time.Time {
 
 // descriptorSetTimes sets the access and modification times of a file.
 // Signature: func(self: borrow<descriptor>, access: new-timestamp, modification: new-timestamp) -> result<_, error-code>
-func descriptorSetTimes(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func descriptorSetTimes(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	accessTimeArg := args[1]
 	modTimeArg := args[2]
@@ -532,7 +535,7 @@ func descriptorSetTimes(ctx context.Context, args []types.Val) ([]types.Val, err
 
 // descriptorRead reads bytes from a file at an offset.
 // Signature: func(self: borrow<descriptor>, length: u64, offset: u64) -> result<tuple<list<u8>, bool>, error-code>
-func descriptorRead(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func descriptorRead(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	length := args[1].U64()
 	offset := args[2].U64()
@@ -579,7 +582,7 @@ func descriptorRead(ctx context.Context, args []types.Val) ([]types.Val, error) 
 
 // descriptorWrite writes bytes to a file at an offset.
 // Signature: func(self: borrow<descriptor>, buffer: list<u8>, offset: u64) -> result<u64, error-code>
-func descriptorWrite(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func descriptorWrite(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	buffer := args[1]
 	offset := args[2].U64()
@@ -615,7 +618,7 @@ func descriptorWrite(ctx context.Context, args []types.Val) ([]types.Val, error)
 
 // descriptorReadDirectory returns a directory entry stream for reading directory contents.
 // Signature: func(self: borrow<descriptor>) -> result<own<directory-entry-stream>, error-code>
-func descriptorReadDirectory(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func descriptorReadDirectory(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	desc, err := getDescriptor(ctx, handle)
@@ -669,7 +672,7 @@ func descriptorReadDirectory(ctx context.Context, args []types.Val) ([]types.Val
 
 // descriptorSync synchronizes file data and metadata to storage.
 // Signature: func(self: borrow<descriptor>) -> result<_, error-code>
-func descriptorSync(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func descriptorSync(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	desc, err := getDescriptor(ctx, handle)
@@ -687,7 +690,7 @@ func descriptorSync(ctx context.Context, args []types.Val) ([]types.Val, error) 
 
 // descriptorCreateDirectoryAt creates a directory relative to a descriptor.
 // Signature: func(self: borrow<descriptor>, path: string) -> result<_, error-code>
-func descriptorCreateDirectoryAt(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func descriptorCreateDirectoryAt(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	path := args[1].StringVal()
 
@@ -721,7 +724,7 @@ func descriptorCreateDirectoryAt(ctx context.Context, args []types.Val) ([]types
 
 // descriptorStat returns metadata about a descriptor.
 // Signature: func(self: borrow<descriptor>) -> result<descriptor-stat, error-code>
-func descriptorStat(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func descriptorStat(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	desc, err := getDescriptor(ctx, handle)
@@ -741,7 +744,7 @@ func descriptorStat(ctx context.Context, args []types.Val) ([]types.Val, error) 
 
 // descriptorStatAt returns metadata about a file relative to a descriptor.
 // Signature: func(self: borrow<descriptor>, path-flags: path-flags, path: string) -> result<descriptor-stat, error-code>
-func descriptorStatAt(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func descriptorStatAt(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	pathFlags := args[1].Flags()
 	path := args[2].StringVal()
@@ -787,7 +790,7 @@ func descriptorStatAt(ctx context.Context, args []types.Val) ([]types.Val, error
 
 // descriptorSetTimesAt sets the times of a file relative to a descriptor.
 // Signature: func(self: borrow<descriptor>, path-flags: path-flags, path: string, access: new-timestamp, modification: new-timestamp) -> result<_, error-code>
-func descriptorSetTimesAt(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func descriptorSetTimesAt(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	pathFlags := args[1].Flags()
 	pathStr := args[2].StringVal()
@@ -844,7 +847,7 @@ func descriptorSetTimesAt(ctx context.Context, args []types.Val) ([]types.Val, e
 
 // descriptorLinkAt creates a hard link relative to descriptors.
 // Signature: func(self: borrow<descriptor>, old-path-flags: path-flags, old-path: string, new-descriptor: borrow<descriptor>, new-path: string) -> result<_, error-code>
-func descriptorLinkAt(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func descriptorLinkAt(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	oldPathFlags := args[1].Flags()
 	oldPath := args[2].StringVal()
@@ -907,7 +910,7 @@ func descriptorLinkAt(ctx context.Context, args []types.Val) ([]types.Val, error
 
 // descriptorOpenAt opens a file relative to a descriptor.
 // Signature: func(self: borrow<descriptor>, path-flags: path-flags, path: string, open-flags: open-flags, descriptor-flags: descriptor-flags) -> result<own<descriptor>, error-code>
-func descriptorOpenAt(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func descriptorOpenAt(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	pathFlags := args[1].Flags()
 	path := args[2].StringVal()
@@ -1040,7 +1043,7 @@ func descriptorOpenAt(ctx context.Context, args []types.Val) ([]types.Val, error
 
 // descriptorReadlinkAt reads the target of a symbolic link.
 // Signature: func(self: borrow<descriptor>, path: string) -> result<string, error-code>
-func descriptorReadlinkAt(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func descriptorReadlinkAt(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	path := args[1].StringVal()
 
@@ -1076,7 +1079,7 @@ func descriptorReadlinkAt(ctx context.Context, args []types.Val) ([]types.Val, e
 
 // descriptorRemoveDirectoryAt removes a directory relative to a descriptor.
 // Signature: func(self: borrow<descriptor>, path: string) -> result<_, error-code>
-func descriptorRemoveDirectoryAt(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func descriptorRemoveDirectoryAt(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	path := args[1].StringVal()
 
@@ -1119,7 +1122,7 @@ func descriptorRemoveDirectoryAt(ctx context.Context, args []types.Val) ([]types
 
 // descriptorRenameAt renames a file or directory.
 // Signature: func(self: borrow<descriptor>, old-path: string, new-descriptor: borrow<descriptor>, new-path: string) -> result<_, error-code>
-func descriptorRenameAt(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func descriptorRenameAt(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	oldPath := args[1].StringVal()
 	newHandle := args[2].Borrow()
@@ -1167,7 +1170,7 @@ func descriptorRenameAt(ctx context.Context, args []types.Val) ([]types.Val, err
 
 // descriptorSymlinkAt creates a symbolic link.
 // Signature: func(self: borrow<descriptor>, old-path: string, new-path: string) -> result<_, error-code>
-func descriptorSymlinkAt(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func descriptorSymlinkAt(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	oldPath := args[1].StringVal() // target
 	newPath := args[2].StringVal() // link name
@@ -1202,7 +1205,7 @@ func descriptorSymlinkAt(ctx context.Context, args []types.Val) ([]types.Val, er
 
 // descriptorUnlinkFileAt removes a file.
 // Signature: func(self: borrow<descriptor>, path: string) -> result<_, error-code>
-func descriptorUnlinkFileAt(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func descriptorUnlinkFileAt(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	path := args[1].StringVal()
 
@@ -1245,7 +1248,7 @@ func descriptorUnlinkFileAt(ctx context.Context, args []types.Val) ([]types.Val,
 
 // descriptorIsSameObject compares two descriptors for identity using dev+ino via os.SameFile.
 // Signature: func(self: borrow<descriptor>, other: borrow<descriptor>) -> bool
-func descriptorIsSameObject(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func descriptorIsSameObject(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	selfHandle := args[0].Borrow()
 	otherHandle := args[1].Borrow()
 
@@ -1274,7 +1277,7 @@ func descriptorIsSameObject(ctx context.Context, args []types.Val) ([]types.Val,
 
 // descriptorMetadataHash returns a hash of file metadata.
 // Signature: func(self: borrow<descriptor>) -> result<metadata-hash-value, error-code>
-func descriptorMetadataHash(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func descriptorMetadataHash(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	desc, err := getDescriptor(ctx, handle)
@@ -1297,7 +1300,7 @@ func descriptorMetadataHash(ctx context.Context, args []types.Val) ([]types.Val,
 
 // descriptorMetadataHashAt returns a hash of file metadata for a path.
 // Signature: func(self: borrow<descriptor>, path-flags: path-flags, path: string) -> result<metadata-hash-value, error-code>
-func descriptorMetadataHashAt(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func descriptorMetadataHashAt(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	pathFlags := args[1].Flags()
 	pathStr := args[2].StringVal()
@@ -1355,7 +1358,7 @@ func computeMetadataHashFallback(info os.FileInfo) (uint64, uint64) {
 
 // filesystemErrorCode converts an error to a filesystem error code.
 // Signature: func(err: borrow<error>) -> option<error-code>
-func filesystemErrorCode(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func filesystemErrorCode(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	table := component.ResourceTableFromContext(ctx)
@@ -1389,7 +1392,7 @@ func filesystemErrorCode(ctx context.Context, args []types.Val) ([]types.Val, er
 
 // directoryEntryStreamReadEntry reads the next entry from a directory stream.
 // Signature: func(self: borrow<directory-entry-stream>) -> result<option<directory-entry>, error-code>
-func directoryEntryStreamReadEntry(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func directoryEntryStreamReadEntry(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	stream, err := getDirEntryStream(ctx, handle)

@@ -1,5 +1,8 @@
 // imports/wasip2/http/outgoing.go
 
+// WIT source of truth: debug-vendored/WASI/proposals/http/wit/{types,handler,proxy}.wit
+// Package version: wasi:http@0.2.9 (wazero targets wasi:http@0.2.0)
+//
 package http
 
 import (
@@ -21,7 +24,7 @@ func instantiateOutgoingHandler(linker *component.Linker) error {
 	inst := linker.DefineInstance("wasi:http/outgoing-handler@0.2.0")
 
 	// handle: func(request: own<outgoing-request>, options: option<own<request-options>>) -> result<own<future-incoming-response>, error-code>
-	inst.FuncNoType("handle", outgoingHandlerHandle)
+	inst.Func("handle", outgoingHandlerHandle)
 
 	return inst.SkipValidation().Build()
 }
@@ -33,7 +36,7 @@ func errorCodeToVariant(code ErrorCode) types.Val {
 
 // outgoingHandlerHandle sends an HTTP request and returns a future response.
 // Signature: func(request: own<outgoing-request>, options: option<own<request-options>>) -> result<own<future-incoming-response>, error-code>
-func outgoingHandlerHandle(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func outgoingHandlerHandle(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	table := component.ResourceTableFromContext(ctx)
 	if table == nil {
 		// No resource table, fall back to placeholder behavior

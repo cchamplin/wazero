@@ -1,5 +1,8 @@
 // imports/wasip2/io/error.go
 
+// WIT source of truth: debug-vendored/WASI/proposals/io/wit/error.wit
+// Package version: wasi:io@0.2.9 (wazero targets wasi:io@0.2.0)
+//
 package io
 
 import (
@@ -127,13 +130,13 @@ func instantiateError(linker *component.Linker) error {
 	})
 
 	// [method]error.to-debug-string: func(self: borrow<error>) -> string
-	inst.FuncNoType("[method]error.to-debug-string", errorToDebugString)
+	inst.Func("[method]error.to-debug-string", errorToDebugString)
 
 	return inst.SkipValidation().Build()
 }
 
 // errorToDebugString implements [method]error.to-debug-string
-func errorToDebugString(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func errorToDebugString(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	table := component.ResourceTableFromContext(ctx)
 	if table == nil {
 		return []types.Val{types.ValString("no resource table")}, nil

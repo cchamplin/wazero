@@ -1,5 +1,8 @@
 // imports/wasip2/random/insecure.go
 
+// WIT source of truth: debug-vendored/WASI/proposals/random/wit/insecure.wit, insecure-seed.wit
+// Package version: wasi:random@0.2.9 (wazero targets wasi:random@0.2.0)
+//
 package random
 
 import (
@@ -67,8 +70,8 @@ func InsecureSeed() (uint64, uint64) {
 func instantiateInsecure(linker *component.Linker) error {
 	inst := linker.DefineInstance("wasi:random/insecure@0.2.0")
 
-	inst.FuncNoType("get-insecure-random-bytes", getInsecureRandomBytes)
-	inst.FuncNoType("get-insecure-random-u64", getInsecureRandomU64)
+	inst.Func("get-insecure-random-bytes", getInsecureRandomBytes)
+	inst.Func("get-insecure-random-u64", getInsecureRandomU64)
 
 	return inst.SkipValidation().Build()
 }
@@ -76,12 +79,12 @@ func instantiateInsecure(linker *component.Linker) error {
 func instantiateInsecureSeed(linker *component.Linker) error {
 	inst := linker.DefineInstance("wasi:random/insecure-seed@0.2.0")
 
-	inst.FuncNoType("insecure-seed", insecureSeedFunc)
+	inst.Func("insecure-seed", insecureSeedFunc)
 
 	return inst.SkipValidation().Build()
 }
 
-func getInsecureRandomBytes(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func getInsecureRandomBytes(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	length := args[0].U64()
 	bytes := GetInsecureRandomBytes(length)
 
@@ -92,11 +95,11 @@ func getInsecureRandomBytes(ctx context.Context, args []types.Val) ([]types.Val,
 	return []types.Val{types.ValList(vals)}, nil
 }
 
-func getInsecureRandomU64(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func getInsecureRandomU64(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	return []types.Val{types.ValU64(GetInsecureRandomU64())}, nil
 }
 
-func insecureSeedFunc(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func insecureSeedFunc(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	s1, s2 := InsecureSeed()
 	return []types.Val{types.ValTuple([]types.Val{
 		types.ValU64(s1),

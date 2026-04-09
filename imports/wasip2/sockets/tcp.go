@@ -1,5 +1,8 @@
 // imports/wasip2/sockets/tcp.go
 
+// WIT source of truth: debug-vendored/WASI/proposals/sockets/wit/{tcp,tcp-create-socket}.wit
+// Package version: wasi:sockets@0.2.9 (wazero targets wasi:sockets@0.2.0)
+//
 package sockets
 
 import (
@@ -22,40 +25,40 @@ func instantiateTcp(linker *component.Linker) error {
 	})
 
 	// Connection establishment methods
-	inst.FuncNoType("[method]tcp-socket.start-bind", tcpSocketStartBind)
-	inst.FuncNoType("[method]tcp-socket.finish-bind", tcpSocketFinishBind)
-	inst.FuncNoType("[method]tcp-socket.start-connect", tcpSocketStartConnect)
-	inst.FuncNoType("[method]tcp-socket.finish-connect", tcpSocketFinishConnect)
-	inst.FuncNoType("[method]tcp-socket.start-listen", tcpSocketStartListen)
-	inst.FuncNoType("[method]tcp-socket.finish-listen", tcpSocketFinishListen)
-	inst.FuncNoType("[method]tcp-socket.accept", tcpSocketAccept)
+	inst.Func("[method]tcp-socket.start-bind", tcpSocketStartBind)
+	inst.Func("[method]tcp-socket.finish-bind", tcpSocketFinishBind)
+	inst.Func("[method]tcp-socket.start-connect", tcpSocketStartConnect)
+	inst.Func("[method]tcp-socket.finish-connect", tcpSocketFinishConnect)
+	inst.Func("[method]tcp-socket.start-listen", tcpSocketStartListen)
+	inst.Func("[method]tcp-socket.finish-listen", tcpSocketFinishListen)
+	inst.Func("[method]tcp-socket.accept", tcpSocketAccept)
 
 	// Address methods
-	inst.FuncNoType("[method]tcp-socket.local-address", tcpSocketLocalAddress)
-	inst.FuncNoType("[method]tcp-socket.remote-address", tcpSocketRemoteAddress)
-	inst.FuncNoType("[method]tcp-socket.is-listening", tcpSocketIsListening)
-	inst.FuncNoType("[method]tcp-socket.address-family", tcpSocketAddressFamily)
+	inst.Func("[method]tcp-socket.local-address", tcpSocketLocalAddress)
+	inst.Func("[method]tcp-socket.remote-address", tcpSocketRemoteAddress)
+	inst.Func("[method]tcp-socket.is-listening", tcpSocketIsListening)
+	inst.Func("[method]tcp-socket.address-family", tcpSocketAddressFamily)
 
 	// Socket option methods
-	inst.FuncNoType("[method]tcp-socket.set-listen-backlog-size", tcpSocketSetListenBacklogSize)
-	inst.FuncNoType("[method]tcp-socket.keep-alive-enabled", tcpSocketKeepAliveEnabled)
-	inst.FuncNoType("[method]tcp-socket.set-keep-alive-enabled", tcpSocketSetKeepAliveEnabled)
-	inst.FuncNoType("[method]tcp-socket.keep-alive-idle-time", tcpSocketKeepAliveIdleTime)
-	inst.FuncNoType("[method]tcp-socket.set-keep-alive-idle-time", tcpSocketSetKeepAliveIdleTime)
-	inst.FuncNoType("[method]tcp-socket.keep-alive-interval", tcpSocketKeepAliveInterval)
-	inst.FuncNoType("[method]tcp-socket.set-keep-alive-interval", tcpSocketSetKeepAliveInterval)
-	inst.FuncNoType("[method]tcp-socket.keep-alive-count", tcpSocketKeepAliveCount)
-	inst.FuncNoType("[method]tcp-socket.set-keep-alive-count", tcpSocketSetKeepAliveCount)
-	inst.FuncNoType("[method]tcp-socket.hop-limit", tcpSocketHopLimit)
-	inst.FuncNoType("[method]tcp-socket.set-hop-limit", tcpSocketSetHopLimit)
-	inst.FuncNoType("[method]tcp-socket.receive-buffer-size", tcpSocketReceiveBufferSize)
-	inst.FuncNoType("[method]tcp-socket.set-receive-buffer-size", tcpSocketSetReceiveBufferSize)
-	inst.FuncNoType("[method]tcp-socket.send-buffer-size", tcpSocketSendBufferSize)
-	inst.FuncNoType("[method]tcp-socket.set-send-buffer-size", tcpSocketSetSendBufferSize)
+	inst.Func("[method]tcp-socket.set-listen-backlog-size", tcpSocketSetListenBacklogSize)
+	inst.Func("[method]tcp-socket.keep-alive-enabled", tcpSocketKeepAliveEnabled)
+	inst.Func("[method]tcp-socket.set-keep-alive-enabled", tcpSocketSetKeepAliveEnabled)
+	inst.Func("[method]tcp-socket.keep-alive-idle-time", tcpSocketKeepAliveIdleTime)
+	inst.Func("[method]tcp-socket.set-keep-alive-idle-time", tcpSocketSetKeepAliveIdleTime)
+	inst.Func("[method]tcp-socket.keep-alive-interval", tcpSocketKeepAliveInterval)
+	inst.Func("[method]tcp-socket.set-keep-alive-interval", tcpSocketSetKeepAliveInterval)
+	inst.Func("[method]tcp-socket.keep-alive-count", tcpSocketKeepAliveCount)
+	inst.Func("[method]tcp-socket.set-keep-alive-count", tcpSocketSetKeepAliveCount)
+	inst.Func("[method]tcp-socket.hop-limit", tcpSocketHopLimit)
+	inst.Func("[method]tcp-socket.set-hop-limit", tcpSocketSetHopLimit)
+	inst.Func("[method]tcp-socket.receive-buffer-size", tcpSocketReceiveBufferSize)
+	inst.Func("[method]tcp-socket.set-receive-buffer-size", tcpSocketSetReceiveBufferSize)
+	inst.Func("[method]tcp-socket.send-buffer-size", tcpSocketSendBufferSize)
+	inst.Func("[method]tcp-socket.set-send-buffer-size", tcpSocketSetSendBufferSize)
 
 	// Async and lifecycle methods
-	inst.FuncNoType("[method]tcp-socket.subscribe", tcpSocketSubscribe)
-	inst.FuncNoType("[method]tcp-socket.shutdown", tcpSocketShutdown)
+	inst.Func("[method]tcp-socket.subscribe", tcpSocketSubscribe)
+	inst.Func("[method]tcp-socket.shutdown", tcpSocketShutdown)
 
 	return inst.SkipValidation().Build()
 }
@@ -65,14 +68,14 @@ func instantiateTcpCreateSocket(linker *component.Linker) error {
 	inst := linker.DefineInstance("wasi:sockets/tcp-create-socket@0.2.0")
 
 	// create-tcp-socket: func(network: borrow<network>, address-family: ip-address-family) -> result<own<tcp-socket>, error-code>
-	inst.FuncNoType("create-tcp-socket", createTcpSocket)
+	inst.Func("create-tcp-socket", createTcpSocket)
 
 	return inst.SkipValidation().Build()
 }
 
 // createTcpSocket creates a new TCP socket.
 // Signature: func(network: borrow<network>, address-family: ip-address-family) -> result<own<tcp-socket>, error-code>
-func createTcpSocket(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func createTcpSocket(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	// args[0] = borrow<network> (ignored for now)
 	// args[1] = ip-address-family enum
 	family := parseAddressFamily(args[1])
@@ -99,7 +102,7 @@ func createTcpSocket(ctx context.Context, args []types.Val) ([]types.Val, error)
 
 // tcpSocketStartBind begins the bind operation.
 // Signature: func(self: borrow<tcp-socket>, network: borrow<network>, local-address: ip-socket-address) -> result<_, error-code>
-func tcpSocketStartBind(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func tcpSocketStartBind(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	// args[1] = borrow<network> (ignored)
 	localAddrVal := args[2]
@@ -130,7 +133,7 @@ func tcpSocketStartBind(ctx context.Context, args []types.Val) ([]types.Val, err
 
 // tcpSocketFinishBind completes the bind operation.
 // Signature: func(self: borrow<tcp-socket>) -> result<_, error-code>
-func tcpSocketFinishBind(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func tcpSocketFinishBind(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	sock, err := getTcpSocket(ctx, handle)
@@ -167,7 +170,7 @@ func tcpSocketFinishBind(ctx context.Context, args []types.Val) ([]types.Val, er
 
 // tcpSocketStartConnect begins the connect operation.
 // Signature: func(self: borrow<tcp-socket>, network: borrow<network>, remote-address: ip-socket-address) -> result<_, error-code>
-func tcpSocketStartConnect(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func tcpSocketStartConnect(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	// args[1] = borrow<network> (ignored)
 	remoteAddrVal := args[2]
@@ -198,7 +201,7 @@ func tcpSocketStartConnect(ctx context.Context, args []types.Val) ([]types.Val, 
 
 // tcpSocketFinishConnect completes the connect operation.
 // Signature: func(self: borrow<tcp-socket>) -> result<tuple<own<input-stream>, own<output-stream>>, error-code>
-func tcpSocketFinishConnect(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func tcpSocketFinishConnect(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	sock, err := getTcpSocket(ctx, handle)
@@ -287,7 +290,7 @@ func tcpSocketFinishConnect(ctx context.Context, args []types.Val) ([]types.Val,
 
 // tcpSocketStartListen begins the listen operation.
 // Signature: func(self: borrow<tcp-socket>) -> result<_, error-code>
-func tcpSocketStartListen(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func tcpSocketStartListen(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	sock, err := getTcpSocket(ctx, handle)
@@ -308,7 +311,7 @@ func tcpSocketStartListen(ctx context.Context, args []types.Val) ([]types.Val, e
 
 // tcpSocketFinishListen completes the listen operation.
 // Signature: func(self: borrow<tcp-socket>) -> result<_, error-code>
-func tcpSocketFinishListen(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func tcpSocketFinishListen(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	sock, err := getTcpSocket(ctx, handle)
@@ -335,7 +338,7 @@ func tcpSocketFinishListen(ctx context.Context, args []types.Val) ([]types.Val, 
 
 // tcpSocketAccept accepts a new connection.
 // Signature: func(self: borrow<tcp-socket>) -> result<tuple<own<tcp-socket>, own<input-stream>, own<output-stream>>, error-code>
-func tcpSocketAccept(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func tcpSocketAccept(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	sock, err := getTcpSocket(ctx, handle)
@@ -410,7 +413,7 @@ func tcpSocketAccept(ctx context.Context, args []types.Val) ([]types.Val, error)
 
 // tcpSocketLocalAddress returns the local address.
 // Signature: func(self: borrow<tcp-socket>) -> result<ip-socket-address, error-code>
-func tcpSocketLocalAddress(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func tcpSocketLocalAddress(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	sock, err := getTcpSocket(ctx, handle)
@@ -430,7 +433,7 @@ func tcpSocketLocalAddress(ctx context.Context, args []types.Val) ([]types.Val, 
 
 // tcpSocketRemoteAddress returns the remote address.
 // Signature: func(self: borrow<tcp-socket>) -> result<ip-socket-address, error-code>
-func tcpSocketRemoteAddress(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func tcpSocketRemoteAddress(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	sock, err := getTcpSocket(ctx, handle)
@@ -450,7 +453,7 @@ func tcpSocketRemoteAddress(ctx context.Context, args []types.Val) ([]types.Val,
 
 // tcpSocketIsListening returns whether the socket is listening.
 // Signature: func(self: borrow<tcp-socket>) -> bool
-func tcpSocketIsListening(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func tcpSocketIsListening(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	sock, err := getTcpSocket(ctx, handle)
@@ -463,7 +466,7 @@ func tcpSocketIsListening(ctx context.Context, args []types.Val) ([]types.Val, e
 
 // tcpSocketAddressFamily returns the address family.
 // Signature: func(self: borrow<tcp-socket>) -> ip-address-family
-func tcpSocketAddressFamily(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func tcpSocketAddressFamily(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	sock, err := getTcpSocket(ctx, handle)
@@ -476,7 +479,7 @@ func tcpSocketAddressFamily(ctx context.Context, args []types.Val) ([]types.Val,
 
 // tcpSocketSetListenBacklogSize sets the listen backlog size.
 // Signature: func(self: borrow<tcp-socket>, value: u64) -> result<_, error-code>
-func tcpSocketSetListenBacklogSize(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func tcpSocketSetListenBacklogSize(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	value := args[1].U64()
 
@@ -491,7 +494,7 @@ func tcpSocketSetListenBacklogSize(ctx context.Context, args []types.Val) ([]typ
 
 // tcpSocketKeepAliveEnabled returns whether keep-alive is enabled.
 // Signature: func(self: borrow<tcp-socket>) -> result<bool, error-code>
-func tcpSocketKeepAliveEnabled(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func tcpSocketKeepAliveEnabled(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	sock, err := getTcpSocket(ctx, handle)
@@ -506,7 +509,7 @@ func tcpSocketKeepAliveEnabled(ctx context.Context, args []types.Val) ([]types.V
 
 // tcpSocketSetKeepAliveEnabled sets whether keep-alive is enabled.
 // Signature: func(self: borrow<tcp-socket>, value: bool) -> result<_, error-code>
-func tcpSocketSetKeepAliveEnabled(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func tcpSocketSetKeepAliveEnabled(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	value := args[1].Bool()
 
@@ -524,7 +527,7 @@ func tcpSocketSetKeepAliveEnabled(ctx context.Context, args []types.Val) ([]type
 
 // tcpSocketKeepAliveIdleTime returns the keep-alive idle time.
 // Signature: func(self: borrow<tcp-socket>) -> result<duration, error-code>
-func tcpSocketKeepAliveIdleTime(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func tcpSocketKeepAliveIdleTime(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	sock, err := getTcpSocket(ctx, handle)
@@ -540,7 +543,7 @@ func tcpSocketKeepAliveIdleTime(ctx context.Context, args []types.Val) ([]types.
 
 // tcpSocketSetKeepAliveIdleTime sets the keep-alive idle time.
 // Signature: func(self: borrow<tcp-socket>, value: duration) -> result<_, error-code>
-func tcpSocketSetKeepAliveIdleTime(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func tcpSocketSetKeepAliveIdleTime(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	value := args[1].U64() // nanoseconds
 
@@ -556,7 +559,7 @@ func tcpSocketSetKeepAliveIdleTime(ctx context.Context, args []types.Val) ([]typ
 
 // tcpSocketKeepAliveInterval returns the keep-alive interval.
 // Signature: func(self: borrow<tcp-socket>) -> result<duration, error-code>
-func tcpSocketKeepAliveInterval(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func tcpSocketKeepAliveInterval(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	sock, err := getTcpSocket(ctx, handle)
@@ -572,7 +575,7 @@ func tcpSocketKeepAliveInterval(ctx context.Context, args []types.Val) ([]types.
 
 // tcpSocketSetKeepAliveInterval sets the keep-alive interval.
 // Signature: func(self: borrow<tcp-socket>, value: duration) -> result<_, error-code>
-func tcpSocketSetKeepAliveInterval(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func tcpSocketSetKeepAliveInterval(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	value := args[1].U64() // nanoseconds
 
@@ -588,7 +591,7 @@ func tcpSocketSetKeepAliveInterval(ctx context.Context, args []types.Val) ([]typ
 
 // tcpSocketKeepAliveCount returns the keep-alive count.
 // Signature: func(self: borrow<tcp-socket>) -> result<u32, error-code>
-func tcpSocketKeepAliveCount(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func tcpSocketKeepAliveCount(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	sock, err := getTcpSocket(ctx, handle)
@@ -603,7 +606,7 @@ func tcpSocketKeepAliveCount(ctx context.Context, args []types.Val) ([]types.Val
 
 // tcpSocketSetKeepAliveCount sets the keep-alive count.
 // Signature: func(self: borrow<tcp-socket>, value: u32) -> result<_, error-code>
-func tcpSocketSetKeepAliveCount(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func tcpSocketSetKeepAliveCount(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	value := args[1].U32()
 
@@ -618,7 +621,7 @@ func tcpSocketSetKeepAliveCount(ctx context.Context, args []types.Val) ([]types.
 
 // tcpSocketHopLimit returns the hop limit (TTL).
 // Signature: func(self: borrow<tcp-socket>) -> result<u8, error-code>
-func tcpSocketHopLimit(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func tcpSocketHopLimit(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	sock, err := getTcpSocket(ctx, handle)
@@ -633,7 +636,7 @@ func tcpSocketHopLimit(ctx context.Context, args []types.Val) ([]types.Val, erro
 
 // tcpSocketSetHopLimit sets the hop limit (TTL).
 // Signature: func(self: borrow<tcp-socket>, value: u8) -> result<_, error-code>
-func tcpSocketSetHopLimit(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func tcpSocketSetHopLimit(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	value := args[1].U8()
 
@@ -648,7 +651,7 @@ func tcpSocketSetHopLimit(ctx context.Context, args []types.Val) ([]types.Val, e
 
 // tcpSocketReceiveBufferSize returns the receive buffer size.
 // Signature: func(self: borrow<tcp-socket>) -> result<u64, error-code>
-func tcpSocketReceiveBufferSize(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func tcpSocketReceiveBufferSize(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	sock, err := getTcpSocket(ctx, handle)
@@ -663,7 +666,7 @@ func tcpSocketReceiveBufferSize(ctx context.Context, args []types.Val) ([]types.
 
 // tcpSocketSetReceiveBufferSize sets the receive buffer size.
 // Signature: func(self: borrow<tcp-socket>, value: u64) -> result<_, error-code>
-func tcpSocketSetReceiveBufferSize(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func tcpSocketSetReceiveBufferSize(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	value := args[1].U64()
 
@@ -681,7 +684,7 @@ func tcpSocketSetReceiveBufferSize(ctx context.Context, args []types.Val) ([]typ
 
 // tcpSocketSendBufferSize returns the send buffer size.
 // Signature: func(self: borrow<tcp-socket>) -> result<u64, error-code>
-func tcpSocketSendBufferSize(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func tcpSocketSendBufferSize(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	sock, err := getTcpSocket(ctx, handle)
@@ -696,7 +699,7 @@ func tcpSocketSendBufferSize(ctx context.Context, args []types.Val) ([]types.Val
 
 // tcpSocketSetSendBufferSize sets the send buffer size.
 // Signature: func(self: borrow<tcp-socket>, value: u64) -> result<_, error-code>
-func tcpSocketSetSendBufferSize(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func tcpSocketSetSendBufferSize(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	value := args[1].U64()
 
@@ -714,7 +717,7 @@ func tcpSocketSetSendBufferSize(ctx context.Context, args []types.Val) ([]types.
 
 // tcpSocketSubscribe returns a pollable for the socket.
 // Signature: func(self: borrow<tcp-socket>) -> own<pollable>
-func tcpSocketSubscribe(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func tcpSocketSubscribe(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	table := component.ResourceTableFromContext(ctx)
 	if table == nil {
 		return []types.Val{types.ValOwn(0)}, nil
@@ -732,7 +735,7 @@ func tcpSocketSubscribe(ctx context.Context, args []types.Val) ([]types.Val, err
 
 // tcpSocketShutdown shuts down the socket.
 // Signature: func(self: borrow<tcp-socket>, shutdown-type: shutdown-type) -> result<_, error-code>
-func tcpSocketShutdown(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func tcpSocketShutdown(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	shutdownType := args[1].Enum()
 

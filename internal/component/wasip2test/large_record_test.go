@@ -48,7 +48,7 @@ func TestLargeRecordPlugin_RetptrLifting(t *testing.T) {
 
 	// host-data import - returns coordinates {x: 10, y: 20, z: 30}
 	err = hostLinker.DefineInstance("test:large-record/host-data").
-		FuncNoType("get-position", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		Func("get-position", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 			rec := map[string]types.Val{
 				"x": types.ValS32(10),
 				"y": types.ValS32(20),

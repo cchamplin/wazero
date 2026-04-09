@@ -1,5 +1,8 @@
 // imports/wasip2/io/poll.go
 
+// WIT source of truth: debug-vendored/WASI/proposals/io/wit/poll.wit
+// Package version: wasi:io@0.2.9 (wazero targets wasi:io@0.2.0)
+//
 package io
 
 import (
@@ -164,18 +167,18 @@ func instantiatePoll(linker *component.Linker) error {
 	})
 
 	// [method]pollable.ready: func() -> bool
-	inst.FuncNoType("[method]pollable.ready", pollableReady)
+	inst.Func("[method]pollable.ready", pollableReady)
 
 	// [method]pollable.block: func()
-	inst.FuncNoType("[method]pollable.block", pollableBlock)
+	inst.Func("[method]pollable.block", pollableBlock)
 
 	// poll: func(in: list<borrow<pollable>>) -> list<u32>
-	inst.FuncNoType("poll", pollPoll)
+	inst.Func("poll", pollPoll)
 
 	return inst.SkipValidation().Build()
 }
 
-func pollableReady(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func pollableReady(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	pollable, err := getPollable(ctx, handle)
@@ -186,7 +189,7 @@ func pollableReady(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	return []types.Val{types.ValBool(pollable.Ready())}, nil
 }
 
-func pollableBlock(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func pollableBlock(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	pollable, err := getPollable(ctx, handle)
@@ -198,7 +201,7 @@ func pollableBlock(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	return nil, nil
 }
 
-func pollPoll(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func pollPoll(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	// args[0] is list<borrow<pollable>>
 	handles := args[0].List()
 

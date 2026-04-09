@@ -56,7 +56,7 @@ func newBenchInstance(b *testing.B) (api.Component, context.Context, func()) {
 	_ = builder.Build()
 
 	_ = linker.DefineInstance("test:repro/host-rng").SkipValidation().
-		Func("get-random-bytes", apicomponent.HostFunc(func(ctx context.Context, args []apicomponent.Val) ([]apicomponent.Val, error) {
+		Func("get-random-bytes", apicomponent.HostFunc(func(ctx context.Context, _ *apicomponent.TypeFunc, args []apicomponent.Val) ([]apicomponent.Val, error) {
 			return []apicomponent.Val{apicomponent.ValList(nil)}, nil
 		})).
 		Build()

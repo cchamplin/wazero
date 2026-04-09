@@ -219,7 +219,7 @@ func instanceToDefinition(inst *Instance) *InstanceDef {
 			exportedFn := fn
 			exports[name] = &FuncDef{
 				Type: fn.funcType,
-				Callback: func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+				Callback: func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 					return exportedFn.Call(ctx, args...)
 				},
 			}

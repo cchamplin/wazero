@@ -536,7 +536,7 @@ func TestResourceLifecycle_ResourceConstructorCallback(t *testing.T) {
 	ctx = component.WithResourceTable(ctx, table)
 
 	// Simulate a host resource constructor
-	constructor := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+	constructor := func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 		mu.Lock()
 		constructorCalls = append(constructorCalls, "constructor")
 		mu.Unlock()
@@ -577,7 +577,7 @@ func TestResourceLifecycle_ResourceConstructorCallback(t *testing.T) {
 
 	// Note: The constructor would typically be defined on a separate interface
 	// For this test, we call it directly
-	result, err := constructor(ctx, []types.Val{})
+	result, err := constructor(ctx, nil, []types.Val{})
 	if err != nil {
 		t.Fatalf("Constructor failed: %v", err)
 	}
@@ -636,7 +636,7 @@ func TestResourceLifecycle_ResourceMethodCallback(t *testing.T) {
 	}
 
 	// Simulate a resource method: [method]store.set(key: string, value: string)
-	setMethod := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+	setMethod := func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 		// First arg is borrow handle
 		borrowHandle := args[0].Borrow()
 
@@ -671,7 +671,7 @@ func TestResourceLifecycle_ResourceMethodCallback(t *testing.T) {
 	}
 
 	// Simulate a resource method: [method]store.get(key: string) -> option<string>
-	getMethod := func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+	getMethod := func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 		borrowHandle := args[0].Borrow()
 
 		rt := component.ResourceTableFromContext(ctx)
@@ -699,7 +699,7 @@ func TestResourceLifecycle_ResourceMethodCallback(t *testing.T) {
 	}
 
 	// Call set method
-	_, err := setMethod(ctx, []types.Val{
+	_, err := setMethod(ctx, nil, []types.Val{
 		types.ValBorrow(uint32(handle)),
 		types.ValString("greeting"),
 		types.ValString("hello"),
@@ -709,7 +709,7 @@ func TestResourceLifecycle_ResourceMethodCallback(t *testing.T) {
 	}
 
 	// Call get method
-	result, err := getMethod(ctx, []types.Val{
+	result, err := getMethod(ctx, nil, []types.Val{
 		types.ValBorrow(uint32(handle)),
 		types.ValString("greeting"),
 	})
@@ -725,7 +725,7 @@ func TestResourceLifecycle_ResourceMethodCallback(t *testing.T) {
 	}
 
 	// Test get for non-existent key
-	result, err = getMethod(ctx, []types.Val{
+	result, err = getMethod(ctx, nil, []types.Val{
 		types.ValBorrow(uint32(handle)),
 		types.ValString("nonexistent"),
 	})

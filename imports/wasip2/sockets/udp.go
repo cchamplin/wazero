@@ -1,5 +1,8 @@
 // imports/wasip2/sockets/udp.go
 
+// WIT source of truth: debug-vendored/WASI/proposals/sockets/wit/{udp,udp-create-socket}.wit
+// Package version: wasi:sockets@0.2.9 (wazero targets wasi:sockets@0.2.0)
+//
 package sockets
 
 import (
@@ -32,28 +35,28 @@ func instantiateUdp(linker *component.Linker) error {
 	})
 
 	// UDP socket methods
-	inst.FuncNoType("[method]udp-socket.start-bind", udpSocketStartBind)
-	inst.FuncNoType("[method]udp-socket.finish-bind", udpSocketFinishBind)
-	inst.FuncNoType("[method]udp-socket.stream", udpSocketStream)
-	inst.FuncNoType("[method]udp-socket.local-address", udpSocketLocalAddress)
-	inst.FuncNoType("[method]udp-socket.remote-address", udpSocketRemoteAddress)
-	inst.FuncNoType("[method]udp-socket.address-family", udpSocketAddressFamily)
-	inst.FuncNoType("[method]udp-socket.unicast-hop-limit", udpSocketUnicastHopLimit)
-	inst.FuncNoType("[method]udp-socket.set-unicast-hop-limit", udpSocketSetUnicastHopLimit)
-	inst.FuncNoType("[method]udp-socket.receive-buffer-size", udpSocketReceiveBufferSize)
-	inst.FuncNoType("[method]udp-socket.set-receive-buffer-size", udpSocketSetReceiveBufferSize)
-	inst.FuncNoType("[method]udp-socket.send-buffer-size", udpSocketSendBufferSize)
-	inst.FuncNoType("[method]udp-socket.set-send-buffer-size", udpSocketSetSendBufferSize)
-	inst.FuncNoType("[method]udp-socket.subscribe", udpSocketSubscribe)
+	inst.Func("[method]udp-socket.start-bind", udpSocketStartBind)
+	inst.Func("[method]udp-socket.finish-bind", udpSocketFinishBind)
+	inst.Func("[method]udp-socket.stream", udpSocketStream)
+	inst.Func("[method]udp-socket.local-address", udpSocketLocalAddress)
+	inst.Func("[method]udp-socket.remote-address", udpSocketRemoteAddress)
+	inst.Func("[method]udp-socket.address-family", udpSocketAddressFamily)
+	inst.Func("[method]udp-socket.unicast-hop-limit", udpSocketUnicastHopLimit)
+	inst.Func("[method]udp-socket.set-unicast-hop-limit", udpSocketSetUnicastHopLimit)
+	inst.Func("[method]udp-socket.receive-buffer-size", udpSocketReceiveBufferSize)
+	inst.Func("[method]udp-socket.set-receive-buffer-size", udpSocketSetReceiveBufferSize)
+	inst.Func("[method]udp-socket.send-buffer-size", udpSocketSendBufferSize)
+	inst.Func("[method]udp-socket.set-send-buffer-size", udpSocketSetSendBufferSize)
+	inst.Func("[method]udp-socket.subscribe", udpSocketSubscribe)
 
 	// Incoming datagram stream methods
-	inst.FuncNoType("[method]incoming-datagram-stream.receive", incomingDatagramStreamReceive)
-	inst.FuncNoType("[method]incoming-datagram-stream.subscribe", incomingDatagramStreamSubscribe)
+	inst.Func("[method]incoming-datagram-stream.receive", incomingDatagramStreamReceive)
+	inst.Func("[method]incoming-datagram-stream.subscribe", incomingDatagramStreamSubscribe)
 
 	// Outgoing datagram stream methods
-	inst.FuncNoType("[method]outgoing-datagram-stream.check-send", outgoingDatagramStreamCheckSend)
-	inst.FuncNoType("[method]outgoing-datagram-stream.send", outgoingDatagramStreamSend)
-	inst.FuncNoType("[method]outgoing-datagram-stream.subscribe", outgoingDatagramStreamSubscribe)
+	inst.Func("[method]outgoing-datagram-stream.check-send", outgoingDatagramStreamCheckSend)
+	inst.Func("[method]outgoing-datagram-stream.send", outgoingDatagramStreamSend)
+	inst.Func("[method]outgoing-datagram-stream.subscribe", outgoingDatagramStreamSubscribe)
 
 	return inst.SkipValidation().Build()
 }
@@ -63,14 +66,14 @@ func instantiateUdpCreateSocket(linker *component.Linker) error {
 	inst := linker.DefineInstance("wasi:sockets/udp-create-socket@0.2.0")
 
 	// create-udp-socket: func(network: borrow<network>, address-family: ip-address-family) -> result<own<udp-socket>, error-code>
-	inst.FuncNoType("create-udp-socket", createUdpSocket)
+	inst.Func("create-udp-socket", createUdpSocket)
 
 	return inst.SkipValidation().Build()
 }
 
 // createUdpSocket creates a new UDP socket.
 // Signature: func(network: borrow<network>, address-family: ip-address-family) -> result<own<udp-socket>, error-code>
-func createUdpSocket(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func createUdpSocket(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	// args[0] = borrow<network> (ignored for now)
 	// args[1] = ip-address-family enum
 	family := parseAddressFamily(args[1])
@@ -97,7 +100,7 @@ func createUdpSocket(ctx context.Context, args []types.Val) ([]types.Val, error)
 
 // udpSocketStartBind begins the bind operation.
 // Signature: func(self: borrow<udp-socket>, network: borrow<network>, local-address: ip-socket-address) -> result<_, error-code>
-func udpSocketStartBind(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func udpSocketStartBind(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	// args[1] = borrow<network> (ignored)
 	localAddrVal := args[2]
@@ -128,7 +131,7 @@ func udpSocketStartBind(ctx context.Context, args []types.Val) ([]types.Val, err
 
 // udpSocketFinishBind completes the bind operation.
 // Signature: func(self: borrow<udp-socket>) -> result<_, error-code>
-func udpSocketFinishBind(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func udpSocketFinishBind(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	sock, err := getUdpSocket(ctx, handle)
@@ -165,7 +168,7 @@ func udpSocketFinishBind(ctx context.Context, args []types.Val) ([]types.Val, er
 
 // udpSocketStream returns datagram streams for the socket.
 // Signature: func(self: borrow<udp-socket>, remote-address: option<ip-socket-address>) -> result<tuple<own<incoming-datagram-stream>, own<outgoing-datagram-stream>>, error-code>
-func udpSocketStream(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func udpSocketStream(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	remoteAddrOpt := args[1]
 
@@ -239,7 +242,7 @@ func udpSocketStream(ctx context.Context, args []types.Val) ([]types.Val, error)
 
 // udpSocketLocalAddress returns the local address.
 // Signature: func(self: borrow<udp-socket>) -> result<ip-socket-address, error-code>
-func udpSocketLocalAddress(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func udpSocketLocalAddress(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	sock, err := getUdpSocket(ctx, handle)
@@ -259,7 +262,7 @@ func udpSocketLocalAddress(ctx context.Context, args []types.Val) ([]types.Val, 
 
 // udpSocketRemoteAddress returns the remote address.
 // Signature: func(self: borrow<udp-socket>) -> result<ip-socket-address, error-code>
-func udpSocketRemoteAddress(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func udpSocketRemoteAddress(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	sock, err := getUdpSocket(ctx, handle)
@@ -279,7 +282,7 @@ func udpSocketRemoteAddress(ctx context.Context, args []types.Val) ([]types.Val,
 
 // udpSocketAddressFamily returns the address family.
 // Signature: func(self: borrow<udp-socket>) -> ip-address-family
-func udpSocketAddressFamily(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func udpSocketAddressFamily(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	sock, err := getUdpSocket(ctx, handle)
@@ -292,7 +295,7 @@ func udpSocketAddressFamily(ctx context.Context, args []types.Val) ([]types.Val,
 
 // udpSocketUnicastHopLimit returns the unicast hop limit.
 // Signature: func(self: borrow<udp-socket>) -> result<u8, error-code>
-func udpSocketUnicastHopLimit(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func udpSocketUnicastHopLimit(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	sock, err := getUdpSocket(ctx, handle)
@@ -307,7 +310,7 @@ func udpSocketUnicastHopLimit(ctx context.Context, args []types.Val) ([]types.Va
 
 // udpSocketSetUnicastHopLimit sets the unicast hop limit.
 // Signature: func(self: borrow<udp-socket>, value: u8) -> result<_, error-code>
-func udpSocketSetUnicastHopLimit(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func udpSocketSetUnicastHopLimit(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	value := args[1].U8()
 
@@ -322,7 +325,7 @@ func udpSocketSetUnicastHopLimit(ctx context.Context, args []types.Val) ([]types
 
 // udpSocketReceiveBufferSize returns the receive buffer size.
 // Signature: func(self: borrow<udp-socket>) -> result<u64, error-code>
-func udpSocketReceiveBufferSize(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func udpSocketReceiveBufferSize(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	sock, err := getUdpSocket(ctx, handle)
@@ -337,7 +340,7 @@ func udpSocketReceiveBufferSize(ctx context.Context, args []types.Val) ([]types.
 
 // udpSocketSetReceiveBufferSize sets the receive buffer size.
 // Signature: func(self: borrow<udp-socket>, value: u64) -> result<_, error-code>
-func udpSocketSetReceiveBufferSize(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func udpSocketSetReceiveBufferSize(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	value := args[1].U64()
 
@@ -355,7 +358,7 @@ func udpSocketSetReceiveBufferSize(ctx context.Context, args []types.Val) ([]typ
 
 // udpSocketSendBufferSize returns the send buffer size.
 // Signature: func(self: borrow<udp-socket>) -> result<u64, error-code>
-func udpSocketSendBufferSize(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func udpSocketSendBufferSize(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	sock, err := getUdpSocket(ctx, handle)
@@ -370,7 +373,7 @@ func udpSocketSendBufferSize(ctx context.Context, args []types.Val) ([]types.Val
 
 // udpSocketSetSendBufferSize sets the send buffer size.
 // Signature: func(self: borrow<udp-socket>, value: u64) -> result<_, error-code>
-func udpSocketSetSendBufferSize(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func udpSocketSetSendBufferSize(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	value := args[1].U64()
 
@@ -388,7 +391,7 @@ func udpSocketSetSendBufferSize(ctx context.Context, args []types.Val) ([]types.
 
 // udpSocketSubscribe returns a pollable for the socket.
 // Signature: func(self: borrow<udp-socket>) -> own<pollable>
-func udpSocketSubscribe(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func udpSocketSubscribe(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	table := component.ResourceTableFromContext(ctx)
 	if table == nil {
 		return []types.Val{types.ValOwn(0)}, nil
@@ -406,7 +409,7 @@ func udpSocketSubscribe(ctx context.Context, args []types.Val) ([]types.Val, err
 
 // incomingDatagramStreamReceive receives datagrams from the stream.
 // Signature: func(self: borrow<incoming-datagram-stream>, max-results: u64) -> result<list<incoming-datagram>, error-code>
-func incomingDatagramStreamReceive(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func incomingDatagramStreamReceive(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	maxResults := args[1].U64()
 
@@ -466,7 +469,7 @@ func incomingDatagramStreamReceive(ctx context.Context, args []types.Val) ([]typ
 
 // incomingDatagramStreamSubscribe returns a pollable for the stream.
 // Signature: func(self: borrow<incoming-datagram-stream>) -> own<pollable>
-func incomingDatagramStreamSubscribe(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func incomingDatagramStreamSubscribe(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	table := component.ResourceTableFromContext(ctx)
 	if table == nil {
 		return []types.Val{types.ValOwn(0)}, nil
@@ -485,7 +488,7 @@ func incomingDatagramStreamSubscribe(ctx context.Context, args []types.Val) ([]t
 
 // outgoingDatagramStreamCheckSend checks how many datagrams can be sent.
 // Signature: func(self: borrow<outgoing-datagram-stream>) -> result<u64, error-code>
-func outgoingDatagramStreamCheckSend(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func outgoingDatagramStreamCheckSend(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	stream, err := getOutgoingDatagramStream(ctx, handle)
@@ -516,7 +519,7 @@ func outgoingDatagramStreamCheckSend(ctx context.Context, args []types.Val) ([]t
 
 // outgoingDatagramStreamSend sends datagrams on the stream.
 // Signature: func(self: borrow<outgoing-datagram-stream>, datagrams: list<outgoing-datagram>) -> result<u64, error-code>
-func outgoingDatagramStreamSend(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func outgoingDatagramStreamSend(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	datagramsList := args[1]
 
@@ -634,7 +637,7 @@ func outgoingDatagramStreamSend(ctx context.Context, args []types.Val) ([]types.
 
 // outgoingDatagramStreamSubscribe returns a pollable for the stream.
 // Signature: func(self: borrow<outgoing-datagram-stream>) -> own<pollable>
-func outgoingDatagramStreamSubscribe(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func outgoingDatagramStreamSubscribe(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	table := component.ResourceTableFromContext(ctx)
 	if table == nil {

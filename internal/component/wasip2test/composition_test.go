@@ -12,7 +12,7 @@
 //
 // interface types {
 //     resource request {
-//         constructor(headers: list<tuple<list<u8>, list<u8>>>, body: list<u8>);
+//         constructor(headers: list<tuple<list<u8>, nil, list<u8>>>, body: list<u8>);
 //         headers: func() -> list<tuple<list<u8>, list<u8>>>;
 //         body: func() -> list<u8>;
 //     }
@@ -449,7 +449,7 @@ func TestServiceMiddlewareComposition_ErrorHandling(t *testing.T) {
 
 // Helper function to define the logging interface for a linker
 func defineLoggingInterface(linker *component.ComponentLinker, table *runtime.Table, sharedLogger *Logger) error {
-	// Use basic Linker for FuncNoType support, then merge into ComponentLinker
+	// Use basic Linker Func for per-call registration, then merge into ComponentLinker
 	basicLinker := component.NewLinker()
 
 	// Define example:service/logging@0.1.0
@@ -457,7 +457,7 @@ func defineLoggingInterface(linker *component.ComponentLinker, table *runtime.Ta
 		Resource("logger", func(rep uint32) {
 			// Destructor - nothing to clean up for logger
 		}).
-		FuncNoType("get-logger", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		Func("get-logger", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 			rt := component.ResourceTableFromContext(ctx)
 			if rt == nil {
 				rt = table
@@ -468,7 +468,7 @@ func defineLoggingInterface(linker *component.ComponentLinker, table *runtime.Ta
 			}
 			return []types.Val{types.ValOwn(uint32(handle))}, nil
 		}).
-		FuncNoType("[method]logger.log", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		Func("[method]logger.log", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 			if len(args) < 2 {
 				return []types.Val{}, nil
 			}
@@ -511,7 +511,7 @@ func defineLoggingInterface(linker *component.ComponentLinker, table *runtime.Ta
 
 // Helper function to define the types interface for a linker
 func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Table) error {
-	// Use basic Linker for FuncNoType support, then merge into ComponentLinker
+	// Use basic Linker Func for per-call registration, then merge into ComponentLinker
 	basicLinker := component.NewLinker()
 
 	// Define example:service/types@0.1.0
@@ -522,7 +522,7 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Tabl
 		Resource("response", func(rep uint32) {
 			// Destructor
 		}).
-		FuncNoType("[constructor]request", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		Func("[constructor]request", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 			rt := component.ResourceTableFromContext(ctx)
 			if rt == nil {
 				rt = table
@@ -569,7 +569,7 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Tabl
 			}
 			return []types.Val{types.ValOwn(uint32(handle))}, nil
 		}).
-		FuncNoType("[method]request.headers", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		Func("[method]request.headers", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 			rt := component.ResourceTableFromContext(ctx)
 			if rt == nil {
 				rt = table
@@ -613,7 +613,7 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Tabl
 
 			return []types.Val{types.ValList(tuples)}, nil
 		}).
-		FuncNoType("[method]request.body", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		Func("[method]request.body", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 			rt := component.ResourceTableFromContext(ctx)
 			if rt == nil {
 				rt = table
@@ -641,7 +641,7 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Tabl
 
 			return []types.Val{types.ValList(bodyVals)}, nil
 		}).
-		FuncNoType("[constructor]response", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		Func("[constructor]response", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 			rt := component.ResourceTableFromContext(ctx)
 			if rt == nil {
 				rt = table
@@ -686,7 +686,7 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Tabl
 			}
 			return []types.Val{types.ValOwn(uint32(handle))}, nil
 		}).
-		FuncNoType("[method]response.headers", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		Func("[method]response.headers", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 			rt := component.ResourceTableFromContext(ctx)
 			if rt == nil {
 				rt = table
@@ -730,7 +730,7 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Tabl
 
 			return []types.Val{types.ValList(tuples)}, nil
 		}).
-		FuncNoType("[method]response.body", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		Func("[method]response.body", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 			rt := component.ResourceTableFromContext(ctx)
 			if rt == nil {
 				rt = table
@@ -758,11 +758,11 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Tabl
 
 			return []types.Val{types.ValList(bodyVals)}, nil
 		}).
-		FuncNoType("[resource-drop]request", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		Func("[resource-drop]request", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 			// Resource drop is handled by the destructor
 			return []types.Val{}, nil
 		}).
-		FuncNoType("[resource-drop]response", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		Func("[resource-drop]response", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 			// Resource drop is handled by the destructor
 			return []types.Val{}, nil
 		}).
@@ -779,12 +779,12 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Tabl
 
 // Helper function to define the handler interface that forwards to a service
 func defineHandlerInterface(linker *component.ComponentLinker, serviceExecute *component.ExportedFunc, table *runtime.Table) error {
-	// Use basic Linker for FuncNoType support, then merge into ComponentLinker
+	// Use basic Linker Func for per-call registration, then merge into ComponentLinker
 	basicLinker := component.NewLinker()
 
 	// Define example:service/handler@0.1.0
 	err := basicLinker.DefineInstance("example:service/handler@0.1.0").
-		FuncNoType("execute", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		Func("execute", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 			// Forward the call to the service's execute function
 			return serviceExecute.Call(ctx, args...)
 		}).

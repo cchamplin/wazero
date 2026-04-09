@@ -124,7 +124,7 @@ func TestDescriptorReadViaStream(t *testing.T) {
 	// Without a valid context/resource table, this should return bad-descriptor error
 	selfHandle := types.ValBorrow(0)
 	offset := types.ValU64(0)
-	result, err := descriptorReadViaStream(context.Background(), []types.Val{selfHandle, offset})
+	result, err := descriptorReadViaStream(context.Background(), nil, []types.Val{selfHandle, offset})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, types.ValKindResult, result[0].Kind())
@@ -139,7 +139,7 @@ func TestDescriptorWriteViaStream(t *testing.T) {
 	// Without a valid context/resource table, this should return bad-descriptor error
 	selfHandle := types.ValBorrow(0)
 	offset := types.ValU64(0)
-	result, err := descriptorWriteViaStream(context.Background(), []types.Val{selfHandle, offset})
+	result, err := descriptorWriteViaStream(context.Background(), nil, []types.Val{selfHandle, offset})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, types.ValKindResult, result[0].Kind())
@@ -153,7 +153,7 @@ func TestDescriptorAppendViaStream(t *testing.T) {
 	// Returns: result<own<output-stream>, error-code>
 	// Without a valid context/resource table, this should return bad-descriptor error
 	selfHandle := types.ValBorrow(0)
-	result, err := descriptorAppendViaStream(context.Background(), []types.Val{selfHandle})
+	result, err := descriptorAppendViaStream(context.Background(), nil, []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, types.ValKindResult, result[0].Kind())
@@ -170,7 +170,7 @@ func TestDescriptorAdvise(t *testing.T) {
 	offset := types.ValU64(0)
 	length := types.ValU64(0)
 	advice := types.ValEnum("normal")
-	result, err := descriptorAdvise(context.Background(), []types.Val{selfHandle, offset, length, advice})
+	result, err := descriptorAdvise(context.Background(), nil, []types.Val{selfHandle, offset, length, advice})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, types.ValKindResult, result[0].Kind())
@@ -184,7 +184,7 @@ func TestDescriptorSyncData(t *testing.T) {
 	// Returns: result<_, error-code>
 	// Without a valid context/resource table, this should return bad-descriptor error
 	selfHandle := types.ValBorrow(0)
-	result, err := descriptorSyncData(context.Background(), []types.Val{selfHandle})
+	result, err := descriptorSyncData(context.Background(), nil, []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, types.ValKindResult, result[0].Kind())
@@ -198,7 +198,7 @@ func TestDescriptorGetFlags(t *testing.T) {
 	// Returns: result<descriptor-flags, error-code>
 	// Without a valid context/resource table, this should return bad-descriptor error
 	selfHandle := types.ValBorrow(0)
-	result, err := descriptorGetFlags(context.Background(), []types.Val{selfHandle})
+	result, err := descriptorGetFlags(context.Background(), nil, []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, types.ValKindResult, result[0].Kind())
@@ -212,7 +212,7 @@ func TestDescriptorGetType(t *testing.T) {
 	// Returns: result<descriptor-type, error-code>
 	// Without a valid context/resource table, this should return bad-descriptor error
 	selfHandle := types.ValBorrow(0)
-	result, err := descriptorGetType(context.Background(), []types.Val{selfHandle})
+	result, err := descriptorGetType(context.Background(), nil, []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, types.ValKindResult, result[0].Kind())
@@ -227,7 +227,7 @@ func TestDescriptorSetSize(t *testing.T) {
 	// Without a valid context/resource table, this should return bad-descriptor error
 	selfHandle := types.ValBorrow(0)
 	size := types.ValU64(0)
-	result, err := descriptorSetSize(context.Background(), []types.Val{selfHandle, size})
+	result, err := descriptorSetSize(context.Background(), nil, []types.Val{selfHandle, size})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, types.ValKindResult, result[0].Kind())
@@ -242,7 +242,7 @@ func TestDescriptorSetTimes(t *testing.T) {
 	selfHandle := types.ValBorrow(0)
 	accessTime := types.ValVariant("no-change", nil)
 	modTime := types.ValVariant("no-change", nil)
-	result, err := descriptorSetTimes(context.Background(), []types.Val{selfHandle, accessTime, modTime})
+	result, err := descriptorSetTimes(context.Background(), nil, []types.Val{selfHandle, accessTime, modTime})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, types.ValKindResult, result[0].Kind())
@@ -258,7 +258,7 @@ func TestDescriptorRead(t *testing.T) {
 	selfHandle := types.ValBorrow(0)
 	length := types.ValU64(100)
 	offset := types.ValU64(0)
-	result, err := descriptorRead(context.Background(), []types.Val{selfHandle, length, offset})
+	result, err := descriptorRead(context.Background(), nil, []types.Val{selfHandle, length, offset})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, types.ValKindResult, result[0].Kind())
@@ -274,7 +274,7 @@ func TestDescriptorWrite(t *testing.T) {
 	selfHandle := types.ValBorrow(0)
 	buffer := types.ValList([]types.Val{types.ValU8(65), types.ValU8(66)})
 	offset := types.ValU64(0)
-	result, err := descriptorWrite(context.Background(), []types.Val{selfHandle, buffer, offset})
+	result, err := descriptorWrite(context.Background(), nil, []types.Val{selfHandle, buffer, offset})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, types.ValKindResult, result[0].Kind())
@@ -288,7 +288,7 @@ func TestDescriptorReadDirectory(t *testing.T) {
 	// Returns: result<own<directory-entry-stream>, error-code>
 	// Without a valid context/resource table, this should return bad-descriptor error
 	selfHandle := types.ValBorrow(0)
-	result, err := descriptorReadDirectory(context.Background(), []types.Val{selfHandle})
+	result, err := descriptorReadDirectory(context.Background(), nil, []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, types.ValKindResult, result[0].Kind())
@@ -302,7 +302,7 @@ func TestDescriptorSync(t *testing.T) {
 	// Returns: result<_, error-code>
 	// Without a valid context/resource table, this should return bad-descriptor error
 	selfHandle := types.ValBorrow(0)
-	result, err := descriptorSync(context.Background(), []types.Val{selfHandle})
+	result, err := descriptorSync(context.Background(), nil, []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, types.ValKindResult, result[0].Kind())
@@ -317,7 +317,7 @@ func TestDescriptorCreateDirectoryAt(t *testing.T) {
 	// Without a valid context/resource table, this should return bad-descriptor error
 	selfHandle := types.ValBorrow(0)
 	path := types.ValString("newdir")
-	result, err := descriptorCreateDirectoryAt(context.Background(), []types.Val{selfHandle, path})
+	result, err := descriptorCreateDirectoryAt(context.Background(), nil, []types.Val{selfHandle, path})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, types.ValKindResult, result[0].Kind())
@@ -331,7 +331,7 @@ func TestDescriptorStat(t *testing.T) {
 	// Returns: result<descriptor-stat, error-code>
 	// Without a valid context/resource table, this should return bad-descriptor error
 	selfHandle := types.ValBorrow(0)
-	result, err := descriptorStat(context.Background(), []types.Val{selfHandle})
+	result, err := descriptorStat(context.Background(), nil, []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, types.ValKindResult, result[0].Kind())
@@ -347,7 +347,7 @@ func TestDescriptorStatAt(t *testing.T) {
 	selfHandle := types.ValBorrow(0)
 	pathFlags := types.ValFlags(map[string]bool{"symlink-follow": true})
 	path := types.ValString("file.txt")
-	result, err := descriptorStatAt(context.Background(), []types.Val{selfHandle, pathFlags, path})
+	result, err := descriptorStatAt(context.Background(), nil, []types.Val{selfHandle, pathFlags, path})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, types.ValKindResult, result[0].Kind())
@@ -365,7 +365,7 @@ func TestDescriptorSetTimesAt(t *testing.T) {
 	path := types.ValString("file.txt")
 	accessTime := types.ValVariant("no-change", nil)
 	modTime := types.ValVariant("no-change", nil)
-	result, err := descriptorSetTimesAt(context.Background(), []types.Val{selfHandle, pathFlags, path, accessTime, modTime})
+	result, err := descriptorSetTimesAt(context.Background(), nil, []types.Val{selfHandle, pathFlags, path, accessTime, modTime})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, types.ValKindResult, result[0].Kind())
@@ -403,7 +403,7 @@ func TestDescriptorSetTimesAt_SetToNow(t *testing.T) {
 	modTime := types.ValVariant("now", nil)
 
 	before := time.Now().Add(-time.Second)
-	result, err := descriptorSetTimesAt(ctx, []types.Val{selfHandle, pathFlags, pathVal, accessTime, modTime})
+	result, err := descriptorSetTimesAt(ctx, nil, []types.Val{selfHandle, pathFlags, pathVal, accessTime, modTime})
 	require.NoError(t, err)
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk, "set-times-at should succeed")
@@ -423,7 +423,7 @@ func TestDescriptorLinkAt(t *testing.T) {
 	oldPath := types.ValString("oldfile")
 	newDescriptor := types.ValBorrow(1)
 	newPath := types.ValString("newfile")
-	result, err := descriptorLinkAt(context.Background(), []types.Val{selfHandle, pathFlags, oldPath, newDescriptor, newPath})
+	result, err := descriptorLinkAt(context.Background(), nil, []types.Val{selfHandle, pathFlags, oldPath, newDescriptor, newPath})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, types.ValKindResult, result[0].Kind())
@@ -441,7 +441,7 @@ func TestDescriptorOpenAt(t *testing.T) {
 	path := types.ValString("file.txt")
 	openFlags := types.ValFlags(map[string]bool{"create": false})
 	descFlags := types.ValFlags(map[string]bool{"read": true})
-	result, err := descriptorOpenAt(context.Background(), []types.Val{selfHandle, pathFlags, path, openFlags, descFlags})
+	result, err := descriptorOpenAt(context.Background(), nil, []types.Val{selfHandle, pathFlags, path, openFlags, descFlags})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, types.ValKindResult, result[0].Kind())
@@ -456,7 +456,7 @@ func TestDescriptorReadlinkAt(t *testing.T) {
 	// Without a valid context/resource table, this should return bad-descriptor error
 	selfHandle := types.ValBorrow(0)
 	path := types.ValString("symlink")
-	result, err := descriptorReadlinkAt(context.Background(), []types.Val{selfHandle, path})
+	result, err := descriptorReadlinkAt(context.Background(), nil, []types.Val{selfHandle, path})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, types.ValKindResult, result[0].Kind())
@@ -471,7 +471,7 @@ func TestDescriptorRemoveDirectoryAt(t *testing.T) {
 	// Without a valid context/resource table, this should return bad-descriptor error
 	selfHandle := types.ValBorrow(0)
 	path := types.ValString("dir")
-	result, err := descriptorRemoveDirectoryAt(context.Background(), []types.Val{selfHandle, path})
+	result, err := descriptorRemoveDirectoryAt(context.Background(), nil, []types.Val{selfHandle, path})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, types.ValKindResult, result[0].Kind())
@@ -488,7 +488,7 @@ func TestDescriptorRenameAt(t *testing.T) {
 	oldPath := types.ValString("oldname")
 	newDescriptor := types.ValBorrow(1)
 	newPath := types.ValString("newname")
-	result, err := descriptorRenameAt(context.Background(), []types.Val{selfHandle, oldPath, newDescriptor, newPath})
+	result, err := descriptorRenameAt(context.Background(), nil, []types.Val{selfHandle, oldPath, newDescriptor, newPath})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, types.ValKindResult, result[0].Kind())
@@ -504,7 +504,7 @@ func TestDescriptorSymlinkAt(t *testing.T) {
 	selfHandle := types.ValBorrow(0)
 	oldPath := types.ValString("target")
 	newPath := types.ValString("link")
-	result, err := descriptorSymlinkAt(context.Background(), []types.Val{selfHandle, oldPath, newPath})
+	result, err := descriptorSymlinkAt(context.Background(), nil, []types.Val{selfHandle, oldPath, newPath})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, types.ValKindResult, result[0].Kind())
@@ -519,7 +519,7 @@ func TestDescriptorUnlinkFileAt(t *testing.T) {
 	// Without a valid context/resource table, this should return bad-descriptor error
 	selfHandle := types.ValBorrow(0)
 	path := types.ValString("file")
-	result, err := descriptorUnlinkFileAt(context.Background(), []types.Val{selfHandle, path})
+	result, err := descriptorUnlinkFileAt(context.Background(), nil, []types.Val{selfHandle, path})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, types.ValKindResult, result[0].Kind())
@@ -533,7 +533,7 @@ func TestDescriptorIsSameObject(t *testing.T) {
 	// Returns: bool
 	selfHandle := types.ValBorrow(0)
 	otherHandle := types.ValBorrow(1)
-	result, err := descriptorIsSameObject(context.Background(), []types.Val{selfHandle, otherHandle})
+	result, err := descriptorIsSameObject(context.Background(), nil, []types.Val{selfHandle, otherHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, types.ValKindBool, result[0].Kind())
@@ -567,7 +567,7 @@ func TestDescriptorIsSameObject_SameFile(t *testing.T) {
 
 	selfHandle := types.ValBorrow(uint32(h1))
 	otherHandle := types.ValBorrow(uint32(h2))
-	result, err := descriptorIsSameObject(ctx, []types.Val{selfHandle, otherHandle})
+	result, err := descriptorIsSameObject(ctx, nil, []types.Val{selfHandle, otherHandle})
 	require.NoError(t, err)
 	require.True(t, result[0].Bool(), "same file opened twice should be same object")
 }
@@ -602,7 +602,7 @@ func TestDescriptorIsSameObject_DifferentFiles(t *testing.T) {
 
 	selfHandle := types.ValBorrow(uint32(h1))
 	otherHandle := types.ValBorrow(uint32(h2))
-	result, err := descriptorIsSameObject(ctx, []types.Val{selfHandle, otherHandle})
+	result, err := descriptorIsSameObject(ctx, nil, []types.Val{selfHandle, otherHandle})
 	require.NoError(t, err)
 	require.False(t, result[0].Bool(), "different files should not be same object")
 }
@@ -627,12 +627,12 @@ func TestDescriptorMetadataHash(t *testing.T) {
 	selfHandle := types.ValBorrow(uint32(handle))
 
 	// Call twice — should produce same hash
-	result1, err := descriptorMetadataHash(ctx, []types.Val{selfHandle})
+	result1, err := descriptorMetadataHash(ctx, nil, []types.Val{selfHandle})
 	require.NoError(t, err)
 	isOk1, hash1, _ := result1[0].Result()
 	require.True(t, isOk1)
 
-	result2, err := descriptorMetadataHash(ctx, []types.Val{selfHandle})
+	result2, err := descriptorMetadataHash(ctx, nil, []types.Val{selfHandle})
 	require.NoError(t, err)
 	isOk2, hash2, _ := result2[0].Result()
 	require.True(t, isOk2)
@@ -669,8 +669,8 @@ func TestDescriptorMetadataHash_DifferentFiles(t *testing.T) {
 		t.Fatalf("NewResourceHandle failed: %v", errH8)
 	}
 
-	result1, _ := descriptorMetadataHash(ctx, []types.Val{types.ValBorrow(uint32(h1))})
-	result2, _ := descriptorMetadataHash(ctx, []types.Val{types.ValBorrow(uint32(h2))})
+	result1, _ := descriptorMetadataHash(ctx, nil, []types.Val{types.ValBorrow(uint32(h1))})
+	result2, _ := descriptorMetadataHash(ctx, nil, []types.Val{types.ValBorrow(uint32(h2))})
 
 	_, hash1, _ := result1[0].Result()
 	_, hash2, _ := result2[0].Result()
@@ -686,7 +686,7 @@ func TestDescriptorMetadataHash_BadDescriptor(t *testing.T) {
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 	selfHandle := types.ValBorrow(0)
-	result, err := descriptorMetadataHash(ctx, []types.Val{selfHandle})
+	result, err := descriptorMetadataHash(ctx, nil, []types.Val{selfHandle})
 	require.NoError(t, err)
 	isOk, _, errVal := result[0].Result()
 	require.False(t, isOk, "should fail with bad descriptor")
@@ -713,7 +713,7 @@ func TestDescriptorMetadataHashAt(t *testing.T) {
 	pathFlags := types.ValFlags(map[string]bool{"symlink-follow": true})
 	pathVal := types.ValString("child.txt")
 
-	result, err := descriptorMetadataHashAt(ctx, []types.Val{selfHandle, pathFlags, pathVal})
+	result, err := descriptorMetadataHashAt(ctx, nil, []types.Val{selfHandle, pathFlags, pathVal})
 	require.NoError(t, err)
 	isOk, hash, _ := result[0].Result()
 	require.True(t, isOk)
@@ -726,7 +726,7 @@ func TestFilesystemErrorCode(t *testing.T) {
 	// Args: err (borrow<error>)
 	// Returns: option<error-code>
 	errHandle := types.ValBorrow(0)
-	result, err := filesystemErrorCode(context.Background(), []types.Val{errHandle})
+	result, err := filesystemErrorCode(context.Background(), nil, []types.Val{errHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, types.ValKindOption, result[0].Kind())
@@ -745,7 +745,7 @@ func TestFilesystemErrorCode_WithFSError(t *testing.T) {
 	}
 
 	errHandle := types.ValBorrow(uint32(handle))
-	result, err := filesystemErrorCode(ctx, []types.Val{errHandle})
+	result, err := filesystemErrorCode(ctx, nil, []types.Val{errHandle})
 	require.NoError(t, err)
 
 	opt := result[0].Option()
@@ -765,7 +765,7 @@ func TestFilesystemErrorCode_NonFSError(t *testing.T) {
 	}
 
 	errHandle := types.ValBorrow(uint32(handle))
-	result, err := filesystemErrorCode(ctx, []types.Val{errHandle})
+	result, err := filesystemErrorCode(ctx, nil, []types.Val{errHandle})
 	require.NoError(t, err)
 
 	opt := result[0].Option()
@@ -777,7 +777,7 @@ func TestDirectoryEntryStreamReadEntry(t *testing.T) {
 	// Returns: result<option<directory-entry>, error-code>
 	// Without a valid context/resource table, this should return bad-descriptor error
 	selfHandle := types.ValBorrow(0)
-	result, err := directoryEntryStreamReadEntry(context.Background(), []types.Val{selfHandle})
+	result, err := directoryEntryStreamReadEntry(context.Background(), nil, []types.Val{selfHandle})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, types.ValKindResult, result[0].Kind())
@@ -808,7 +808,7 @@ func TestInstantiatePreopens(t *testing.T) {
 
 func TestGetDirectories(t *testing.T) {
 	// Returns: list<tuple<own<descriptor>, string>>
-	result, err := getDirectories(context.Background(), []types.Val{})
+	result, err := getDirectories(context.Background(), nil, []types.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, types.ValKindList, result[0].Kind())
@@ -932,7 +932,7 @@ func TestDescriptorRead_HostFunction(t *testing.T) {
 	defer os.Remove(path)
 
 	// Test reading from file
-	result, err := descriptorRead(ctx, []types.Val{
+	result, err := descriptorRead(ctx, nil, []types.Val{
 		types.ValBorrow(handle),
 		types.ValU64(uint64(len(testContent))),
 		types.ValU64(0),
@@ -971,7 +971,7 @@ func TestDescriptorWrite_HostFunction(t *testing.T) {
 		dataVals[i] = types.ValU8(b)
 	}
 
-	result, err := descriptorWrite(ctx, []types.Val{
+	result, err := descriptorWrite(ctx, nil, []types.Val{
 		types.ValBorrow(handle),
 		types.ValList(dataVals),
 		types.ValU64(0),
@@ -996,7 +996,7 @@ func TestDescriptorStat_HostFunction(t *testing.T) {
 	ctx := createTestContext()
 	handle, tmpDir := createTestDirDescriptor(t, ctx)
 
-	result, err := descriptorStat(ctx, []types.Val{
+	result, err := descriptorStat(ctx, nil, []types.Val{
 		types.ValBorrow(handle),
 	})
 	require.NoError(t, err)
@@ -1026,7 +1026,7 @@ func TestDescriptorStatAt_HostFunction(t *testing.T) {
 	err := os.WriteFile(testFile, []byte("test"), 0644)
 	require.NoError(t, err)
 
-	result, err := descriptorStatAt(ctx, []types.Val{
+	result, err := descriptorStatAt(ctx, nil, []types.Val{
 		types.ValBorrow(handle),
 		types.ValFlags(map[string]bool{"symlink-follow": true}),
 		types.ValString("testfile.txt"),
@@ -1055,7 +1055,7 @@ func TestDescriptorGetType_HostFunction(t *testing.T) {
 	ctx := createTestContext()
 	handle, _ := createTestDirDescriptor(t, ctx)
 
-	result, err := descriptorGetType(ctx, []types.Val{
+	result, err := descriptorGetType(ctx, nil, []types.Val{
 		types.ValBorrow(handle),
 	})
 	require.NoError(t, err)
@@ -1078,7 +1078,7 @@ func TestDescriptorOpenAt_HostFunction(t *testing.T) {
 	err := os.WriteFile(testFile, []byte("content"), 0644)
 	require.NoError(t, err)
 
-	result, err := descriptorOpenAt(ctx, []types.Val{
+	result, err := descriptorOpenAt(ctx, nil, []types.Val{
 		types.ValBorrow(handle),
 		types.ValFlags(map[string]bool{"symlink-follow": true}),
 		types.ValString("opentest.txt"),
@@ -1099,7 +1099,7 @@ func TestDescriptorOpenAt_CreateFile(t *testing.T) {
 	ctx := createTestContext()
 	handle, tmpDir := createTestDirDescriptor(t, ctx)
 
-	result, err := descriptorOpenAt(ctx, []types.Val{
+	result, err := descriptorOpenAt(ctx, nil, []types.Val{
 		types.ValBorrow(handle),
 		types.ValFlags(map[string]bool{"symlink-follow": true}),
 		types.ValString("newfile.txt"),
@@ -1128,7 +1128,7 @@ func TestDescriptorReadDirectory_HostFunction(t *testing.T) {
 	err = os.WriteFile(filepath.Join(tmpDir, "file2.txt"), []byte("2"), 0644)
 	require.NoError(t, err)
 
-	result, err := descriptorReadDirectory(ctx, []types.Val{
+	result, err := descriptorReadDirectory(ctx, nil, []types.Val{
 		types.ValBorrow(handle),
 	})
 	require.NoError(t, err)
@@ -1144,7 +1144,7 @@ func TestDescriptorReadDirectory_HostFunction(t *testing.T) {
 	streamHandle := ok.Own()
 
 	// Read first entry
-	entryResult, err := directoryEntryStreamReadEntry(ctx, []types.Val{
+	entryResult, err := directoryEntryStreamReadEntry(ctx, nil, []types.Val{
 		types.ValBorrow(streamHandle),
 	})
 	require.NoError(t, err)
@@ -1157,7 +1157,7 @@ func TestDescriptorCreateDirectoryAt_HostFunction(t *testing.T) {
 	ctx := createTestContext()
 	handle, tmpDir := createTestDirDescriptor(t, ctx)
 
-	result, err := descriptorCreateDirectoryAt(ctx, []types.Val{
+	result, err := descriptorCreateDirectoryAt(ctx, nil, []types.Val{
 		types.ValBorrow(handle),
 		types.ValString("subdir"),
 	})
@@ -1182,7 +1182,7 @@ func TestDescriptorUnlinkFileAt_HostFunction(t *testing.T) {
 	err := os.WriteFile(testFile, []byte("delete me"), 0644)
 	require.NoError(t, err)
 
-	result, err := descriptorUnlinkFileAt(ctx, []types.Val{
+	result, err := descriptorUnlinkFileAt(ctx, nil, []types.Val{
 		types.ValBorrow(handle),
 		types.ValString("todelete.txt"),
 	})
@@ -1206,7 +1206,7 @@ func TestDescriptorRemoveDirectoryAt_HostFunction(t *testing.T) {
 	err := os.Mkdir(testDir, 0755)
 	require.NoError(t, err)
 
-	result, err := descriptorRemoveDirectoryAt(ctx, []types.Val{
+	result, err := descriptorRemoveDirectoryAt(ctx, nil, []types.Val{
 		types.ValBorrow(handle),
 		types.ValString("toremove"),
 	})
@@ -1230,7 +1230,7 @@ func TestDescriptorRenameAt_HostFunction(t *testing.T) {
 	err := os.WriteFile(oldPath, []byte("rename me"), 0644)
 	require.NoError(t, err)
 
-	result, err := descriptorRenameAt(ctx, []types.Val{
+	result, err := descriptorRenameAt(ctx, nil, []types.Val{
 		types.ValBorrow(handle),
 		types.ValString("oldname.txt"),
 		types.ValBorrow(handle), // same directory
@@ -1256,7 +1256,7 @@ func TestDescriptorSync_HostFunction(t *testing.T) {
 	handle, path := createTestFileDescriptor(t, ctx, []byte("sync me"))
 	defer os.Remove(path)
 
-	result, err := descriptorSync(ctx, []types.Val{
+	result, err := descriptorSync(ctx, nil, []types.Val{
 		types.ValBorrow(handle),
 	})
 	require.NoError(t, err)
@@ -1271,7 +1271,7 @@ func TestDescriptorGetFlags_HostFunction(t *testing.T) {
 	handle, path := createTestFileDescriptor(t, ctx, nil)
 	defer os.Remove(path)
 
-	result, err := descriptorGetFlags(ctx, []types.Val{
+	result, err := descriptorGetFlags(ctx, nil, []types.Val{
 		types.ValBorrow(handle),
 	})
 	require.NoError(t, err)
@@ -1293,7 +1293,7 @@ func TestDescriptorRead_BadDescriptor(t *testing.T) {
 	ctx := createTestContext()
 
 	// Try to read with non-existent handle
-	result, err := descriptorRead(ctx, []types.Val{
+	result, err := descriptorRead(ctx, nil, []types.Val{
 		types.ValBorrow(999), // invalid handle
 		types.ValU64(100),
 		types.ValU64(0),
@@ -1312,7 +1312,7 @@ func TestDescriptorOpenAt_NoEntry(t *testing.T) {
 	handle, _ := createTestDirDescriptor(t, ctx)
 
 	// Try to open non-existent file without create flag
-	result, err := descriptorOpenAt(ctx, []types.Val{
+	result, err := descriptorOpenAt(ctx, nil, []types.Val{
 		types.ValBorrow(handle),
 		types.ValFlags(map[string]bool{"symlink-follow": true}),
 		types.ValString("nonexistent.txt"),
@@ -1332,7 +1332,7 @@ func TestDescriptorStatAt_NoEntry(t *testing.T) {
 	ctx := createTestContext()
 	handle, _ := createTestDirDescriptor(t, ctx)
 
-	result, err := descriptorStatAt(ctx, []types.Val{
+	result, err := descriptorStatAt(ctx, nil, []types.Val{
 		types.ValBorrow(handle),
 		types.ValFlags(map[string]bool{"symlink-follow": true}),
 		types.ValString("nonexistent.txt"),
@@ -1357,7 +1357,7 @@ func TestDescriptorReadViaStream_HostFunction(t *testing.T) {
 	defer os.Remove(path)
 
 	// Call read-via-stream with offset 0
-	result, err := descriptorReadViaStream(ctx, []types.Val{
+	result, err := descriptorReadViaStream(ctx, nil, []types.Val{
 		types.ValBorrow(handle),
 		types.ValU64(0), // offset
 	})
@@ -1395,7 +1395,7 @@ func TestDescriptorReadViaStream_WithOffset(t *testing.T) {
 	defer os.Remove(path)
 
 	// Call read-via-stream with offset 7 (should read "WASI!")
-	result, err := descriptorReadViaStream(ctx, []types.Val{
+	result, err := descriptorReadViaStream(ctx, nil, []types.Val{
 		types.ValBorrow(handle),
 		types.ValU64(7), // offset
 	})
@@ -1428,7 +1428,7 @@ func TestDescriptorReadViaStream_BadDescriptor(t *testing.T) {
 	ctx := createTestContext()
 
 	// Try with invalid handle
-	result, err := descriptorReadViaStream(ctx, []types.Val{
+	result, err := descriptorReadViaStream(ctx, nil, []types.Val{
 		types.ValBorrow(999),
 		types.ValU64(0),
 	})
@@ -1445,7 +1445,7 @@ func TestDescriptorReadViaStream_IsDirectory(t *testing.T) {
 	handle, _ := createTestDirDescriptor(t, ctx)
 
 	// Try to read via stream from a directory
-	result, err := descriptorReadViaStream(ctx, []types.Val{
+	result, err := descriptorReadViaStream(ctx, nil, []types.Val{
 		types.ValBorrow(handle),
 		types.ValU64(0),
 	})
@@ -1463,7 +1463,7 @@ func TestDescriptorWriteViaStream_HostFunction(t *testing.T) {
 	defer os.Remove(path)
 
 	// Call write-via-stream with offset 0
-	result, err := descriptorWriteViaStream(ctx, []types.Val{
+	result, err := descriptorWriteViaStream(ctx, nil, []types.Val{
 		types.ValBorrow(handle),
 		types.ValU64(0), // offset
 	})
@@ -1511,7 +1511,7 @@ func TestDescriptorWriteViaStream_WithOffset(t *testing.T) {
 	defer os.Remove(path)
 
 	// Call write-via-stream with offset 6
-	result, err := descriptorWriteViaStream(ctx, []types.Val{
+	result, err := descriptorWriteViaStream(ctx, nil, []types.Val{
 		types.ValBorrow(handle),
 		types.ValU64(6), // offset
 	})
@@ -1546,7 +1546,7 @@ func TestDescriptorWriteViaStream_BadDescriptor(t *testing.T) {
 	ctx := createTestContext()
 
 	// Try with invalid handle
-	result, err := descriptorWriteViaStream(ctx, []types.Val{
+	result, err := descriptorWriteViaStream(ctx, nil, []types.Val{
 		types.ValBorrow(999),
 		types.ValU64(0),
 	})
@@ -1563,7 +1563,7 @@ func TestDescriptorWriteViaStream_IsDirectory(t *testing.T) {
 	handle, _ := createTestDirDescriptor(t, ctx)
 
 	// Try to write via stream to a directory
-	result, err := descriptorWriteViaStream(ctx, []types.Val{
+	result, err := descriptorWriteViaStream(ctx, nil, []types.Val{
 		types.ValBorrow(handle),
 		types.ValU64(0),
 	})
@@ -1582,7 +1582,7 @@ func TestDescriptorAppendViaStream_HostFunction(t *testing.T) {
 	defer os.Remove(path)
 
 	// Call append-via-stream
-	result, err := descriptorAppendViaStream(ctx, []types.Val{
+	result, err := descriptorAppendViaStream(ctx, nil, []types.Val{
 		types.ValBorrow(handle),
 	})
 	require.NoError(t, err)
@@ -1621,7 +1621,7 @@ func TestDescriptorAppendViaStream_BadDescriptor(t *testing.T) {
 	ctx := createTestContext()
 
 	// Try with invalid handle
-	result, err := descriptorAppendViaStream(ctx, []types.Val{
+	result, err := descriptorAppendViaStream(ctx, nil, []types.Val{
 		types.ValBorrow(999),
 	})
 	require.NoError(t, err)
@@ -1637,7 +1637,7 @@ func TestDescriptorAppendViaStream_IsDirectory(t *testing.T) {
 	handle, _ := createTestDirDescriptor(t, ctx)
 
 	// Try to append via stream to a directory
-	result, err := descriptorAppendViaStream(ctx, []types.Val{
+	result, err := descriptorAppendViaStream(ctx, nil, []types.Val{
 		types.ValBorrow(handle),
 	})
 	require.NoError(t, err)
@@ -1659,7 +1659,7 @@ func TestDescriptorSetSize_Truncate(t *testing.T) {
 	defer os.Remove(path)
 
 	// Truncate to 5 bytes
-	result, err := descriptorSetSize(ctx, []types.Val{
+	result, err := descriptorSetSize(ctx, nil, []types.Val{
 		types.ValBorrow(handle),
 		types.ValU64(5),
 	})
@@ -1681,7 +1681,7 @@ func TestDescriptorSetSize_Extend(t *testing.T) {
 	defer os.Remove(path)
 
 	// Extend to 10 bytes
-	result, err := descriptorSetSize(ctx, []types.Val{
+	result, err := descriptorSetSize(ctx, nil, []types.Val{
 		types.ValBorrow(handle),
 		types.ValU64(10),
 	})
@@ -1713,7 +1713,7 @@ func TestDescriptorSetSize_NoWritePermission(t *testing.T) {
 		t.Fatalf("NewResourceHandle failed: %v", errH14)
 	}
 
-	result, err := descriptorSetSize(ctx, []types.Val{
+	result, err := descriptorSetSize(ctx, nil, []types.Val{
 		types.ValBorrow(uint32(handle.Index())),
 		types.ValU64(0),
 	})
@@ -1727,7 +1727,7 @@ func TestDescriptorSetSize_IsDirectory(t *testing.T) {
 	ctx := createTestContext()
 	handle, _ := createTestDirDescriptor(t, ctx)
 
-	result, err := descriptorSetSize(ctx, []types.Val{
+	result, err := descriptorSetSize(ctx, nil, []types.Val{
 		types.ValBorrow(handle),
 		types.ValU64(0),
 	})
@@ -1738,7 +1738,7 @@ func TestDescriptorSetSize_IsDirectory(t *testing.T) {
 }
 
 func TestDescriptorSetSize_BadDescriptor(t *testing.T) {
-	result, err := descriptorSetSize(context.Background(), []types.Val{
+	result, err := descriptorSetSize(context.Background(), nil, []types.Val{
 		types.ValBorrow(0),
 		types.ValU64(0),
 	})
@@ -1775,7 +1775,7 @@ func TestDescriptorSetTimes_SetToNow(t *testing.T) {
 	modTime := types.ValVariant("now", nil)
 
 	before := time.Now().Add(-time.Second)
-	result, err := descriptorSetTimes(ctx, []types.Val{selfHandle, accessTime, modTime})
+	result, err := descriptorSetTimes(ctx, nil, []types.Val{selfHandle, accessTime, modTime})
 	require.NoError(t, err)
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk, "set-times should succeed")
@@ -1815,7 +1815,7 @@ func TestDescriptorSetTimes_SetTimestamp(t *testing.T) {
 	accessTime := types.ValVariant("timestamp", &dt)
 	modTime := types.ValVariant("timestamp", &dt)
 
-	result, err := descriptorSetTimes(ctx, []types.Val{selfHandle, accessTime, modTime})
+	result, err := descriptorSetTimes(ctx, nil, []types.Val{selfHandle, accessTime, modTime})
 	require.NoError(t, err)
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk, "set-times should succeed")
@@ -1846,7 +1846,7 @@ func TestDescriptorSetTimes_NoWritePermission(t *testing.T) {
 	selfHandle := types.ValBorrow(uint32(handle))
 	accessTime := types.ValVariant("now", nil)
 	modTime := types.ValVariant("now", nil)
-	result, err := descriptorSetTimes(ctx, []types.Val{selfHandle, accessTime, modTime})
+	result, err := descriptorSetTimes(ctx, nil, []types.Val{selfHandle, accessTime, modTime})
 	require.NoError(t, err)
 	isOk, _, errVal := result[0].Result()
 	require.False(t, isOk, "set-times should fail without write permission")
@@ -1868,7 +1868,7 @@ func TestDescriptorLinkAt_CreateHardLink(t *testing.T) {
 	newDesc := types.ValBorrow(handle) // same directory
 	newPath := types.ValString("link.txt")
 
-	result, err := descriptorLinkAt(ctx, []types.Val{selfHandle, oldPathFlags, oldPath, newDesc, newPath})
+	result, err := descriptorLinkAt(ctx, nil, []types.Val{selfHandle, oldPathFlags, oldPath, newDesc, newPath})
 	require.NoError(t, err)
 	isOk, _, _ := result[0].Result()
 	require.True(t, isOk, "link-at should succeed")
@@ -1893,7 +1893,7 @@ func TestDescriptorLinkAt_RejectSymlinkFollow(t *testing.T) {
 	newDesc := types.ValBorrow(handle)
 	newPath := types.ValString("link.txt")
 
-	result, err := descriptorLinkAt(ctx, []types.Val{selfHandle, oldPathFlags, oldPath, newDesc, newPath})
+	result, err := descriptorLinkAt(ctx, nil, []types.Val{selfHandle, oldPathFlags, oldPath, newDesc, newPath})
 	require.NoError(t, err)
 	isOk, _, errVal := result[0].Result()
 	require.False(t, isOk, "link-at should reject symlink-follow")
@@ -1924,7 +1924,7 @@ func TestDescriptorLinkAt_NoMutateDirectory(t *testing.T) {
 	newDesc := types.ValBorrow(handle)
 	newPath := types.ValString("link.txt")
 
-	result, err := descriptorLinkAt(ctx, []types.Val{selfHandle, oldPathFlags, oldPath, newDesc, newPath})
+	result, err := descriptorLinkAt(ctx, nil, []types.Val{selfHandle, oldPathFlags, oldPath, newDesc, newPath})
 	require.NoError(t, err)
 	isOk, _, errVal := result[0].Result()
 	require.False(t, isOk, "link-at should fail without mutate-directory")
@@ -1961,7 +1961,7 @@ func TestDescriptorAdvise_WithRealFile(t *testing.T) {
 	adviceVariants := []string{"normal", "sequential", "random", "will-need", "dont-need", "no-reuse"}
 	for _, advice := range adviceVariants {
 		adviceVal := types.ValEnum(advice)
-		result, err := descriptorAdvise(ctx, []types.Val{selfHandle, offset, length, adviceVal})
+		result, err := descriptorAdvise(ctx, nil, []types.Val{selfHandle, offset, length, adviceVal})
 		require.NoError(t, err)
 		isOk, _, _ := result[0].Result()
 		require.True(t, isOk, "advise with %s should succeed", advice)
@@ -1975,7 +1975,7 @@ func TestDescriptorAdvise_BadDescriptor(t *testing.T) {
 	offset := types.ValU64(0)
 	length := types.ValU64(100)
 	advice := types.ValEnum("normal")
-	result, err := descriptorAdvise(ctx, []types.Val{selfHandle, offset, length, advice})
+	result, err := descriptorAdvise(ctx, nil, []types.Val{selfHandle, offset, length, advice})
 	require.NoError(t, err)
 	isOk, _, errVal := result[0].Result()
 	require.False(t, isOk, "advise should fail without valid descriptor")

@@ -1,5 +1,8 @@
 // imports/wasip2/sockets/network.go
 
+// WIT source of truth: debug-vendored/WASI/proposals/sockets/wit/{network,instance-network,ip-name-lookup}.wit
+// Package version: wasi:sockets@0.2.9 (wazero targets wasi:sockets@0.2.0)
+//
 package sockets
 
 import (
@@ -23,7 +26,7 @@ func instantiateNetwork(linker *component.Linker) error {
 		// Destructor - nothing to clean up for now
 	})
 
-	inst.FuncNoType("network-error-code", networkErrorCode)
+	inst.Func("network-error-code", networkErrorCode)
 
 	return inst.SkipValidation().Build()
 }
@@ -33,14 +36,14 @@ func instantiateInstanceNetwork(linker *component.Linker) error {
 	inst := linker.DefineInstance("wasi:sockets/instance-network@0.2.0")
 
 	// instance-network: func() -> own<network>
-	inst.FuncNoType("instance-network", instanceNetwork)
+	inst.Func("instance-network", instanceNetwork)
 
 	return inst.SkipValidation().Build()
 }
 
 // instanceNetwork returns the network capability for this instance.
 // Signature: func() -> own<network>
-func instanceNetwork(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func instanceNetwork(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	table := component.ResourceTableFromContext(ctx)
 	if table == nil {
 		return []types.Val{types.ValOwn(0)}, nil
@@ -64,20 +67,20 @@ func instantiateIpNameLookup(linker *component.Linker) error {
 	})
 
 	// resolve-addresses: func(network: borrow<network>, name: string) -> result<own<resolve-address-stream>, error-code>
-	inst.FuncNoType("resolve-addresses", resolveAddresses)
+	inst.Func("resolve-addresses", resolveAddresses)
 
 	// [method]resolve-address-stream.resolve-next-address: func() -> result<option<ip-address>, error-code>
-	inst.FuncNoType("[method]resolve-address-stream.resolve-next-address", resolveNextAddress)
+	inst.Func("[method]resolve-address-stream.resolve-next-address", resolveNextAddress)
 
 	// [method]resolve-address-stream.subscribe: func() -> own<pollable>
-	inst.FuncNoType("[method]resolve-address-stream.subscribe", resolveAddressStreamSubscribe)
+	inst.Func("[method]resolve-address-stream.subscribe", resolveAddressStreamSubscribe)
 
 	return inst.SkipValidation().Build()
 }
 
 // resolveAddresses starts name resolution.
 // Signature: func(network: borrow<network>, name: string) -> result<own<resolve-address-stream>, error-code>
-func resolveAddresses(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func resolveAddresses(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	table := component.ResourceTableFromContext(ctx)
 	if table == nil {
 		errVal := types.ValEnum("invalid-argument")
@@ -144,7 +147,7 @@ func resolveAddresses(ctx context.Context, args []types.Val) ([]types.Val, error
 
 // resolveNextAddress returns the next resolved address.
 // Signature: func(self: borrow<resolve-address-stream>) -> result<option<ip-address>, error-code>
-func resolveNextAddress(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func resolveNextAddress(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	table := component.ResourceTableFromContext(ctx)
@@ -193,7 +196,7 @@ func resolveNextAddress(ctx context.Context, args []types.Val) ([]types.Val, err
 
 // resolveAddressStreamSubscribe returns a pollable for the stream.
 // Signature: func(self: borrow<resolve-address-stream>) -> own<pollable>
-func resolveAddressStreamSubscribe(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func resolveAddressStreamSubscribe(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	table := component.ResourceTableFromContext(ctx)
@@ -228,7 +231,7 @@ func resolveAddressStreamSubscribe(ctx context.Context, args []types.Val) ([]typ
 
 // networkErrorCode extracts a socket error code from an io.Error resource.
 // Signature: func(err: borrow<error>) -> option<error-code>
-func networkErrorCode(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func networkErrorCode(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	table := component.ResourceTableFromContext(ctx)

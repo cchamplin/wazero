@@ -120,10 +120,13 @@ type ComponentFunc struct {
 	// been unified on *types.TypeFunc (Design Decision 9).
 	Type *types.TypeFunc
 
-	// Impl is the actual callable.
+	// Impl is the actual callable. Under Task C3's wasmtime func_new
+	// dynamic-host model, Impl carries the HostFunc signature — the
+	// second parameter is the component-declared type supplied by the
+	// runtime at call time.
 	// For imports: the host-provided Definition
 	// For canon lift: the lifted core function
-	Impl func(ctx context.Context, args []types.Val) ([]types.Val, error)
+	Impl HostFunc
 }
 
 // GetComponentFunc looks up a component function by its index.

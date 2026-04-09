@@ -61,12 +61,24 @@ func (l *ComponentLinker) RelaxedSemverMatching() bool {
 	return l.relaxedSemver
 }
 
-// DefineFunc adds a host function definition.
+// DefineFunc adds a host function definition. The host has no type
+// to declare — the component's import declaration IS the canonical
+// type, looked up by the type checker at instantiate time and
+// supplied to the host's HostFunc callback at call time.
+//
+// Mirrors wasmtime LinkerInstance::func_new
+// (debug-vendored/wasmtime/crates/wasmtime/src/runtime/component/linker.rs:665-675).
 func (l *ComponentLinker) DefineFunc(namespace, name string, fn HostFunc) error {
+	if fn == nil {
+		return fmt.Errorf("DefineFunc: nil HostFunc for %q.%q", namespace, name)
+	}
 	key := namespace + "/" + name
 	if _, exists := l.definitions[key]; exists {
 		return fmt.Errorf("definition already exists: %s", key)
 	}
+	// Type is populated by the type checker at instantiate time from the
+	// component's import declaration. It is left nil at registration;
+	// reading it before instantiate is a programming error.
 	l.definitions[key] = &FuncDef{Callback: fn}
 	return nil
 }
@@ -108,7 +120,8 @@ func (l *ComponentLinker) DefineInstance(namespace string) *ComponentInstanceBui
 	}
 }
 
-// Func adds a function export.
+// Func adds a function export. See HostFunc / DefineFunc doc: the
+// host has no type to declare under the wasmtime func_new model.
 func (b *ComponentInstanceBuilder) Func(name string, fn HostFunc) *ComponentInstanceBuilder {
 	b.exports[name] = &FuncDef{Callback: fn}
 	return b

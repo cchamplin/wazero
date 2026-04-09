@@ -1,5 +1,8 @@
 // imports/wasip2/http/http.go
 
+// WIT source of truth: debug-vendored/WASI/proposals/http/wit/types.wit
+// Package version: wasi:http@0.2.9 (wazero targets wasi:http@0.2.0)
+//
 package http
 
 import (
@@ -38,15 +41,15 @@ func instantiateTypes(linker *component.Linker) error {
 		// Destructor - clean up fields
 	})
 
-	inst.FuncNoType("[constructor]fields", fieldsConstructor)
-	inst.FuncNoType("[static]fields.from-list", fieldsFromList)
-	inst.FuncNoType("[method]fields.get", fieldsGet)
-	inst.FuncNoType("[method]fields.has", fieldsHas)
-	inst.FuncNoType("[method]fields.set", fieldsSet)
-	inst.FuncNoType("[method]fields.delete", fieldsDelete)
-	inst.FuncNoType("[method]fields.append", fieldsAppend)
-	inst.FuncNoType("[method]fields.entries", fieldsEntries)
-	inst.FuncNoType("[method]fields.clone", fieldsClone)
+	inst.Func("[constructor]fields", fieldsConstructor)
+	inst.Func("[static]fields.from-list", fieldsFromList)
+	inst.Func("[method]fields.get", fieldsGet)
+	inst.Func("[method]fields.has", fieldsHas)
+	inst.Func("[method]fields.set", fieldsSet)
+	inst.Func("[method]fields.delete", fieldsDelete)
+	inst.Func("[method]fields.append", fieldsAppend)
+	inst.Func("[method]fields.entries", fieldsEntries)
+	inst.Func("[method]fields.clone", fieldsClone)
 
 	// ==================
 	// Incoming request resource
@@ -55,12 +58,12 @@ func instantiateTypes(linker *component.Linker) error {
 		// Destructor
 	})
 
-	inst.FuncNoType("[method]incoming-request.method", incomingRequestMethod)
-	inst.FuncNoType("[method]incoming-request.path-with-query", incomingRequestPathWithQuery)
-	inst.FuncNoType("[method]incoming-request.scheme", incomingRequestScheme)
-	inst.FuncNoType("[method]incoming-request.authority", incomingRequestAuthority)
-	inst.FuncNoType("[method]incoming-request.headers", incomingRequestHeaders)
-	inst.FuncNoType("[method]incoming-request.consume", incomingRequestConsume)
+	inst.Func("[method]incoming-request.method", incomingRequestMethod)
+	inst.Func("[method]incoming-request.path-with-query", incomingRequestPathWithQuery)
+	inst.Func("[method]incoming-request.scheme", incomingRequestScheme)
+	inst.Func("[method]incoming-request.authority", incomingRequestAuthority)
+	inst.Func("[method]incoming-request.headers", incomingRequestHeaders)
+	inst.Func("[method]incoming-request.consume", incomingRequestConsume)
 
 	// ==================
 	// Outgoing request resource
@@ -69,17 +72,17 @@ func instantiateTypes(linker *component.Linker) error {
 		// Destructor
 	})
 
-	inst.FuncNoType("[constructor]outgoing-request", outgoingRequestConstructor)
-	inst.FuncNoType("[method]outgoing-request.method", outgoingRequestMethod)
-	inst.FuncNoType("[method]outgoing-request.set-method", outgoingRequestSetMethod)
-	inst.FuncNoType("[method]outgoing-request.path-with-query", outgoingRequestPathWithQuery)
-	inst.FuncNoType("[method]outgoing-request.set-path-with-query", outgoingRequestSetPathWithQuery)
-	inst.FuncNoType("[method]outgoing-request.scheme", outgoingRequestScheme)
-	inst.FuncNoType("[method]outgoing-request.set-scheme", outgoingRequestSetScheme)
-	inst.FuncNoType("[method]outgoing-request.authority", outgoingRequestAuthority)
-	inst.FuncNoType("[method]outgoing-request.set-authority", outgoingRequestSetAuthority)
-	inst.FuncNoType("[method]outgoing-request.headers", outgoingRequestHeaders)
-	inst.FuncNoType("[method]outgoing-request.body", outgoingRequestBody)
+	inst.Func("[constructor]outgoing-request", outgoingRequestConstructor)
+	inst.Func("[method]outgoing-request.method", outgoingRequestMethod)
+	inst.Func("[method]outgoing-request.set-method", outgoingRequestSetMethod)
+	inst.Func("[method]outgoing-request.path-with-query", outgoingRequestPathWithQuery)
+	inst.Func("[method]outgoing-request.set-path-with-query", outgoingRequestSetPathWithQuery)
+	inst.Func("[method]outgoing-request.scheme", outgoingRequestScheme)
+	inst.Func("[method]outgoing-request.set-scheme", outgoingRequestSetScheme)
+	inst.Func("[method]outgoing-request.authority", outgoingRequestAuthority)
+	inst.Func("[method]outgoing-request.set-authority", outgoingRequestSetAuthority)
+	inst.Func("[method]outgoing-request.headers", outgoingRequestHeaders)
+	inst.Func("[method]outgoing-request.body", outgoingRequestBody)
 
 	// ==================
 	// Incoming response resource
@@ -88,9 +91,9 @@ func instantiateTypes(linker *component.Linker) error {
 		// Destructor
 	})
 
-	inst.FuncNoType("[method]incoming-response.status", incomingResponseStatus)
-	inst.FuncNoType("[method]incoming-response.headers", incomingResponseHeaders)
-	inst.FuncNoType("[method]incoming-response.consume", incomingResponseConsume)
+	inst.Func("[method]incoming-response.status", incomingResponseStatus)
+	inst.Func("[method]incoming-response.headers", incomingResponseHeaders)
+	inst.Func("[method]incoming-response.consume", incomingResponseConsume)
 
 	// ==================
 	// Outgoing response resource
@@ -99,11 +102,11 @@ func instantiateTypes(linker *component.Linker) error {
 		// Destructor
 	})
 
-	inst.FuncNoType("[constructor]outgoing-response", outgoingResponseConstructor)
-	inst.FuncNoType("[method]outgoing-response.status-code", outgoingResponseStatusCode)
-	inst.FuncNoType("[method]outgoing-response.set-status-code", outgoingResponseSetStatusCode)
-	inst.FuncNoType("[method]outgoing-response.headers", outgoingResponseHeaders)
-	inst.FuncNoType("[method]outgoing-response.body", outgoingResponseBody)
+	inst.Func("[constructor]outgoing-response", outgoingResponseConstructor)
+	inst.Func("[method]outgoing-response.status-code", outgoingResponseStatusCode)
+	inst.Func("[method]outgoing-response.set-status-code", outgoingResponseSetStatusCode)
+	inst.Func("[method]outgoing-response.headers", outgoingResponseHeaders)
+	inst.Func("[method]outgoing-response.body", outgoingResponseBody)
 
 	// ==================
 	// Incoming body resource
@@ -112,8 +115,8 @@ func instantiateTypes(linker *component.Linker) error {
 		// Destructor
 	})
 
-	inst.FuncNoType("[method]incoming-body.stream", incomingBodyStream)
-	inst.FuncNoType("[static]incoming-body.finish", incomingBodyFinish)
+	inst.Func("[method]incoming-body.stream", incomingBodyStream)
+	inst.Func("[static]incoming-body.finish", incomingBodyFinish)
 
 	// ==================
 	// Outgoing body resource
@@ -122,8 +125,8 @@ func instantiateTypes(linker *component.Linker) error {
 		// Destructor
 	})
 
-	inst.FuncNoType("[method]outgoing-body.write", outgoingBodyWrite)
-	inst.FuncNoType("[static]outgoing-body.finish", outgoingBodyFinish)
+	inst.Func("[method]outgoing-body.write", outgoingBodyWrite)
+	inst.Func("[static]outgoing-body.finish", outgoingBodyFinish)
 
 	// ==================
 	// Future incoming response resource
@@ -132,8 +135,8 @@ func instantiateTypes(linker *component.Linker) error {
 		// Destructor
 	})
 
-	inst.FuncNoType("[method]future-incoming-response.get", futureIncomingResponseGet)
-	inst.FuncNoType("[method]future-incoming-response.subscribe", futureIncomingResponseSubscribe)
+	inst.Func("[method]future-incoming-response.get", futureIncomingResponseGet)
+	inst.Func("[method]future-incoming-response.subscribe", futureIncomingResponseSubscribe)
 
 	// ==================
 	// Future trailers resource
@@ -142,8 +145,8 @@ func instantiateTypes(linker *component.Linker) error {
 		// Destructor
 	})
 
-	inst.FuncNoType("[method]future-trailers.get", futureTrailersGet)
-	inst.FuncNoType("[method]future-trailers.subscribe", futureTrailersSubscribe)
+	inst.Func("[method]future-trailers.get", futureTrailersGet)
+	inst.Func("[method]future-trailers.subscribe", futureTrailersSubscribe)
 
 	// ==================
 	// Response outparam resource
@@ -152,7 +155,7 @@ func instantiateTypes(linker *component.Linker) error {
 		// Destructor
 	})
 
-	inst.FuncNoType("[static]response-outparam.set", responseOutparamSet)
+	inst.Func("[static]response-outparam.set", responseOutparamSet)
 
 	// ==================
 	// Request options resource
@@ -161,18 +164,18 @@ func instantiateTypes(linker *component.Linker) error {
 		// Destructor
 	})
 
-	inst.FuncNoType("[constructor]request-options", requestOptionsConstructor)
-	inst.FuncNoType("[method]request-options.connect-timeout", requestOptionsConnectTimeout)
-	inst.FuncNoType("[method]request-options.set-connect-timeout", requestOptionsSetConnectTimeout)
-	inst.FuncNoType("[method]request-options.first-byte-timeout", requestOptionsFirstByteTimeout)
-	inst.FuncNoType("[method]request-options.set-first-byte-timeout", requestOptionsSetFirstByteTimeout)
-	inst.FuncNoType("[method]request-options.between-bytes-timeout", requestOptionsBetweenBytesTimeout)
-	inst.FuncNoType("[method]request-options.set-between-bytes-timeout", requestOptionsSetBetweenBytesTimeout)
+	inst.Func("[constructor]request-options", requestOptionsConstructor)
+	inst.Func("[method]request-options.connect-timeout", requestOptionsConnectTimeout)
+	inst.Func("[method]request-options.set-connect-timeout", requestOptionsSetConnectTimeout)
+	inst.Func("[method]request-options.first-byte-timeout", requestOptionsFirstByteTimeout)
+	inst.Func("[method]request-options.set-first-byte-timeout", requestOptionsSetFirstByteTimeout)
+	inst.Func("[method]request-options.between-bytes-timeout", requestOptionsBetweenBytesTimeout)
+	inst.Func("[method]request-options.set-between-bytes-timeout", requestOptionsSetBetweenBytesTimeout)
 
 	// ==================
 	// Functions
 	// ==================
-	inst.FuncNoType("http-error-code", httpErrorCode)
+	inst.Func("http-error-code", httpErrorCode)
 
 	return inst.SkipValidation().Build()
 }
@@ -371,7 +374,7 @@ func createPollableHandle(ctx context.Context, pollable *io.Pollable) types.Val 
 
 // fieldsConstructor creates a new empty fields.
 // Signature: func() -> own<fields>
-func fieldsConstructor(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func fieldsConstructor(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	if table == nil {
 		return []types.Val{types.ValOwn(0)}, nil
@@ -386,7 +389,7 @@ func fieldsConstructor(ctx context.Context, args []types.Val) ([]types.Val, erro
 
 // fieldsFromList creates fields from a list of entries.
 // Signature: func(entries: list<tuple<field-key, field-value>>) -> result<own<fields>, header-error>
-func fieldsFromList(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func fieldsFromList(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	if table == nil {
 		handle := types.ValOwn(0)
@@ -418,7 +421,7 @@ func fieldsFromList(ctx context.Context, args []types.Val) ([]types.Val, error) 
 
 // fieldsGet returns the values for a field name.
 // Signature: func(self: borrow<fields>, name: field-key) -> list<field-value>
-func fieldsGet(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func fieldsGet(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	fields, err := getFields(ctx, args[0].Borrow())
 	if err != nil {
 		// Return empty list on error
@@ -442,7 +445,7 @@ func fieldsGet(ctx context.Context, args []types.Val) ([]types.Val, error) {
 
 // fieldsHas returns whether a field name exists.
 // Signature: func(self: borrow<fields>, name: field-key) -> bool
-func fieldsHas(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func fieldsHas(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 	name := args[1].StringVal()
 
@@ -456,7 +459,7 @@ func fieldsHas(ctx context.Context, args []types.Val) ([]types.Val, error) {
 
 // fieldsSet sets the values for a field name.
 // Signature: func(self: borrow<fields>, name: field-key, values: list<field-value>) -> result<_, header-error>
-func fieldsSet(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func fieldsSet(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	fields, err := getFields(ctx, args[0].Borrow())
 	if err != nil {
 		return []types.Val{types.ValResultOk(nil)}, nil
@@ -481,7 +484,7 @@ func fieldsSet(ctx context.Context, args []types.Val) ([]types.Val, error) {
 
 // fieldsDelete removes a field by name.
 // Signature: func(self: borrow<fields>, name: field-key) -> result<_, header-error>
-func fieldsDelete(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func fieldsDelete(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	fields, err := getFields(ctx, args[0].Borrow())
 	if err != nil {
 		return []types.Val{types.ValResultOk(nil)}, nil
@@ -494,7 +497,7 @@ func fieldsDelete(ctx context.Context, args []types.Val) ([]types.Val, error) {
 
 // fieldsAppend appends a value to a field.
 // Signature: func(self: borrow<fields>, name: field-key, value: field-value) -> result<_, header-error>
-func fieldsAppend(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func fieldsAppend(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	fields, err := getFields(ctx, args[0].Borrow())
 	if err != nil {
 		return []types.Val{types.ValResultOk(nil)}, nil
@@ -513,7 +516,7 @@ func fieldsAppend(ctx context.Context, args []types.Val) ([]types.Val, error) {
 
 // fieldsEntries returns all field entries.
 // Signature: func(self: borrow<fields>) -> list<tuple<field-key, field-value>>
-func fieldsEntries(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func fieldsEntries(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	fields, err := getFields(ctx, args[0].Borrow())
 	if err != nil {
 		return []types.Val{types.ValList([]types.Val{})}, nil
@@ -540,7 +543,7 @@ func fieldsEntries(ctx context.Context, args []types.Val) ([]types.Val, error) {
 
 // fieldsClone creates a copy of the fields.
 // Signature: func(self: borrow<fields>) -> own<fields>
-func fieldsClone(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func fieldsClone(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	fields, err := getFields(ctx, args[0].Borrow())
 	if err != nil || table == nil {
@@ -561,7 +564,7 @@ func fieldsClone(ctx context.Context, args []types.Val) ([]types.Val, error) {
 
 // outgoingRequestConstructor creates a new outgoing request.
 // Signature: func(headers: own<fields>) -> own<outgoing-request>
-func outgoingRequestConstructor(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func outgoingRequestConstructor(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	if table == nil {
 		return []types.Val{types.ValOwn(0)}, nil
@@ -590,7 +593,7 @@ func outgoingRequestConstructor(ctx context.Context, args []types.Val) ([]types.
 
 // outgoingRequestMethod returns the HTTP method.
 // Signature: func(self: borrow<outgoing-request>) -> method
-func outgoingRequestMethod(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func outgoingRequestMethod(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	req, err := getOutgoingRequest(ctx, args[0].Borrow())
 	if err != nil {
 		return []types.Val{types.ValVariant("get", nil)}, nil
@@ -600,7 +603,7 @@ func outgoingRequestMethod(ctx context.Context, args []types.Val) ([]types.Val, 
 
 // outgoingRequestSetMethod sets the HTTP method.
 // Signature: func(self: borrow<outgoing-request>, method: method) -> result<_, _>
-func outgoingRequestSetMethod(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func outgoingRequestSetMethod(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	req, err := getOutgoingRequest(ctx, args[0].Borrow())
 	if err != nil {
 		return []types.Val{types.ValResultOk(nil)}, nil
@@ -614,7 +617,7 @@ func outgoingRequestSetMethod(ctx context.Context, args []types.Val) ([]types.Va
 
 // outgoingRequestPathWithQuery returns the path with query.
 // Signature: func(self: borrow<outgoing-request>) -> option<string>
-func outgoingRequestPathWithQuery(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func outgoingRequestPathWithQuery(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	req, err := getOutgoingRequest(ctx, args[0].Borrow())
 	if err != nil {
 		return []types.Val{types.ValOption(nil)}, nil
@@ -630,7 +633,7 @@ func outgoingRequestPathWithQuery(ctx context.Context, args []types.Val) ([]type
 
 // outgoingRequestSetPathWithQuery sets the path with query.
 // Signature: func(self: borrow<outgoing-request>, path: option<string>) -> result<_, _>
-func outgoingRequestSetPathWithQuery(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func outgoingRequestSetPathWithQuery(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	req, err := getOutgoingRequest(ctx, args[0].Borrow())
 	if err != nil {
 		return []types.Val{types.ValResultOk(nil)}, nil
@@ -648,7 +651,7 @@ func outgoingRequestSetPathWithQuery(ctx context.Context, args []types.Val) ([]t
 
 // outgoingRequestScheme returns the scheme.
 // Signature: func(self: borrow<outgoing-request>) -> option<scheme>
-func outgoingRequestScheme(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func outgoingRequestScheme(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	req, err := getOutgoingRequest(ctx, args[0].Borrow())
 	if err != nil {
 		return []types.Val{types.ValOption(nil)}, nil
@@ -666,7 +669,7 @@ func outgoingRequestScheme(ctx context.Context, args []types.Val) ([]types.Val, 
 
 // outgoingRequestSetScheme sets the scheme.
 // Signature: func(self: borrow<outgoing-request>, scheme: option<scheme>) -> result<_, _>
-func outgoingRequestSetScheme(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func outgoingRequestSetScheme(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	req, err := getOutgoingRequest(ctx, args[0].Borrow())
 	if err != nil {
 		return []types.Val{types.ValResultOk(nil)}, nil
@@ -684,7 +687,7 @@ func outgoingRequestSetScheme(ctx context.Context, args []types.Val) ([]types.Va
 
 // outgoingRequestAuthority returns the authority.
 // Signature: func(self: borrow<outgoing-request>) -> option<string>
-func outgoingRequestAuthority(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func outgoingRequestAuthority(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	req, err := getOutgoingRequest(ctx, args[0].Borrow())
 	if err != nil {
 		return []types.Val{types.ValOption(nil)}, nil
@@ -700,7 +703,7 @@ func outgoingRequestAuthority(ctx context.Context, args []types.Val) ([]types.Va
 
 // outgoingRequestSetAuthority sets the authority.
 // Signature: func(self: borrow<outgoing-request>, authority: option<string>) -> result<_, _>
-func outgoingRequestSetAuthority(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func outgoingRequestSetAuthority(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	req, err := getOutgoingRequest(ctx, args[0].Borrow())
 	if err != nil {
 		return []types.Val{types.ValResultOk(nil)}, nil
@@ -718,7 +721,7 @@ func outgoingRequestSetAuthority(ctx context.Context, args []types.Val) ([]types
 
 // outgoingRequestHeaders returns the headers.
 // Signature: func(self: borrow<outgoing-request>) -> own<fields>
-func outgoingRequestHeaders(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func outgoingRequestHeaders(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	req, err := getOutgoingRequest(ctx, args[0].Borrow())
 	if err != nil || table == nil {
@@ -739,7 +742,7 @@ func outgoingRequestHeaders(ctx context.Context, args []types.Val) ([]types.Val,
 
 // outgoingRequestBody returns the body.
 // Signature: func(self: borrow<outgoing-request>) -> result<own<outgoing-body>, _>
-func outgoingRequestBody(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func outgoingRequestBody(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	req, err := getOutgoingRequest(ctx, args[0].Borrow())
 	if err != nil || table == nil {
@@ -824,7 +827,7 @@ func schemeFromVariant(v types.Val) Scheme {
 
 // incomingRequestMethod returns the HTTP method.
 // Signature: func(self: borrow<incoming-request>) -> method
-func incomingRequestMethod(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func incomingRequestMethod(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	req, err := getIncomingRequest(ctx, args[0].Borrow())
 	if err != nil {
 		// Return GET as fallback for invalid handle
@@ -835,7 +838,7 @@ func incomingRequestMethod(ctx context.Context, args []types.Val) ([]types.Val, 
 
 // incomingRequestPathWithQuery returns the path with query.
 // Signature: func(self: borrow<incoming-request>) -> option<string>
-func incomingRequestPathWithQuery(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func incomingRequestPathWithQuery(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	req, err := getIncomingRequest(ctx, args[0].Borrow())
 	if err != nil {
 		return []types.Val{types.ValOption(nil)}, nil
@@ -851,7 +854,7 @@ func incomingRequestPathWithQuery(ctx context.Context, args []types.Val) ([]type
 
 // incomingRequestScheme returns the scheme.
 // Signature: func(self: borrow<incoming-request>) -> option<scheme>
-func incomingRequestScheme(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func incomingRequestScheme(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	req, err := getIncomingRequest(ctx, args[0].Borrow())
 	if err != nil {
 		return []types.Val{types.ValOption(nil)}, nil
@@ -869,7 +872,7 @@ func incomingRequestScheme(ctx context.Context, args []types.Val) ([]types.Val, 
 
 // incomingRequestAuthority returns the authority.
 // Signature: func(self: borrow<incoming-request>) -> option<string>
-func incomingRequestAuthority(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func incomingRequestAuthority(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	req, err := getIncomingRequest(ctx, args[0].Borrow())
 	if err != nil {
 		return []types.Val{types.ValOption(nil)}, nil
@@ -885,7 +888,7 @@ func incomingRequestAuthority(ctx context.Context, args []types.Val) ([]types.Va
 
 // incomingRequestHeaders returns the headers.
 // Signature: func(self: borrow<incoming-request>) -> own<fields>
-func incomingRequestHeaders(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func incomingRequestHeaders(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	req, err := getIncomingRequest(ctx, args[0].Borrow())
 	if err != nil || table == nil {
@@ -906,7 +909,7 @@ func incomingRequestHeaders(ctx context.Context, args []types.Val) ([]types.Val,
 
 // incomingRequestConsume consumes the request body.
 // Signature: func(self: borrow<incoming-request>) -> result<own<incoming-body>, _>
-func incomingRequestConsume(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func incomingRequestConsume(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	req, err := getIncomingRequest(ctx, args[0].Borrow())
 	if err != nil || table == nil {
@@ -954,7 +957,7 @@ func getOutgoingResponse(ctx context.Context, handle uint32) (*OutgoingResponse,
 
 // outgoingResponseConstructor creates a new outgoing response.
 // Signature: func(headers: own<fields>) -> own<outgoing-response>
-func outgoingResponseConstructor(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func outgoingResponseConstructor(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	if table == nil {
 		return []types.Val{types.ValOwn(0)}, nil
@@ -982,7 +985,7 @@ func outgoingResponseConstructor(ctx context.Context, args []types.Val) ([]types
 
 // outgoingResponseStatusCode returns the status code.
 // Signature: func(self: borrow<outgoing-response>) -> status-code
-func outgoingResponseStatusCode(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func outgoingResponseStatusCode(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	resp, err := getOutgoingResponse(ctx, args[0].Borrow())
 	if err != nil {
 		return []types.Val{types.ValU16(200)}, nil
@@ -992,7 +995,7 @@ func outgoingResponseStatusCode(ctx context.Context, args []types.Val) ([]types.
 
 // outgoingResponseSetStatusCode sets the status code.
 // Signature: func(self: borrow<outgoing-response>, status-code: status-code) -> result<_, _>
-func outgoingResponseSetStatusCode(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func outgoingResponseSetStatusCode(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	resp, err := getOutgoingResponse(ctx, args[0].Borrow())
 	if err != nil {
 		return []types.Val{types.ValResultOk(nil)}, nil
@@ -1003,7 +1006,7 @@ func outgoingResponseSetStatusCode(ctx context.Context, args []types.Val) ([]typ
 
 // outgoingResponseHeaders returns the headers.
 // Signature: func(self: borrow<outgoing-response>) -> own<fields>
-func outgoingResponseHeaders(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func outgoingResponseHeaders(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	resp, err := getOutgoingResponse(ctx, args[0].Borrow())
 	if err != nil || table == nil {
@@ -1022,7 +1025,7 @@ func outgoingResponseHeaders(ctx context.Context, args []types.Val) ([]types.Val
 
 // outgoingResponseBody returns the body.
 // Signature: func(self: borrow<outgoing-response>) -> result<own<outgoing-body>, _>
-func outgoingResponseBody(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func outgoingResponseBody(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	resp, err := getOutgoingResponse(ctx, args[0].Borrow())
 	if err != nil || table == nil {
@@ -1050,7 +1053,7 @@ func outgoingResponseBody(ctx context.Context, args []types.Val) ([]types.Val, e
 
 // incomingResponseStatus returns the status code.
 // Signature: func(self: borrow<incoming-response>) -> status-code
-func incomingResponseStatus(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func incomingResponseStatus(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	resp, err := getIncomingResponse(ctx, args[0].Borrow())
 	if err != nil {
 		return []types.Val{types.ValU16(200)}, nil
@@ -1060,7 +1063,7 @@ func incomingResponseStatus(ctx context.Context, args []types.Val) ([]types.Val,
 
 // incomingResponseHeaders returns the headers.
 // Signature: func(self: borrow<incoming-response>) -> own<fields>
-func incomingResponseHeaders(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func incomingResponseHeaders(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	resp, err := getIncomingResponse(ctx, args[0].Borrow())
 	if err != nil || table == nil {
@@ -1080,7 +1083,7 @@ func incomingResponseHeaders(ctx context.Context, args []types.Val) ([]types.Val
 
 // incomingResponseConsume consumes the response body.
 // Signature: func(self: borrow<incoming-response>) -> result<own<incoming-body>, _>
-func incomingResponseConsume(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func incomingResponseConsume(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	resp, err := getIncomingResponse(ctx, args[0].Borrow())
 	if err != nil || table == nil {
@@ -1108,7 +1111,7 @@ func incomingResponseConsume(ctx context.Context, args []types.Val) ([]types.Val
 
 // incomingBodyStream returns the input stream for reading the body.
 // Signature: func(self: borrow<incoming-body>) -> result<own<input-stream>, _>
-func incomingBodyStream(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func incomingBodyStream(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	body, err := getIncomingBody(ctx, args[0].Borrow())
 	if err != nil || table == nil {
@@ -1132,7 +1135,7 @@ func incomingBodyStream(ctx context.Context, args []types.Val) ([]types.Val, err
 
 // incomingBodyFinish finishes consuming the body.
 // Signature: func(body: own<incoming-body>) -> own<future-trailers>
-func incomingBodyFinish(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func incomingBodyFinish(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	if table == nil {
 		return []types.Val{types.ValOwn(0)}, nil
@@ -1162,7 +1165,7 @@ func incomingBodyFinish(ctx context.Context, args []types.Val) ([]types.Val, err
 
 // outgoingBodyWrite returns the output stream for writing the body.
 // Signature: func(self: borrow<outgoing-body>) -> result<own<output-stream>, _>
-func outgoingBodyWrite(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func outgoingBodyWrite(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	body, err := getOutgoingBody(ctx, args[0].Borrow())
 	if err != nil || table == nil {
@@ -1186,7 +1189,7 @@ func outgoingBodyWrite(ctx context.Context, args []types.Val) ([]types.Val, erro
 
 // outgoingBodyFinish finishes writing the body.
 // Signature: func(body: own<outgoing-body>, trailers: option<own<fields>>) -> result<_, error-code>
-func outgoingBodyFinish(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func outgoingBodyFinish(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	if table == nil {
 		return []types.Val{types.ValResultOk(nil)}, nil
@@ -1217,7 +1220,7 @@ func outgoingBodyFinish(ctx context.Context, args []types.Val) ([]types.Val, err
 
 // futureIncomingResponseGet polls for the response.
 // Signature: func(self: borrow<future-incoming-response>) -> option<result<result<own<incoming-response>, error-code>, _>>
-func futureIncomingResponseGet(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func futureIncomingResponseGet(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	future, err := getFutureIncomingResponse(ctx, args[0].Borrow())
 	if err != nil || table == nil {
@@ -1252,7 +1255,7 @@ func futureIncomingResponseGet(ctx context.Context, args []types.Val) ([]types.V
 
 // futureIncomingResponseSubscribe returns a pollable for the future.
 // Signature: func(self: borrow<future-incoming-response>) -> own<pollable>
-func futureIncomingResponseSubscribe(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func futureIncomingResponseSubscribe(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	future, err := getFutureIncomingResponse(ctx, args[0].Borrow())
 	if err != nil {
 		return []types.Val{types.ValOwn(0)}, nil
@@ -1310,7 +1313,7 @@ func getFutureTrailers(ctx context.Context, handle uint32) (*FutureTrailers, err
 
 // futureTrailersGet polls for the trailers.
 // Signature: func(self: borrow<future-trailers>) -> option<result<result<option<own<fields>>, error-code>, _>>
-func futureTrailersGet(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func futureTrailersGet(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	ft, err := getFutureTrailers(ctx, args[0].Borrow())
 	if err != nil {
 		return []types.Val{types.ValOption(nil)}, nil
@@ -1353,7 +1356,7 @@ func futureTrailersGet(ctx context.Context, args []types.Val) ([]types.Val, erro
 
 // futureTrailersSubscribe returns a pollable for the future.
 // Signature: func(self: borrow<future-trailers>) -> own<pollable>
-func futureTrailersSubscribe(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func futureTrailersSubscribe(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	ft, err := getFutureTrailers(ctx, args[0].Borrow())
 	if err != nil {
 		// Return a ready pollable
@@ -1392,7 +1395,7 @@ func futureTrailersSubscribe(ctx context.Context, args []types.Val) ([]types.Val
 // Reference: wasmtime's equivalent in
 // crates/wasi-http/src/types_impl.rs (HostResponseOutparam::set) uses
 // `self.table().delete(resp)?` which propagates the error as a wasmtime trap.
-func responseOutparamSet(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func responseOutparamSet(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	if table == nil {
 		// No resource table at all is a degenerate test/host configuration; in
@@ -1460,7 +1463,7 @@ func responseOutparamSet(ctx context.Context, args []types.Val) ([]types.Val, er
 
 // requestOptionsConstructor creates new request options.
 // Signature: func() -> own<request-options>
-func requestOptionsConstructor(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func requestOptionsConstructor(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	table := getOrCreateTable(ctx)
 	if table == nil {
 		return []types.Val{types.ValOwn(0)}, nil
@@ -1476,7 +1479,7 @@ func requestOptionsConstructor(ctx context.Context, args []types.Val) ([]types.V
 
 // requestOptionsConnectTimeout returns the connect timeout.
 // Signature: func(self: borrow<request-options>) -> option<duration>
-func requestOptionsConnectTimeout(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func requestOptionsConnectTimeout(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	opts, err := getRequestOptions(ctx, args[0].Borrow())
 	if err != nil {
 		return []types.Val{types.ValOption(nil)}, nil
@@ -1492,7 +1495,7 @@ func requestOptionsConnectTimeout(ctx context.Context, args []types.Val) ([]type
 
 // requestOptionsSetConnectTimeout sets the connect timeout.
 // Signature: func(self: borrow<request-options>, timeout: option<duration>) -> result<_, _>
-func requestOptionsSetConnectTimeout(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func requestOptionsSetConnectTimeout(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	opts, err := getRequestOptions(ctx, args[0].Borrow())
 	if err != nil {
 		return []types.Val{types.ValResultOk(nil)}, nil
@@ -1510,7 +1513,7 @@ func requestOptionsSetConnectTimeout(ctx context.Context, args []types.Val) ([]t
 
 // requestOptionsFirstByteTimeout returns the first byte timeout.
 // Signature: func(self: borrow<request-options>) -> option<duration>
-func requestOptionsFirstByteTimeout(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func requestOptionsFirstByteTimeout(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	opts, err := getRequestOptions(ctx, args[0].Borrow())
 	if err != nil {
 		return []types.Val{types.ValOption(nil)}, nil
@@ -1526,7 +1529,7 @@ func requestOptionsFirstByteTimeout(ctx context.Context, args []types.Val) ([]ty
 
 // requestOptionsSetFirstByteTimeout sets the first byte timeout.
 // Signature: func(self: borrow<request-options>, timeout: option<duration>) -> result<_, _>
-func requestOptionsSetFirstByteTimeout(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func requestOptionsSetFirstByteTimeout(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	opts, err := getRequestOptions(ctx, args[0].Borrow())
 	if err != nil {
 		return []types.Val{types.ValResultOk(nil)}, nil
@@ -1544,7 +1547,7 @@ func requestOptionsSetFirstByteTimeout(ctx context.Context, args []types.Val) ([
 
 // requestOptionsBetweenBytesTimeout returns the between bytes timeout.
 // Signature: func(self: borrow<request-options>) -> option<duration>
-func requestOptionsBetweenBytesTimeout(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func requestOptionsBetweenBytesTimeout(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	opts, err := getRequestOptions(ctx, args[0].Borrow())
 	if err != nil {
 		return []types.Val{types.ValOption(nil)}, nil
@@ -1560,7 +1563,7 @@ func requestOptionsBetweenBytesTimeout(ctx context.Context, args []types.Val) ([
 
 // requestOptionsSetBetweenBytesTimeout sets the between bytes timeout.
 // Signature: func(self: borrow<request-options>, timeout: option<duration>) -> result<_, _>
-func requestOptionsSetBetweenBytesTimeout(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func requestOptionsSetBetweenBytesTimeout(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	opts, err := getRequestOptions(ctx, args[0].Borrow())
 	if err != nil {
 		return []types.Val{types.ValResultOk(nil)}, nil
@@ -1582,7 +1585,7 @@ func requestOptionsSetBetweenBytesTimeout(ctx context.Context, args []types.Val)
 
 // httpErrorCode extracts an error code from an error.
 // Signature: func(err: borrow<io-error>) -> option<error-code>
-func httpErrorCode(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func httpErrorCode(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	handle := args[0].Borrow()
 
 	table := getOrCreateTable(ctx)

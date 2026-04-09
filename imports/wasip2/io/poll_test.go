@@ -119,7 +119,7 @@ func TestPollableReady_HostFunction(t *testing.T) {
 	args := []types.Val{
 		types.ValBorrow(uint32(handle)),
 	}
-	results, err := pollableReady(ctx, args)
+	results, err := pollableReady(ctx, nil, args)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results))
 	require.True(t, results[0].Bool())
@@ -139,7 +139,7 @@ func TestPollableReady_HostFunction_NotReady(t *testing.T) {
 	args := []types.Val{
 		types.ValBorrow(uint32(handle)),
 	}
-	results, err := pollableReady(ctx, args)
+	results, err := pollableReady(ctx, nil, args)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results))
 	require.False(t, results[0].Bool())
@@ -152,7 +152,7 @@ func TestPollableReady_HostFunction_InvalidHandle(t *testing.T) {
 	args := []types.Val{
 		types.ValBorrow(999), // Invalid handle
 	}
-	_, err := pollableReady(ctx, args)
+	_, err := pollableReady(ctx, nil, args)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid handle")
 }
@@ -163,7 +163,7 @@ func TestPollableReady_HostFunction_NoResourceTable(t *testing.T) {
 	args := []types.Val{
 		types.ValBorrow(0),
 	}
-	_, err := pollableReady(ctx, args)
+	_, err := pollableReady(ctx, nil, args)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "no resource table")
 }
@@ -181,7 +181,7 @@ func TestPollableReady_HostFunction_WrongType(t *testing.T) {
 	args := []types.Val{
 		types.ValBorrow(uint32(handle)),
 	}
-	_, err := pollableReady(ctx, args)
+	_, err := pollableReady(ctx, nil, args)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "not a Pollable")
 }
@@ -207,7 +207,7 @@ func TestPollableBlock_HostFunction(t *testing.T) {
 	args := []types.Val{
 		types.ValBorrow(uint32(handle)),
 	}
-	results, err := pollableBlock(ctx, args)
+	results, err := pollableBlock(ctx, nil, args)
 	require.NoError(t, err)
 	require.Nil(t, results) // block returns no values
 
@@ -230,7 +230,7 @@ func TestPollableBlock_HostFunction_NilBlockFn(t *testing.T) {
 		types.ValBorrow(uint32(handle)),
 	}
 	// Should not panic even with nil blockFn
-	results, err := pollableBlock(ctx, args)
+	results, err := pollableBlock(ctx, nil, args)
 	require.NoError(t, err)
 	require.Nil(t, results)
 }
@@ -242,7 +242,7 @@ func TestPollableBlock_HostFunction_InvalidHandle(t *testing.T) {
 	args := []types.Val{
 		types.ValBorrow(999),
 	}
-	_, err := pollableBlock(ctx, args)
+	_, err := pollableBlock(ctx, nil, args)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid handle")
 }
@@ -275,7 +275,7 @@ func TestPoll_AllReady(t *testing.T) {
 			types.ValBorrow(uint32(h3)),
 		}),
 	}
-	results, err := pollPoll(ctx, args)
+	results, err := pollPoll(ctx, nil, args)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results))
 
@@ -315,7 +315,7 @@ func TestPoll_SomeReady(t *testing.T) {
 			types.ValBorrow(uint32(h3)),
 		}),
 	}
-	results, err := pollPoll(ctx, args)
+	results, err := pollPoll(ctx, nil, args)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results))
 
@@ -346,7 +346,7 @@ func TestPoll_NoneReady_WithBlock(t *testing.T) {
 			types.ValBorrow(uint32(h1)),
 		}),
 	}
-	results, err := pollPoll(ctx, args)
+	results, err := pollPoll(ctx, nil, args)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results))
 
@@ -374,7 +374,7 @@ func TestPoll_NoneReady_NoBlockFn(t *testing.T) {
 			types.ValBorrow(uint32(h1)),
 		}),
 	}
-	results, err := pollPoll(ctx, args)
+	results, err := pollPoll(ctx, nil, args)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results))
 
@@ -390,7 +390,7 @@ func TestPoll_EmptyList(t *testing.T) {
 	args := []types.Val{
 		types.ValList([]types.Val{}),
 	}
-	results, err := pollPoll(ctx, args)
+	results, err := pollPoll(ctx, nil, args)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results))
 
@@ -408,7 +408,7 @@ func TestPoll_InvalidHandle(t *testing.T) {
 			types.ValBorrow(999), // Invalid handle
 		}),
 	}
-	_, err := pollPoll(ctx, args)
+	_, err := pollPoll(ctx, nil, args)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid handle")
 }
@@ -446,7 +446,7 @@ func TestPoll_BlockConcurrent(t *testing.T) {
 	}
 
 	start := time.Now()
-	results, err := pollPoll(ctx, args)
+	results, err := pollPoll(ctx, nil, args)
 	elapsed := time.Since(start)
 
 	require.NoError(t, err)
@@ -586,7 +586,7 @@ func TestPoll_MultiplePollables_FastOneReturnsFirst(t *testing.T) {
 	}
 
 	start := time.Now()
-	results, err := pollPoll(ctx, args)
+	results, err := pollPoll(ctx, nil, args)
 	elapsed := time.Since(start)
 
 	require.NoError(t, err)
@@ -661,7 +661,7 @@ func TestPoll_MultiplePollables_AllReadyAtOnce(t *testing.T) {
 		}),
 	}
 
-	results, err := pollPoll(ctx, args)
+	results, err := pollPoll(ctx, nil, args)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results))
 
@@ -709,7 +709,7 @@ func TestPoll_ChannelBasedPollable(t *testing.T) {
 	}
 
 	start := time.Now()
-	results, err := pollPoll(ctx, args)
+	results, err := pollPoll(ctx, nil, args)
 	elapsed := time.Since(start)
 
 	require.NoError(t, err)

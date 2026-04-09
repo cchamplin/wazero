@@ -32,7 +32,7 @@ func TestHostFunctions(t *testing.T) {
 
 	// Define the "double" function in the "host:util/calc" instance
 	err = linker.DefineInstance("host:util/calc").
-		Func("double", component.HostFunc(func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+		Func("double", component.HostFunc(func(ctx context.Context, _ *component.TypeFunc, args []component.Val) ([]component.Val, error) {
 			x := args[0].S32()
 			return []component.Val{component.ValS32(x * 2)}, nil
 		})).

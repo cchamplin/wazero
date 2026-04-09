@@ -44,12 +44,21 @@ import (
 )
 
 // HostFunc is a host function that can be called from a component.
-// It receives a context and a slice of Val arguments, and returns
-// a slice of Val results or an error.
+// It receives a context, the component-declared function type
+// (supplied by the runtime at call time), and a slice of Val
+// arguments, and returns a slice of Val results or an error.
+//
+// Mirrors wasmtime's func_new dynamic host path
+// (debug-vendored/wasmtime/.../runtime/component/linker.rs:665-675).
 type HostFunc = internalcomponent.HostFunc
 
 // Val represents a dynamically-typed component model value.
 type Val = types.Val
+
+// TypeFunc is the component-level function type handed to [HostFunc]
+// callbacks at call time. It mirrors wasmtime's cx.types[ty] lookup
+// (debug-vendored/wasmtime/.../runtime/component/func/host.rs:640-694).
+type TypeFunc = types.TypeFunc
 
 // ValKind identifies the type of a Val.
 type ValKind = types.ValKind

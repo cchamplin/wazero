@@ -148,7 +148,7 @@ func TestComponentLinking_ProviderConsumer(t *testing.T) {
 	// by wrapping the provider's exported add function
 	linker := component.NewLinker()
 	err = linker.DefineInstance("math").
-		FuncNoType("add", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		Func("add", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 			// Forward the call to the provider's add function
 			return providerAddFunc.Call(ctx, args...)
 		}).
@@ -294,7 +294,7 @@ func TestComponentLinking_MultipleValues(t *testing.T) {
 
 	linker := component.NewLinker()
 	err = linker.DefineInstance("math").
-		FuncNoType("add", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		Func("add", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 			return providerAddFunc.Call(ctx, args...)
 		}).
 		SkipValidation().
@@ -550,7 +550,7 @@ func TestComponentLinking_ProviderCallCount(t *testing.T) {
 	var callCount int
 	linker := component.NewLinker()
 	err = linker.DefineInstance("math").
-		FuncNoType("add", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		Func("add", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 			callCount++
 			return providerAddFunc.Call(ctx, args...)
 		}).

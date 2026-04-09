@@ -1,5 +1,8 @@
 // imports/wasip2/http/incoming.go
 
+// WIT source of truth: debug-vendored/WASI/proposals/http/wit/{types,handler,proxy}.wit
+// Package version: wasi:http@0.2.9 (wazero targets wasi:http@0.2.0)
+//
 package http
 
 import (
@@ -24,7 +27,7 @@ func instantiateIncomingHandler(linker *component.Linker) error {
 	inst := linker.DefineInstance("wasi:http/incoming-handler@0.2.0")
 
 	// handle: func(request: own<incoming-request>, response-out: own<response-outparam>)
-	inst.FuncNoType("handle", incomingHandlerHandle)
+	inst.Func("handle", incomingHandlerHandle)
 
 	return inst.SkipValidation().Build()
 }
@@ -184,7 +187,7 @@ func methodFromHTTPMethod(s string) Method {
 
 // incomingHandlerHandle handles an incoming HTTP request.
 // Signature: func(request: own<incoming-request>, response-out: own<response-outparam>)
-func incomingHandlerHandle(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func incomingHandlerHandle(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	// This is a no-op placeholder - returns nothing (unit)
 	return []types.Val{}, nil
 }

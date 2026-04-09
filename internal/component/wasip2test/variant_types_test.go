@@ -50,7 +50,7 @@ func TestVariantPlugin_EnumTypeResolution(t *testing.T) {
 
 	// host-logger import
 	err = hostLinker.DefineInstance("test:variantlog/host-logger").
-		FuncNoType("get-default-severity", func(ctx context.Context, args []types.Val) ([]types.Val, error) {
+		Func("get-default-severity", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 			// Return severity::warning (enum index 1)
 			return []types.Val{types.ValU32(1)}, nil
 		}).

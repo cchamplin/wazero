@@ -117,7 +117,7 @@ func TestSubscribeDuration_HostFunction(t *testing.T) {
 		types.ValU64(duration),
 	}
 
-	results, err := monotonicClockSubscribeDuration(ctx, args)
+	results, err := monotonicClockSubscribeDuration(ctx, nil, args)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results))
 
@@ -152,7 +152,7 @@ func TestSubscribeDuration_HostFunction_Zero(t *testing.T) {
 		types.ValU64(0),
 	}
 
-	results, err := monotonicClockSubscribeDuration(ctx, args)
+	results, err := monotonicClockSubscribeDuration(ctx, nil, args)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results))
 
@@ -176,7 +176,7 @@ func TestSubscribeDuration_HostFunction_NoResourceTable(t *testing.T) {
 	}
 
 	// Should return placeholder handle 0 when no resource table
-	results, err := monotonicClockSubscribeDuration(ctx, args)
+	results, err := monotonicClockSubscribeDuration(ctx, nil, args)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results))
 	require.Equal(t, uint32(0), results[0].Own())
@@ -192,7 +192,7 @@ func TestSubscribeInstant_HostFunction(t *testing.T) {
 		types.ValU64(futureInstant),
 	}
 
-	results, err := monotonicClockSubscribeInstant(ctx, args)
+	results, err := monotonicClockSubscribeInstant(ctx, nil, args)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results))
 
@@ -227,7 +227,7 @@ func TestSubscribeInstant_HostFunction_Past(t *testing.T) {
 		types.ValU64(0),
 	}
 
-	results, err := monotonicClockSubscribeInstant(ctx, args)
+	results, err := monotonicClockSubscribeInstant(ctx, nil, args)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results))
 
@@ -251,7 +251,7 @@ func TestSubscribeInstant_HostFunction_NoResourceTable(t *testing.T) {
 	}
 
 	// Should return placeholder handle 0 when no resource table
-	results, err := monotonicClockSubscribeInstant(ctx, args)
+	results, err := monotonicClockSubscribeInstant(ctx, nil, args)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results))
 	require.Equal(t, uint32(0), results[0].Own())

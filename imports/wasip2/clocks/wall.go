@@ -1,5 +1,8 @@
 // imports/wasip2/clocks/wall.go
 
+// WIT source of truth: debug-vendored/WASI/proposals/clocks/wit/wall-clock.wit
+// Package version: wasi:clocks@0.2.9 (wazero targets wasi:clocks@0.2.0)
+//
 package clocks
 
 import (
@@ -38,13 +41,13 @@ func WallClockResolution() Datetime {
 func instantiateWallClock(linker *component.Linker) error {
 	inst := linker.DefineInstance("wasi:clocks/wall-clock@0.2.0")
 
-	inst.FuncNoType("now", wallClockNow)
-	inst.FuncNoType("resolution", wallClockResolution)
+	inst.Func("now", wallClockNow)
+	inst.Func("resolution", wallClockResolution)
 
 	return inst.SkipValidation().Build()
 }
 
-func wallClockNow(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func wallClockNow(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	dt := WallClockNow()
 	return []types.Val{
 		types.ValRecord(map[string]types.Val{
@@ -54,7 +57,7 @@ func wallClockNow(ctx context.Context, args []types.Val) ([]types.Val, error) {
 	}, nil
 }
 
-func wallClockResolution(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func wallClockResolution(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	dt := WallClockResolution()
 	return []types.Val{
 		types.ValRecord(map[string]types.Val{

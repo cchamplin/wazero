@@ -21,38 +21,38 @@ import (
 // defaultHostOps returns a map of default host-ops function implementations.
 func defaultHostOps() map[string]apicomponent.HostFunc {
 	return map[string]apicomponent.HostFunc{
-		"get-value": func(ctx context.Context, args []apicomponent.Val) ([]apicomponent.Val, error) {
+		"get-value": func(ctx context.Context, _ *apicomponent.TypeFunc, args []apicomponent.Val) ([]apicomponent.Val, error) {
 			return []apicomponent.Val{apicomponent.ValU32(42)}, nil
 		},
-		"get-random-len": func(ctx context.Context, args []apicomponent.Val) ([]apicomponent.Val, error) {
+		"get-random-len": func(ctx context.Context, _ *apicomponent.TypeFunc, args []apicomponent.Val) ([]apicomponent.Val, error) {
 			return []apicomponent.Val{apicomponent.ValU64(args[0].U64())}, nil
 		},
-		"send-enum": func(ctx context.Context, args []apicomponent.Val) ([]apicomponent.Val, error) {
+		"send-enum": func(ctx context.Context, _ *apicomponent.TypeFunc, args []apicomponent.Val) ([]apicomponent.Val, error) {
 			return []apicomponent.Val{apicomponent.ValU32(1)}, nil
 		},
-		"send-event": func(ctx context.Context, args []apicomponent.Val) ([]apicomponent.Val, error) {
+		"send-event": func(ctx context.Context, _ *apicomponent.TypeFunc, args []apicomponent.Val) ([]apicomponent.Val, error) {
 			return []apicomponent.Val{apicomponent.ValU32(1)}, nil
 		},
-		"get-color": func(ctx context.Context, args []apicomponent.Val) ([]apicomponent.Val, error) {
+		"get-color": func(ctx context.Context, _ *apicomponent.TypeFunc, args []apicomponent.Val) ([]apicomponent.Val, error) {
 			return []apicomponent.Val{apicomponent.ValEnum("blue")}, nil
 		},
-		"check-option": func(ctx context.Context, args []apicomponent.Val) ([]apicomponent.Val, error) {
+		"check-option": func(ctx context.Context, _ *apicomponent.TypeFunc, args []apicomponent.Val) ([]apicomponent.Val, error) {
 			return []apicomponent.Val{apicomponent.ValU32(1)}, nil
 		},
-		"get-event": func(ctx context.Context, args []apicomponent.Val) ([]apicomponent.Val, error) {
+		"get-event": func(ctx context.Context, _ *apicomponent.TypeFunc, args []apicomponent.Val) ([]apicomponent.Val, error) {
 			metadata := apicomponent.ValList([]apicomponent.Val{apicomponent.ValU8(42)})
 			return []apicomponent.Val{apicomponent.ValRecord(map[string]apicomponent.Val{
 				"event-type": apicomponent.ValEnum("green"),
 				"metadata":   apicomponent.ValOption(&metadata),
 			})}, nil
 		},
-		"check-opt-bytes": func(ctx context.Context, args []apicomponent.Val) ([]apicomponent.Val, error) {
+		"check-opt-bytes": func(ctx context.Context, _ *apicomponent.TypeFunc, args []apicomponent.Val) ([]apicomponent.Val, error) {
 			return []apicomponent.Val{apicomponent.ValU32(1)}, nil
 		},
-		"send-tagged-shape": func(ctx context.Context, args []apicomponent.Val) ([]apicomponent.Val, error) {
+		"send-tagged-shape": func(ctx context.Context, _ *apicomponent.TypeFunc, args []apicomponent.Val) ([]apicomponent.Val, error) {
 			return []apicomponent.Val{apicomponent.ValU32(1)}, nil
 		},
-		"send-events": func(ctx context.Context, args []apicomponent.Val) ([]apicomponent.Val, error) {
+		"send-events": func(ctx context.Context, _ *apicomponent.TypeFunc, args []apicomponent.Val) ([]apicomponent.Val, error) {
 			return []apicomponent.Val{apicomponent.ValU32(1)}, nil
 		},
 	}
@@ -112,7 +112,7 @@ func newPublicAPIInstance(t *testing.T, overrides map[string]apicomponent.HostFu
 	}
 
 	err = linker.DefineInstance("test:repro/host-rng").SkipValidation().
-		Func("get-random-bytes", apicomponent.HostFunc(func(ctx context.Context, args []apicomponent.Val) ([]apicomponent.Val, error) {
+		Func("get-random-bytes", apicomponent.HostFunc(func(ctx context.Context, _ *apicomponent.TypeFunc, args []apicomponent.Val) ([]apicomponent.Val, error) {
 			return []apicomponent.Val{apicomponent.ValList(nil)}, nil
 		})).
 		Build()
@@ -657,7 +657,7 @@ func TestHostImport_EnumArgTypeVerification(t *testing.T) {
 	var capturedArgs []apicomponent.Val
 
 	instance, testCtx, cleanup := newPublicAPIInstance(t, map[string]apicomponent.HostFunc{
-		"send-enum": func(ctx context.Context, args []apicomponent.Val) ([]apicomponent.Val, error) {
+		"send-enum": func(ctx context.Context, _ *apicomponent.TypeFunc, args []apicomponent.Val) ([]apicomponent.Val, error) {
 			capturedArgs = make([]apicomponent.Val, len(args))
 			copy(capturedArgs, args)
 			return []apicomponent.Val{apicomponent.ValU32(1)}, nil
@@ -686,7 +686,7 @@ func TestHostImport_EnumStringCombinedArgs(t *testing.T) {
 	var capturedArgs []apicomponent.Val
 
 	instance, testCtx, cleanup := newPublicAPIInstance(t, map[string]apicomponent.HostFunc{
-		"send-enum": func(ctx context.Context, args []apicomponent.Val) ([]apicomponent.Val, error) {
+		"send-enum": func(ctx context.Context, _ *apicomponent.TypeFunc, args []apicomponent.Val) ([]apicomponent.Val, error) {
 			capturedArgs = make([]apicomponent.Val, len(args))
 			copy(capturedArgs, args)
 			return []apicomponent.Val{apicomponent.ValU32(1)}, nil
@@ -723,7 +723,7 @@ func TestHostImport_EnumInRecordVerification(t *testing.T) {
 	var capturedArgs []apicomponent.Val
 
 	instance, testCtx, cleanup := newPublicAPIInstance(t, map[string]apicomponent.HostFunc{
-		"send-event": func(ctx context.Context, args []apicomponent.Val) ([]apicomponent.Val, error) {
+		"send-event": func(ctx context.Context, _ *apicomponent.TypeFunc, args []apicomponent.Val) ([]apicomponent.Val, error) {
 			capturedArgs = make([]apicomponent.Val, len(args))
 			copy(capturedArgs, args)
 			return []apicomponent.Val{apicomponent.ValU32(1)}, nil
@@ -764,7 +764,7 @@ func TestHostImport_AllEnumCasesRoundTrip(t *testing.T) {
 	var capturedArgs []apicomponent.Val
 
 	instance, testCtx, cleanup := newPublicAPIInstance(t, map[string]apicomponent.HostFunc{
-		"send-enum": func(ctx context.Context, args []apicomponent.Val) ([]apicomponent.Val, error) {
+		"send-enum": func(ctx context.Context, _ *apicomponent.TypeFunc, args []apicomponent.Val) ([]apicomponent.Val, error) {
 			capturedArgs = make([]apicomponent.Val, len(args))
 			copy(capturedArgs, args)
 			if len(args) > 0 && args[0].Kind() == apicomponent.ValKindEnum {
@@ -860,7 +860,7 @@ func TestHostImport_OptionParam(t *testing.T) {
 	var capturedArgs []apicomponent.Val
 
 	instance, testCtx, cleanup := newPublicAPIInstance(t, map[string]apicomponent.HostFunc{
-		"check-option": func(ctx context.Context, args []apicomponent.Val) ([]apicomponent.Val, error) {
+		"check-option": func(ctx context.Context, _ *apicomponent.TypeFunc, args []apicomponent.Val) ([]apicomponent.Val, error) {
 			capturedArgs = make([]apicomponent.Val, len(args))
 			copy(capturedArgs, args)
 			if len(args) > 0 && args[0].Kind() == apicomponent.ValKindOption {
@@ -923,7 +923,7 @@ func TestHostImport_NestedOptionListParam(t *testing.T) {
 	var capturedArgs []apicomponent.Val
 
 	instance, testCtx, cleanup := newPublicAPIInstance(t, map[string]apicomponent.HostFunc{
-		"check-opt-bytes": func(ctx context.Context, args []apicomponent.Val) ([]apicomponent.Val, error) {
+		"check-opt-bytes": func(ctx context.Context, _ *apicomponent.TypeFunc, args []apicomponent.Val) ([]apicomponent.Val, error) {
 			capturedArgs = make([]apicomponent.Val, len(args))
 			copy(capturedArgs, args)
 			if len(args) > 0 && args[0].Kind() == apicomponent.ValKindOption {
@@ -966,7 +966,7 @@ func TestHostImport_RecordWithVariant(t *testing.T) {
 	var capturedArgs []apicomponent.Val
 
 	instance, testCtx, cleanup := newPublicAPIInstance(t, map[string]apicomponent.HostFunc{
-		"send-tagged-shape": func(ctx context.Context, args []apicomponent.Val) ([]apicomponent.Val, error) {
+		"send-tagged-shape": func(ctx context.Context, _ *apicomponent.TypeFunc, args []apicomponent.Val) ([]apicomponent.Val, error) {
 			capturedArgs = make([]apicomponent.Val, len(args))
 			copy(capturedArgs, args)
 			return []apicomponent.Val{apicomponent.ValU32(1)}, nil
@@ -1001,7 +1001,7 @@ func TestHostImport_ListOfRecords(t *testing.T) {
 	var capturedArgs []apicomponent.Val
 
 	instance, testCtx, cleanup := newPublicAPIInstance(t, map[string]apicomponent.HostFunc{
-		"send-events": func(ctx context.Context, args []apicomponent.Val) ([]apicomponent.Val, error) {
+		"send-events": func(ctx context.Context, _ *apicomponent.TypeFunc, args []apicomponent.Val) ([]apicomponent.Val, error) {
 			capturedArgs = make([]apicomponent.Val, len(args))
 			copy(capturedArgs, args)
 			if len(args) > 0 && args[0].Kind() == apicomponent.ValKindList {

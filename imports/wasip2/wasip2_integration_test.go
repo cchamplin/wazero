@@ -153,7 +153,7 @@ func TestFullWorkflow(t *testing.T) {
 		funcDef, ok := getEnvFunc.(*component.FuncDef)
 		require.True(t, ok)
 
-		result, err := funcDef.Callback(ctx, []types.Val{})
+		result, err := funcDef.Callback(ctx, nil, []types.Val{})
 		require.NoError(t, err)
 		require.Equal(t, 1, len(result))
 
@@ -186,7 +186,7 @@ func TestFullWorkflow(t *testing.T) {
 		funcDef, ok := getArgsFunc.(*component.FuncDef)
 		require.True(t, ok)
 
-		result, err := funcDef.Callback(ctx, []types.Val{})
+		result, err := funcDef.Callback(ctx, nil, []types.Val{})
 		require.NoError(t, err)
 		require.Equal(t, 1, len(result))
 
@@ -212,7 +212,7 @@ func TestFullWorkflow(t *testing.T) {
 		funcDef, ok := getStdinFunc.(*component.FuncDef)
 		require.True(t, ok)
 
-		result, err := funcDef.Callback(ctx, []types.Val{})
+		result, err := funcDef.Callback(ctx, nil, []types.Val{})
 		require.NoError(t, err)
 		require.Equal(t, 1, len(result))
 
@@ -246,7 +246,7 @@ func TestFullWorkflow(t *testing.T) {
 		funcDef, ok := getStdoutFunc.(*component.FuncDef)
 		require.True(t, ok)
 
-		result, err := funcDef.Callback(ctx, []types.Val{})
+		result, err := funcDef.Callback(ctx, nil, []types.Val{})
 		require.NoError(t, err)
 		require.Equal(t, 1, len(result))
 
@@ -281,7 +281,7 @@ func TestFullWorkflow(t *testing.T) {
 		funcDef, ok := getStderrFunc.(*component.FuncDef)
 		require.True(t, ok)
 
-		result, err := funcDef.Callback(ctx, []types.Val{})
+		result, err := funcDef.Callback(ctx, nil, []types.Val{})
 		require.NoError(t, err)
 		require.Equal(t, 1, len(result))
 
@@ -398,7 +398,7 @@ func TestResourceTableIntegration(t *testing.T) {
 	instDef := stdinDef.(*component.InstanceDef)
 	getStdinFunc := instDef.Exports["get-stdin"].(*component.FuncDef)
 
-	result, err := getStdinFunc.Callback(ctx, []types.Val{})
+	result, err := getStdinFunc.Callback(ctx, nil, []types.Val{})
 	require.NoError(t, err)
 
 	stdinHandle := result[0].Own()
@@ -408,7 +408,7 @@ func TestResourceTableIntegration(t *testing.T) {
 	instDef = stdoutDef.(*component.InstanceDef)
 	getStdoutFunc := instDef.Exports["get-stdout"].(*component.FuncDef)
 
-	result, err = getStdoutFunc.Callback(ctx, []types.Val{})
+	result, err = getStdoutFunc.Callback(ctx, nil, []types.Val{})
 	require.NoError(t, err)
 
 	stdoutHandle := result[0].Own()
@@ -460,7 +460,7 @@ func TestClocksIntegration(t *testing.T) {
 		funcDef, ok := nowFunc.(*component.FuncDef)
 		require.True(t, ok)
 
-		result, err := funcDef.Callback(ctx, []types.Val{})
+		result, err := funcDef.Callback(ctx, nil, []types.Val{})
 		require.NoError(t, err)
 		require.Equal(t, 1, len(result))
 
@@ -483,7 +483,7 @@ func TestClocksIntegration(t *testing.T) {
 		funcDef, ok := nowFunc.(*component.FuncDef)
 		require.True(t, ok)
 
-		result, err := funcDef.Callback(ctx, []types.Val{})
+		result, err := funcDef.Callback(ctx, nil, []types.Val{})
 		require.NoError(t, err)
 		require.Equal(t, 1, len(result))
 
@@ -517,7 +517,7 @@ func TestRandomIntegration(t *testing.T) {
 		require.True(t, ok)
 
 		// Request 16 random bytes
-		result, err := funcDef.Callback(ctx, []types.Val{types.ValU64(16)})
+		result, err := funcDef.Callback(ctx, nil, []types.Val{types.ValU64(16)})
 		require.NoError(t, err)
 		require.Equal(t, 1, len(result))
 
@@ -541,11 +541,11 @@ func TestRandomIntegration(t *testing.T) {
 		require.True(t, ok)
 
 		// Get two random u64s and verify they are different (statistically unlikely to be same)
-		result1, err := funcDef.Callback(ctx, []types.Val{})
+		result1, err := funcDef.Callback(ctx, nil, []types.Val{})
 		require.NoError(t, err)
 		require.Equal(t, 1, len(result1))
 
-		result2, err := funcDef.Callback(ctx, []types.Val{})
+		result2, err := funcDef.Callback(ctx, nil, []types.Val{})
 		require.NoError(t, err)
 		require.Equal(t, 1, len(result2))
 
@@ -580,7 +580,7 @@ func TestFilesystemPreopensIntegration(t *testing.T) {
 	funcDef, ok := getDirsFunc.(*component.FuncDef)
 	require.True(t, ok)
 
-	result, err := funcDef.Callback(ctx, []types.Val{})
+	result, err := funcDef.Callback(ctx, nil, []types.Val{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(result))
 

@@ -1,5 +1,8 @@
 // imports/wasip2/clocks/monotonic.go
 
+// WIT source of truth: debug-vendored/WASI/proposals/clocks/wit/monotonic-clock.wit
+// Package version: wasi:clocks@0.2.9 (wazero targets wasi:clocks@0.2.0)
+//
 package clocks
 
 import (
@@ -60,23 +63,23 @@ func SubscribeInstant(instant uint64) (readyFn func() bool, blockFn func()) {
 func instantiateMonotonicClock(linker *component.Linker) error {
 	inst := linker.DefineInstance("wasi:clocks/monotonic-clock@0.2.0")
 
-	inst.FuncNoType("now", monotonicClockNow)
-	inst.FuncNoType("resolution", monotonicClockResolution)
-	inst.FuncNoType("subscribe-instant", monotonicClockSubscribeInstant)
-	inst.FuncNoType("subscribe-duration", monotonicClockSubscribeDuration)
+	inst.Func("now", monotonicClockNow)
+	inst.Func("resolution", monotonicClockResolution)
+	inst.Func("subscribe-instant", monotonicClockSubscribeInstant)
+	inst.Func("subscribe-duration", monotonicClockSubscribeDuration)
 
 	return inst.SkipValidation().Build()
 }
 
-func monotonicClockNow(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func monotonicClockNow(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	return []types.Val{types.ValU64(MonotonicNow())}, nil
 }
 
-func monotonicClockResolution(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func monotonicClockResolution(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	return []types.Val{types.ValU64(MonotonicResolution())}, nil
 }
 
-func monotonicClockSubscribeInstant(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func monotonicClockSubscribeInstant(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	// args[0] is instant (u64)
 	instant := args[0].U64()
 
@@ -101,7 +104,7 @@ func monotonicClockSubscribeInstant(ctx context.Context, args []types.Val) ([]ty
 	return []types.Val{types.ValOwn(uint32(handle))}, nil
 }
 
-func monotonicClockSubscribeDuration(ctx context.Context, args []types.Val) ([]types.Val, error) {
+func monotonicClockSubscribeDuration(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 	// args[0] is duration (u64)
 	duration := args[0].U64()
 

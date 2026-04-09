@@ -179,17 +179,42 @@ func (tc *TypeChecker) CheckDefinition(expected *ImportExternDesc, importName st
 
 // checkFuncDefinition validates a function import.
 //
-// Session 0 compile-fix: the old []TypeDef indexing is gone. Component.Types
-// is now *types.ComponentTypes (the canonical bag). Resolving a component
-// type index back to a *types.TypeFunc requires Task 13 / Session 2 wiring.
-// Until then we trust host-provided FuncDef.Type (no expected side to
-// compare against).
+// Task C3 (revised 2026-04-09): under wasmtime's func_new dynamic-host
+// model, the host has no type to declare at registration. The
+// component's import declaration IS the canonical type; we resolve
+// expected.TypeIdx here and bind the result to the actual FuncDef.Type
+// so the lift/lower path (Tasks C5-C8) can pass it to the host callback
+// at call time.
+//
+// Spec: wasmtime func/host.rs:619-626 DynamicHostFn::typecheck only
+// validates the async bit at link time; the rest of the type-checking
+// happens at lift/lower time against cx.types[ty] (host.rs:640-694).
 func (tc *TypeChecker) checkFuncDefinition(expected *ImportExternDesc, actual Definition) error {
-	_, ok := actual.(*FuncDef)
+	fd, ok := actual.(*FuncDef)
 	if !ok {
 		return fmt.Errorf("expected function, got %T", actual)
 	}
-	_ = expected
+	if tc.component == nil {
+		return nil
+	}
+	expectedTypeDef, _, err := tc.component.ResolveTypeDef(expected.TypeIdx)
+	if err != nil {
+		return fmt.Errorf("checkFuncDefinition: resolve expected type: %w", err)
+	}
+	if expectedTypeDef.Kind != TypeDefKindFunc {
+		return fmt.Errorf("checkFuncDefinition: expected TypeDefKindFunc, got %v", expectedTypeDef.Kind)
+	}
+	expectedFuncType := expectedTypeDef.FuncType(tc.component)
+
+	// Async bit MUST match (matches wasmtime DynamicHostFn::typecheck).
+	if fd.Type != nil && fd.Type.Async != expectedFuncType.Async {
+		return fmt.Errorf("checkFuncDefinition: async mismatch (expected %v, host %v)",
+			expectedFuncType.Async, fd.Type.Async)
+	}
+
+	// Bind the resolved type to the host FuncDef. Lift/lower at call
+	// time will pass this type to the HostFunc callback as fnType.
+	fd.Type = expectedFuncType
 	return nil
 }
 
