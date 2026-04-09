@@ -1417,3 +1417,34 @@ None. Both reviewers approved with only Minor findings. M1-M3 tracked for follow
 
 ✅ Complete. Proceeding to Task D13 (Checkpoint D verification).
 
+---
+
+## Task D13 — Checkpoint D verification
+
+**All gate criteria pass.** Build clean (in-scope packages), targeted tests pass (`-run 'Nested|Integration|StartFunction|ComponentLinker'`), full suite green (9 sub-packages), race detector clean on conformance, end-to-end `TestInstantiateAndCallLiftedFunc` passes.
+
+**Zero DeferredToSession1 stubs** in Checkpoint D scope files. Remaining stubs only in out-of-scope conformance files (20 files, later checkpoints).
+
+**D10 remaining skip:** `TestNestedInstantiation_RecordReturn` — conditional skip (retptr lowering gap in `buildCanonLiftFunc`), properly documented with citation. Companion `TestNestedInstantiation_SimpleExport` passes end-to-end.
+
+**Production code audit:** Only `component_linker.go` and `nested_component.go` modified (expected). 8 test files + 1 review log.
+
+**Checkpoint-level review:** ✅ CHECKPOINT D PASS. Both reviewers approved. All gate criteria met, all D1-D12 review log entries present with dual verdicts and corrective commit hashes.
+
+### Checkpoint D Summary
+
+**Commits:** ~15 (4 task commits D1-D4 + 3 correctives + 7 test-restoration commits D5-D12 + 1 corrective + review log entries)
+
+**Key production deliveries:**
+- `resolveExportTypeAlias`: walks parent.instanceSpace → source exports → TypeDefs via ResolveTypeDef (alias-safe + alias-leak guard).
+- `instantiateNestedComponent`: full nested pipeline (steps 2-14), `resolveNestedImports` (parent-scope import resolution with type checking), recursive nesting support.
+- `processNestedInstances`: Instantiate-kind + Inline-kind dispatch, `resolveInlineExport` helper.
+- `wireExports`: handles all 5 component export kinds (Func/Instance/Type/Value/Component). `wireNestedComponentExports` + `wireInlineInstanceExports`.
+- `executeStartFunction`: func lookup → arg consumption → invocation → result count validation → result storage.
+
+**Tests restored in Checkpoint D:** 70 tests (4 D1 + 15 D2 + 9 D3 + 10 D4 + 8 D5 + 19 D6 + 8 D8 + 13 D9 + 2 D10 + 10 D11 + 0 D12 audit = ~98 restored, some pre-existing from earlier tasks). Plus 8 citation blocks added (D12 reentrance audit).
+
+### Task status
+
+✅ Checkpoint D complete and closed. Ready to proceed to Checkpoint E.
+
