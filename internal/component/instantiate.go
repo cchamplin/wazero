@@ -143,14 +143,16 @@ func Instantiate(ctx context.Context, instantiator ModuleInstantiator, c *Compon
 		// the Session 2 TypeDef/ComponentTypes wiring. Until then we wire
 		// the export with a nil funcType; the ExportedFunc.Call body
 		// panics anyway until Session 1 replaces it.
+		// C8-b: ExportedFunc now carries a HostFunc impl closure
+		// instead of linker-time fields. This legacy free-function
+		// Instantiate path predates ComponentLinker.Instantiate and
+		// does not build the closure; Call will report "no impl"
+		// until the caller migrates to ComponentLinker.
+		_, _, _, _ = coreFunc, canon, memory, reallocFunc
 		inst.exports[exp.Name] = &ExportedFunc{
-			name:        exp.Name,
-			coreFunc:    coreFunc,
-			canonical:   canon,
-			component:   c,
-			instance:    inst,
-			memory:      memory,
-			reallocFunc: reallocFunc,
+			name:      exp.Name,
+			component: c,
+			instance:  inst,
 		}
 	}
 

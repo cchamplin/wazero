@@ -152,20 +152,23 @@ func (i *Instance) ExportedFunction(name string) *ExportedFunc {
 	return i.exports[name]
 }
 
-// ExportedFunc represents an exported component function. The wrapper
-// shape carries the linker-time wiring (core func, memory, realloc,
-// post-return, canonical def). Call's body is rebuilt in Checkpoint C
-// Task C5 against abi.LiftParams / abi.LowerResults.
+// ExportedFunc represents an exported component function.
+//
+// C8-b Option A: the wrapper carries a HostFunc closure (`impl`) built
+// by wireExports from either buildCanonLiftFunc (for canon.lift exports)
+// or directly from the component function index space (for imported
+// function re-exports). Call simply invokes it — no per-call
+// reconstruction of the lift context.
+//
+// The legacy linker-time fields (coreFunc, canonical, memory,
+// reallocFunc, postReturnFunc) were removed: every call-site that
+// touched them has been migrated to the closure.
 type ExportedFunc struct {
-	name           string
-	funcType       *types.TypeFunc
-	coreFunc       api.Function
-	canonical      *CanonicalDef
-	component      *Component
-	instance       *Instance
-	memory         api.Memory
-	reallocFunc    api.Function
-	postReturnFunc api.Function
+	name      string
+	funcType  *types.TypeFunc
+	component *Component
+	instance  *Instance
+	impl      HostFunc
 }
 
 // Name returns the export name of this function.
@@ -175,12 +178,19 @@ func (f *ExportedFunc) Name() string {
 
 // Call invokes the exported function with the given arguments.
 //
-// Checkpoint B: delegators in place; the full body is rebuilt in Checkpoint C
-// Task C5 against abi.LiftParams / abi.LowerResults. Until then Call returns
-// a precise error rather than panicking.
+// C8-b: delegates to the per-export HostFunc closure populated by
+// wireExports. For canon.lift exports this is the closure built by
+// buildCanonLiftFunc (spec canon_lift at definitions.py:1978-2040);
+// for imported-function re-exports it is the component function's own
+// Impl.
 func (f *ExportedFunc) Call(ctx context.Context, params ...types.Val) ([]types.Val, error) {
-	_, _ = ctx, params
-	return nil, fmt.Errorf("ExportedFunc.Call: rebuild in progress (Session 1 Checkpoint C Task C5)")
+	if f == nil {
+		return nil, fmt.Errorf("ExportedFunc.Call: nil receiver")
+	}
+	if f.impl == nil {
+		return nil, fmt.Errorf("ExportedFunc.Call: %q has no impl (wireExports did not populate it)", f.name)
+	}
+	return f.impl(ctx, f.funcType, params)
 }
 
 // Type returns the function's type.

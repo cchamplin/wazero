@@ -222,13 +222,420 @@ func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledCom
 	// Step 11 — Build function alias map for inline instance resolution.
 	funcAliases := l.buildFuncAliases(c)
 
-	// Steps 12-14 land in subsequent tasks (C8..C11).
 	_ = instanceToImport
-	_ = componentInstDefs
-	_ = canonLowers
-	_ = canonResources
-	_ = funcAliases
+
+	// Step 12 — Instantiate core modules with wired host exports.
+	if err := l.instantiateCoreModules(ctx, inst, c, compiled.CompiledModules(),
+		resolvedImports, canonLowers, canonResources, funcAliases); err != nil {
+		return nil, fmt.Errorf("Instantiate: core modules: %w", err)
+	}
+
+	// Step 13 — Execute start function.
+	if err := l.executeStartFunction(ctx, inst, c); err != nil {
+		return nil, fmt.Errorf("Instantiate: start function: %w", err)
+	}
+
+	// Step 14 — Wire exports.
+	if err := l.wireExports(inst, c, componentInstDefs, funcSpace, memSpace); err != nil {
+		return nil, fmt.Errorf("Instantiate: wire exports: %w", err)
+	}
 	return inst, nil
+}
+
+// --- Task C8-b: core-module host wiring + export wiring ----------------
+//
+// Spec: definitions.py canon_lift / canon_lower sections for the closure
+// semantics, plus the Instantiator pipeline described in wasmtime
+// crates/wasmtime/src/runtime/component/instance.rs:710-900 for the
+// overall shape of core-module instantiation with per-import host
+// modules.
+//
+// The Session-1 rebuild departs from pre-Session-0's experimental
+// ImportResolver approach (git show 36a29b13^:internal/component/
+// component_linker.go:906-1050) in favour of the simpler model shared
+// with wasmtime: build one synthetic host module per core-import-module
+// name via HostModuleInstantiator, then instantiate the core module with
+// those host modules already registered under the expected names.
+
+// instantiateCoreModules walks c.CoreInstances and instantiates each
+// inline or instantiate-kind entry in order. For each Instantiate-kind
+// core instance we build one host module per import-module-name referenced
+// in coreInst.Args, register it with the runtime via
+// HostModuleInstantiator, then instantiate the core module itself via
+// CoreModuleInstantiator. For Inline-kind core instances we register a
+// single host module under a synthetic name — the wrapper pattern from
+// pre-Session-0 createInlineInstanceModule.
+//
+// For components with no core instances (the two existing skeleton
+// tests) this is a no-op and returns nil.
+//
+// Real wiring of cross-instance aliases and inline-export resolution
+// lands with the C8-c end-to-end test (real core module from the
+// binary decoder); C8-b lands the scaffolding.
+func (l *ComponentLinker) instantiateCoreModules(
+	ctx context.Context,
+	inst *Instance,
+	c *Component,
+	compiledModules []CompiledModuleCloser,
+	resolvedImports map[string]Definition,
+	canonLowers map[uint32]canonLowerInfo,
+	canonResources map[uint32]canonResourceInfo,
+	funcAliases map[uint32]*Alias,
+) error {
+	if len(c.CoreInstances) == 0 {
+		return nil
+	}
+	hmi, _ := l.runtime.(HostModuleInstantiator)
+	cmi, _ := l.runtime.(CoreModuleInstantiator)
+	if cmi == nil {
+		return fmt.Errorf(
+			"instantiateCoreModules: runtime does not implement CoreModuleInstantiator (type %T); component has %d core instance(s)",
+			l.runtime, len(c.CoreInstances))
+	}
+	_ = resolvedImports
+
+	for ciIdx := range c.CoreInstances {
+		ci := &c.CoreInstances[ciIdx]
+		switch ci.Kind {
+		case CoreInstanceExprInstantiate:
+			if hmi == nil {
+				return fmt.Errorf(
+					"instantiateCoreModules: core instance %d needs HostModuleInstantiator; runtime type %T does not implement it",
+					ciIdx, l.runtime)
+			}
+			// Build one synthetic host module per distinct import module
+			// name the core module will resolve when instantiated. The
+			// CoreInstantiateArg.Name IS the import-module-name.
+			seen := make(map[string]bool)
+			for _, arg := range ci.Args {
+				if seen[arg.Name] {
+					continue
+				}
+				seen[arg.Name] = true
+				hm, err := l.buildCoreHostModule(ctx, inst, c, arg.Name, arg.InstanceIdx,
+					canonLowers, canonResources, funcAliases)
+				if err != nil {
+					return fmt.Errorf("core instance %d host module %q: %w", ciIdx, arg.Name, err)
+				}
+				if hm == nil {
+					continue
+				}
+				if _, err := hmi.InstantiateHostModule(ctx, arg.Name, hm); err != nil {
+					return fmt.Errorf("core instance %d register host module %q: %w", ciIdx, arg.Name, err)
+				}
+			}
+			if int(ci.ModuleIdx) >= len(compiledModules) {
+				return fmt.Errorf("core instance %d: module index %d out of range (have %d)",
+					ciIdx, ci.ModuleIdx, len(compiledModules))
+			}
+			compiled := compiledModules[ci.ModuleIdx]
+			if compiled == nil {
+				return fmt.Errorf("core instance %d: module %d not compiled", ciIdx, ci.ModuleIdx)
+			}
+			mod, err := cmi.InstantiateCoreModule(ctx, compiled)
+			if err != nil {
+				return fmt.Errorf("core instance %d: instantiate module %d: %w", ciIdx, ci.ModuleIdx, err)
+			}
+			for len(inst.coreInstances) <= ciIdx {
+				inst.coreInstances = append(inst.coreInstances, nil)
+			}
+			inst.coreInstances[ciIdx] = mod
+		case CoreInstanceExprInline:
+			// Inline-kind core instances are synthetic re-export bundles.
+			// They do not produce an api.Module directly — they are
+			// consumed as arg.InstanceIdx targets by Instantiate-kind
+			// siblings and resolved inside buildCoreHostModule. Leave a
+			// nil slot in coreInstances so later idx lookups stay aligned.
+			for len(inst.coreInstances) <= ciIdx {
+				inst.coreInstances = append(inst.coreInstances, nil)
+			}
+		default:
+			return fmt.Errorf("core instance %d: unknown kind %v", ciIdx, ci.Kind)
+		}
+	}
+	return nil
+}
+
+// buildCoreHostModule assembles the HostModuleExport list for one
+// import-module-name of a core module. The source is identified by
+// instanceIdx — the CoreInstantiateArg.InstanceIdx pointing at another
+// entry in c.CoreInstances (typically an Inline-kind one carrying the
+// canon.lower / canon.resource.* / alias exports).
+//
+// Returns (nil, nil) when the source instance has no exports worth
+// registering — the caller skips the InstantiateHostModule call in that
+// case.
+func (l *ComponentLinker) buildCoreHostModule(
+	ctx context.Context,
+	inst *Instance,
+	c *Component,
+	moduleName string,
+	sourceInstanceIdx uint32,
+	canonLowers map[uint32]canonLowerInfo,
+	canonResources map[uint32]canonResourceInfo,
+	funcAliases map[uint32]*Alias,
+) ([]HostModuleExport, error) {
+	_ = ctx
+	_ = moduleName
+	if int(sourceInstanceIdx) >= len(c.CoreInstances) {
+		return nil, fmt.Errorf("source instance %d out of range (have %d)",
+			sourceInstanceIdx, len(c.CoreInstances))
+	}
+	src := &c.CoreInstances[sourceInstanceIdx]
+	if src.Kind != CoreInstanceExprInline {
+		// Instantiate-kind source: forward all of its exported functions
+		// via SourceModule. Requires the source already instantiated.
+		if int(sourceInstanceIdx) >= len(inst.coreInstances) || inst.coreInstances[sourceInstanceIdx] == nil {
+			return nil, fmt.Errorf("source core instance %d not yet instantiated", sourceInstanceIdx)
+		}
+		sourceMod := inst.coreInstances[sourceInstanceIdx]
+		var exports []HostModuleExport
+		for name := range sourceMod.ExportedFunctionDefinitions() {
+			exports = append(exports, HostModuleExport{
+				Name:         name,
+				SourceModule: sourceMod,
+				SourceName:   name,
+			})
+		}
+		return exports, nil
+	}
+
+	// Inline-kind: each InlineExport resolves to a canon.lower closure,
+	// a canon.resource.* op, or an alias-forward to another core instance.
+	var exports []HostModuleExport
+	for _, ie := range src.InlineExports {
+		if ie.Sort != CoreSortFunc {
+			// Table / memory inline exports are registered via the
+			// HostModuleInstantiator tables/memories variants, which C8-b
+			// does not yet wire (followup in C8-c / Checkpoint D). Skip
+			// with a precise error so tests that hit this path trap
+			// instead of silently dropping the export.
+			return nil, fmt.Errorf(
+				"inline export %q sort %v: non-func inline exports not yet wired (Task C8-c)",
+				ie.Name, ie.Sort)
+		}
+		// 1. canon.lower?
+		if info, ok := canonLowers[ie.Idx]; ok {
+			compFunc, hasFn := inst.GetComponentFunc(info.funcIdx)
+			if !hasFn || compFunc.Impl == nil {
+				return nil, fmt.Errorf("canon.lower export %q: component func %d has no Impl",
+					ie.Name, info.funcIdx)
+			}
+			// Flatten the component function's param/result tuples
+			// into []types.ValType lists the abi layer consumes.
+			paramElems := unpackTupleElems(c.Types, compFunc.Type.Params)
+			resultElems := unpackTupleElems(c.Types, compFunc.Type.Results)
+			// needsRetptr determination is a function of flat arity;
+			// precise computation lives in abi.FlattenParams /
+			// FlattenResults. For C8-b wiring, mirror the default
+			// pre-Session-0 behaviour and let abi.LowerResults handle
+			// the retptr path when called with needsRetptr=false —
+			// C8-c's end-to-end test exercises precise retptr sizing.
+			fn := l.createCanonLowerFunc(inst, c, info, compFunc, paramElems, resultElems, false)
+			// Core signature is flat (i32/i64/f32/f64). C8-b uses i32
+			// placeholders matching the pre-Session-0 default; C8-c
+			// wires precise core-ABI flattening via FlattenType.
+			coreParams := make([]api.ValueType, len(paramElems))
+			for i := range coreParams {
+				coreParams[i] = api.ValueTypeI32
+			}
+			coreResults := make([]api.ValueType, len(resultElems))
+			for i := range coreResults {
+				coreResults[i] = api.ValueTypeI32
+			}
+			exports = append(exports, HostModuleExport{
+				Name:        ie.Name,
+				ParamTypes:  coreParams,
+				ResultTypes: coreResults,
+				Func:        fn,
+			})
+			continue
+		}
+		// 2. canon.resource.*?
+		if info, ok := canonResources[ie.Idx]; ok {
+			hmExp := l.createResourceOpExport(inst, ie.Name, info)
+			if hmExp != nil {
+				exports = append(exports, *hmExp)
+			}
+			continue
+		}
+		// 3. Function alias forwarding to another core instance.
+		if alias, ok := funcAliases[ie.Idx]; ok && alias.Kind == AliasKindCoreExport {
+			if int(alias.InstanceIdx) >= len(inst.coreInstances) || inst.coreInstances[alias.InstanceIdx] == nil {
+				return nil, fmt.Errorf("alias-forward export %q: source core instance %d not instantiated",
+					ie.Name, alias.InstanceIdx)
+			}
+			sourceMod := inst.coreInstances[alias.InstanceIdx]
+			exports = append(exports, HostModuleExport{
+				Name:         ie.Name,
+				SourceModule: sourceMod,
+				SourceName:   alias.ExportName,
+			})
+			continue
+		}
+		return nil, fmt.Errorf("inline export %q (idx %d): no canon.lower, canon.resource, or alias source",
+			ie.Name, ie.Idx)
+	}
+	return exports, nil
+}
+
+// executeStartFunction runs the component's start function, if any.
+// Full implementation lands with Task D4; C8-b returns a precise error
+// if c.Start is non-nil so components that declare a start function
+// trap rather than silently skipping.
+//
+// Spec: definitions.py ComponentInstance start-function handling.
+func (l *ComponentLinker) executeStartFunction(ctx context.Context, inst *Instance, c *Component) error {
+	_, _ = ctx, inst
+	if c.Start == nil {
+		return nil
+	}
+	return fmt.Errorf("start function execution: not yet implemented (Session 1 Checkpoint D Task D4)")
+}
+
+// wireExports populates inst.exports from c.Exports. Each function
+// export gets an ExportedFunc whose impl is either:
+//
+//   - for a canon.lift export: the HostFunc closure produced by
+//     buildCanonLiftFunc, bound to the resolved core function / memory /
+//     realloc / post_return from the now-instantiated core modules; or
+//
+//   - for an imported-function re-export: the HostFunc directly from
+//     the component function index space (already populated in Step 7).
+//
+// Only function exports are wired in C8-b; value/type/instance/core-
+// export exports land with Checkpoint D.
+func (l *ComponentLinker) wireExports(
+	inst *Instance,
+	c *Component,
+	componentInstDefs map[uint32]*InstanceDef,
+	funcSpace *CoreFuncIndexSpace,
+	memSpace *CoreMemoryIndexSpace,
+) error {
+	_ = componentInstDefs
+	for i := range c.Exports {
+		exp := &c.Exports[i]
+		if exp.Kind != ExportKindFunc {
+			continue
+		}
+		ef, err := l.wireExportedFunc(inst, c, exp, funcSpace, memSpace)
+		if err != nil {
+			return fmt.Errorf("export %q: %w", exp.Name, err)
+		}
+		inst.exports[exp.Name] = ef
+	}
+	return nil
+}
+
+// wireExportedFunc builds one ExportedFunc for an ExportKindFunc entry.
+// Resolves the canon.lift closure with core-instance-bound memory /
+// realloc / post_return, per C8-a review finding #3.
+func (l *ComponentLinker) wireExportedFunc(
+	inst *Instance,
+	c *Component,
+	exp *Export,
+	funcSpace *CoreFuncIndexSpace,
+	memSpace *CoreMemoryIndexSpace,
+) (*ExportedFunc, error) {
+	// Case A: exp.Idx refers to a component function slot. If the slot
+	// holds a pre-populated Impl (imported-function re-export), wrap it
+	// directly. Otherwise we expect a canon.lift binding via
+	// FuncIdxToCanonical.
+	cf, hasCF := inst.GetComponentFunc(exp.Idx)
+
+	// Prefer canon.lift binding when present.
+	if canonIdx, ok := c.FuncIdxToCanonical[exp.Idx]; ok && int(canonIdx) < len(c.Canonicals) {
+		canon := &c.Canonicals[canonIdx]
+		if canon.Kind == CanonKindLift {
+			// Resolve the core function / memory / realloc / post_return
+			// from the now-instantiated core modules via the index spaces.
+			coreFn, err := resolveCoreFuncViaSpace(inst, canon.CoreFuncIdx, funcSpace)
+			if err != nil {
+				return nil, fmt.Errorf("resolve core func %d: %w", canon.CoreFuncIdx, err)
+			}
+			var memory api.Memory
+			if canon.Options.MemoryIdx != nil {
+				memory, err = resolveCoreMemoryViaSpace(inst, *canon.Options.MemoryIdx, memSpace)
+				if err != nil {
+					return nil, fmt.Errorf("resolve memory %d: %w", *canon.Options.MemoryIdx, err)
+				}
+			}
+			var realloc api.Function
+			if canon.Options.ReallocIdx != nil {
+				realloc, err = resolveCoreFuncViaSpace(inst, *canon.Options.ReallocIdx, funcSpace)
+				if err != nil {
+					return nil, fmt.Errorf("resolve realloc %d: %w", *canon.Options.ReallocIdx, err)
+				}
+			}
+			var postReturn api.Function
+			if canon.Options.PostReturnIdx != nil {
+				postReturn, err = resolveCoreFuncViaSpace(inst, *canon.Options.PostReturnIdx, funcSpace)
+				if err != nil {
+					return nil, fmt.Errorf("resolve post_return %d: %w", *canon.Options.PostReturnIdx, err)
+				}
+			}
+			td, _, err := c.ResolveTypeDef(canon.TypeIdx)
+			if err != nil || td == nil || td.Kind != TypeDefKindFunc {
+				return nil, fmt.Errorf("canon.lift type idx %d did not resolve to a func type", canon.TypeIdx)
+			}
+			ft := td.FuncType(c)
+			impl := l.buildCanonLiftFunc(inst, canon, coreFn, ft, memory, realloc, postReturn)
+			return &ExportedFunc{
+				name:      exp.Name,
+				funcType:  ft,
+				component: c,
+				instance:  inst,
+				impl:      impl,
+			}, nil
+		}
+	}
+
+	// Case B: imported-function re-export.
+	if hasCF && cf.Impl != nil {
+		return &ExportedFunc{
+			name:      exp.Name,
+			funcType:  cf.Type,
+			component: c,
+			instance:  inst,
+			impl:      cf.Impl,
+		}, nil
+	}
+
+	return nil, fmt.Errorf("no canonical lift or imported-func source for export %q (idx %d)", exp.Name, exp.Idx)
+}
+
+// resolveCoreFuncViaSpace looks up a core function by its component-level
+// func index through the CoreFuncIndexSpace, then dereferences the
+// resulting (instanceIdx, exportName) against inst.coreInstances.
+func resolveCoreFuncViaSpace(inst *Instance, funcIdx uint32, space *CoreFuncIndexSpace) (api.Function, error) {
+	instanceIdx, exportName, err := space.Resolve(funcIdx)
+	if err != nil {
+		return nil, err
+	}
+	if int(instanceIdx) >= len(inst.coreInstances) || inst.coreInstances[instanceIdx] == nil {
+		return nil, fmt.Errorf("core instance %d not instantiated", instanceIdx)
+	}
+	fn := inst.coreInstances[instanceIdx].ExportedFunction(exportName)
+	if fn == nil {
+		return nil, fmt.Errorf("core instance %d has no export %q", instanceIdx, exportName)
+	}
+	return fn, nil
+}
+
+// resolveCoreMemoryViaSpace is the memory analog of resolveCoreFuncViaSpace.
+func resolveCoreMemoryViaSpace(inst *Instance, memIdx uint32, space *CoreMemoryIndexSpace) (api.Memory, error) {
+	instanceIdx, exportName, err := space.Resolve(memIdx)
+	if err != nil {
+		return nil, err
+	}
+	if int(instanceIdx) >= len(inst.coreInstances) || inst.coreInstances[instanceIdx] == nil {
+		return nil, fmt.Errorf("core instance %d not instantiated", instanceIdx)
+	}
+	mem := inst.coreInstances[instanceIdx].ExportedMemory(exportName)
+	if mem == nil {
+		return nil, fmt.Errorf("core instance %d has no memory export %q", instanceIdx, exportName)
+	}
+	return mem, nil
 }
 
 // processNestedInstances handles nested component instantiation. The
@@ -549,8 +956,10 @@ func (l *ComponentLinker) MergeFrom(linker *Linker) {
 // Spec: definitions.py:1978-1990 canon_lift uses CanonicalOptions fields
 // memory / realloc / post_return directly; wasmtime
 // runtime/component/func/options.rs has the parallel Options struct.
-func buildAbiOptions(canon *CanonicalDef, memory api.Memory, realloc api.Function) abi.Options {
-	_, _ = memory, realloc // referenced by callers via LiftContext/LowerContext, not here
+// C8-b cleanup (review item 4): dropped unused memory/realloc parameters.
+// Options only carries indirection indices; the live api.Memory/api.Function
+// values travel via LiftContext/LowerContext.Memory / .Realloc set by callers.
+func buildAbiOptions(canon *CanonicalDef) abi.Options {
 	var memIdx uint32
 	if canon != nil && canon.Options.MemoryIdx != nil {
 		memIdx = *canon.Options.MemoryIdx
@@ -649,11 +1058,11 @@ func (l *ComponentLinker) buildCanonLiftFunc(
 	realloc api.Function,
 	postReturn api.Function,
 ) HostFunc {
-	opts := buildAbiOptions(canon, memory, realloc)
+	opts := buildAbiOptions(canon)
 	paramElems := unpackTupleElems(inst.component.Types, funcType.Params)
 	resultElems := unpackTupleElems(inst.component.Types, funcType.Results)
 
-	return func(goCtx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+	return func(goCtx context.Context, fnType *types.TypeFunc, args []types.Val) (results []types.Val, retErr error) {
 		_ = fnType // captured via funcType at construction time
 		// :1979 — structural/tracker reentrance check.
 		if inst.rt.Reentrance.CallMightBeRecursive(inst.rt.ID) {
@@ -663,6 +1072,13 @@ func (l *ComponentLinker) buildCanonLiftFunc(
 		defer inst.rt.Reentrance.LeaveInstance(inst.rt.ID)
 
 		borrow := runtime.NewBorrowScope(inst.rt.Table)
+		// C8-b review item 1: always release borrow scope on exit,
+		// including error paths. :738-742 deliver_resolve.
+		defer func() {
+			if rerr := borrow.Release(); rerr != nil && retErr == nil {
+				retErr = fmt.Errorf("canon.lift: release borrow scope: %w", rerr)
+			}
+		}()
 		callCtx := runtime.NewCallContext()
 
 		lowerCtx := &abi.LowerContext{
@@ -700,10 +1116,11 @@ func (l *ComponentLinker) buildCanonLiftFunc(
 			Instance:    inst.rt,
 			BorrowScope: borrow,
 		}
-		results, err := abi.LiftResults(liftCtx, resultElems, flatResults, abi.MaxFlatResults)
+		liftedResults, err := abi.LiftResults(liftCtx, resultElems, flatResults, abi.MaxFlatResults)
 		if err != nil {
 			return nil, fmt.Errorf("canon.lift: lift results: %w", err)
 		}
+		results = liftedResults
 
 		// :2000-2002 post_return with may_leave toggled off.
 		if postReturn != nil {
@@ -715,10 +1132,7 @@ func (l *ComponentLinker) buildCanonLiftFunc(
 			}
 		}
 
-		// :738-742 deliver_resolve — release the borrow scope.
-		if rerr := borrow.Release(); rerr != nil {
-			return nil, fmt.Errorf("canon.lift: release borrow scope: %w", rerr)
-		}
+		// :738-742 deliver_resolve is handled by the deferred borrow release.
 		return results, nil
 	}
 }
@@ -768,7 +1182,8 @@ func (l *ComponentLinker) createCanonLowerFunc(
 			// layer traps if the retptr path requires it.
 			realloc = mod.ExportedFunction("cabi_realloc")
 		}
-		opts := buildAbiOptions(canonSnapshot, memory, realloc)
+		opts := buildAbiOptions(canonSnapshot)
+		_ = memory // referenced via liftCtx/lowerCtx below
 
 		// :2065 entry trap.
 		if !inst.rt.IsMayLeave() {
@@ -777,6 +1192,18 @@ func (l *ComponentLinker) createCanonLowerFunc(
 
 		// :2068-2070 subtask + contexts.
 		borrow := runtime.NewBorrowScope(inst.rt.Table)
+		// C8-b review item 1: always release borrow scope, even on panic
+		// from lift/host/lower paths. :2113 deliver_resolve.
+		defer func() {
+			if rerr := borrow.Release(); rerr != nil {
+				// If we're already unwinding from a panic, surface that
+				// first; otherwise raise the release error as a trap.
+				if p := recover(); p != nil {
+					panic(p)
+				}
+				panic(fmt.Errorf("canon.lower: release borrow scope: %w", rerr))
+			}
+		}()
 		callCtx := runtime.NewCallContext()
 
 		liftCtx := &abi.LiftContext{
@@ -832,10 +1259,7 @@ func (l *ComponentLinker) createCanonLowerFunc(
 			panic(fmt.Errorf("canon.lower: lower results: %w", err))
 		}
 
-		// :2113 deliver_resolve — release borrow scope.
-		if rerr := borrow.Release(); rerr != nil {
-			panic(fmt.Errorf("canon.lower: release borrow scope: %w", rerr))
-		}
+		// :2113 deliver_resolve is handled by the deferred borrow release.
 	})
 }
 
