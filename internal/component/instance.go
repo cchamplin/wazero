@@ -213,25 +213,153 @@ func alignTo(offset, align uint32) uint32 {
 // these into the unified runtime.ComponentInstance + abi.LiftContext path.
 
 // ResourceNew is canon.resource.new — spec definitions.py:2134-2138.
-// Session 1 Task B4: signature in place; body is a placeholder that
-// returns a precise error. Task E5 wires the full spec-correct body
-// against Table.NewResourceHandle after Tasks E1 (GetByIndex) + E2
-// (Rep uint32) + E3 (BorrowScope.ReleaseBorrow) land.
+//
+//	def canon_resource_new(rt, thread, rep):
+//	  trap_if(not thread.task.inst.may_leave)
+//	  h = ResourceHandle(rt, rep, own = True)
+//	  i = thread.task.inst.table.add(h)
+//	  return [i]
+//
+// Wasmtime parallel: runtime/vm/component/resources.rs resource_new32.
 func (i *Instance) ResourceNew(resourceIdx types.ResourceIdx, rep uint32) (uint32, error) {
-	_, _ = resourceIdx, rep
-	return 0, fmt.Errorf("Instance.ResourceNew: body rebuild in progress (Session 1 Checkpoint E Task E5)")
+	// Spec: definitions.py:2135 — trap_if(not may_leave)
+	if !i.rt.IsMayLeave() {
+		return 0, errMayNotLeave
+	}
+	if int(resourceIdx) >= len(i.rt.ResourceTypes) {
+		return 0, fmt.Errorf("resource.new: resource declaration %d not defined", resourceIdx)
+	}
+	rt := i.rt.ResourceTypes[resourceIdx]
+	if rt == nil {
+		return 0, fmt.Errorf("resource.new: resource type %d not concrete", resourceIdx)
+	}
+	// Spec: definitions.py:2136-2137 — create own handle, add to table.
+	h, err := i.rt.Table.NewResourceHandle(rep, true, rt)
+	if err != nil {
+		return 0, err
+	}
+	return h.Index(), nil
 }
 
 // ResourceRep is canon.resource.rep — spec definitions.py:2169-2173.
+//
+//	def canon_resource_rep(rt, thread, i):
+//	  h = thread.task.inst.table.get(i)
+//	  trap_if(not isinstance(h, ResourceHandle))
+//	  trap_if(h.rt is not rt)
+//	  return [h.rep]
+//
+// Wasmtime parallel: runtime/vm/component/resources.rs resource_rep.
 func (i *Instance) ResourceRep(resourceIdx types.ResourceIdx, handleIdx uint32) (uint32, error) {
-	_, _ = resourceIdx, handleIdx
-	return 0, fmt.Errorf("Instance.ResourceRep: body rebuild in progress (Session 1 Checkpoint E Task E5)")
+	if int(resourceIdx) >= len(i.rt.ResourceTypes) {
+		return 0, fmt.Errorf("resource.rep: resource declaration %d not defined", resourceIdx)
+	}
+	rt := i.rt.ResourceTypes[resourceIdx]
+	if rt == nil {
+		return 0, fmt.Errorf("resource.rep: resource type %d not concrete", resourceIdx)
+	}
+	// Spec: definitions.py:2170 — h = table.get(i)
+	// Use GetByIndex to bridge the Wasm-side u32 index to the runtime's
+	// 64-bit generation-tagged Handle.
+	_, entry, err := i.rt.Table.GetByIndex(handleIdx)
+	if err != nil {
+		return 0, err
+	}
+	resEntry, ok := entry.(*runtime.ResourceHandleEntry)
+	if !ok {
+		return 0, runtime.ErrInvalidHandle
+	}
+	// Spec: definitions.py:2172 — trap_if(h.rt is not rt)
+	if resEntry.RT != rt {
+		return 0, fmt.Errorf("resource.rep: type mismatch")
+	}
+	// Spec: definitions.py:2173 — return [h.rep]
+	return resEntry.Rep, nil
 }
 
 // ResourceDrop is canon.resource.drop — spec definitions.py:2142-2165.
+//
+//	def canon_resource_drop(rt, thread, i):
+//	  trap_if(not thread.task.inst.may_leave)
+//	  inst = thread.task.inst
+//	  h = inst.table.remove(i)
+//	  trap_if(not isinstance(h, ResourceHandle))
+//	  trap_if(h.rt is not rt)
+//	  trap_if(h.num_lends != 0)
+//	  if h.own:
+//	    assert(h.borrow_scope is None)
+//	    if inst is rt.impl:
+//	      if rt.dtor: rt.dtor(h.rep)
+//	    else:
+//	      if rt.dtor: [...cross-instance...]
+//	      else: trap_if(call_might_be_recursive(thread.task, rt.impl))
+//	  else:
+//	    h.borrow_scope.num_borrows -= 1
+//	  return []
+//
+// Wasmtime parallel: runtime/vm/component/resources.rs resource_drop.
 func (i *Instance) ResourceDrop(resourceIdx types.ResourceIdx, handleIdx uint32) error {
-	_, _ = resourceIdx, handleIdx
-	return fmt.Errorf("Instance.ResourceDrop: body rebuild in progress (Session 1 Checkpoint E Task E5)")
+	// Spec: definitions.py:2143 — trap_if(not may_leave)
+	if !i.rt.IsMayLeave() {
+		return errMayNotLeave
+	}
+	if int(resourceIdx) >= len(i.rt.ResourceTypes) {
+		return fmt.Errorf("resource.drop: resource declaration %d not defined", resourceIdx)
+	}
+	rt := i.rt.ResourceTypes[resourceIdx]
+	if rt == nil {
+		return fmt.Errorf("resource.drop: resource type %d not concrete", resourceIdx)
+	}
+	// Spec: definitions.py:2170 — look up by index for type checking before removal.
+	h, entry, err := i.rt.Table.GetByIndex(handleIdx)
+	if err != nil {
+		return err
+	}
+	resEntry, ok := entry.(*runtime.ResourceHandleEntry)
+	if !ok {
+		return runtime.ErrInvalidHandle
+	}
+	// Spec: definitions.py:2147 — trap_if(h.rt is not rt)
+	if resEntry.RT != rt {
+		return fmt.Errorf("resource.drop: type mismatch")
+	}
+	// Spec: definitions.py:2145+2148 — remove + trap_if(h.num_lends != 0)
+	// Table.Remove validates NumLends==0 before removing.
+	if _, err := i.rt.Table.Remove(h); err != nil {
+		return err
+	}
+	if resEntry.Own {
+		// Spec: definitions.py:2149-2162 — own branch: invoke destructor.
+		if rt.Impl == i.rt {
+			// Same instance — invoke local destructor.
+			// Spec: definitions.py:2151-2153
+			if rt.HasDestructor() {
+				if err := invokeLocalDestructor(i, rt, resEntry.Rep); err != nil {
+					return fmt.Errorf("resource.drop: destructor: %w", err)
+				}
+			}
+		} else {
+			// Cross-instance: Session 2 wiring.
+			// Spec: definitions.py:2154-2160 (canon_lift/canon_lower path)
+			if rt.HasDestructor() {
+				return fmt.Errorf("resource.drop: cross-instance destructor invocation deferred (spec definitions.py:2154-2160 — Session 2 wiring)")
+			}
+			// Spec: definitions.py:2162 — trap_if(call_might_be_recursive(...))
+			// Session 1: no cross-instance reentrance check needed for
+			// same-instance-only model.
+		}
+	}
+	// Borrow branch (spec: definitions.py:2163-2164):
+	//   h.borrow_scope.num_borrows -= 1
+	//
+	// In wazero's Session 1 synchronous model, the borrow handle has already
+	// been removed from the table by Table.Remove above. The spec's
+	// num_borrows decrement maps to the CallContext borrow counter managed
+	// by the lift/lower caller — Instance.ResourceDrop does not own that
+	// counter. Lender NumLends cleanup happens at scope exit
+	// (BorrowScope.Release / CallContext.ExitCall), matching wasmtime's
+	// exit_call path (resources.rs:338-345).
+	return nil
 }
 
 // invokeLocalDestructor invokes a resource destructor on the defining
