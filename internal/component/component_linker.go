@@ -471,17 +471,51 @@ func (l *ComponentLinker) buildCoreHostModule(
 }
 
 // executeStartFunction runs the component's start function, if any.
-// Full implementation lands with Task D4; C8-b returns a precise error
-// if c.Start is non-nil so components that declare a start function
-// trap rather than silently skipping.
+// The start function is called with arguments consumed from the value
+// index space, and its results are appended back to the value index space.
 //
+// Spec: Explainer.md start function (lines 2436-2476).
 // Spec: definitions.py ComponentInstance start-function handling.
+// Wasmtime parallel: runtime/component/instance.rs start function execution.
 func (l *ComponentLinker) executeStartFunction(ctx context.Context, inst *Instance, c *Component) error {
-	_, _ = ctx, inst
 	if c.Start == nil {
 		return nil
 	}
-	return fmt.Errorf("start function execution: not yet implemented (Session 1 Checkpoint D Task D4)")
+
+	// Step 1: Look up the component function.
+	startFunc, ok := inst.GetComponentFunc(c.Start.FuncIdx)
+	if !ok {
+		return fmt.Errorf("start function: component function %d not found", c.Start.FuncIdx)
+	}
+	if startFunc.Impl == nil {
+		return fmt.Errorf("start function: component function %d has nil implementation", c.Start.FuncIdx)
+	}
+
+	// Step 2: Resolve argument values by consuming them from the value index space.
+	args := make([]types.Val, len(c.Start.ArgValueIdx))
+	for i, valIdx := range c.Start.ArgValueIdx {
+		v, err := inst.ConsumeValue(valIdx)
+		if err != nil {
+			return fmt.Errorf("start function: consuming argument %d (value index %d): %w", i, valIdx, err)
+		}
+		args[i] = v
+	}
+
+	// Step 3: Invoke the start function.
+	results, err := startFunc.Impl(ctx, startFunc.Type, args)
+	if err != nil {
+		return fmt.Errorf("start function: invocation failed: %w", err)
+	}
+
+	// Step 4: Validate result count and store results in the value index space.
+	if uint32(len(results)) != c.Start.ResultCount {
+		return fmt.Errorf("start function: expected %d results, got %d", c.Start.ResultCount, len(results))
+	}
+	for _, r := range results {
+		inst.AddValue(r)
+	}
+
+	return nil
 }
 
 // wireExports populates inst.exports and inst.exportedInstances from
