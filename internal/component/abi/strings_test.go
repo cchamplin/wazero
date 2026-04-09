@@ -77,11 +77,10 @@ func TestLiftStringUTF8_InvalidUTF8(t *testing.T) {
 }
 
 func TestLiftStringUTF8_BoundsCheck(t *testing.T) {
-	t.Skip("session 1 followup: wazerotest.NewMemory rounds to page size, bounds-check harness needs rewrite (Task 19)")
-	// Small memory with string pointing beyond bounds
-	mem := wazerotest.NewMemory(16)
-	binary.LittleEndian.PutUint32(mem.Bytes[0:], 100) // ptr = 100 (beyond memory)
-	binary.LittleEndian.PutUint32(mem.Bytes[4:], 10)  // len = 10
+	// Small memory with string pointing beyond bounds.
+	mem := newByteMemory(16)
+	binary.LittleEndian.PutUint32(mem.buf[0:], 100) // ptr = 100 (beyond memory)
+	binary.LittleEndian.PutUint32(mem.buf[4:], 10)  // len = 10
 
 	ctx := &LiftContext{
 		Memory: mem,
@@ -187,11 +186,10 @@ func TestLiftStringUTF16_SurrogatePair(t *testing.T) {
 }
 
 func TestLiftStringUTF16_BoundsCheck(t *testing.T) {
-	t.Skip("session 1 followup: wazerotest.NewMemory rounds to page size, bounds-check harness needs rewrite (Task 19)")
-	// Small memory with string pointing beyond bounds
-	mem := wazerotest.NewMemory(16)
-	binary.LittleEndian.PutUint32(mem.Bytes[0:], 100) // ptr = 100 (beyond memory)
-	binary.LittleEndian.PutUint32(mem.Bytes[4:], 10)  // 10 code units
+	// Small memory with string pointing beyond bounds.
+	mem := newByteMemory(16)
+	binary.LittleEndian.PutUint32(mem.buf[0:], 100) // ptr = 100 (beyond memory)
+	binary.LittleEndian.PutUint32(mem.buf[4:], 10)  // 10 code units
 
 	ctx := &LiftContext{
 		Memory: mem,
@@ -278,11 +276,10 @@ func TestLiftStringLatin1UTF16_Empty(t *testing.T) {
 }
 
 func TestLiftStringLatin1UTF16_Latin1BoundsCheck(t *testing.T) {
-	t.Skip("session 1 followup: wazerotest.NewMemory rounds to page size, bounds-check harness needs rewrite (Task 19)")
-	// Small memory with string pointing beyond bounds
-	mem := wazerotest.NewMemory(16)
-	binary.LittleEndian.PutUint32(mem.Bytes[0:], 100) // ptr = 100 (beyond memory)
-	binary.LittleEndian.PutUint32(mem.Bytes[4:], 10)  // No tag bit = Latin-1
+	// Small memory with string pointing beyond bounds.
+	mem := newByteMemory(16)
+	binary.LittleEndian.PutUint32(mem.buf[0:], 100) // ptr = 100 (beyond memory)
+	binary.LittleEndian.PutUint32(mem.buf[4:], 10)  // No tag bit = Latin-1
 
 	ctx := &LiftContext{
 		Memory: mem,
@@ -548,9 +545,8 @@ func TestLowerStringUTF8_ReallocError(t *testing.T) {
 }
 
 func TestLowerStringUTF8_WriteError(t *testing.T) {
-	t.Skip("session 1 followup: wazerotest.NewMemory rounds to page size, bounds-check harness needs rewrite (Task 19)")
-	// Create a small memory that will fail on write
-	mem := wazerotest.NewMemory(10)
+	// Create a small memory that will fail on write.
+	mem := newByteMemory(10)
 	ctx := &LowerContext{
 		Memory: mem,
 		Opts:   &Options{StringEncoding: StringEncodingUTF8},
