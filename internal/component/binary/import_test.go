@@ -114,32 +114,6 @@ func TestDecodeExternDesc_ValuePrimitive(t *testing.T) {
 	require.Equal(t, types.U32, desc.ValType)
 }
 
-// TestDecodeExternDesc_Type tests type imports with typebound (sub).
-func TestDecodeExternDesc_Type(t *testing.T) {
-	// 0x03 = type import, 0x00 = sub bound, 0x05 = type index 5
-	data := []byte{0x03, 0x00, 0x05}
-
-	desc, err := decodeExternDesc(newDecodeContext(), bytes.NewReader(data))
-	require.NoError(t, err)
-	require.Equal(t, component.ImportExternDescType, desc.Kind)
-	require.Equal(t, component.TypeBoundSub, desc.TypeBoundKind)
-	require.NotNil(t, desc.TypeBoundIdx)
-	require.Equal(t, uint32(5), *desc.TypeBoundIdx)
-}
-
-// TestDecodeExternDesc_TypeEq tests type imports with eq bound.
-func TestDecodeExternDesc_TypeEq(t *testing.T) {
-	// 0x03 = type import, 0x01 = eq bound, 0x0A = type index 10
-	data := []byte{0x03, 0x01, 0x0A}
-
-	desc, err := decodeExternDesc(newDecodeContext(), bytes.NewReader(data))
-	require.NoError(t, err)
-	require.Equal(t, component.ImportExternDescType, desc.Kind)
-	require.Equal(t, component.TypeBoundEq, desc.TypeBoundKind)
-	require.NotNil(t, desc.TypeBoundIdx)
-	require.Equal(t, uint32(10), *desc.TypeBoundIdx)
-}
-
 // TestDecodeExternDesc_UnknownKind tests that unknown import kinds return errors.
 func TestDecodeExternDesc_UnknownKind(t *testing.T) {
 	tests := []struct {
@@ -192,15 +166,21 @@ func TestDecodeExternDesc_CoreModule_BadPrefix(t *testing.T) {
 	require.Contains(t, err.Error(), "expected 0x11 for core module")
 }
 
-// TestDecodeImportWithTypeBound tests decoding type imports with type bounds.
-func TestDecodeImportWithTypeBound(t *testing.T) {
+// TestDecodeImportTypeSubResource verifies that a type import with a
+// (sub resource) bound decodes correctly. The typebound body is a
+// single 0x01 byte with NO following typeidx.
+//
+// Spec: Binary.md:236,240 — externdesc 0x03 is a typebound;
+// typebound 0x01 is (sub resource), with NO following typeidx.
+// Wasmtime: tests/all/component_model/resources.rs:14 uses
+// `(import "t" (type $t (sub resource)))`.
+func TestDecodeImportTypeSubResource(t *testing.T) {
 	importData := []byte{
-		0x01,                               // count = 1
-		0x00,                               // plain name prefix
-		0x06, 't', 'e', 's', 't', '/', 'x', // length=6, name="test/x"
-		0x03, // extern desc = type
-		0x00, // subtype bound (TypeBoundSub)
-		0x00, // type index 0
+		0x01,         // count = 1
+		0x00,         // plain name prefix
+		0x01, 'r',    // name length 1, "r"
+		0x03,         // externdesc kind = 0x03 (type import)
+		0x01,         // typebound tag = (sub resource), NO following typeidx
 	}
 
 	data := buildComponentWithSection(SectionIDImport, importData)
@@ -208,21 +188,26 @@ func TestDecodeImportWithTypeBound(t *testing.T) {
 	c, err := DecodeComponent(data)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(c.Imports))
+	require.Equal(t, "r", c.Imports[0].Name)
 	require.Equal(t, component.ImportExternDescType, c.Imports[0].ExternDesc.Kind)
-	require.Equal(t, component.TypeBoundSub, c.Imports[0].ExternDesc.TypeBoundKind)
-	require.NotNil(t, c.Imports[0].ExternDesc.TypeBoundIdx)
-	require.Equal(t, uint32(0), *c.Imports[0].ExternDesc.TypeBoundIdx)
+	require.Equal(t, component.TypeBoundSubResource, c.Imports[0].ExternDesc.TypeBoundKind)
+	require.Nil(t, c.Imports[0].ExternDesc.TypeBoundIdx)
 }
 
-// TestDecodeImportWithTypeBoundEq tests decoding type imports with eq bounds.
-func TestDecodeImportWithTypeBoundEq(t *testing.T) {
+// TestDecodeImportTypeEq verifies that a type import with an (eq i)
+// bound decodes correctly, reading the trailing typeidx.
+//
+// Spec: Binary.md:239 — typebound 0x00 i:<typeidx> = (eq i).
+// Wasmtime: tests/misc_testsuite/component-model/types.wast:327
+// uses `(import "a" (type $t2 (eq $t1)))`.
+func TestDecodeImportTypeEq(t *testing.T) {
 	importData := []byte{
-		0x01,                     // count = 1
-		0x00,                     // plain name prefix
-		0x04, 't', 'e', 's', 't', // length=4, name="test"
-		0x03, // extern desc = type
-		0x01, // eq bound (TypeBoundEq)
-		0x05, // type index 5
+		0x01,         // count = 1
+		0x00,         // plain name prefix
+		0x01, 't',    // name length 1, "t"
+		0x03,         // externdesc kind = 0x03 (type import)
+		0x00,         // typebound tag = (eq i)
+		0x0a,         // typeidx = 10
 	}
 
 	data := buildComponentWithSection(SectionIDImport, importData)
@@ -230,9 +215,47 @@ func TestDecodeImportWithTypeBoundEq(t *testing.T) {
 	c, err := DecodeComponent(data)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(c.Imports))
+	require.Equal(t, "t", c.Imports[0].Name)
+	require.Equal(t, component.ImportExternDescType, c.Imports[0].ExternDesc.Kind)
 	require.Equal(t, component.TypeBoundEq, c.Imports[0].ExternDesc.TypeBoundKind)
 	require.NotNil(t, c.Imports[0].ExternDesc.TypeBoundIdx)
-	require.Equal(t, uint32(5), *c.Imports[0].ExternDesc.TypeBoundIdx)
+	require.Equal(t, uint32(10), *c.Imports[0].ExternDesc.TypeBoundIdx)
+}
+
+// TestDecodeImportTypeBothBoundsSideBySide verifies that the decoder
+// does not corrupt state across two consecutive type imports, one
+// with each bound variant. This mirrors the wasmtime fixture at
+// tests/misc_testsuite/component-model/instance.wast:288-325, which
+// uses both `(sub resource)` and `(eq $t)` forms in a single component.
+//
+// Spec: Binary.md:239-240.
+func TestDecodeImportTypeBothBoundsSideBySide(t *testing.T) {
+	importData := []byte{
+		0x02,                            // count = 2
+		// import 1: "r" with (sub resource)
+		0x00, 0x01, 'r', 0x03, 0x01,
+		// import 2: "t" with (eq 5)
+		0x00, 0x01, 't', 0x03, 0x00, 0x05,
+	}
+
+	data := buildComponentWithSection(SectionIDImport, importData)
+
+	c, err := DecodeComponent(data)
+	require.NoError(t, err)
+	require.Equal(t, 2, len(c.Imports))
+
+	// Import 1: (sub resource) — no typeidx.
+	require.Equal(t, "r", c.Imports[0].Name)
+	require.Equal(t, component.ImportExternDescType, c.Imports[0].ExternDesc.Kind)
+	require.Equal(t, component.TypeBoundSubResource, c.Imports[0].ExternDesc.TypeBoundKind)
+	require.Nil(t, c.Imports[0].ExternDesc.TypeBoundIdx)
+
+	// Import 2: (eq 5).
+	require.Equal(t, "t", c.Imports[1].Name)
+	require.Equal(t, component.ImportExternDescType, c.Imports[1].ExternDesc.Kind)
+	require.Equal(t, component.TypeBoundEq, c.Imports[1].ExternDesc.TypeBoundKind)
+	require.NotNil(t, c.Imports[1].ExternDesc.TypeBoundIdx)
+	require.Equal(t, uint32(5), *c.Imports[1].ExternDesc.TypeBoundIdx)
 }
 
 // TestDecodeImportWithValueBound tests decoding value imports with

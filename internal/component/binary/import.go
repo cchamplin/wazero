@@ -81,24 +81,28 @@ func decodeExternDesc(dc *decodeContext, r *bytes.Reader) (component.ImportExter
 		desc.ValType = vt
 
 	case 0x03:
+		// Type import: externdesc 0x03 b:<typebound>.
+		// Spec: Binary.md:236,239-240.
+		//   typebound 0x00 i:<typeidx> = (eq i)
+		//   typebound 0x01            = (sub resource)  [no payload]
 		desc.Kind = component.ImportExternDescType
-		// Decode typebound: tag followed by type index.
-		// tag 0x00 = sub bound, tag 0x01 = eq bound.
 		boundTag, err := r.ReadByte()
 		if err != nil {
-			return desc, fmt.Errorf("read type bound tag: %w", err)
+			return desc, fmt.Errorf("read typebound tag: %w", err)
 		}
-
-		typeIdx, _, err := leb128.DecodeUint32(r)
-		if err != nil {
-			return desc, fmt.Errorf("decode type bound index: %w", err)
-		}
-		desc.TypeBoundIdx = &typeIdx
-
-		if boundTag == 0x00 {
-			desc.TypeBoundKind = component.TypeBoundSub
-		} else {
+		switch boundTag {
+		case 0x00: // (eq i)
+			idx, _, err := leb128.DecodeUint32(r)
+			if err != nil {
+				return desc, fmt.Errorf("decode typebound eq typeidx: %w", err)
+			}
 			desc.TypeBoundKind = component.TypeBoundEq
+			desc.TypeBoundIdx = &idx
+		case 0x01: // (sub resource)
+			desc.TypeBoundKind = component.TypeBoundSubResource
+			desc.TypeBoundIdx = nil
+		default:
+			return desc, fmt.Errorf("unknown typebound tag: 0x%02x", boundTag)
 		}
 
 	case 0x04:

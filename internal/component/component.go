@@ -686,10 +686,17 @@ type ValueDef struct {
 	Data []byte
 }
 
-// TypeBoundKind represents the kind of type bound.
+// TypeBoundKind is the discriminator from Binary.md typebound grammar
+// (Binary.md:239-240).
 type TypeBoundKind uint8
 
 const (
-	TypeBoundSub TypeBoundKind = 0x00
-	TypeBoundEq  TypeBoundKind = 0x01
+	// TypeBoundEq is typebound tag 0x00: (eq i), which reads a trailing
+	// typeidx. Spec: Binary.md:239.
+	TypeBoundEq TypeBoundKind = 0x00
+	// TypeBoundSubResource is typebound tag 0x01: (sub resource), with
+	// no trailing payload. Spec: Binary.md:240. The new type index
+	// refers to a fresh abstract resource type unequal to every
+	// existing type.
+	TypeBoundSubResource TypeBoundKind = 0x01
 )
