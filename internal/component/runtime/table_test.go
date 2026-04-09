@@ -1346,3 +1346,95 @@ func TestTable_DeleteWithActiveBorrows(t *testing.T) {
 	// Destroy should have been called
 	require.True(t, resource.destroyed)
 }
+
+// TestTableGetByIndexGenerationBridging asserts GetByIndex looks up an
+// entry by slot index (the low 32 bits of a Handle) and returns the
+// full generation-tagged Handle plus the entry — bridging the 32-bit
+// Wasm-side handle space to the 64-bit runtime Handle space.
+//
+// Spec: definitions.py:303-315 class Table (index-keyed; the generation
+// bridging is a wazero implementation detail that must preserve the
+// spec's index-keyed observable behavior).
+// Wasmtime parallel: runtime/vm/component/resources.rs handle index
+// lookup uses raw index + generation.
+func TestTableGetByIndexGenerationBridging(t *testing.T) {
+	tbl := NewTable()
+	rt := &ResourceType{}
+	h1, err := tbl.NewResourceHandle(42, true, rt)
+	if err != nil {
+		t.Fatalf("NewResourceHandle: %v", err)
+	}
+	// h1 is a 64-bit tagged handle; its low 32 bits are the slot index.
+	idx := h1.Index()
+
+	// GetByIndex(idx) must return (h1, entry, nil) even though the
+	// caller only knows the 32-bit index.
+	h, entry, err := tbl.GetByIndex(idx)
+	if err != nil {
+		t.Fatalf("GetByIndex: %v", err)
+	}
+	if h != h1 {
+		t.Fatalf("GetByIndex handle = %v, want %v", h, h1)
+	}
+	if entry == nil {
+		t.Fatalf("GetByIndex entry = nil")
+	}
+
+	// Remove h1, allocate a new handle at the same slot (generation increments).
+	if _, err := tbl.Remove(h1); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	h2, err := tbl.NewResourceHandle(99, true, rt)
+	if err != nil {
+		t.Fatalf("NewResourceHandle 2: %v", err)
+	}
+	// h2 should reuse the slot (same Index) with incremented generation.
+	if h2.Index() != idx {
+		t.Fatalf("h2.Index = %d, want %d (slot reuse)", h2.Index(), idx)
+	}
+	if h2 == h1 {
+		t.Fatalf("h2 == h1 (generation did not increment)")
+	}
+
+	// GetByIndex(idx) must now return h2 (with the new generation), not h1.
+	h, _, err = tbl.GetByIndex(idx)
+	if err != nil {
+		t.Fatalf("GetByIndex after reuse: %v", err)
+	}
+	if h != h2 {
+		t.Fatalf("GetByIndex handle = %v, want %v (new generation)", h, h2)
+	}
+	if h == h1 {
+		t.Fatalf("GetByIndex returned stale handle %v", h1)
+	}
+}
+
+// TestTableGetByIndexFreeSlot asserts GetByIndex returns ErrInvalidHandle
+// for a slot that's currently free.
+//
+// Spec: definitions.py:303-315 class Table (index-keyed).
+// No counterpart (justified): tests wazero's generation-bridging invariant
+// for freed slots.
+func TestTableGetByIndexFreeSlot(t *testing.T) {
+	tbl := NewTable()
+	rt := &ResourceType{}
+	h, _ := tbl.NewResourceHandle(1, true, rt)
+	tbl.Remove(h)
+	_, _, err := tbl.GetByIndex(h.Index())
+	if err == nil {
+		t.Fatalf("GetByIndex(freed slot) returned nil error")
+	}
+}
+
+// TestTableGetByIndexOutOfRange asserts GetByIndex returns ErrInvalidHandle
+// for an index past the end of the entries slice.
+//
+// Spec: definitions.py:303-315 class Table (index-keyed).
+// No counterpart (justified): tests wazero's bounds check on slot index.
+func TestTableGetByIndexOutOfRange(t *testing.T) {
+	tbl := NewTable()
+	_, _, err := tbl.GetByIndex(9999)
+	if err == nil {
+		t.Fatalf("GetByIndex(9999) returned nil error")
+	}
+}

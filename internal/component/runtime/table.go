@@ -190,6 +190,30 @@ func (t *Table) Get(h Handle) (TableEntry, error) {
 	return slot.entry, nil
 }
 
+// GetByIndex looks up an entry by slot index (the low 32 bits of a
+// Handle), returning the current generation-tagged Handle alongside the
+// entry. Used by the canonical ABI lift path (abi/lift.go) to resolve a
+// Wasm-side u32 handle index to the runtime's 64-bit generation-tagged
+// handle.
+//
+// Spec: definitions.py:303-315 class Table (index-keyed). The generation
+// bridging is a wazero implementation detail that must preserve the
+// spec's observable "slot index → entry" lookup semantics.
+//
+// Returns ErrInvalidHandle if the slot index is out of range or the
+// slot is currently free.
+func (t *Table) GetByIndex(idx uint32) (Handle, TableEntry, error) {
+	if idx >= uint32(len(t.entries)) {
+		return 0, nil, ErrInvalidHandle
+	}
+	slot := &t.entries[idx]
+	if slot.state == entryFree || slot.entry == nil {
+		return 0, nil, ErrInvalidHandle
+	}
+	h := MakeHandle(idx, slot.generation)
+	return h, slot.entry, nil
+}
+
 // GetResourceHandle is a convenience wrapper around Get that asserts the
 // stored entry is a *ResourceHandleEntry. Returns ErrInvalidHandle if
 // the entry is some other handle kind.
