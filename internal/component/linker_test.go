@@ -146,44 +146,273 @@ func TestLinker_DefineResource(t *testing.T) {
 	require.True(t, destroyed)
 }
 
+// TestLinker_DefineResource_Duplicate asserts DefineResource errors
+// on a duplicate "namespace/name" key, mirroring the DefineFunc
+// duplicate guard.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/component/linker.rs:768-780
+// (LinkerInstance::resource calls insert → NameMap::insert, which
+// errors without allow_shadowing).
+// No counterpart (justified): canonical-abi run_tests.py does not
+// exercise the host linker.
 func TestLinker_DefineResource_Duplicate(t *testing.T) {
-	t.Skip(linkerTestSkipMsg)
+	l := NewLinker()
+
+	err := l.DefineResource("test", "res", func(rep uint32) {})
+	require.NoError(t, err)
+
+	// Duplicate should error.
+	err = l.DefineResource("test", "res", func(rep uint32) {})
+	require.Error(t, err)
 }
 
+// TestLinker_Get_Direct asserts Linker.Get returns the stored
+// *FuncDef for an exact key lookup (no semver walk). Get is the
+// "no magic" accessor on top of the definitions map, distinct from
+// MatchImport which does semver compatibility selection.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/component/linker.rs:870-872
+// (LinkerInstance::get — exact-name fetch from the name map).
+// No counterpart (justified): canonical-abi run_tests.py does not
+// exercise the host linker.
 func TestLinker_Get_Direct(t *testing.T) {
-	t.Skip(linkerTestSkipMsg)
+	l := NewLinker()
+
+	err := l.DefineFunc("test:api", "fn", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+		return nil, nil
+	})
+	require.NoError(t, err)
+
+	def, ok := l.Get("test:api/fn")
+	require.True(t, ok)
+	require.NotNil(t, def)
 }
 
+// TestLinker_Get_NotFound asserts Linker.Get returns (nil, false)
+// for an unknown key without constructing a zero-value definition.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/component/linker.rs:870-872
+// (LinkerInstance::get returns Option::None on miss).
+// No counterpart (justified): canonical-abi run_tests.py does not
+// exercise the host linker.
 func TestLinker_Get_NotFound(t *testing.T) {
-	t.Skip(linkerTestSkipMsg)
+	l := NewLinker()
+
+	def, ok := l.Get("nonexistent")
+	require.False(t, ok)
+	require.Nil(t, def)
 }
 
+// TestLinker_Get_Instance asserts Linker.Get on an instance key
+// returns the *InstanceDef whose Exports map carries every Func
+// accumulated through the InstanceBuilder.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/component/linker.rs:159-161
+// (Linker::instance + LinkerInstance builder) + :870-872 (get).
+// No counterpart (justified): canonical-abi run_tests.py does not
+// exercise the host linker.
 func TestLinker_Get_Instance(t *testing.T) {
-	t.Skip(linkerTestSkipMsg)
+	l := NewLinker()
+
+	err := l.DefineInstance("wasi:io/streams@0.2.0").
+		Func("read", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+			return nil, nil
+		}).
+		Build()
+	require.NoError(t, err)
+
+	def, ok := l.Get("wasi:io/streams@0.2.0")
+	require.True(t, ok)
+	instDef, ok := def.(*InstanceDef)
+	require.True(t, ok)
+	require.NotNil(t, instDef.Exports["read"])
 }
 
+// TestLinker_MatchImport_OldImportNewItem asserts that when a
+// component requires v1.0.0 and the linker provides v1.0.1, MatchImport
+// resolves the import to the v1.0.1 definition. This is the core
+// semver-compatible-import behaviour: defining a newer patch in the
+// linker satisfies an older request within the same (major, minor).
+//
+// Wasmtime parallel: debug-vendored/wasmtime/tests/all/component_model/linker.rs:7
+// (fn old_import_importing_new_item — same scenario against wasmtime's
+// Linker::define_import semver machinery).
+// Wasmtime source: debug-vendored/wasmtime/crates/wasmtime/src/runtime/component/linker.rs:27-60
+// (the "Names and Semver" doc comment on struct Linker describes this
+// exact lookup direction).
+// No counterpart (justified): canonical-abi run_tests.py does not
+// exercise the host linker.
 func TestLinker_MatchImport_OldImportNewItem(t *testing.T) {
-	t.Skip(linkerTestSkipMsg)
+	l := NewLinker()
+
+	// Define v1.0.1.
+	err := l.DefineFunc("test:api@1.0.1", "fn", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+		return nil, nil
+	})
+	require.NoError(t, err)
+
+	// Request v1.0.0 — should match v1.0.1 (patch upgrade).
+	def, err := l.MatchImport("test:api@1.0.0/fn")
+	require.NoError(t, err)
+	require.NotNil(t, def)
 }
 
+// TestLinker_MatchImport_NewImportOldItem asserts that when a
+// component requires v1.0.1 and the linker only provides v1.0.0,
+// MatchImport returns an error. This is the "can't downgrade" half
+// of the semver rule — a newer API cannot be satisfied by an older
+// registration because the older registration may lack fields the
+// caller depends on.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/tests/all/component_model/linker.rs:30
+// (fn new_import_importing_old_item — asserts wasmtime's linker errors
+// on the same scenario).
+// No counterpart (justified): canonical-abi run_tests.py does not
+// exercise the host linker.
 func TestLinker_MatchImport_NewImportOldItem(t *testing.T) {
-	t.Skip(linkerTestSkipMsg)
+	l := NewLinker()
+
+	// Define v1.0.0.
+	err := l.DefineFunc("test:api@1.0.0", "fn", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+		return nil, nil
+	})
+	require.NoError(t, err)
+
+	// Request v1.0.1 — should NOT match v1.0.0 (older patch cannot
+	// satisfy newer patch requirement in strict mode).
+	_, err = l.MatchImport("test:api@1.0.1/fn")
+	require.Error(t, err)
 }
 
+// TestLinker_MatchImport_SelectsMax asserts that when several
+// compatible versions are registered, MatchImport selects the
+// highest-compatible version. Invokes the returned callback to
+// verify the right selection by observing its return value.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/tests/all/component_model/linker.rs:81
+// (fn missing_import_selects_max — asserts wasmtime's linker picks
+// the newest compatible version).
+// Wasmtime source: debug-vendored/wasmtime/crates/environ/src/component/names.rs:4-45
+// (NameMap::alternate_lookups structure that implements the
+// "highest compatible" rule; wazero walks its own flat map and picks
+// the max in matchLegacyImport).
+// No counterpart (justified): canonical-abi run_tests.py does not
+// exercise the host linker.
 func TestLinker_MatchImport_SelectsMax(t *testing.T) {
-	t.Skip(linkerTestSkipMsg)
+	l := NewLinker()
+
+	// Define multiple versions out of order.
+	err := l.DefineFunc("test:api@1.0.0", "fn", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+		return []types.Val{types.ValS32(100)}, nil
+	})
+	require.NoError(t, err)
+	err = l.DefineFunc("test:api@1.0.2", "fn", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+		return []types.Val{types.ValS32(102)}, nil
+	})
+	require.NoError(t, err)
+	err = l.DefineFunc("test:api@1.0.1", "fn", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+		return []types.Val{types.ValS32(101)}, nil
+	})
+	require.NoError(t, err)
+
+	// Request v1.0.0 — should select highest compatible (v1.0.2).
+	def, err := l.MatchImport("test:api@1.0.0/fn")
+	require.NoError(t, err)
+	funcDef := def.(*FuncDef)
+
+	// Call to verify we got v1.0.2. Pass nil for ctx's fnType since
+	// this test callback ignores it.
+	results, err := funcDef.Callback(context.Background(), nil, nil)
+	require.NoError(t, err)
+	require.Equal(t, int32(102), results[0].S32())
 }
 
+// TestLinker_MatchImport_DirectMatch asserts that MatchImport handles
+// plain (non-versioned) keys by falling back to an exact lookup. This
+// is the short-circuit for hosts that don't use semver naming.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/environ/src/component/names.rs:105-117
+// (NameMap::get tries the direct definitions map before consulting
+// alternate_lookups).
+// No counterpart (justified): canonical-abi run_tests.py does not
+// exercise the host linker.
 func TestLinker_MatchImport_DirectMatch(t *testing.T) {
-	t.Skip(linkerTestSkipMsg)
+	l := NewLinker()
+
+	err := l.DefineFunc("test", "fn", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+		return nil, nil
+	})
+	require.NoError(t, err)
+
+	def, err := l.MatchImport("test/fn")
+	require.NoError(t, err)
+	require.NotNil(t, def)
 }
 
+// TestLinker_Instantiate_Basic asserts Linker.Instantiate on a
+// component with no imports returns a live Instance whose Component()
+// accessor points back at the original Component literal.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/component/linker.rs:274-284
+// (Linker::instantiate — end-to-end instantiation entry point).
+// No counterpart (justified): canonical-abi run_tests.py does not
+// exercise the host linker.
 func TestLinker_Instantiate_Basic(t *testing.T) {
-	t.Skip(linkerTestSkipMsg)
+	l := NewLinker()
+
+	// Minimal component: one function export, no imports. The
+	// Types/TypeDefs fields are intentionally left nil; the legacy
+	// Linker.Instantiate path walks Exports only (linker.go:492-496)
+	// so a dense type table is not required for this assertion.
+	c := &Component{
+		Exports: []Export{
+			{Name: "test", Kind: ExportKindFunc, Idx: 0},
+		},
+	}
+
+	inst, err := l.Instantiate(context.Background(), c)
+	require.NoError(t, err)
+	require.NotNil(t, inst)
+	require.Equal(t, c, inst.Component())
 }
 
+// TestLinker_Instantiate_WithImports asserts that Linker.Instantiate
+// resolves each Component.Import via MatchImport and succeeds when
+// all imports match. The test does not assert per-import wiring
+// shape; it only verifies the resolver path produces a live Instance.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/component/linker.rs:163-181
+// (Linker::typecheck walks component.import_types and calls
+// NameMap::get for each).
+// No counterpart (justified): canonical-abi run_tests.py does not
+// exercise the host linker.
 func TestLinker_Instantiate_WithImports(t *testing.T) {
-	t.Skip(linkerTestSkipMsg)
+	l := NewLinker()
+
+	// Define the import.
+	err := l.DefineFunc("test:api@1.0.0", "fn", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+		return []types.Val{types.ValS32(42)}, nil
+	})
+	require.NoError(t, err)
+
+	// Component with a single function import. TypeIdx is unused by
+	// the legacy Instantiate path (linker.go:483-489 only calls
+	// MatchImport on the name).
+	c := &Component{
+		Imports: []Import{
+			{
+				Name: "test:api@1.0.0/fn",
+				ExternDesc: ImportExternDesc{
+					Kind:    ImportExternDescFunc,
+					TypeIdx: 0,
+				},
+			},
+		},
+	}
+
+	inst, err := l.Instantiate(context.Background(), c)
+	require.NoError(t, err)
+	require.NotNil(t, inst)
 }
 
 func TestLinker_Instantiate_MissingImport(t *testing.T) {
