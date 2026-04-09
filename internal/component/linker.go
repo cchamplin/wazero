@@ -36,11 +36,18 @@ type Definition interface {
 
 // FuncDef is a function definition.
 //
-// Type is the component function type. Under the wasmtime func_new
-// dynamic-host model, Type is populated by the type checker at
-// instantiate time from the component's import declaration via
-// Component.ResolveTypeDef. At registration time Type is nil —
-// reading it before instantiate is a programming error.
+// Type is the component function type. It is populated only by the
+// binary decoder for type-bound imports / by nested-component
+// construction (nested_component.go:78). For host-provided imports
+// registered via the Linker, Type stays nil; the per-instance
+// resolved type lives on ComponentFunc.Type (instance.go:121).
+//
+// Rationale: a *FuncDef stored in Linker.definitions is shared across
+// every instantiate of that linker. Writing the resolved type here
+// from the type checker would mutate shared state and silently break
+// multi-instance scenarios where two components import the same host
+// function at differently-typed slots. The shared FuncDef must stay
+// immutable after registration.
 type FuncDef struct {
 	Type     *types.TypeFunc
 	Callback HostFunc

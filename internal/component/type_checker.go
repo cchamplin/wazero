@@ -182,9 +182,17 @@ func (tc *TypeChecker) CheckDefinition(expected *ImportExternDesc, importName st
 // Task C3 (revised 2026-04-09): under wasmtime's func_new dynamic-host
 // model, the host has no type to declare at registration. The
 // component's import declaration IS the canonical type; we resolve
-// expected.TypeIdx here and bind the result to the actual FuncDef.Type
-// so the lift/lower path (Tasks C5-C8) can pass it to the host callback
-// at call time.
+// expected.TypeIdx here to validate its shape (kind + async bit) but
+// do NOT mutate the shared actual.FuncDef.Type field. Mutating the
+// shared *FuncDef stored in Linker.definitions would race across
+// multi-instance scenarios where the same host import is bound by
+// components with differently-typed declarations.
+//
+// Task C3 corrective (2026-04-08): fd.Type is no longer written here.
+// The per-instance resolved type will be stored on ComponentFunc.Type
+// (instance.go:121) when the lift/lower path (Tasks C5-C8) populates
+// inst.componentFuncs for function imports. Until then, validation
+// is the only job of this function.
 //
 // Spec: wasmtime func/host.rs:619-626 DynamicHostFn::typecheck only
 // validates the async bit at link time; the rest of the type-checking
@@ -207,14 +215,16 @@ func (tc *TypeChecker) checkFuncDefinition(expected *ImportExternDesc, actual De
 	expectedFuncType := expectedTypeDef.FuncType(tc.component)
 
 	// Async bit MUST match (matches wasmtime DynamicHostFn::typecheck).
+	// fd.Type is only non-nil on the nested-component path
+	// (nested_component.go:78 builds &FuncDef{Type: fn.Type, ...} from
+	// the parent's already-bound function). The linker path
+	// (linker.go, component_linker.go) constructs FuncDef with nil
+	// Type, so this guard is a no-op for host-provided imports and
+	// only fires for nested-instance re-imports.
 	if fd.Type != nil && fd.Type.Async != expectedFuncType.Async {
 		return fmt.Errorf("checkFuncDefinition: async mismatch (expected %v, host %v)",
 			expectedFuncType.Async, fd.Type.Async)
 	}
-
-	// Bind the resolved type to the host FuncDef. Lift/lower at call
-	// time will pass this type to the HostFunc callback as fnType.
-	fd.Type = expectedFuncType
 	return nil
 }
 

@@ -123,9 +123,9 @@ type ComponentFunc struct {
 	// Impl is the actual callable. Under Task C3's wasmtime func_new
 	// dynamic-host model, Impl carries the HostFunc signature — the
 	// second parameter is the component-declared type supplied by the
-	// runtime at call time.
-	// For imports: the host-provided Definition
-	// For canon lift: the lifted core function
+	// runtime at call time (read from the Type field above).
+	// For imports: the HostFunc from the Definition's Callback.
+	// For canon lift: the lifted core function.
 	Impl HostFunc
 }
 

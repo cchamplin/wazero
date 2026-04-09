@@ -17,7 +17,7 @@
 //
 //	linker := rt.NewComponentLinker()
 //	err := linker.DefineInstance("my:app/math").
-//		Func("add", component.HostFunc(func(ctx context.Context, args []component.Val) ([]component.Val, error) {
+//		Func("add", component.HostFunc(func(ctx context.Context, _ *component.TypeFunc, args []component.Val) ([]component.Val, error) {
 //			a, b := args[0].S32(), args[1].S32()
 //			return []component.Val{component.ValS32(a + b)}, nil
 //		})).
