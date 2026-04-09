@@ -91,7 +91,8 @@ func (l *ComponentLinker) instantiateNestedComponent(
 	}
 
 	// instanceToImport is consumed by step 12 (core module instantiation)
-	// which is deferred to Task D3. Suppress unused-variable until then.
+	// which requires CompiledComponent for nested components. Suppress
+	// unused-variable until nested core module instantiation is wired.
 	_ = instanceToImport
 
 	// Steps 10-12 — Canon maps, function aliases, core module instantiation.
@@ -103,7 +104,7 @@ func (l *ComponentLinker) instantiateNestedComponent(
 	// skipped when step 12 is skipped.
 	if len(nestedComp.CoreInstances) > 0 {
 		return nil, fmt.Errorf(
-			"nested core module instantiation requires CompiledComponent for nested components (nested component has %d core instance(s)) — deferred to Task D3",
+			"nested core module instantiation requires CompiledComponent for nested components (nested component has %d core instance(s))",
 			len(nestedComp.CoreInstances))
 	}
 
@@ -310,6 +311,59 @@ func (l *ComponentLinker) resolveExportTypeAlias(parent *Instance, _ *Component,
 		return nil
 	}
 	return td
+}
+
+// wireNestedComponentExports wires a nested instance (or synthesized inline
+// instance) into the parent's exportedInstances map under the given export
+// name. For a real nested instance the child is stored directly so callers
+// can drill into its exports. For an inline instance (nil in instanceSpace)
+// a synthetic Instance is created from the InstanceDef and stored instead.
+//
+// Spec: Component-model instance exports — an instance export is a namespace
+// of sub-exports accessible by drilling through the exported instance.
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/
+//
+//	component/component.rs:847-848 (Export::Instance { exports, .. }).
+//
+// Plan: docs/superpowers/plans/2026-04-08-canonical-abi-session1-plan.md
+//
+//	(Task D3).
+func (l *ComponentLinker) wireNestedComponentExports(
+	parent *Instance,
+	nested *Instance,
+	exportName string,
+) error {
+	parent.AddExportedInstance(exportName, nested)
+	return nil
+}
+
+// wireInlineInstanceExports creates a synthetic Instance from an InstanceDef
+// (produced by processNestedInstances for inline instances) and stores it
+// as an exported instance on the parent. Each FuncDef export in the
+// InstanceDef becomes an ExportedFunc on the synthetic instance.
+//
+// Spec: inline component instances re-export items from the current scope.
+// Plan: docs/superpowers/plans/2026-04-08-canonical-abi-session1-plan.md
+//
+//	(Task D3).
+func (l *ComponentLinker) wireInlineInstanceExports(
+	parent *Instance,
+	instDef *InstanceDef,
+	exportName string,
+) error {
+	// Create a synthetic Instance to hold the inline instance's exports.
+	synth := newInstance(&Component{}, l.nextInstanceID(), parent)
+	for name, def := range instDef.Exports {
+		if fd, ok := def.(*FuncDef); ok {
+			synth.exports[name] = &ExportedFunc{
+				name:     name,
+				funcType: fd.Type,
+				impl:     fd.Callback,
+			}
+		}
+	}
+	parent.AddExportedInstance(exportName, synth)
+	return nil
 }
 
 // instanceToDefinition converts an Instance to an InstanceDef.

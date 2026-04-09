@@ -484,18 +484,19 @@ func (l *ComponentLinker) executeStartFunction(ctx context.Context, inst *Instan
 	return fmt.Errorf("start function execution: not yet implemented (Session 1 Checkpoint D Task D4)")
 }
 
-// wireExports populates inst.exports from c.Exports. Each function
-// export gets an ExportedFunc whose impl is either:
+// wireExports populates inst.exports and inst.exportedInstances from
+// c.Exports. Each export kind is handled as follows:
 //
-//   - for a canon.lift export: the HostFunc closure produced by
-//     buildCanonLiftFunc, bound to the resolved core function / memory /
-//     realloc / post_return from the now-instantiated core modules; or
+//   - ExportKindFunc: ExportedFunc whose impl is either the canon.lift
+//     closure or the imported-function re-export HostFunc.
+//   - ExportKindInstance: wired via wireNestedComponentExports (real
+//     nested instances) or wireInlineInstanceExports (inline instances).
+//   - ExportKindType: no-op (types resolved at decode/typecheck time).
+//   - ExportKindValue: no-op (values in value index space).
+//   - ExportKindComponent: no-op (used for nested instantiation).
 //
-//   - for an imported-function re-export: the HostFunc directly from
-//     the component function index space (already populated in Step 7).
-//
-// Only function exports are wired in C8-b; value/type/instance/core-
-// export exports land with Checkpoint D.
+// Spec: definitions.py ComponentInstance export wiring.
+// Plan: Task D3 extended this from func-only to all export kinds.
 func (l *ComponentLinker) wireExports(
 	inst *Instance,
 	c *Component,
@@ -503,22 +504,57 @@ func (l *ComponentLinker) wireExports(
 	funcSpace *CoreFuncIndexSpace,
 	memSpace *CoreMemoryIndexSpace,
 ) error {
-	_ = componentInstDefs
 	for i := range c.Exports {
 		exp := &c.Exports[i]
 		switch exp.Kind {
 		case ExportKindFunc:
-			// handled below
+			ef, err := l.wireExportedFunc(inst, c, exp, funcSpace, memSpace)
+			if err != nil {
+				return fmt.Errorf("export %q: %w", exp.Name, err)
+			}
+			inst.exports[exp.Name] = ef
+
 		case ExportKindInstance:
-			return fmt.Errorf("export %q: instance exports deferred to Checkpoint D", exp.Name)
+			// Instance export: exp.Idx is an index into the component
+			// instance space. The instance could be a real nested child
+			// (non-nil in instanceSpace) or an inline instance (nil in
+			// instanceSpace with an InstanceDef in componentInstDefs).
+			childInst := inst.GetInstanceFromSpace(exp.Idx)
+			if childInst != nil {
+				// Real nested instance — wire it directly.
+				if err := l.wireNestedComponentExports(inst, childInst, exp.Name); err != nil {
+					return fmt.Errorf("export %q: wire nested instance: %w", exp.Name, err)
+				}
+			} else if componentInstDefs != nil {
+				if instDef, ok := componentInstDefs[exp.Idx]; ok {
+					// Inline instance — synthesize an Instance from the InstanceDef.
+					if err := l.wireInlineInstanceExports(inst, instDef, exp.Name); err != nil {
+						return fmt.Errorf("export %q: wire inline instance: %w", exp.Name, err)
+					}
+				}
+				// If no InstanceDef exists either, the instance index is
+				// out of range or was not populated. This is not an error
+				// for components that declare an instance export for an
+				// import-aligned slot — the import alignment reserves
+				// nil slots that are not backed by InstanceDefs.
+			}
+
+		case ExportKindType:
+			// Types are resolved at decode/typecheck time; no runtime
+			// wiring needed.
+
+		case ExportKindValue:
+			// Values live in the value index space and are accessed via
+			// Instance.GetValue; no runtime wiring needed.
+
+		case ExportKindComponent:
+			// Component exports are not directly callable at runtime.
+			// They participate in nested instantiation via the component
+			// index space. No runtime wiring needed.
+
 		default:
-			return fmt.Errorf("export %q: export kind %v not yet wired (Checkpoint D)", exp.Name, exp.Kind)
+			return fmt.Errorf("export %q: export kind %v not yet wired", exp.Name, exp.Kind)
 		}
-		ef, err := l.wireExportedFunc(inst, c, exp, funcSpace, memSpace)
-		if err != nil {
-			return fmt.Errorf("export %q: %w", exp.Name, err)
-		}
-		inst.exports[exp.Name] = ef
 	}
 	return nil
 }

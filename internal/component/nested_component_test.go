@@ -668,24 +668,377 @@ func TestResolveFromParentScope_UnsupportedSort(t *testing.T) {
 	}
 }
 
+// TestInstantiateNestedComponent_ExportsInstance verifies that a parent
+// component exporting a nested instance via ExportKindInstance results in
+// the child being accessible through inst.GetExportedInstance.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/
+//
+//	component/instance.rs:112-155 (get_func with nested instance export —
+//	instance_index = get_export_index(None, "i"), then
+//	func_index = get_export_index(Some(&instance_index), "f")).
+//
+// Spec: Component-model instance exports (Explainer.md nested export).
 func TestInstantiateNestedComponent_ExportsInstance(t *testing.T) {
-	t.Skip("session 1: instance exports deferred to Task D3 wireExports")
+	// Nested component: no imports, no exports. The simplest case is a
+	// nested child with zero exports — the parent can still export the
+	// child instance by reference.
+	nested := &Component{}
+	parent := &Component{
+		Components: []*Component{nested},
+		ComponentInstances: []ParsedComponentInstance{
+			{Kind: ComponentInstanceExprInstantiate, ComponentIdx: 0},
+		},
+		Exports: []Export{
+			// The parent exports the nested instance as "env".
+			{Name: "env", Kind: ExportKindInstance, Idx: 0},
+		},
+	}
+	l := NewComponentLinker(nil)
+	inst := NewInstance(parent, 0, nil)
+
+	// Process nested instances to create child and populate instanceSpace.
+	componentInstDefs, err := l.processNestedInstances(context.Background(), inst, parent)
+	if err != nil {
+		t.Fatalf("processNestedInstances: %v", err)
+	}
+
+	funcSpace := NewCoreFuncIndexSpace()
+	memSpace := NewCoreMemoryIndexSpace()
+	err = l.wireExports(inst, parent, componentInstDefs, funcSpace, memSpace)
+	if err != nil {
+		t.Fatalf("wireExports: %v", err)
+	}
+
+	// The parent should have an exported instance named "env".
+	exported := inst.GetExportedInstance("env")
+	if exported == nil {
+		t.Fatal("expected GetExportedInstance(\"env\") to return non-nil")
+	}
+	// The exported instance should be the same as the child in instanceSpace.
+	if exported != inst.instanceSpace[0] {
+		t.Fatal("expected exported instance to be instanceSpace[0]")
+	}
 }
 
 func TestInstanceSpaceAlignment_ImportedInstancesOccupySlots(t *testing.T) {
 	t.Skip("session 1: alignment verified implicitly by TestInstantiateNestedComponent_InstanceArg")
 }
 
+// TestWireExports_TypeExport verifies that ExportKindType is handled
+// as a no-op (types are resolved at decode/typecheck time, not at
+// runtime wiring).
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/
+//
+//	component/types.rs:1129-1142 (ComponentItem::from_export handles
+//	Export::Type as a compile-time type resolution, not runtime wiring).
+//
+// Spec: Component-model type exports (types resolve at validation time).
+func TestWireExports_TypeExport(t *testing.T) {
+	c := &Component{
+		Exports: []Export{
+			{Name: "my-type", Kind: ExportKindType, Idx: 0},
+		},
+	}
+	l := NewComponentLinker(nil)
+	inst := NewInstance(c, 0, nil)
+
+	funcSpace := NewCoreFuncIndexSpace()
+	memSpace := NewCoreMemoryIndexSpace()
+	err := l.wireExports(inst, c, nil, funcSpace, memSpace)
+	if err != nil {
+		t.Fatalf("wireExports should not error on ExportKindType: %v", err)
+	}
+}
+
+// TestWireExports_ValueExport verifies that ExportKindValue is handled
+// as a no-op (values are in the value index space, accessed via
+// Instance.GetValue, not via the exports map).
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/
+//
+//	component/types.rs:1129-1142 (ComponentItem::from_export — values
+//	are not a separate runtime export kind in wasmtime; they map to
+//	typed data in the instance store).
+//
+// Spec: Component-model value exports (values resolved via value index space).
+func TestWireExports_ValueExport(t *testing.T) {
+	c := &Component{
+		Exports: []Export{
+			{Name: "my-val", Kind: ExportKindValue, Idx: 0},
+		},
+	}
+	l := NewComponentLinker(nil)
+	inst := NewInstance(c, 0, nil)
+
+	funcSpace := NewCoreFuncIndexSpace()
+	memSpace := NewCoreMemoryIndexSpace()
+	err := l.wireExports(inst, c, nil, funcSpace, memSpace)
+	if err != nil {
+		t.Fatalf("wireExports should not error on ExportKindValue: %v", err)
+	}
+}
+
+// TestWireExports_InstanceExport verifies that ExportKindInstance
+// wires a real nested instance into exportedInstances.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/
+//
+//	component/component.rs:836-855 (lookup_export_index handles
+//	Export::Instance { exports, .. } by drilling into the nested
+//	namespace).
+//
+// Spec: Component-model instance exports (Explainer.md nested export).
+func TestWireExports_InstanceExport(t *testing.T) {
+	c := &Component{
+		Exports: []Export{
+			{Name: "my-instance", Kind: ExportKindInstance, Idx: 0},
+		},
+	}
+	l := NewComponentLinker(nil)
+	inst := NewInstance(c, 0, nil)
+
+	// Put a real nested instance in instanceSpace[0].
+	child := NewInstance(&Component{}, 1, nil)
+	inst.AddInstanceToSpace(child)
+
+	componentInstDefs := map[uint32]*InstanceDef{
+		0: instanceToDefinition(child),
+	}
+
+	funcSpace := NewCoreFuncIndexSpace()
+	memSpace := NewCoreMemoryIndexSpace()
+	err := l.wireExports(inst, c, componentInstDefs, funcSpace, memSpace)
+	if err != nil {
+		t.Fatalf("wireExports: %v", err)
+	}
+
+	exported := inst.GetExportedInstance("my-instance")
+	if exported == nil {
+		t.Fatal("expected GetExportedInstance(\"my-instance\") to return non-nil")
+	}
+	if exported != child {
+		t.Fatal("expected exported instance to be the same child instance")
+	}
+}
+
+// TestWireExports_InstanceExportFromInline verifies that ExportKindInstance
+// for an inline instance (nil in instanceSpace but InstanceDef in
+// componentInstDefs) propagates the inline instance's function exports
+// into the parent's exports map.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/
+//
+//	component/component.rs:847-848 (Export::Instance { exports, .. } =>
+//	exports — inline instances produce a namespace of sub-exports that
+//	the parent drills into).
+//
+// Spec: Component-model inline instance exports.
+func TestWireExports_InstanceExportFromInline(t *testing.T) {
+	ft := types.TypeFunc{
+		Params:  types.ValType{Kind: types.TypeKindTuple},
+		Results: types.ValType{Kind: types.TypeKindTuple},
+	}
+	called := false
+	inlineDef := &InstanceDef{
+		Exports: map[string]Definition{
+			"inner-fn": &FuncDef{
+				Type: &ft,
+				Callback: func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+					called = true
+					return nil, nil
+				},
+			},
+		},
+	}
+
+	c := &Component{
+		Exports: []Export{
+			{Name: "my-inline", Kind: ExportKindInstance, Idx: 0},
+		},
+	}
+	l := NewComponentLinker(nil)
+	inst := NewInstance(c, 0, nil)
+
+	// Reserve a nil slot for the inline instance (mimics processNestedInstances).
+	inst.AddInstanceToSpace(nil)
+
+	componentInstDefs := map[uint32]*InstanceDef{
+		0: inlineDef,
+	}
+
+	funcSpace := NewCoreFuncIndexSpace()
+	memSpace := NewCoreMemoryIndexSpace()
+	err := l.wireExports(inst, c, componentInstDefs, funcSpace, memSpace)
+	if err != nil {
+		t.Fatalf("wireExports: %v", err)
+	}
+
+	// The inline instance's function export should be accessible as
+	// a sub-export. wireNestedComponentExports propagates inline
+	// function exports into the parent's export map.
+	exported := inst.GetExportedInstance("my-inline")
+	if exported == nil {
+		t.Fatal("expected GetExportedInstance(\"my-inline\") to return non-nil for inline instance")
+	}
+	// The synthesized inline instance should have the "inner-fn" export.
+	innerFn := exported.ExportedFunction("inner-fn")
+	if innerFn == nil {
+		t.Fatal("expected exported inline instance to have \"inner-fn\" function")
+	}
+	// Verify the function is callable.
+	_, err = innerFn.Call(context.Background())
+	if err != nil {
+		t.Fatalf("inner-fn call: %v", err)
+	}
+	if !called {
+		t.Fatal("expected inner-fn callback to have been invoked")
+	}
+}
+
+// TestWireExports_MixedExportKinds verifies that wireExports handles a
+// component with func, type, value, and instance exports simultaneously.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/
+//
+//	component/types.rs:1129-1142 (ComponentItem::from_export handles
+//	all export kinds in one match).
+//
+// Spec: Component-model export declarations (multiple kinds in one component).
+func TestWireExports_MixedExportKinds(t *testing.T) {
+	c := &Component{
+		Exports: []Export{
+			{Name: "my-type", Kind: ExportKindType, Idx: 0},
+			{Name: "my-val", Kind: ExportKindValue, Idx: 0},
+			{Name: "my-instance", Kind: ExportKindInstance, Idx: 0},
+		},
+	}
+	l := NewComponentLinker(nil)
+	inst := NewInstance(c, 0, nil)
+
+	child := NewInstance(&Component{}, 1, nil)
+	inst.AddInstanceToSpace(child)
+
+	componentInstDefs := map[uint32]*InstanceDef{
+		0: instanceToDefinition(child),
+	}
+
+	funcSpace := NewCoreFuncIndexSpace()
+	memSpace := NewCoreMemoryIndexSpace()
+	err := l.wireExports(inst, c, componentInstDefs, funcSpace, memSpace)
+	if err != nil {
+		t.Fatalf("wireExports with mixed kinds: %v", err)
+	}
+
+	exported := inst.GetExportedInstance("my-instance")
+	if exported == nil {
+		t.Fatal("expected GetExportedInstance(\"my-instance\") to return non-nil")
+	}
+}
+
+// TestWireNestedComponentExports_ShimPattern verifies that
+// wireNestedComponentExports propagates a nested instance's function
+// exports into the parent as an exported instance.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/
+//
+//	component/component.rs:847-848 (Export::Instance { exports, .. } —
+//	an instance export is a namespace whose sub-exports are individual
+//	functions/types).
+//
+// Spec: Component-model nested instance exports.
 func TestWireNestedComponentExports_ShimPattern(t *testing.T) {
-	t.Skip("session 1: deferred to Task D3")
+	l := NewComponentLinker(nil)
+	parent := NewInstance(&Component{}, 0, nil)
+	child := NewInstance(&Component{}, 1, nil)
+	child.exports["greet"] = &ExportedFunc{
+		name:     "greet",
+		funcType: &types.TypeFunc{},
+		impl: func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+			return nil, nil
+		},
+	}
+
+	err := l.wireNestedComponentExports(parent, child, "my-ns")
+	if err != nil {
+		t.Fatalf("wireNestedComponentExports: %v", err)
+	}
+
+	exported := parent.GetExportedInstance("my-ns")
+	if exported == nil {
+		t.Fatal("expected GetExportedInstance(\"my-ns\") to return non-nil")
+	}
+	if exported != child {
+		t.Fatal("expected exported instance to be the child")
+	}
 }
 
+// TestWireNestedComponentExports_MultipleExports verifies that
+// wireNestedComponentExports wires a child with multiple function exports.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/
+//
+//	component/component.rs:847-848 (Export::Instance { exports, .. } —
+//	multiple sub-exports accessible via get_export_index drilling).
+//
+// Spec: Component-model nested instance exports (multiple functions).
 func TestWireNestedComponentExports_MultipleExports(t *testing.T) {
-	t.Skip("session 1: deferred to Task D3")
+	l := NewComponentLinker(nil)
+	parent := NewInstance(&Component{}, 0, nil)
+	child := NewInstance(&Component{}, 1, nil)
+	child.exports["fn-a"] = &ExportedFunc{
+		name:     "fn-a",
+		funcType: &types.TypeFunc{},
+		impl: func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+			return nil, nil
+		},
+	}
+	child.exports["fn-b"] = &ExportedFunc{
+		name:     "fn-b",
+		funcType: &types.TypeFunc{},
+		impl: func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+			return nil, nil
+		},
+	}
+
+	err := l.wireNestedComponentExports(parent, child, "my-ns")
+	if err != nil {
+		t.Fatalf("wireNestedComponentExports: %v", err)
+	}
+
+	exported := parent.GetExportedInstance("my-ns")
+	if exported == nil {
+		t.Fatal("expected exported instance")
+	}
+	// The child should be directly stored so both exports are accessible.
+	if exported.ExportedFunction("fn-a") == nil {
+		t.Fatal("expected fn-a on exported instance")
+	}
+	if exported.ExportedFunction("fn-b") == nil {
+		t.Fatal("expected fn-b on exported instance")
+	}
 }
 
+// TestWireNestedComponentExports_NilComponent verifies that
+// wireNestedComponentExports handles a child with no exports gracefully.
+//
+// Wasmtime parallel: N/A (edge case).
+// Spec: Component-model nested instance exports (empty instance).
 func TestWireNestedComponentExports_NilComponent(t *testing.T) {
-	t.Skip("session 1: deferred to Task D3")
+	l := NewComponentLinker(nil)
+	parent := NewInstance(&Component{}, 0, nil)
+	child := NewInstance(&Component{}, 1, nil)
+
+	err := l.wireNestedComponentExports(parent, child, "empty-ns")
+	if err != nil {
+		t.Fatalf("wireNestedComponentExports: %v", err)
+	}
+
+	exported := parent.GetExportedInstance("empty-ns")
+	if exported == nil {
+		t.Fatal("expected exported instance even when child has no exports")
+	}
 }
 
 func TestBuildTypeSpace_FromTypeIdxToStoredIdx(t *testing.T) {
