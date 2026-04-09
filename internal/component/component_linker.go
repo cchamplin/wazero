@@ -22,6 +22,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/internal/component/abi"
 	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/component/types"
 )
@@ -516,5 +518,402 @@ func (l *ComponentLinker) Get(key string) (Definition, bool) {
 func (l *ComponentLinker) MergeFrom(linker *Linker) {
 	for key, def := range linker.definitions {
 		l.definitions[key] = def
+	}
+}
+
+// -- Task C8-a: canon.lift / canon.lower / canon.resource.* closures ----
+//
+// Spec: definitions.py:1978-2173.
+// Wasmtime parallel:
+//   runtime/component/func.rs Func::call / call_raw (lines 232-706)
+//   runtime/component/func/host.rs DynamicHostFn::call (lines 640-694)
+//   runtime/component/func/options.rs LiftContext/LowerContext analog.
+//
+// This dispatch lands the standalone closures and a standalone
+// canon.lower closure unit test. Pipeline wiring (buildCoreHostModule,
+// instantiateCoreModules, wireExports, executeStartFunction,
+// Instantiate steps 12-14, ExportedFunc.Call rewrite) is deferred to
+// Task C8-b; the end-to-end integration test to Task C8-c.
+
+// buildAbiOptions constructs an abi.Options from a CanonicalDef's
+// CanonicalOptions together with the per-instance memory and realloc
+// function. The impedance mismatch between CanonicalOptions.MemoryIdx
+// (*uint32, nilable) and abi.Options.MemoryIdx (uint32, value) is
+// handled here: when canon.Options.MemoryIdx is nil we pass 0, which
+// is the convention used by the abi.Context constructors.
+//
+// The memory / realloc api.Function values themselves travel through
+// the LiftContext / LowerContext memory + realloc fields directly;
+// abi.Options only carries the indirection indices for reference.
+//
+// Spec: definitions.py:1978-1990 canon_lift uses CanonicalOptions fields
+// memory / realloc / post_return directly; wasmtime
+// runtime/component/func/options.rs has the parallel Options struct.
+func buildAbiOptions(canon *CanonicalDef, memory api.Memory, realloc api.Function) abi.Options {
+	_, _ = memory, realloc // referenced by callers via LiftContext/LowerContext, not here
+	var memIdx uint32
+	if canon != nil && canon.Options.MemoryIdx != nil {
+		memIdx = *canon.Options.MemoryIdx
+	}
+	var realloIdx *uint32
+	var postIdx *uint32
+	var enc abi.StringEncoding
+	if canon != nil {
+		realloIdx = canon.Options.ReallocIdx
+		postIdx = canon.Options.PostReturnIdx
+		switch canon.Options.StringEncoding {
+		case StringEncodingUTF8:
+			enc = abi.StringEncodingUTF8
+		case StringEncodingUTF16:
+			enc = abi.StringEncodingUTF16
+		case StringEncodingLatin1UTF16:
+			enc = abi.StringEncodingLatin1UTF16
+		}
+	}
+	return abi.Options{
+		StringEncoding: enc,
+		MemoryIdx:      memIdx,
+		ReallocIdx:     realloIdx,
+		PostReturnIdx:  postIdx,
+	}
+}
+
+// reallocAdapter wraps a core-wasm realloc api.Function into the Go
+// closure shape abi.LowerContext.Realloc expects. Returns nil when
+// realloc is nil (the caller then traps if the lower path needs realloc
+// — see abi/lower.go LowerParams retptr path).
+func reallocAdapter(realloc api.Function) func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+	if realloc == nil {
+		return nil
+	}
+	return func(oldPtr, oldSize, alignv, newSize uint32) (uint32, error) {
+		res, err := realloc.Call(context.Background(),
+			uint64(oldPtr), uint64(oldSize), uint64(alignv), uint64(newSize))
+		if err != nil {
+			return 0, err
+		}
+		if len(res) == 0 {
+			return 0, fmt.Errorf("realloc returned no result")
+		}
+		return uint32(res[0]), nil
+	}
+}
+
+// unpackTupleElems returns the element ValTypes of a tuple ValType by
+// indexing into the canonical type bag. Returns nil when v is not a
+// tuple (e.g. a scalar or a non-aggregate kind). Used by the canon.lift
+// / canon.lower closures to materialise the TypeFunc.Params /
+// TypeFunc.Results tuples into flat []types.ValType lists for
+// LiftParams / LowerParams / LiftResults / LowerResults.
+func unpackTupleElems(bag *types.ComponentTypes, v types.ValType) []types.ValType {
+	if bag == nil || v.Kind != types.TypeKindTuple {
+		return nil
+	}
+	if int(v.Index) >= len(bag.Tuples) {
+		return nil
+	}
+	return bag.Tuples[v.Index].Types
+}
+
+// buildCanonLiftFunc creates the closure that implements a canon.lift
+// component function. Mirrors spec canon_lift at definitions.py:1978-2040
+// for synchronous calls.
+//
+// Spec step mapping:
+//   :1979       trap_if(call_might_be_recursive) — via
+//               inst.rt.Reentrance.CallMightBeRecursive. The structural
+//               variant (Instance.CallMightBeRecursive) requires a
+//               caller *Instance which the HostFunc signature does not
+//               carry; the tracker-based check captures "is this
+//               instance already on the active call stack", which is
+//               the spec-relevant condition once the caller is out of
+//               band (host or indirect). Both the tracker bookkeeping
+//               (EnterInstance/LeaveInstance) and the structural check
+//               serve different purposes per Task B4's corrective.
+//   :1990/:1955 lower_flat_values on the args — wazero uses
+//               abi.LowerParams which expects the caller to toggle
+//               may_leave around the aggregate (lower.go:729).
+//   :1995       callee core-function invocation.
+//   :1997       lift_flat_values on the core results — abi.LiftResults.
+//   :2000-2002  post_return with may_leave toggled off for the duration.
+//   :738-742    deliver_resolve — close the borrow scope.
+//
+// Wasmtime parallel: runtime/component/func.rs Func::call / call_raw
+// (lines 232-706).
+func (l *ComponentLinker) buildCanonLiftFunc(
+	inst *Instance,
+	canon *CanonicalDef,
+	coreFunc api.Function,
+	funcType *types.TypeFunc,
+	memory api.Memory,
+	realloc api.Function,
+	postReturn api.Function,
+) HostFunc {
+	opts := buildAbiOptions(canon, memory, realloc)
+	paramElems := unpackTupleElems(inst.component.Types, funcType.Params)
+	resultElems := unpackTupleElems(inst.component.Types, funcType.Results)
+
+	return func(goCtx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+		_ = fnType // captured via funcType at construction time
+		// :1979 — structural/tracker reentrance check.
+		if inst.rt.Reentrance.CallMightBeRecursive(inst.rt.ID) {
+			return nil, errReentrance
+		}
+		inst.rt.Reentrance.EnterInstance(inst.rt.ID)
+		defer inst.rt.Reentrance.LeaveInstance(inst.rt.ID)
+
+		borrow := runtime.NewBorrowScope(inst.rt.Table)
+		callCtx := runtime.NewCallContext()
+
+		lowerCtx := &abi.LowerContext{
+			Memory:      memory,
+			Opts:        &opts,
+			Realloc:     reallocAdapter(realloc),
+			Types:       inst.component.Types,
+			Instance:    inst.rt,
+			CallContext: callCtx,
+		}
+
+		// :1955 may_leave toggle around LowerParams aggregate.
+		prevMayLeave := inst.rt.IsMayLeave()
+		inst.rt.MayLeave = false
+		flatArgs, err := abi.LowerParams(lowerCtx, paramElems, args, abi.MaxFlatParams)
+		inst.rt.MayLeave = prevMayLeave
+		if err != nil {
+			return nil, fmt.Errorf("canon.lift: lower params: %w", err)
+		}
+
+		// :1995 callee invocation.
+		var flatResults []uint64
+		if coreFunc != nil {
+			flatResults, err = coreFunc.Call(goCtx, flatArgs...)
+			if err != nil {
+				return nil, fmt.Errorf("canon.lift: core call: %w", err)
+			}
+		}
+
+		// :1997 lift_flat_values on the return path.
+		liftCtx := &abi.LiftContext{
+			Memory:      memory,
+			Opts:        &opts,
+			Types:       inst.component.Types,
+			Instance:    inst.rt,
+			BorrowScope: borrow,
+		}
+		results, err := abi.LiftResults(liftCtx, resultElems, flatResults, abi.MaxFlatResults)
+		if err != nil {
+			return nil, fmt.Errorf("canon.lift: lift results: %w", err)
+		}
+
+		// :2000-2002 post_return with may_leave toggled off.
+		if postReturn != nil {
+			inst.rt.MayLeave = false
+			_, perr := postReturn.Call(goCtx, flatResults...)
+			inst.rt.MayLeave = prevMayLeave
+			if perr != nil {
+				return nil, fmt.Errorf("canon.lift: post_return: %w", perr)
+			}
+		}
+
+		// :738-742 deliver_resolve — release the borrow scope.
+		if rerr := borrow.Release(); rerr != nil {
+			return nil, fmt.Errorf("canon.lift: release borrow scope: %w", rerr)
+		}
+		return results, nil
+	}
+}
+
+// createCanonLowerFunc produces an api.GoModuleFunc implementing a
+// canon.lower core wasm function. Spec: definitions.py:2064-2130.
+//
+// Spec step mapping:
+//   :2065       trap_if(not caller_task.inst.may_leave) — wazero uses
+//               the per-instance MayLeave; see instance.go MayLeave.
+//   :2068-2070  subtask + borrow scope + lift/lower contexts.
+//   :2089       lift_flat_values on the incoming core args —
+//               abi.LiftParams.
+//   :2095       host callback invocation via compFunc.Impl(goCtx,
+//               compFunc.Type, args). Direct HostFunc call per Task C3;
+//               do NOT type-assert to *FuncDef.
+//   :2104-2113  lower_flat_values on the results with may_leave toggle
+//               (:1955/:1973).
+//   :2113       deliver_resolve — close the borrow scope.
+//
+// Wasmtime parallel: runtime/component/func/host.rs DynamicHostFn::call
+// at around lines 640-694.
+//
+// Errors propagate via panic per the wazero GoModuleFunc convention —
+// the engine converts panics into traps at the call boundary.
+func (l *ComponentLinker) createCanonLowerFunc(
+	inst *Instance,
+	c *Component,
+	info canonLowerInfo,
+	compFunc ComponentFunc,
+	paramTypes []types.ValType,
+	resultTypes []types.ValType,
+	needsRetptr bool,
+) api.GoModuleFunc {
+	// Snapshot options from the canon.lower declaration. Memory and
+	// realloc are resolved from the core module at call time because
+	// they belong to the core instance the lowered function is
+	// called from.
+	canonSnapshot := &CanonicalDef{Kind: CanonKindLower, Options: info.options}
+
+	return api.GoModuleFunc(func(goCtx context.Context, mod api.Module, stack []uint64) {
+		memory := mod.Memory()
+		var realloc api.Function
+		if info.options.ReallocIdx != nil {
+			// Session 1: core module exports realloc under the conventional
+			// name "cabi_realloc". If absent, leave realloc nil; the abi
+			// layer traps if the retptr path requires it.
+			realloc = mod.ExportedFunction("cabi_realloc")
+		}
+		opts := buildAbiOptions(canonSnapshot, memory, realloc)
+
+		// :2065 entry trap.
+		if !inst.rt.IsMayLeave() {
+			panic(errMayNotLeave)
+		}
+
+		// :2068-2070 subtask + contexts.
+		borrow := runtime.NewBorrowScope(inst.rt.Table)
+		callCtx := runtime.NewCallContext()
+
+		liftCtx := &abi.LiftContext{
+			Memory:      memory,
+			Opts:        &opts,
+			Types:       c.Types,
+			Instance:    inst.rt,
+			BorrowScope: borrow,
+		}
+
+		// :2089 lift params from the incoming core stack. The flat
+		// param width is driven by FlattenParams inside LiftParams.
+		// For the retptr path, the trailing i32 on the stack is the
+		// retptr — LiftParams will read it via iter(flat[0]) when
+		// flatTypes > maxFlat.
+		// Determine flat-param arity: the core-wasm stack prefix holds
+		// the lifted parameters; for a retptr-free call, stack contains
+		// exactly flat-arity params. For the needsRetptr case, the last
+		// stack slot is the retptr. We hand LiftParams the appropriate
+		// prefix.
+		paramStack := stack
+		if needsRetptr && len(stack) > 0 {
+			paramStack = stack[:len(stack)-1]
+		}
+		args, err := abi.LiftParams(liftCtx, paramTypes, paramStack, abi.MaxFlatParams)
+		if err != nil {
+			panic(fmt.Errorf("canon.lower: lift params: %w", err))
+		}
+
+		// :2095 callee (host) invocation — direct HostFunc dispatch.
+		if compFunc.Impl == nil {
+			panic(fmt.Errorf("canon.lower: component func %d has nil Impl", info.funcIdx))
+		}
+		results, err := compFunc.Impl(goCtx, compFunc.Type, args)
+		if err != nil {
+			panic(fmt.Errorf("canon.lower: host callback: %w", err))
+		}
+
+		// :2104-2113 lower results with may_leave toggle.
+		lowerCtx := &abi.LowerContext{
+			Memory:      memory,
+			Opts:        &opts,
+			Realloc:     reallocAdapter(realloc),
+			Types:       c.Types,
+			Instance:    inst.rt,
+			CallContext: callCtx,
+		}
+		prevMayLeave := inst.rt.IsMayLeave()
+		inst.rt.MayLeave = false
+		err = abi.LowerResults(lowerCtx, resultTypes, results, stack, needsRetptr, abi.MaxFlatResults)
+		inst.rt.MayLeave = prevMayLeave
+		if err != nil {
+			panic(fmt.Errorf("canon.lower: lower results: %w", err))
+		}
+
+		// :2113 deliver_resolve — release borrow scope.
+		if rerr := borrow.Release(); rerr != nil {
+			panic(fmt.Errorf("canon.lower: release borrow scope: %w", rerr))
+		}
+	})
+}
+
+// createResourceOpExport builds a HostModuleExport wrapping one of
+// canon.resource.{new,drop,rep} per spec definitions.py:2134-2173.
+// The body delegates to Instance.ResourceNew / ResourceRep /
+// ResourceDrop, which carry Task B4 rebuild-in-progress stubs today;
+// Task E5 fills them in. No test in this dispatch executes the
+// returned exports, so the stub delegation is acceptable — the
+// closures compile against the real spec-correct core-wasm
+// signatures.
+//
+// Core wasm signatures (plan lines 3129-3131):
+//   resource.new  (param i32) (result i32)  — rep in, handle out
+//   resource.drop (param i32)                — handle in, nothing
+//   resource.rep  (param i32) (result i32)  — handle in, rep out
+func (l *ComponentLinker) createResourceOpExport(
+	inst *Instance,
+	name string,
+	info canonResourceInfo,
+) *HostModuleExport {
+	// Resolve the resource type-def via alias-safe ResolveTypeDef.
+	td, _, err := inst.component.ResolveTypeDef(info.typeIdx)
+	if err != nil || td == nil || td.Kind != TypeDefKindResource {
+		return &HostModuleExport{
+			Name: name,
+			Func: api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
+				panic(fmt.Errorf("canon.resource.%v: unresolved resource type idx %d", info.kind, info.typeIdx))
+			}),
+		}
+	}
+	resourceIdx := types.ResourceIdx(td.Resource)
+
+	switch info.kind {
+	case CanonKindResourceNew:
+		return &HostModuleExport{
+			Name:        name,
+			ParamTypes:  []api.ValueType{api.ValueTypeI32},
+			ResultTypes: []api.ValueType{api.ValueTypeI32},
+			Func: api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
+				rep := uint32(stack[0])
+				h, err := inst.ResourceNew(resourceIdx, rep)
+				if err != nil {
+					panic(err)
+				}
+				stack[0] = uint64(h)
+			}),
+		}
+	case CanonKindResourceDrop:
+		return &HostModuleExport{
+			Name:       name,
+			ParamTypes: []api.ValueType{api.ValueTypeI32},
+			Func: api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
+				h := uint32(stack[0])
+				if err := inst.ResourceDrop(resourceIdx, h); err != nil {
+					panic(err)
+				}
+			}),
+		}
+	case CanonKindResourceRep:
+		return &HostModuleExport{
+			Name:        name,
+			ParamTypes:  []api.ValueType{api.ValueTypeI32},
+			ResultTypes: []api.ValueType{api.ValueTypeI32},
+			Func: api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
+				h := uint32(stack[0])
+				rep, err := inst.ResourceRep(resourceIdx, h)
+				if err != nil {
+					panic(err)
+				}
+				stack[0] = uint64(rep)
+			}),
+		}
+	}
+	return &HostModuleExport{
+		Name: name,
+		Func: api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
+			panic(fmt.Errorf("canon.resource: unknown kind %v", info.kind))
+		}),
 	}
 }
