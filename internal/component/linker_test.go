@@ -415,44 +415,316 @@ func TestLinker_Instantiate_WithImports(t *testing.T) {
 	require.NotNil(t, inst)
 }
 
+// TestLinker_Instantiate_MissingImport asserts Linker.Instantiate
+// returns an error if the component declares an import that has no
+// matching definition in the linker.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/component/linker.rs:175-178
+// (Linker::typecheck formats "a matching implementation was not found
+// in the linker" when NameMap::get returns None).
+// No counterpart (justified): canonical-abi run_tests.py does not
+// exercise the host linker.
 func TestLinker_Instantiate_MissingImport(t *testing.T) {
-	t.Skip(linkerTestSkipMsg)
+	l := NewLinker()
+
+	c := &Component{
+		Imports: []Import{
+			{
+				Name: "missing:api@1.0.0/fn",
+				ExternDesc: ImportExternDesc{
+					Kind:    ImportExternDescFunc,
+					TypeIdx: 0,
+				},
+			},
+		},
+	}
+
+	_, err := l.Instantiate(context.Background(), c)
+	require.Error(t, err)
 }
 
+// TestInstance_GetExportedFunc asserts Instance.GetExportedFunc
+// returns a non-nil wrapper for an exported function by its plain
+// name (no semver walk).
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/component/linker.rs:27-60
+// (semver lookup rules; plain names fall through to an exact match
+// in NameMap::get at names.rs:105-117).
+// No counterpart (justified): canonical-abi run_tests.py does not
+// exercise the host linker.
 func TestInstance_GetExportedFunc(t *testing.T) {
-	t.Skip(linkerTestSkipMsg)
+	l := NewLinker()
+
+	c := &Component{
+		Exports: []Export{
+			{Name: "add", Kind: ExportKindFunc, Idx: 0},
+		},
+	}
+
+	inst, err := l.Instantiate(context.Background(), c)
+	require.NoError(t, err)
+
+	// Get exported function by exact name. GetExportedFunc falls back
+	// to getExactExportedFunc for non-versioned names.
+	fn := inst.GetExportedFunc("add")
+	require.NotNil(t, fn)
 }
 
+// TestInstance_GetExportedFunc_NotFound asserts GetExportedFunc
+// returns nil when the requested export name is not declared on the
+// component.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/component/instance.rs
+// (Instance::get_func returns Option::None on miss). See also
+// linker.rs:27-60 (semver doc comment) which applies to the versioned
+// miss path.
+// No counterpart (justified): canonical-abi run_tests.py does not
+// exercise the host linker.
 func TestInstance_GetExportedFunc_NotFound(t *testing.T) {
-	t.Skip(linkerTestSkipMsg)
+	l := NewLinker()
+
+	c := &Component{
+		Exports: []Export{
+			{Name: "add", Kind: ExportKindFunc, Idx: 0},
+		},
+	}
+
+	inst, err := l.Instantiate(context.Background(), c)
+	require.NoError(t, err)
+
+	// Non-existent export returns nil.
+	fn := inst.GetExportedFunc("missing")
+	require.Nil(t, fn)
 }
 
+// TestInstance_GetExportedFunc_ExportOldGetNew asserts that when a
+// component exports v1.0.0 and a caller requests v1.0.1, the lookup
+// succeeds. wazero's export-side lookup is bidirectional: it tries
+// both SemverCompatible(req, exp) and SemverCompatible(exp, req),
+// which lets the caller upgrade to a newer minor/patch exposed under
+// the older requested identifier.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/tests/all/component_model/instance.rs:66
+// (fn export_old_get_new — asserts the equivalent behaviour on
+// wasmtime's Instance::get_func).
+// No counterpart (justified): canonical-abi run_tests.py does not
+// exercise the host linker.
 func TestInstance_GetExportedFunc_ExportOldGetNew(t *testing.T) {
-	t.Skip(linkerTestSkipMsg)
+	l := NewLinker()
+
+	c := &Component{
+		Exports: []Export{
+			{Name: "test:api@1.0.0/fn", Kind: ExportKindFunc, Idx: 0},
+		},
+	}
+
+	inst, err := l.Instantiate(context.Background(), c)
+	require.NoError(t, err)
+
+	// Request v1.0.1 — bidirectional compatibility allows export
+	// v1.0.0 to satisfy a newer request (same API).
+	fn := inst.GetExportedFunc("test:api@1.0.1/fn")
+	require.NotNil(t, fn)
 }
 
+// TestInstance_GetExportedFunc_ExportNewGetOld asserts that when a
+// component exports v1.0.1 and a caller requests v1.0.0, the lookup
+// succeeds via the forward-compatible half of the bidirectional rule.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/tests/all/component_model/instance.rs:101
+// (fn export_new_get_old — asserts the equivalent behaviour on
+// wasmtime's Instance::get_func).
+// No counterpart (justified): canonical-abi run_tests.py does not
+// exercise the host linker.
 func TestInstance_GetExportedFunc_ExportNewGetOld(t *testing.T) {
-	t.Skip(linkerTestSkipMsg)
+	l := NewLinker()
+
+	c := &Component{
+		Exports: []Export{
+			{Name: "test:api@1.0.1/fn", Kind: ExportKindFunc, Idx: 0},
+		},
+	}
+
+	inst, err := l.Instantiate(context.Background(), c)
+	require.NoError(t, err)
+
+	// Request v1.0.0 — semver-compatible with export v1.0.1.
+	fn := inst.GetExportedFunc("test:api@1.0.0/fn")
+	require.NotNil(t, fn)
 }
 
+// TestInstance_GetExportedFunc_SelectsMax asserts that when a
+// component exposes several semver-compatible export versions under
+// the same name, GetExportedFunc returns the highest compatible
+// version. Verified via the unexported `name` field on the returned
+// *ExportedFunc (accessible within-package only).
+//
+// Wasmtime parallel: debug-vendored/wasmtime/tests/all/component_model/instance.rs:137
+// (fn export_missing_get_max — asserts wasmtime's Instance::get_func
+// selects the highest compatible export).
+// No counterpart (justified): canonical-abi run_tests.py does not
+// exercise the host linker.
 func TestInstance_GetExportedFunc_SelectsMax(t *testing.T) {
-	t.Skip(linkerTestSkipMsg)
+	l := NewLinker()
+
+	c := &Component{
+		Exports: []Export{
+			{Name: "test:api@1.0.0/fn", Kind: ExportKindFunc, Idx: 0},
+			{Name: "test:api@1.0.2/fn", Kind: ExportKindFunc, Idx: 0},
+			{Name: "test:api@1.0.1/fn", Kind: ExportKindFunc, Idx: 0},
+		},
+	}
+
+	inst, err := l.Instantiate(context.Background(), c)
+	require.NoError(t, err)
+
+	// Request v1.0.0 — should match highest compatible (v1.0.2).
+	fn := inst.GetExportedFunc("test:api@1.0.0/fn")
+	require.NotNil(t, fn)
+	// Verify we got the right one by checking the name.
+	require.Equal(t, "test:api@1.0.2/fn", fn.name)
 }
 
+// TestLinker_RelaxedSemverMatching_FuncImport asserts wazero's
+// relaxed-semver toggle widens pre-1.0 patch matching to accept any
+// patch within the same minor, in either direction. Strict mode
+// still requires available.Patch >= required.Patch (semver.go:215-241),
+// so a linker that only has 0.2.0 cannot satisfy a 0.2.3 request.
+// Relaxed mode drops the patch-ordering constraint for 0.x.y versions.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/component/linker.rs:27-60
+// (the "Names and Semver" doc comment). Wasmtime itself does not
+// expose an equivalent "relaxed" toggle — this is a wazero extension
+// that matches the "interfaces once defined never change" assumption
+// more aggressively for pre-release (0.x) APIs. The test asserts
+// wazero-specific behaviour, justified as an embedder-facing extension
+// with no direct wasmtime counterpart.
+// No counterpart (justified): canonical-abi run_tests.py does not
+// exercise the host linker.
 func TestLinker_RelaxedSemverMatching_FuncImport(t *testing.T) {
-	t.Skip(linkerTestSkipMsg)
+	l := NewLinker()
+
+	// Define v0.2.0.
+	err := l.DefineFunc("test:api@0.2.0", "fn", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+		return []types.Val{types.ValS32(200)}, nil
+	})
+	require.NoError(t, err)
+
+	// Strict mode: request v0.2.3 — does NOT match v0.2.0
+	// (available.Patch 0 < required.Patch 3).
+	_, err = l.MatchImport("test:api@0.2.3/fn")
+	require.Error(t, err, "strict mode should not match 0.2.0 for 0.2.3 requirement")
+
+	// Enable relaxed matching.
+	l.SetRelaxedSemverMatching(true)
+	require.True(t, l.RelaxedSemverMatching())
+
+	// Relaxed mode: request v0.2.3 — should match v0.2.0.
+	def, err := l.MatchImport("test:api@0.2.3/fn")
+	require.NoError(t, err, "relaxed mode should match 0.2.0 for 0.2.3 requirement")
+	require.NotNil(t, def)
+
+	// Verify we got the right function by invoking it.
+	funcDef := def.(*FuncDef)
+	results, err := funcDef.Callback(context.Background(), nil, nil)
+	require.NoError(t, err)
+	require.Equal(t, int32(200), results[0].S32())
 }
 
+// TestLinker_RelaxedSemverMatching_InstanceImport asserts relaxed
+// semver applies to instance-typed imports as well as function
+// imports.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/component/linker.rs:27-60
+// (semver doc comment). As with the function-import test, the
+// "relaxed" toggle is a wazero extension with no wasmtime counterpart.
+// No counterpart (justified): canonical-abi run_tests.py does not
+// exercise the host linker.
 func TestLinker_RelaxedSemverMatching_InstanceImport(t *testing.T) {
-	t.Skip(linkerTestSkipMsg)
+	l := NewLinker()
+
+	// Define instance at v0.2.0.
+	err := l.DefineInstance("wasi:cli/environment@0.2.0").
+		Func("get-environment", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+			return nil, nil
+		}).
+		Build()
+	require.NoError(t, err)
+
+	// Strict mode: request v0.2.3 — does NOT match v0.2.0.
+	_, err = l.MatchImport("wasi:cli/environment@0.2.3")
+	require.Error(t, err, "strict mode should not match 0.2.0 for 0.2.3 requirement")
+
+	// Enable relaxed matching.
+	l.SetRelaxedSemverMatching(true)
+
+	// Relaxed mode: request v0.2.3 — should match v0.2.0.
+	def, err := l.MatchImport("wasi:cli/environment@0.2.3")
+	require.NoError(t, err, "relaxed mode should match 0.2.0 for 0.2.3 requirement")
+	require.NotNil(t, def)
+
+	// Verify we got the instance back.
+	instDef, ok := def.(*InstanceDef)
+	require.True(t, ok)
+	require.NotNil(t, instDef.Exports["get-environment"])
 }
 
+// TestLinker_RelaxedSemverMatching_DifferentMinor asserts relaxed
+// semver still requires the same pre-1.0 minor version. 0.2.0 never
+// satisfies 0.3.0, even with relaxed matching, because the spec
+// treats the minor field as the effective "major" for 0.x versions.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/component/linker.rs:27-60
+// (semver doc comment enforces the same rule implicitly by using
+// the semver crate's standard Version comparison; wazero's
+// SemverCompatible at semver.go:222-224 makes the constraint
+// explicit).
+// No counterpart (justified): canonical-abi run_tests.py does not
+// exercise the host linker.
 func TestLinker_RelaxedSemverMatching_DifferentMinor(t *testing.T) {
-	t.Skip(linkerTestSkipMsg)
+	l := NewLinker()
+
+	// Define v0.2.0.
+	err := l.DefineFunc("test:api@0.2.0", "fn", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+		return nil, nil
+	})
+	require.NoError(t, err)
+
+	// Enable relaxed matching.
+	l.SetRelaxedSemverMatching(true)
+
+	// Request v0.3.0 — should NOT match v0.2.0 (different minor is
+	// a breaking change in 0.x).
+	_, err = l.MatchImport("test:api@0.3.0/fn")
+	require.Error(t, err, "relaxed mode should not match 0.2.0 for 0.3.0 requirement")
 }
 
+// TestLinker_RelaxedSemverMatching_Post1_0 asserts the relaxed toggle
+// is a no-op for 1.x+ versions. Post-1.0 patch ordering is still
+// enforced because SemverCompatible's relaxed branch only fires when
+// required.Major == 0 (semver.go:221-231).
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/component/linker.rs:27-60
+// (semver doc comment — post-1.0 versions follow standard semver).
+// No counterpart (justified): canonical-abi run_tests.py does not
+// exercise the host linker.
 func TestLinker_RelaxedSemverMatching_Post1_0(t *testing.T) {
-	t.Skip(linkerTestSkipMsg)
+	l := NewLinker()
+
+	// Define v1.0.0.
+	err := l.DefineFunc("test:api@1.0.0", "fn", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+		return nil, nil
+	})
+	require.NoError(t, err)
+
+	// Enable relaxed matching.
+	l.SetRelaxedSemverMatching(true)
+
+	// Request v1.0.1 — should NOT match v1.0.0 (post-1.0 still
+	// requires available.Patch >= required.Patch; relaxed mode only
+	// affects pre-1.0 versions).
+	_, err = l.MatchImport("test:api@1.0.1/fn")
+	require.Error(t, err, "relaxed mode should not affect post-1.0 versions")
 }
 
 func TestLinker_MatchLockedDep(t *testing.T) {
