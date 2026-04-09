@@ -682,6 +682,90 @@ func lowerBorrowHandleFlat(ctx *LowerContext, typ types.ValType, val types.Val) 
 	return []uint64{uint64(h.Index())}, nil
 }
 
+// LowerParams lowers a slice of component-level argument values into the
+// flat core-wasm form expected by the callee. Implements the aggregate
+// boundary decision from lower_flat_values at
+// debug-vendored/component-model/design/mvp/canonical-abi/definitions.py:1954-1974:
+//
+//   - Flatten paramTypes via FlattenParams.
+//   - If len(flatTypes) <= maxFlat: lower each argument with LowerFlat
+//     and concatenate the resulting u64 slices.
+//   - If len(flatTypes) >  maxFlat: compute the tuple-of-params layout
+//     (align/size via the same algorithm as computeRecordABI), realloc
+//     a buffer, store each arg via LowerHeap at the aligned offset, and
+//     return [ptr] as the single flat u64.
+//
+// The caller is responsible for toggling ctx.Instance.MayLeave around
+// this call per definitions.py:1955 / :1973. Keeping LowerParams pure
+// with respect to instance state allows test harnesses to exercise it
+// with a detached runtime.
+//
+// Spec: definitions.py:1954-1974 lower_flat_values, MaxFlatParams=16
+// from definitions.py constants.
+// Wasmtime parallel: runtime/component/func.rs Func::call_raw
+// aggregate lowering (the lower_args path).
+func LowerParams(ctx *LowerContext, paramTypes []types.ValType, args []types.Val, maxFlat int) ([]uint64, error) {
+	if len(paramTypes) != len(args) {
+		return nil, fmt.Errorf(
+			"LowerParams: %d args for %d param types",
+			len(args), len(paramTypes))
+	}
+	if ctx == nil || ctx.Types == nil {
+		return nil, fmt.Errorf("LowerParams: no component types available")
+	}
+
+	flatTypes := FlattenParams(ctx.Types, paramTypes)
+	if len(flatTypes) <= maxFlat {
+		// Flat path: lower each arg and concatenate.
+		var result []uint64
+		for i, pt := range paramTypes {
+			flat, err := LowerFlat(ctx, pt, args[i])
+			if err != nil {
+				return nil, fmt.Errorf("LowerParams: param %d: %w", i, err)
+			}
+			result = append(result, flat...)
+		}
+		return result, nil
+	}
+
+	// Retptr path: compute the tuple-of-params layout, realloc a buffer,
+	// store each arg via LowerHeap, return [ptr].
+	//
+	// Tuple layout algorithm mirrors computeRecordABI /
+	// computeTupleABI in internal/component/types/abi_info.go, which is
+	// the spec's alignment(tuple_type) / elem_size(tuple_type) from
+	// definitions.py. We compute it inline rather than interning a new
+	// tuple type because ctx.Types is finished at call time.
+	if ctx.Realloc == nil {
+		return nil, fmt.Errorf(
+			"LowerParams: realloc required for retptr path (%d flat > maxFlat=%d)",
+			len(flatTypes), maxFlat)
+	}
+	var tupleSize, tupleAlign uint32 = 0, 1
+	offsets := make([]uint32, len(paramTypes))
+	for i, pt := range paramTypes {
+		pa := pt.ABI(ctx.Types)
+		if pa.Align32 > tupleAlign {
+			tupleAlign = pa.Align32
+		}
+		tupleSize = alignTo(tupleSize, pa.Align32)
+		offsets[i] = tupleSize
+		tupleSize += pa.Size32
+	}
+	tupleSize = alignTo(tupleSize, tupleAlign)
+
+	ptr, err := ctx.Realloc(0, 0, tupleAlign, tupleSize)
+	if err != nil {
+		return nil, fmt.Errorf("LowerParams: realloc failed: %w", err)
+	}
+	for i, pt := range paramTypes {
+		if err := LowerHeap(ctx, pt, args[i], ptr+offsets[i]); err != nil {
+			return nil, fmt.Errorf("LowerParams: param %d: %w", i, err)
+		}
+	}
+	return []uint64{uint64(ptr)}, nil
+}
+
 // isValidUnicodeScalarRune checks if a rune is a valid Unicode scalar value.
 // Unicode scalar values are any code point except high-surrogate and low-surrogate code points.
 // Valid ranges: U+0000 to U+D7FF and U+E000 to U+10FFFF
