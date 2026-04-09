@@ -1328,3 +1328,35 @@ All tests pass after corrective. `go vet` clean. Diff shows exactly 3 changes (c
 
 ✅ Complete. Proceeding to Task D3.
 
+---
+
+## Task D3 — wireExports instance/type/value support + wireNestedComponentExports
+
+**Base commit:** `b80a6e36`
+**Task commit:** `4917f13b`
+**Corrective commit:** `817732c9` (I1: type switch + non-FuncDef doc; I2: doc comment rewrite)
+**Files changed:** `component_linker.go`, `nested_component.go`, `nested_component_test.go`.
+
+**Implementation:**
+- `wireExports` now handles all 5 component-level export kinds: ExportKindFunc (existing), ExportKindInstance (new — dispatches to `wireNestedComponentExports` for real instances, `wireInlineInstanceExports` for inline), ExportKindType/Value/Component (no-ops with comments). ExportKindTable/Memory/Global still error (core-sort exports rarely used at component level).
+- `wireNestedComponentExports` stores the nested child Instance in `parent.exportedInstances` via `AddExportedInstance`.
+- `wireInlineInstanceExports` creates a synthetic Instance from InstanceDef, converting FuncDef exports to ExportedFuncs. Non-FuncDef exports (InstanceDef, TypeDefDef, etc.) are explicitly documented as silently skipped (no callable semantics at runtime).
+- `createInlineInstanceModule` was NOT needed — existing `buildCoreHostModule` path already handles inline core instances.
+
+**Tests (9 new):** TestInstantiateNestedComponent_ExportsInstance, TestWireExports_{TypeExport,ValueExport,InstanceExport,InstanceExportFromInline,MixedExportKinds}, TestWireNestedComponentExports_{ShimPattern,MultipleExports,NilComponent}.
+
+### Spec-compliance reviewer
+
+**Verdict:** ✅ SPEC COMPLIANT. No findings. Citation `component.rs:847-848` (Export::Instance) verified exact match.
+
+### Code quality reviewer
+
+**Verdict:** PASS with 2 IMPORTANT (addressed in corrective `817732c9`):
+- **I1:** `wireInlineInstanceExports` now uses type switch with explicit default branch documenting non-FuncDef export skipping.
+- **I2:** `wireNestedComponentExports` doc comment rewritten to describe only its actual behavior (real nested child storage).
+- M1-M5: Minor (nil fallthrough doc, always-nil error return doc, synthetic Component doc, missing ExportKindComponent test, missing default-branch test).
+
+### Task status
+
+✅ Complete. Proceeding to Task D4.
+
