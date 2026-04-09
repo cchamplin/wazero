@@ -22,6 +22,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
@@ -36,9 +37,10 @@ const MaxFlatResults = 1
 // preserved. The method bodies that drive instantiation panic with a
 // precise Session 1 pointer.
 type ComponentLinker struct {
-	runtime       any // wazero.Runtime - stored as any to avoid import cycle
-	definitions   map[string]Definition
-	relaxedSemver bool
+	runtime         any // wazero.Runtime - stored as any to avoid import cycle
+	definitions     map[string]Definition
+	relaxedSemver   bool
+	instanceCounter uint32
 }
 
 // NewComponentLinker creates a new component linker with access to a runtime.
@@ -148,14 +150,102 @@ func (b *ComponentInstanceBuilder) Build() error {
 	return nil
 }
 
-// Instantiate creates a component instance with resolved imports.
+// Instantiate creates a component instance from a compiled component.
+// Spec: definitions.py:256-273 ComponentInstance + canon.lift/lower
+// closure creation at :1978-2040 and :2064-2130.
+// Wasmtime parallel: runtime/component/instance.rs:710-833 Instantiator.
 //
-// Session 0 compile-fix: body panics. The real implementation is scheduled
-// for Session 1 deletion/rewrite once abi/lift and abi/lower land.
+// Session 1 rebuild: this is the 14-step pipeline from the design doc
+// (design lines 829-913). Each helper method gets its own task in the
+// implementation plan. This skeleton wires steps 1-3 and returns the
+// partially-constructed Instance. Steps 4-14 land in Tasks C6-C11.
 func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledComponent) (*Instance, error) {
 	_ = ctx
-	_ = compiled
-	panic("compile-fix stub: see Session 1 followup note — component_linker.go Instantiate scheduled for Session 1 deletion")
+	if compiled == nil {
+		return nil, fmt.Errorf("Instantiate: compiled is nil")
+	}
+	c := compiled.Internal()
+	if c == nil {
+		return nil, fmt.Errorf("Instantiate: compiled.Internal() is nil")
+	}
+
+	// Step 1 — Allocate instance + runtime.ComponentInstance.
+	inst := newInstance(c, l.nextInstanceID(), nil)
+
+	// Step 2 — Bind resource type declarations to runtime identities.
+	// Matches wasmtime Instantiator::resource at instance.rs:912-931.
+	// Session 1 Decision 2.
+	if err := l.bindResourceTypes(inst, c); err != nil {
+		return nil, fmt.Errorf("Instantiate: bind resource types: %w", err)
+	}
+
+	// Step 3 — Build index spaces from aliases (funcSpace, memSpace).
+	funcSpace := NewCoreFuncIndexSpace()
+	memSpace := NewCoreMemoryIndexSpace()
+	l.buildCoreIndexSpaces(c, funcSpace, memSpace)
+
+	// Steps 4-14 land in subsequent tasks (C6..C11). For now,
+	// Instantiate returns after step 3 and is extended task-by-task.
+	_ = funcSpace
+	_ = memSpace
+	return inst, nil
+}
+
+// nextInstanceID returns the next monotonic instance ID for this linker.
+// Session 1: simple counter on the linker; Session 2 may widen to a
+// store-wide ID namespace when cross-instance resource lookup lands.
+func (l *ComponentLinker) nextInstanceID() uint32 {
+	l.instanceCounter++
+	return l.instanceCounter
+}
+
+// bindResourceTypes walks c.Types.ResourceTables and mints one
+// *runtime.ResourceType per declared resource, storing it in
+// inst.rt.ResourceTypes in declaration order. Matches wasmtime
+// Instantiator::resource at instance.rs:912-931.
+//
+// Spec: definitions.py:351-361 ResourceType {dtor, dtor_async, dtor_callback}.
+// Wasmtime parallel: runtime/component/resources/ty.rs:68-79 ResourceType::guest.
+func (l *ComponentLinker) bindResourceTypes(inst *Instance, c *Component) error {
+	if c.Types == nil {
+		return nil
+	}
+	for rtIdx, table := range c.Types.ResourceTables {
+		if table.Concrete {
+			// Already concrete (cross-component imported resource). Session 1
+			// does not overwrite; Session 2 handles cross-component matching.
+			continue
+		}
+		// Locate destructor metadata for this declaration via c.TypeDefs.
+		var dtor *uint32
+		var dtorAsync bool
+		var dtorCallback *uint32
+		for i := range c.TypeDefs {
+			td := &c.TypeDefs[i]
+			if td.Kind == TypeDefKindResource && td.Resource == types.ResourceTableIdx(rtIdx) {
+				dtor = td.ResourceDtor
+				dtorAsync = td.ResourceDtorAsync
+				dtorCallback = td.ResourceDtorCallback
+				break
+			}
+		}
+		rt := &runtime.ResourceType{
+			Impl:         inst.rt,
+			Dtor:         dtor,
+			DtorAsync:    dtorAsync,
+			DtorCallback: dtorCallback,
+		}
+		inst.rt.ResourceTypes = append(inst.rt.ResourceTypes, rt)
+	}
+	return nil
+}
+
+// buildCoreIndexSpaces is a one-line stub for Task C5; the full body
+// (walking c.Aliases and populating funcSpace/memSpace) lands with the
+// rest of the pipeline in Task C6 per
+// docs/superpowers/plans/2026-04-08-canonical-abi-session1-plan.md.
+func (l *ComponentLinker) buildCoreIndexSpaces(c *Component, funcSpace *CoreFuncIndexSpace, memSpace *CoreMemoryIndexSpace) {
+	_, _, _ = c, funcSpace, memSpace
 }
 
 // MatchImport finds a definition that satisfies the import name.
