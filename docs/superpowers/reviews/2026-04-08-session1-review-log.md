@@ -750,3 +750,79 @@ grep -c '^func Test' internal/component/linker_test.go            ✅ 34
 
 ✅ Complete. Proceeding to Task C10.
 
+---
+
+## Task C10 — Restore `linker_api_test.go` (8 tests)
+
+**Base commit:** `098658c2`
+**Task commit:** `43c6ca53` (single commit, "component: Task C10 — restore 8 linker_api_test.go tests")
+**Files changed:** `internal/component/linker_api_test.go` only (+276/-16).
+
+**Tests restored:**
+1. `TestComponentInstanceWrapper` — api-adapter `ExportedFunction` lookup (hit + miss).
+2. `TestComponentInstanceWrapper_ExportedInstance` — nested-instance lookup via `GetExportedInstance`.
+3. `TestComponentInstanceWrapper_NilInstance` — nil-safety on both `ExportedFunction` and `ExportedInstance`.
+4. `TestComponentWrapper_Close_NilInstance` — nil-instance fast path.
+5. `TestComponentWrapper_Close_EmptyCoreInstances` — empty coreInstances loop + nil-out.
+6. `TestComponentWrapper_Close_ClosesCoreModules` — closes every mock module + nil-out.
+7. `TestComponentWrapper_Close_ReturnsFirstError` — first-error-wins; all modules still closed; nil-out.
+8. `TestComponentWrapper_Close_DoubleClose` — idempotent double-close.
+
+**Test helper:** `closeMockModule` copied verbatim from pre-Session-0 snapshot; matches current `api.Module` interface at `api/wasm.go:143-217` via `internalapi.WazeroOnlyType` embedding.
+
+**Instance construction choice:** `NewInstance(nil, 0, nil)` (Session 1 Decision 3 / Task B4) for the 6 tests that need a non-nil instance; bare `&ComponentInstanceWrapper{instance: nil}` / `&ComponentWrapper{instance: nil}` literals for the 2 nil-safety tests where the nil pointer IS the test subject. `newInstance` at `instance.go:89-102` is safe with `component == nil` and `parent == nil`; pre-allocates `exports` / `coreInstances` / `componentFuncs` (but NOT `exportedInstances`, which the one affected test assigns itself).
+
+### Spec-compliance reviewer
+
+**Verdict:** ✅ SPEC COMPLIANT.
+
+All 16 Session 1 amended-checklist items pass. Random spot-checks of all 3 distinct wasmtime citations opened and verified:
+- `instance.rs:156` — `pub fn get_func` ✓
+- `instance.rs:290` — `pub fn get_export` ✓
+- `linker.rs:61` — `pub struct Linker<T: 'static>` ✓
+
+V4 grep passes. `linkerAPITestSkipMsg` const fully deleted. Session 0 stub header deleted. Dedup clean (8 unique test names). All 8 tests pass. `closeMockModule` implements every method of `api.Module` (`String`, `Name`, `Memory`, `ExportedFunction`, `ExportedFunctionDefinitions`, `ExportedMemory`, `ExportedMemoryDefinitions`, `ExportedGlobal`, `CloseWithExitCode`, `Close`, `IsClosed` + `WazeroOnly` sentinel). `go vet` clean. No findings.
+
+### Code quality reviewer (superpowers:code-reviewer)
+
+**Verdict:** APPROVED. No CRITICAL or IMPORTANT findings.
+
+**Strengths:**
+1. Clean dead-code removal; no vestigial symbols.
+2. `closeMockModule` minimal and correct; `Close`/`CloseWithExitCode`/`IsClosed` internally consistent.
+3. Citation uniformity excellent: identical 3-line schema across all 8 tests.
+4. Per-test justifications specific (not copy-pasted).
+5. `NewInstance` vs bare-literal choice defensible and documented via inline comments.
+6. Production-path fidelity cross-verified against `linker_api.go:177-193, :230-251`.
+7. Test isolation solid: no shared state, no loop-var capture, no `t.Parallel`.
+8. All 8 tests pass; `go vet` clean.
+
+**Minor findings (non-blocking, no corrective required):**
+- M1: `TestComponentWrapper_Close_EmptyCoreInstances` reassigns `inst.coreInstances = []api.Module{}` which is a no-op since `NewInstance` already pre-allocates. The inline comment acknowledges this as a defensive pin; stylistic.
+- M2: `TestComponentWrapper_Close_ReturnsFirstError` uses `err != expectedErr` identity compare. Works today because `Close` doesn't wrap, but `errors.Is` would be more future-proof.
+- M3: `closeMockModule.String()` / `Name()` are interface-satisfaction-only and unexercised. Acceptable.
+- M4: No context-cancellation test — out of scope for C10.
+
+**Assertion strength table:** reviewer walked each test against its production branch in `linker_api.go`; all 8 tests verify what their names and comments claim.
+
+### Correctives
+
+None. No CRITICAL or IMPORTANT findings from either reviewer. M1-M4 tracked here for future cleanup; do not block Task C11.
+
+### Verification at task close
+
+```
+go test ./internal/component/ -run TestComponent -count=1           ✅ ok
+go test ./internal/component/... -count=1                           ✅ green
+go build ./internal/component/...                                   ✅ clean
+go vet ./internal/component/...                                     ✅ clean
+git status --porcelain                                              ✅ only .env/.envrc
+grep -c 't\.Skip' internal/component/linker_api_test.go             ✅ 0
+grep -c '^func Test' internal/component/linker_api_test.go          ✅ 8
+grep -c 'linkerAPITestSkipMsg\|SESSION 0' internal/component/linker_api_test.go  ✅ 0
+```
+
+### Task status
+
+✅ Complete. Proceeding to Task C11.
+
