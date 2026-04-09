@@ -588,7 +588,73 @@ Minor items (deferred to Checkpoint C / E where those files will be touched):
 - Precise "rebuild in progress" error stubs replace panics on `ExportedFunc.Call` and `Resource*` with citations to the Tasks that will fill them in (C5, E5).
 - Build green on `./internal/component/...` and `./imports/wasip2/...`.
 
-**Still tracked for Checkpoint C start:**
-1. ⚠️ Alias-sparsity in `Component.TypeDefs` — user decision needed (densify vs. resolver helper).
-2. ⚠️ `internal/component/binary/import.go:83-102` typebound inversion bug — user decision needed (fix as corrective or Session 2 followup).
+**Both Checkpoint C prerequisites RESOLVED via deep spec + wasmtime research** (research session 2026-04-09):
+
+### Research-driven corrective 1: import.go typebound inversion
+
+**Commit:** `15447fdc`
+
+Research confirmed `binary/instance_type.go:145-164` was spec-correct and `binary/import.go:83-102` was wrong. Per `Binary.md:239-240`:
+- `typebound ::= 0x00 i:<typeidx> => (eq i)` (reads typeidx)
+- `typebound ::= 0x01 => (sub resource)` (no payload)
+
+Fix landed via Red/Green TDD:
+- Flipped constants: `TypeBoundEq = 0x00`, renamed `TypeBoundSub → TypeBoundSubResource = 0x01`.
+- Rewrote `import.go:83-107` to switch on tag and only read typeidx when tag == 0x00.
+- Deleted 4 spec-wrong tests (`TestDecodeExternDesc_Type`, `TestDecodeExternDesc_TypeEq`, `TestDecodeImportWithTypeBound`, `TestDecodeImportWithTypeBoundEq`) that locked in the bug.
+- Added 3 spec-correct tests (`TestDecodeImportTypeSubResource`, `TestDecodeImportTypeEq`, `TestDecodeImportTypeBothBoundsSideBySide`) with citation blocks pointing at Binary.md + wasmtime fixtures at `tests/all/component_model/resources.rs:14` and `tests/misc_testsuite/component-model/types.wast:327`.
+
+**Ground truth citations:**
+- `Binary.md:231-243` — shared externdesc production for import and export.
+- `wac/crates/wac-graph/src/encoding.rs:673,761,813,827` — `TypeBounds::Eq(u32)` / `TypeBounds::SubResource`.
+- `wasmtime/tests/all/component_model/resources.rs:14-15` — `(import "t" (type $t (sub resource)))`.
+- `wasmtime/tests/misc_testsuite/component-model/instance.wast:288-325` — both forms side by side.
+
+### Research-driven corrective 2: Component.TypeDefs alias densification
+
+**Commits:** `f821c0fb` (main fix) + `621ada86` (reviewer-nit polish)
+
+Research definitively established:
+- Spec (Explainer.md:326-338): "the `id` of the alias is bound to the **new index added by the alias**" — aliases consume slots in the component's type index space.
+- Wasmtime (`crates/environ/src/component/translate.rs:796-801`): delegates typeidx resolution to `wasmparser::Validator.component_any_type_at(typeidx)` which transparently walks alias chains at use sites. Translator's outer-Type-alias branch at `:1499-1501` is EMPTY because the validator handles it internally.
+- Wizer (`crates/wizer/src/component/parse.rs:118-137`): explicitly calls `inc_types()` on every type-section entry AND every outer/export type alias — direct counter-based proof that aliases consume slots.
+- Wac encoder (`crates/wac-graph/src/encoding.rs:163-182`): when emitting an outer alias, uses `self.current.encodable.type_count()` as the resulting index.
+
+Fix landed via Red/Green TDD:
+1. New `TypeDefKindAlias` enum variant with Binary.md citation.
+2. New `AliasTarget` struct with `IsExport` discriminator, outer-alias fields (`OuterCount`, `OuterIndex`) and export-alias fields (`InstanceIdx`, `ExportName`).
+3. New `TypeDef.Alias *AliasTarget` field.
+4. New `Component.ResolveTypeDef(typeidx) (*TypeDef, uint32, error)` helper — mirror of `wasmparser::Validator.component_any_type_at`. Walks alias chains via `OuterIndex` with cycle detection. Cross-scope (`OuterCount > 0`) and export (`IsExport == true`) alias resolution is deferred to the wiring layer with precise spec-line-cited errors.
+5. `binary/alias.go` `SortType` branches (both `AliasKindExport` and `AliasKindOuter`) now append a densified `TypeDef{Kind: TypeDefKindAlias, Alias: ...}` entry alongside `NextTypeIdx++`.
+6. Whole-component decoder invariant added to `DecodeComponent`: `len(TypeDefs) == NextTypeIdx` — build-time insurance against future sparsity regressions. Pre-existing per-call `decodeTypeSection` delta check preserved.
+7. 3 Red/Green tests grounded in wasmtime + wasm-tools corpus:
+   - `TestDecoderOuterTypeAliasConsumesSlot` — mirrors `wasm-tools/tests/cli/component-model/resources.wast:779-796` outer-0 self-alias pattern.
+   - `TestDecoderExportTypeAliasConsumesSlot` — mirrors `wasmtime/tests/all/component_model/bindgen.rs:424` instance-export-alias pattern.
+   - `TestComponentResolveTypeDefWalksAlias` — unit test of the chain-walking helper.
+8. Design doc Decision 5 + Decoder → Linker Indirection section updated to reflect the densified invariant, new `TypeDef` shape, `AliasTarget` struct, and `ResolveTypeDef` caller contract. wasmparser parallel cited.
+
+### Consolidated spec-compliance reviewer
+
+**Verdict:** ✅ BOTH COMMITS SPEC COMPLIANT.
+
+17/17 checklist items pass. Two LOW-severity doc nits flagged (both addressed in polish commit `621ada86`):
+- `AliasTarget` doc comment cited `Binary.md:118` with tag `0x01` but outer alias is tag `0x02` per `Binary.md:121`.
+- `TestComponentResolveTypeDefWalksAlias` cited `Binary.md:263-265` (typebound prose) instead of `Binary.md:118-122` (aliastarget grammar).
+
+### Consolidated code-quality reviewer
+
+**Verdict:** APPROVED_WITH_MINOR → APPROVED after polish commit.
+
+Blocking finding (addressed in `621ada86`): gofmt violation at `component.go:278-279` (double blank line after `ResolveTypeDef`).
+
+Low-priority suggestions tracked for Session 2 followup:
+- Add error-path coverage for `ResolveTypeDef` (out-of-range, cycle, nil-target, export-deferred, cross-scope-deferred) — currently only happy path tested.
+- Add `unknown typebound tag` negative test for `import.go`.
+- Move whole-component densification invariant from `DecodeComponent` into `decodeComponentInto` so nested-component decode paths inherit it.
+- Consider unifying `AliasTarget` and `component.Alias` (duplicated payload fields) via embedding when nested components land in Checkpoint D.
+- Consider stack-sized visited buffer (`var visited [MaxAliasDepth]bool`) instead of `make(map[uint32]bool)` in `ResolveTypeDef` for hot-path canon callers.
+
+### Checkpoint C unblocked
+
+Both prerequisites resolved. Proceeding to Task C1.
 
