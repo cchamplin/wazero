@@ -41,7 +41,10 @@ func NewTypeChecker(c *Component) *TypeChecker {
 // use the canonical ComponentTypes identity instead of walking per-field.
 func (tc *TypeChecker) checkFuncType(expected, actual *types.TypeFunc) error {
 	if expected == nil || actual == nil {
-		return nil // No type info to check
+		if expected != actual {
+			return fmt.Errorf("function type mismatch: one side is nil")
+		}
+		return nil
 	}
 	if expected.Async != actual.Async {
 		return fmt.Errorf("async mismatch: expected %v, got %v", expected.Async, actual.Async)
@@ -98,21 +101,51 @@ func (tc *TypeChecker) checkInstance(expected *InstanceTypeDef, actual *Instance
 	return nil
 }
 
-// checkExportKind validates that the actual definition matches the expected export kind.
+// checkExportKind validates that the actual definition matches the expected
+// export kind and, where possible, recursively type-checks the export's
+// declared type against the actual definition.
+//
+// Spec: wasmtime matching.rs:32-114 TypeChecker::definition recurses
+// into func/instance arms; Explainer.md:920-982 instance subtyping.
 func (tc *TypeChecker) checkExportKind(expected *InstanceExport, actual Definition) error {
 	switch expected.Kind {
 	case ExportKindFunc:
-		if _, ok := actual.(*FuncDef); !ok {
+		fd, ok := actual.(*FuncDef)
+		if !ok {
 			return fmt.Errorf("expected function, got %T", actual)
 		}
+		// Resolve the export's declared function type and compare against
+		// the actual FuncDef.Type. Per Decision 6, host-provided FuncDefs
+		// have fd.Type == nil; skip the deep check in that case.
+		if fd.Type != nil && tc.component != nil && int(expected.Idx) < len(tc.component.TypeDefs) {
+			expTd, _, err := tc.component.ResolveTypeDef(expected.Idx)
+			if err == nil && expTd.Kind == TypeDefKindFunc {
+				expFuncType := expTd.FuncType(tc.component)
+				if err := tc.checkFuncType(expFuncType, fd.Type); err != nil {
+					return err
+				}
+			}
+		}
 	case ExportKindInstance:
-		if _, ok := actual.(*InstanceDef); !ok {
+		childInst, ok := actual.(*InstanceDef)
+		if !ok {
 			return fmt.Errorf("expected instance, got %T", actual)
+		}
+		// Recursively type-check nested instance exports.
+		if tc.component != nil && int(expected.Idx) < len(tc.component.TypeDefs) {
+			expTd, _, err := tc.component.ResolveTypeDef(expected.Idx)
+			if err == nil && expTd.Kind == TypeDefKindInstance && expTd.Instance != nil {
+				if err := tc.checkInstance(expTd.Instance, childInst); err != nil {
+					return err
+				}
+			}
 		}
 	case ExportKindType:
 		// Type exports don't need runtime validation
 	case ExportKindComponent:
-		// Component exports require ComponentDef
+		if _, ok := actual.(*ComponentDef); !ok {
+			return fmt.Errorf("expected component, got %T", actual)
+		}
 	}
 	return nil
 }
@@ -179,20 +212,19 @@ func (tc *TypeChecker) CheckDefinition(expected *ImportExternDesc, importName st
 
 // checkFuncDefinition validates a function import.
 //
-// Task C3 (revised 2026-04-09): under wasmtime's func_new dynamic-host
-// model, the host has no type to declare at registration. The
-// component's import declaration IS the canonical type; we resolve
+// Session 1 Decision 6 / Task C3: under wasmtime's func_new
+// dynamic-host model, the host has no type to declare at registration.
+// The component's import declaration IS the canonical type; we resolve
 // expected.TypeIdx here to validate its shape (kind + async bit) but
 // do NOT mutate the shared actual.FuncDef.Type field. Mutating the
 // shared *FuncDef stored in Linker.definitions would race across
 // multi-instance scenarios where the same host import is bound by
 // components with differently-typed declarations.
 //
-// Task C3 corrective (2026-04-08): fd.Type is no longer written here.
-// The per-instance resolved type will be stored on ComponentFunc.Type
-// (instance.go:121) when the lift/lower path (Tasks C5-C8) populates
-// inst.componentFuncs for function imports. Until then, validation
-// is the only job of this function.
+// fd.Type is no longer written here. The per-instance resolved type
+// will be stored on ComponentFunc.Type (instance.go:121) when the
+// lift/lower path populates inst.componentFuncs for function imports.
+// Until then, validation is the only job of this function.
 //
 // Spec: wasmtime func/host.rs:619-626 DynamicHostFn::typecheck only
 // validates the async bit at link time; the rest of the type-checking
@@ -230,14 +262,28 @@ func (tc *TypeChecker) checkFuncDefinition(expected *ImportExternDesc, actual De
 
 // checkInstanceDefinition validates an instance import.
 //
-// Session 0 compile-fix: the old []TypeDef indexing is gone; see
-// checkFuncDefinition for the rationale. We only validate the Go-level
-// type of the definition here.
+// Session 1 Task F1: resolves the expected instance type from the
+// component's type index space and recursively walks its declared
+// exports via checkInstance, type-checking func and instance exports.
+//
+// Spec: Explainer.md:920-982 instance subtyping; wasmtime
+// matching.rs:146-166 TypeChecker::instance walks
+// TypeComponentInstance.exports and recurses into definition().
 func (tc *TypeChecker) checkInstanceDefinition(expected *ImportExternDesc, actual Definition) error {
-	_, ok := actual.(*InstanceDef)
+	instDef, ok := actual.(*InstanceDef)
 	if !ok {
 		return fmt.Errorf("expected instance, got %T", actual)
 	}
-	_ = expected
-	return nil
+	// Resolve the expected instance type from the component's type space.
+	if tc.component == nil || int(expected.TypeIdx) >= len(tc.component.TypeDefs) {
+		return nil // No type info to check
+	}
+	expectedTd, _, err := tc.component.ResolveTypeDef(expected.TypeIdx)
+	if err != nil {
+		return fmt.Errorf("checkInstanceDefinition: resolve type: %w", err)
+	}
+	if expectedTd.Kind != TypeDefKindInstance || expectedTd.Instance == nil {
+		return nil // Not an instance type — skip
+	}
+	return tc.checkInstance(expectedTd.Instance, instDef)
 }
