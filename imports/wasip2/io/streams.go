@@ -49,7 +49,7 @@ func GetInputStream(id uint32) *InputStream {
 func UnregisterInputStream(id uint32) {
 	inputStreamRegistryMu.Lock()
 	defer inputStreamRegistryMu.Unlock()
-	if int(id) < len(inputStreamRegistry) {
+	if int(id) < len(inputStreamRegistry) && inputStreamRegistry[id] != nil {
 		inputStreamRegistry[id] = nil
 		inputStreamFreelist = append(inputStreamFreelist, id)
 	}
@@ -88,7 +88,7 @@ func GetOutputStream(id uint32) *OutputStream {
 func UnregisterOutputStream(id uint32) {
 	outputStreamRegistryMu.Lock()
 	defer outputStreamRegistryMu.Unlock()
-	if int(id) < len(outputStreamRegistry) {
+	if int(id) < len(outputStreamRegistry) && outputStreamRegistry[id] != nil {
 		outputStreamRegistry[id] = nil
 		outputStreamFreelist = append(outputStreamFreelist, id)
 	}
@@ -127,7 +127,7 @@ func GetPollable(id uint32) *Pollable {
 func UnregisterPollable(id uint32) {
 	pollableRegistryMu.Lock()
 	defer pollableRegistryMu.Unlock()
-	if int(id) < len(pollableRegistry) {
+	if int(id) < len(pollableRegistry) && pollableRegistry[id] != nil {
 		pollableRegistry[id] = nil
 		pollableFreelist = append(pollableFreelist, id)
 	}
@@ -166,7 +166,7 @@ func GetError(id uint32) *Error {
 func UnregisterError(id uint32) {
 	errorRegistryMu.Lock()
 	defer errorRegistryMu.Unlock()
-	if int(id) < len(errorRegistry) {
+	if int(id) < len(errorRegistry) && errorRegistry[id] != nil {
 		errorRegistry[id] = nil
 		errorFreelist = append(errorFreelist, id)
 	}

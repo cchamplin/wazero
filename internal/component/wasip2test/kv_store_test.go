@@ -55,7 +55,7 @@ func getKVStoreFromRegistry(id uint32) *KVStore {
 func unregisterKVStore(id uint32) {
 	kvStoreRegistryMu.Lock()
 	defer kvStoreRegistryMu.Unlock()
-	if int(id) < len(kvStoreRegistry) {
+	if int(id) < len(kvStoreRegistry) && kvStoreRegistry[id] != nil {
 		kvStoreRegistry[id] = nil
 		kvStoreFreelist = append(kvStoreFreelist, id)
 	}

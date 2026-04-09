@@ -41,7 +41,7 @@ func registerTerminalInput(t *TerminalInput) uint32 {
 func unregisterTerminalInput(id uint32) {
 	terminalInputRegistryMu.Lock()
 	defer terminalInputRegistryMu.Unlock()
-	if int(id) < len(terminalInputRegistry) {
+	if int(id) < len(terminalInputRegistry) && terminalInputRegistry[id] != nil {
 		terminalInputRegistry[id] = nil
 		terminalInputFreelist = append(terminalInputFreelist, id)
 	}
@@ -71,7 +71,7 @@ func registerTerminalOutput(t *TerminalOutput) uint32 {
 func unregisterTerminalOutput(id uint32) {
 	terminalOutputRegistryMu.Lock()
 	defer terminalOutputRegistryMu.Unlock()
-	if int(id) < len(terminalOutputRegistry) {
+	if int(id) < len(terminalOutputRegistry) && terminalOutputRegistry[id] != nil {
 		terminalOutputRegistry[id] = nil
 		terminalOutputFreelist = append(terminalOutputFreelist, id)
 	}

@@ -86,9 +86,9 @@ func outgoingHandlerHandle(ctx context.Context, _ *types.TypeFunc, args []types.
 	// Create the future response
 	future := NewFutureIncomingResponse()
 
-	client := MakeHTTPClient(opts)
-	if opts == nil {
-		client = DefaultHTTPClient
+	client := DefaultHTTPClient
+	if opts != nil {
+		client = MakeHTTPClient(opts)
 	}
 
 	// Start the async HTTP request
@@ -109,6 +109,7 @@ func outgoingHandlerHandle(ctx context.Context, _ *types.TypeFunc, args []types.
 	fid := registerFutureIncomingResponse(future)
 	futureHandle, err := table.NewResourceHandle(fid, true, httpFutureIncomingResponseResourceType)
 	if err != nil {
+		unregisterFutureIncomingResponse(fid)
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
 

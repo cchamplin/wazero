@@ -44,7 +44,7 @@ func registerNetwork(n *Network) uint32 {
 func unregisterNetwork(id uint32) {
 	networkRegistryMu.Lock()
 	defer networkRegistryMu.Unlock()
-	if int(id) < len(networkRegistry) {
+	if int(id) < len(networkRegistry) && networkRegistry[id] != nil {
 		networkRegistry[id] = nil
 		networkFreelist = append(networkFreelist, id)
 	}
@@ -82,7 +82,7 @@ func getTcpSocketFromRegistry(id uint32) *TcpSocket {
 func unregisterTcpSocket(id uint32) {
 	tcpSocketRegistryMu.Lock()
 	defer tcpSocketRegistryMu.Unlock()
-	if int(id) < len(tcpSocketRegistry) {
+	if int(id) < len(tcpSocketRegistry) && tcpSocketRegistry[id] != nil {
 		tcpSocketRegistry[id] = nil
 		tcpSocketFreelist = append(tcpSocketFreelist, id)
 	}
@@ -111,7 +111,7 @@ func registerTcpInputStream(s *TcpInputStream) uint32 {
 func unregisterTcpInputStream(id uint32) {
 	tcpInputStreamRegistryMu.Lock()
 	defer tcpInputStreamRegistryMu.Unlock()
-	if int(id) < len(tcpInputStreamRegistry) {
+	if int(id) < len(tcpInputStreamRegistry) && tcpInputStreamRegistry[id] != nil {
 		tcpInputStreamRegistry[id] = nil
 		tcpInputStreamFreelist = append(tcpInputStreamFreelist, id)
 	}
@@ -140,7 +140,7 @@ func registerTcpOutputStream(s *TcpOutputStream) uint32 {
 func unregisterTcpOutputStream(id uint32) {
 	tcpOutputStreamRegistryMu.Lock()
 	defer tcpOutputStreamRegistryMu.Unlock()
-	if int(id) < len(tcpOutputStreamRegistry) {
+	if int(id) < len(tcpOutputStreamRegistry) && tcpOutputStreamRegistry[id] != nil {
 		tcpOutputStreamRegistry[id] = nil
 		tcpOutputStreamFreelist = append(tcpOutputStreamFreelist, id)
 	}
@@ -178,7 +178,7 @@ func getUdpSocketFromRegistry(id uint32) *UdpSocket {
 func unregisterUdpSocket(id uint32) {
 	udpSocketRegistryMu.Lock()
 	defer udpSocketRegistryMu.Unlock()
-	if int(id) < len(udpSocketRegistry) {
+	if int(id) < len(udpSocketRegistry) && udpSocketRegistry[id] != nil {
 		udpSocketRegistry[id] = nil
 		udpSocketFreelist = append(udpSocketFreelist, id)
 	}
@@ -216,7 +216,7 @@ func getIncomingDatagramStreamFromRegistry(id uint32) *IncomingDatagramStream {
 func unregisterIncomingDatagramStream(id uint32) {
 	incomingDatagramStreamRegistryMu.Lock()
 	defer incomingDatagramStreamRegistryMu.Unlock()
-	if int(id) < len(incomingDatagramStreamRegistry) {
+	if int(id) < len(incomingDatagramStreamRegistry) && incomingDatagramStreamRegistry[id] != nil {
 		incomingDatagramStreamRegistry[id] = nil
 		incomingDatagramStreamFreelist = append(incomingDatagramStreamFreelist, id)
 	}
@@ -254,7 +254,7 @@ func getOutgoingDatagramStreamFromRegistry(id uint32) *OutgoingDatagramStream {
 func unregisterOutgoingDatagramStream(id uint32) {
 	outgoingDatagramStreamRegistryMu.Lock()
 	defer outgoingDatagramStreamRegistryMu.Unlock()
-	if int(id) < len(outgoingDatagramStreamRegistry) {
+	if int(id) < len(outgoingDatagramStreamRegistry) && outgoingDatagramStreamRegistry[id] != nil {
 		outgoingDatagramStreamRegistry[id] = nil
 		outgoingDatagramStreamFreelist = append(outgoingDatagramStreamFreelist, id)
 	}
@@ -292,7 +292,7 @@ func getResolveAddressStreamFromRegistry(id uint32) *ResolveAddressStream {
 func unregisterResolveAddressStream(id uint32) {
 	resolveAddressStreamRegistryMu.Lock()
 	defer resolveAddressStreamRegistryMu.Unlock()
-	if int(id) < len(resolveAddressStreamRegistry) {
+	if int(id) < len(resolveAddressStreamRegistry) && resolveAddressStreamRegistry[id] != nil {
 		resolveAddressStreamRegistry[id] = nil
 		resolveAddressStreamFreelist = append(resolveAddressStreamFreelist, id)
 	}

@@ -578,8 +578,7 @@ func defineLoggingInterface(linker *component.ComponentLinker, table *runtime.Ta
 				return []types.Val{}, nil
 			}
 
-			_ = getLoggerFromRegistry(resEntry.Rep)
-			var logger *Logger
+			logger := getLoggerFromRegistry(resEntry.Rep)
 			if logger != nil {
 				logger.Log(message)
 			}
@@ -674,9 +673,8 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Tabl
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 
-			_ = getRequestFromRegistry(resEntry.Rep)
-				var req *Request
-				if req != nil {
+			req := getRequestFromRegistry(resEntry.Rep)
+			if req == nil {
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 
@@ -720,9 +718,8 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Tabl
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 
-			_ = getRequestFromRegistry(resEntry.Rep)
-				var req *Request
-				if req != nil {
+			req := getRequestFromRegistry(resEntry.Rep)
+			if req == nil {
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 
@@ -796,9 +793,8 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Tabl
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 
-			_ = getResponseFromRegistry(resEntry.Rep)
-				var resp *Response
-				if resp != nil {
+			resp := getResponseFromRegistry(resEntry.Rep)
+			if resp == nil {
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 
@@ -842,9 +838,8 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Tabl
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 
-			_ = getResponseFromRegistry(resEntry.Rep)
-				var resp *Response
-				if resp != nil {
+			resp := getResponseFromRegistry(resEntry.Rep)
+			if resp == nil {
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 

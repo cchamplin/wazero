@@ -242,7 +242,7 @@ func getFieldsFromRegistry(id uint32) *Fields {
 func unregisterFields(id uint32) {
 	fieldsRegistryMu.Lock()
 	defer fieldsRegistryMu.Unlock()
-	if int(id) < len(fieldsRegistry) {
+	if int(id) < len(fieldsRegistry) && fieldsRegistry[id] != nil {
 		fieldsRegistry[id] = nil
 		fieldsFreelist = append(fieldsFreelist, id)
 	}
@@ -281,7 +281,7 @@ func getOutgoingRequestFromRegistry(id uint32) *OutgoingRequest {
 func unregisterOutgoingRequest(id uint32) {
 	outgoingRequestRegistryMu.Lock()
 	defer outgoingRequestRegistryMu.Unlock()
-	if int(id) < len(outgoingRequestRegistry) {
+	if int(id) < len(outgoingRequestRegistry) && outgoingRequestRegistry[id] != nil {
 		outgoingRequestRegistry[id] = nil
 		outgoingRequestFreelist = append(outgoingRequestFreelist, id)
 	}
@@ -320,7 +320,7 @@ func getIncomingResponseFromRegistry(id uint32) *IncomingResponse {
 func unregisterIncomingResponse(id uint32) {
 	incomingResponseRegistryMu.Lock()
 	defer incomingResponseRegistryMu.Unlock()
-	if int(id) < len(incomingResponseRegistry) {
+	if int(id) < len(incomingResponseRegistry) && incomingResponseRegistry[id] != nil {
 		incomingResponseRegistry[id] = nil
 		incomingResponseFreelist = append(incomingResponseFreelist, id)
 	}
@@ -359,7 +359,7 @@ func getIncomingBodyFromRegistry(id uint32) *IncomingBody {
 func unregisterIncomingBody(id uint32) {
 	incomingBodyRegistryMu.Lock()
 	defer incomingBodyRegistryMu.Unlock()
-	if int(id) < len(incomingBodyRegistry) {
+	if int(id) < len(incomingBodyRegistry) && incomingBodyRegistry[id] != nil {
 		incomingBodyRegistry[id] = nil
 		incomingBodyFreelist = append(incomingBodyFreelist, id)
 	}
@@ -398,7 +398,7 @@ func getOutgoingBodyFromRegistry(id uint32) *OutgoingBody {
 func unregisterOutgoingBody(id uint32) {
 	outgoingBodyRegistryMu.Lock()
 	defer outgoingBodyRegistryMu.Unlock()
-	if int(id) < len(outgoingBodyRegistry) {
+	if int(id) < len(outgoingBodyRegistry) && outgoingBodyRegistry[id] != nil {
 		outgoingBodyRegistry[id] = nil
 		outgoingBodyFreelist = append(outgoingBodyFreelist, id)
 	}
@@ -437,7 +437,7 @@ func getRequestOptionsFromRegistry(id uint32) *RequestOptions {
 func unregisterRequestOptions(id uint32) {
 	requestOptionsRegistryMu.Lock()
 	defer requestOptionsRegistryMu.Unlock()
-	if int(id) < len(requestOptionsRegistry) {
+	if int(id) < len(requestOptionsRegistry) && requestOptionsRegistry[id] != nil {
 		requestOptionsRegistry[id] = nil
 		requestOptionsFreelist = append(requestOptionsFreelist, id)
 	}
@@ -476,7 +476,7 @@ func getIncomingRequestFromRegistry(id uint32) *IncomingRequest {
 func unregisterIncomingRequest(id uint32) {
 	incomingRequestRegistryMu.Lock()
 	defer incomingRequestRegistryMu.Unlock()
-	if int(id) < len(incomingRequestRegistry) {
+	if int(id) < len(incomingRequestRegistry) && incomingRequestRegistry[id] != nil {
 		incomingRequestRegistry[id] = nil
 		incomingRequestFreelist = append(incomingRequestFreelist, id)
 	}
@@ -515,7 +515,7 @@ func getOutgoingResponseFromRegistry(id uint32) *OutgoingResponse {
 func unregisterOutgoingResponse(id uint32) {
 	outgoingResponseRegistryMu.Lock()
 	defer outgoingResponseRegistryMu.Unlock()
-	if int(id) < len(outgoingResponseRegistry) {
+	if int(id) < len(outgoingResponseRegistry) && outgoingResponseRegistry[id] != nil {
 		outgoingResponseRegistry[id] = nil
 		outgoingResponseFreelist = append(outgoingResponseFreelist, id)
 	}
@@ -554,7 +554,7 @@ func getFutureIncomingResponseFromRegistry(id uint32) *FutureIncomingResponse {
 func unregisterFutureIncomingResponse(id uint32) {
 	futureIncomingResponseRegistryMu.Lock()
 	defer futureIncomingResponseRegistryMu.Unlock()
-	if int(id) < len(futureIncomingResponseRegistry) {
+	if int(id) < len(futureIncomingResponseRegistry) && futureIncomingResponseRegistry[id] != nil {
 		futureIncomingResponseRegistry[id] = nil
 		futureIncomingResponseFreelist = append(futureIncomingResponseFreelist, id)
 	}
@@ -593,7 +593,7 @@ func getFutureTrailersFromRegistry(id uint32) *FutureTrailers {
 func unregisterFutureTrailers(id uint32) {
 	futureTrailersRegistryMu.Lock()
 	defer futureTrailersRegistryMu.Unlock()
-	if int(id) < len(futureTrailersRegistry) {
+	if int(id) < len(futureTrailersRegistry) && futureTrailersRegistry[id] != nil {
 		futureTrailersRegistry[id] = nil
 		futureTrailersFreelist = append(futureTrailersFreelist, id)
 	}
@@ -632,7 +632,7 @@ func getResponseOutparamFromRegistry(id uint32) *ResponseOutparam {
 func unregisterResponseOutparam(id uint32) {
 	responseOutparamRegistryMu.Lock()
 	defer responseOutparamRegistryMu.Unlock()
-	if int(id) < len(responseOutparamRegistry) {
+	if int(id) < len(responseOutparamRegistry) && responseOutparamRegistry[id] != nil {
 		responseOutparamRegistry[id] = nil
 		responseOutparamFreelist = append(responseOutparamFreelist, id)
 	}
@@ -1677,6 +1677,7 @@ func incomingBodyStream(ctx context.Context, _ *types.TypeFunc, args []types.Val
 	sid := io.RegisterInputStream(stream)
 	handle, err := table.NewResourceHandle(sid, true, httpInputStreamResourceType)
 	if err != nil {
+		io.UnregisterInputStream(sid)
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
 	result := types.ValOwn(uint32(handle))
@@ -1706,6 +1707,7 @@ func incomingBodyFinish(ctx context.Context, _ *types.TypeFunc, args []types.Val
 	ftid := registerFutureTrailers(ft)
 	handle, err := table.NewResourceHandle(ftid, true, httpFutureTrailersResourceType)
 	if err != nil {
+		unregisterFutureTrailers(ftid)
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
 	return []types.Val{types.ValOwn(uint32(handle))}, nil
@@ -1734,6 +1736,7 @@ func outgoingBodyWrite(ctx context.Context, _ *types.TypeFunc, args []types.Val)
 	sid := io.RegisterOutputStream(stream)
 	handle, err := table.NewResourceHandle(sid, true, httpOutputStreamResourceType)
 	if err != nil {
+		io.UnregisterOutputStream(sid)
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
 	result := types.ValOwn(uint32(handle))
@@ -1800,6 +1803,7 @@ func futureIncomingResponseGet(ctx context.Context, _ *types.TypeFunc, args []ty
 	rid := registerIncomingResponse(resp)
 	respHandle, err := table.NewResourceHandle(rid, true, httpIncomingResponseResourceType)
 	if err != nil {
+		unregisterIncomingResponse(rid)
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
 	respVal := types.ValOwn(uint32(respHandle))
@@ -1897,6 +1901,7 @@ func futureTrailersGet(ctx context.Context, _ *types.TypeFunc, args []types.Val)
 		fid := registerFields(ft.trailers)
 		handle, err := table.NewResourceHandle(fid, true, httpFieldsResourceType)
 		if err != nil {
+			unregisterFields(fid)
 			return nil, fmt.Errorf("create resource handle: %w", err)
 		}
 		trailersHandle := types.ValOwn(uint32(handle))
@@ -2027,6 +2032,7 @@ func requestOptionsConstructor(ctx context.Context, _ *types.TypeFunc, args []ty
 	oid := registerRequestOptions(opts)
 	handle, err := table.NewResourceHandle(oid, true, httpRequestOptionsResourceType)
 	if err != nil {
+		unregisterRequestOptions(oid)
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
 	return []types.Val{types.ValOwn(uint32(handle))}, nil

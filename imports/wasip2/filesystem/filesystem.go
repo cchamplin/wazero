@@ -55,7 +55,7 @@ func getDescriptorFromRegistry(id uint32) *Descriptor {
 func unregisterDescriptor(id uint32) {
 	descriptorRegistryMu.Lock()
 	defer descriptorRegistryMu.Unlock()
-	if int(id) < len(descriptorRegistry) {
+	if int(id) < len(descriptorRegistry) && descriptorRegistry[id] != nil {
 		descriptorRegistry[id] = nil
 		descriptorFreelist = append(descriptorFreelist, id)
 	}
@@ -94,7 +94,7 @@ func getDirEntryStreamFromRegistry(id uint32) *DirectoryEntryStream {
 func unregisterDirEntryStream(id uint32) {
 	dirEntryStreamRegistryMu.Lock()
 	defer dirEntryStreamRegistryMu.Unlock()
-	if int(id) < len(dirEntryStreamRegistry) {
+	if int(id) < len(dirEntryStreamRegistry) && dirEntryStreamRegistry[id] != nil {
 		dirEntryStreamRegistry[id] = nil
 		dirEntryStreamFreelist = append(dirEntryStreamFreelist, id)
 	}
