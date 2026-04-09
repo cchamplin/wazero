@@ -26,11 +26,13 @@ import (
 // `dc.c.TypeDefs` (Session 1 Decision 5: TypeDefs is the single source
 // of truth for type-section metadata). Inside decodeTypeSection the
 // local `slot` variable equals the global `dc.c.NextTypeIdx`, so the
-// just-appended entry is `dc.c.TypeDefs[len(dc.c.TypeDefs)-1]`. Outside
-// that function, callers must NOT assume `dc.c.TypeDefs[canon.TypeIdx]`
-// resolves correctly — type aliases bump NextTypeIdx without appending
-// to TypeDefs, creating sparsity. An alias-aware resolver is added in
-// Checkpoint C for those call sites.
+// just-appended entry is `dc.c.TypeDefs[len(dc.c.TypeDefs)-1]`. After
+// the alias-densification fix (see binary/alias.go), type aliases
+// also append a TypeDefKindAlias entry alongside the NextTypeIdx++
+// bump, so `len(dc.c.TypeDefs) == dc.c.NextTypeIdx` is a whole-
+// component invariant. Callers that need to resolve an alias chain
+// to the underlying concrete TypeDef must use
+// Component.ResolveTypeDef rather than bare indexing.
 type decodeContext struct {
 	c       *component.Component
 	builder *types.ComponentTypesBuilder
@@ -54,6 +56,14 @@ func DecodeComponent(binary []byte) (*component.Component, error) {
 		return nil, err
 	}
 	dc.c.Types = dc.builder.Finish()
+	// Invariant: densified TypeDefs — every NextTypeIdx++ during
+	// decode (type-section entries AND alias sections) appends
+	// exactly one TypeDef entry.
+	// Spec: Binary.md:110-122 (flat type index space).
+	if uint32(len(dc.c.TypeDefs)) != dc.c.NextTypeIdx {
+		return nil, fmt.Errorf("decoder invariant: len(TypeDefs)=%d != NextTypeIdx=%d (alias-densification bug)",
+			len(dc.c.TypeDefs), dc.c.NextTypeIdx)
+	}
 	return dc.c, nil
 }
 
@@ -221,14 +231,12 @@ func decodeTypeSection(dc *decodeContext, r *bytes.Reader) error {
 		return fmt.Errorf("read type count: %w", err)
 	}
 
-	// Invariant baseline: TypeDefs may already hold entries from earlier
-	// type sections in the same component. Each iteration of the loop
-	// below appends exactly one entry, so len(TypeDefs) must grow by
-	// `count` by the time this section is done. Alias-section handling
-	// is out of scope for Task A3 — outer / export type aliases bump
-	// NextTypeIdx without populating TypeDefs, which is why the
-	// invariant below checks the delta across this single call rather
-	// than equality with NextTypeIdx.
+	// After the alias-densification fix, TypeDefs is densely aligned
+	// with NextTypeIdx across the full component decode. Within this
+	// function, each iteration appends exactly one TypeDef; the
+	// baseline delta check confirms that invariant locally. A whole-
+	// component invariant (`len(TypeDefs) == NextTypeIdx`) is
+	// additionally enforced at the end of DecodeComponent.
 	beforeTypeDefs := len(dc.c.TypeDefs)
 
 	for i := uint32(0); i < count; i++ {

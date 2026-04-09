@@ -30,25 +30,22 @@ type Component struct {
 	// components; individual TypeDef entries reference into it.
 	Types *types.ComponentTypes
 
-	// TypeDefs carries per-slot metadata produced by the binary decoder.
-	// Each entry's Kind discriminates which kind-specific field is
-	// populated (Func, Resource, ValType, Instance, or Component); the
-	// ResourceDtor*, Instance, and Component fields carry decoder-extracted
-	// metadata that would otherwise live on throw-away private maps.
+	// TypeDefs is one entry per slot in the component's type index space,
+	// in declaration order. Densely aligned with Component.NextTypeIdx —
+	// every slot that bumps NextTypeIdx has exactly one corresponding
+	// entry here, including outer and export type aliases.
 	//
-	// Indexing caveat — this slice is NOT densely aligned with the
-	// component's global type-index space. Only type-section slots produce
-	// TypeDefs entries; type aliases (binary/alias.go) bump
-	// Component.NextTypeIdx without appending, so `len(TypeDefs) <=
-	// NextTypeIdx`. Callers that need to resolve a `canon.TypeIdx` /
-	// `Export.TypeIdx` / `ImportExternDesc.TypeIdx` / `InstanceExport.TypeIdx`
-	// to a TypeDef must go through an alias-aware resolver (added in
-	// Checkpoint C) rather than indexing this slice directly. Direct
-	// `c.TypeDefs[i]` access is valid only for test fixtures that hand-
-	// populate the slice with a 1:1 index mapping.
+	// Aliases are stored with Kind == TypeDefKindAlias and a populated
+	// Alias *AliasTarget field carrying the unresolved target metadata.
+	// Callers that need to resolve a typeidx to a concrete TypeDef must
+	// call c.ResolveTypeDef(idx), which walks the alias chain — mirror
+	// of wasmparser::Validator.component_any_type_at(typeidx).
 	//
-	// Session 1 design: Decision 5 (lines 382-448). Alias-aware resolution
-	// is tracked as a Checkpoint C prerequisite in the review log.
+	// Spec: Binary.md:110-122 (type index space + alias grammar),
+	// 263-268 (alias slot prose).
+	// Wasmtime parallel: crates/environ/src/component/translate.rs:796-801
+	// (validator.types(0).component_any_type_at(typeidx) at canon lift
+	// sites).
 	TypeDefs []TypeDef
 
 	// Canonicals contains canonical function definitions (section ID 8).
@@ -141,9 +138,15 @@ type Component struct {
 	NextModuleIdx uint32
 }
 
-// TypeDef is one entry per type-section slot in the binary, populated by
-// the decoder. Every Kind-specific field is populated only when Kind
-// matches; other fields are zero.
+// TypeDef is one entry per slot in the component's type index space,
+// populated by the decoder. Every Kind-specific field is populated only
+// when Kind matches; other fields are zero.
+//
+// An Alias slot (Kind == TypeDefKindAlias) is produced for every outer
+// or export type alias in the binary; its Alias field carries the
+// unresolved target. Callers that need the ultimate concrete TypeDef
+// behind an alias chain must resolve via Component.ResolveTypeDef —
+// direct indexing returns the alias entry itself.
 //
 // Session 1 Decision 5 option A: TypeDef.Func is a types.FuncTypeIdx
 // (not a *types.TypeFunc) so it remains stable across canonical bag
@@ -173,6 +176,13 @@ type TypeDef struct {
 	// Component is the component-type declaration when Kind == TypeDefKindComponent.
 	Component *ComponentTypeDef
 
+	// Alias carries the unresolved target of a type alias when
+	// Kind == TypeDefKindAlias. Populated by binary/alias.go at decode
+	// time; resolved at use time via Component.ResolveTypeDef.
+	//
+	// Spec: Binary.md:118-126 aliastarget grammar.
+	Alias *AliasTarget
+
 	// ResourceDtor, ResourceDtorAsync, ResourceDtorCallback carry the
 	// destructor metadata the decoder extracts for TypeDefKindResource
 	// slots. bindResourceTypes reads these at Instantiate time to
@@ -180,6 +190,35 @@ type TypeDef struct {
 	ResourceDtor         *uint32
 	ResourceDtorAsync    bool
 	ResourceDtorCallback *uint32
+}
+
+// AliasTarget records the unresolved target of a type alias. Exactly
+// one of the two target-kinds is populated per instance:
+//
+//   - Outer*: this alias is an outer alias (Binary.md:118 aliastarget
+//     0x01 ct:<u32> idx:<u32>). OuterCount is the de Bruijn count
+//     (0 = same scope, 1 = enclosing, ...). OuterIndex is the type
+//     index within that scope.
+//
+//   - Instance* / ExportName: this alias is an export alias
+//     (Binary.md:119 aliastarget 0x00 i:<instanceidx> n:<name>).
+//     InstanceIdx is the instance index; ExportName is the name of
+//     the type export on that instance.
+//
+// Spec: Binary.md:118-126 aliastarget grammar and validation.
+type AliasTarget struct {
+	// IsExport selects between the two variants: true = export-alias
+	// (InstanceIdx + ExportName), false = outer-alias (OuterCount +
+	// OuterIndex).
+	IsExport bool
+
+	// Outer alias fields (when IsExport == false).
+	OuterCount uint32
+	OuterIndex uint32
+
+	// Export alias fields (when IsExport == true).
+	InstanceIdx uint32
+	ExportName  string
 }
 
 // FuncType resolves TypeDef.Func to its canonical *types.TypeFunc in the
@@ -190,6 +229,54 @@ func (td *TypeDef) FuncType(c *Component) *types.TypeFunc {
 	return &c.Types.Funcs[td.Func]
 }
 
+// ResolveTypeDef walks the alias chain starting at typeIdx in the
+// component's type index space and returns the first non-alias
+// TypeDef, plus its absolute index within c.TypeDefs. This mirrors
+// wasmparser::Validator.component_any_type_at, which transparently
+// follows alias chains at use sites.
+//
+// Outer aliases with OuterCount > 0 reference an enclosing component's
+// scope; resolving these requires walking up a parent-component chain.
+// In Session 1's local-only model, cross-scope resolution is deferred
+// to the wiring layer (nested_component.go::resolveExportTypeAlias).
+// ResolveTypeDef only walks outer aliases with OuterCount == 0 (same
+// scope); any other alias kind returns an error naming the deferred
+// scope.
+//
+// Export aliases (IsExport == true) are also deferred: resolving an
+// export alias requires access to the instance type's exports, which
+// is a wiring-layer concern. Callers that encounter an export alias
+// at this level must use the explicit wiring path.
+//
+// Spec: Binary.md:118-126 aliastarget grammar, 263-268 alias prose.
+func (c *Component) ResolveTypeDef(typeIdx uint32) (*TypeDef, uint32, error) {
+	visited := make(map[uint32]bool)
+	for {
+		if int(typeIdx) >= len(c.TypeDefs) {
+			return nil, 0, fmt.Errorf("type index %d out of range (len=%d)", typeIdx, len(c.TypeDefs))
+		}
+		if visited[typeIdx] {
+			return nil, 0, fmt.Errorf("type alias cycle at index %d", typeIdx)
+		}
+		visited[typeIdx] = true
+		td := &c.TypeDefs[typeIdx]
+		if td.Kind != TypeDefKindAlias {
+			return td, typeIdx, nil
+		}
+		if td.Alias == nil {
+			return nil, 0, fmt.Errorf("alias at index %d has nil AliasTarget", typeIdx)
+		}
+		if td.Alias.IsExport {
+			return nil, 0, fmt.Errorf("ResolveTypeDef cannot follow export alias at index %d (export alias resolution is deferred to the wiring layer; see nested_component.go::resolveExportTypeAlias)", typeIdx)
+		}
+		if td.Alias.OuterCount > 0 {
+			return nil, 0, fmt.Errorf("ResolveTypeDef cannot follow cross-scope outer alias at index %d (OuterCount=%d; cross-scope resolution is deferred to the wiring layer)", typeIdx, td.Alias.OuterCount)
+		}
+		typeIdx = td.Alias.OuterIndex
+	}
+}
+
+
 // TypeDefKind identifies the kind of type definition.
 type TypeDefKind uint8
 
@@ -199,6 +286,15 @@ const (
 	TypeDefKindInstance
 	TypeDefKindResource
 	TypeDefKindDefined
+	// TypeDefKindAlias is a type-section slot produced by an outer or
+	// export type alias (binary/alias.go). The alias's target metadata
+	// lives on TypeDef.Alias; resolving to the ultimate concrete TypeDef
+	// requires walking the alias chain via Component.ResolveTypeDef.
+	//
+	// Spec: Binary.md:118-122 (alias grammar) and Explainer.md:326-338
+	// ("the `id` of the alias is bound to the new index added by the
+	// alias") — aliases consume slots in the component's type index space.
+	TypeDefKindAlias
 )
 
 // InstanceDeclKind identifies the kind of instance declaration.

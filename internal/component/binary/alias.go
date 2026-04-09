@@ -144,6 +144,18 @@ func decodeAliasSection(c *component.Component, r *bytes.Reader) error {
 			case component.SortType:
 				alias.Idx = c.NextTypeIdx
 				c.NextTypeIdx++
+				// Densify Component.TypeDefs: an export type alias
+				// consumes a slot in the component's type index space
+				// per Binary.md:119, 263-268. Callers resolve via
+				// c.ResolveTypeDef(typeidx).
+				c.TypeDefs = append(c.TypeDefs, component.TypeDef{
+					Kind: component.TypeDefKindAlias,
+					Alias: &component.AliasTarget{
+						IsExport:    true,
+						InstanceIdx: alias.InstanceIdx,
+						ExportName:  alias.ExportName,
+					},
+				})
 			case component.SortComponent:
 				alias.Idx = c.NextComponentIdx
 				c.NextComponentIdx++
@@ -160,6 +172,17 @@ func decodeAliasSection(c *component.Component, r *bytes.Reader) error {
 			case component.SortType:
 				alias.Idx = c.NextTypeIdx
 				c.NextTypeIdx++
+				// Densify Component.TypeDefs: an outer type alias
+				// consumes a slot in the component's type index space
+				// per Binary.md:118, 263-268.
+				c.TypeDefs = append(c.TypeDefs, component.TypeDef{
+					Kind: component.TypeDefKindAlias,
+					Alias: &component.AliasTarget{
+						IsExport:   false,
+						OuterCount: alias.OuterCount,
+						OuterIndex: alias.OuterIndex,
+					},
+				})
 			case component.SortComponent:
 				alias.Idx = c.NextComponentIdx
 				c.NextComponentIdx++

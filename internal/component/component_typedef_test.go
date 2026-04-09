@@ -74,3 +74,79 @@ func TestComponentTypeDefsField(t *testing.T) {
 		t.Fatalf("TypeDefs[1].Kind = %v, want TypeDefKindResource", c.TypeDefs[1].Kind)
 	}
 }
+
+// TestComponentResolveTypeDefWalksAlias asserts the helper walks
+// transitive alias chains to reach a concrete TypeDef, mirroring
+// wasmparser::Validator.component_any_type_at(typeidx) which
+// transparently follows alias chains at use sites.
+//
+// Spec: Binary.md:263-265 ("In the (eq i) case, the new type index
+// is effectively an alias to type i").
+// Wasmtime: crates/environ/src/component/translate.rs:796-801
+// (translator calls validator.types(0).component_any_type_at(type_index)
+// at every canon.lift use site, which walks alias chains for free).
+func TestComponentResolveTypeDefWalksAlias(t *testing.T) {
+	c := &Component{
+		TypeDefs: []TypeDef{
+			// typeidx 0 — concrete func
+			{Kind: TypeDefKindFunc, Func: types.FuncTypeIdx(0)},
+			// typeidx 1 — outer alias pointing at typeidx 0
+			{
+				Kind: TypeDefKindAlias,
+				Alias: &AliasTarget{
+					IsExport:   false,
+					OuterCount: 0,
+					OuterIndex: 0,
+				},
+			},
+			// typeidx 2 — outer alias pointing at typeidx 1 (alias to alias)
+			{
+				Kind: TypeDefKindAlias,
+				Alias: &AliasTarget{
+					IsExport:   false,
+					OuterCount: 0,
+					OuterIndex: 1,
+				},
+			},
+		},
+	}
+
+	td0, idx0, err := c.ResolveTypeDef(0)
+	if err != nil {
+		t.Fatalf("ResolveTypeDef(0) error: %v", err)
+	}
+	if idx0 != 0 {
+		t.Fatalf("ResolveTypeDef(0) idx = %d, want 0", idx0)
+	}
+	if td0.Kind != TypeDefKindFunc {
+		t.Fatalf("ResolveTypeDef(0).Kind = %v, want TypeDefKindFunc", td0.Kind)
+	}
+
+	td1, idx1, err := c.ResolveTypeDef(1)
+	if err != nil {
+		t.Fatalf("ResolveTypeDef(1) error: %v", err)
+	}
+	if idx1 != 0 {
+		t.Fatalf("ResolveTypeDef(1) idx = %d, want 0", idx1)
+	}
+	if td1.Kind != TypeDefKindFunc {
+		t.Fatalf("ResolveTypeDef(1).Kind = %v, want TypeDefKindFunc", td1.Kind)
+	}
+
+	td2, idx2, err := c.ResolveTypeDef(2)
+	if err != nil {
+		t.Fatalf("ResolveTypeDef(2) error: %v", err)
+	}
+	if idx2 != 0 {
+		t.Fatalf("ResolveTypeDef(2) idx = %d, want 0", idx2)
+	}
+	if td2.Kind != TypeDefKindFunc {
+		t.Fatalf("ResolveTypeDef(2).Kind = %v, want TypeDefKindFunc", td2.Kind)
+	}
+
+	// All three must resolve to the same underlying *TypeDef (the
+	// concrete func slot at index 0).
+	if td0 != td1 || td1 != td2 {
+		t.Fatalf("ResolveTypeDef did not return identical pointers for chained aliases: td0=%p td1=%p td2=%p", td0, td1, td2)
+	}
+}

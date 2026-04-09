@@ -399,18 +399,25 @@ Add one field to `component.Component`:
 type Component struct {
     // ... existing fields ...
 
-    // TypeDefs is one entry per type-section slot in the binary, in the
-    // order the slots were decoded. Each entry's Kind discriminates what
-    // kind of declaration lived at that slot; the kind-specific field
-    // (Func / Resource / ValType / Instance / Component) points into
-    // Component.Types (*ComponentTypes) via an interned index or is a
-    // pointer to an InstanceTypeDef / ComponentTypeDef declaration.
+    // TypeDefs is one entry per slot in the component's type index
+    // space, in declaration order. Densely aligned with
+    // Component.NextTypeIdx — every slot that bumps NextTypeIdx has
+    // exactly one corresponding entry here, including outer and
+    // export type aliases.
+    //
+    // Aliases are stored with Kind == TypeDefKindAlias and a
+    // populated Alias *AliasTarget field carrying the unresolved
+    // target metadata. Callers that need to resolve a raw typeidx to
+    // a concrete TypeDef MUST go through Component.ResolveTypeDef,
+    // which walks the alias chain — mirror of wasmparser's
+    // Validator.component_any_type_at(typeidx).
     //
     // Every caller that previously used CanonicalDef.TypeIdx /
     // ImportExternDesc.TypeIdx / Export.TypeIdx / InstanceExport.TypeIdx
     // resolves the raw type-section index through this slice:
     //
-    //   slot := c.TypeDefs[canon.TypeIdx]
+    //   slot, _, err := c.ResolveTypeDef(canon.TypeIdx)
+    //   if err != nil { ... }
     //   switch slot.Kind {
     //   case TypeDefKindFunc:     use slot.Func
     //   case TypeDefKindResource: use slot.Resource (ResourceTableIdx)
@@ -421,10 +428,56 @@ type Component struct {
 }
 ```
 
-The `TypeDef` struct already exists at `component.go:126–144` in the post-Session-0 shape. Session 1 populates it during decoding:
+The alias variant is carried on a new `AliasTarget` struct that records
+the unresolved target metadata for a type alias. Exactly one of the
+two target shapes is populated per instance (outer vs export alias):
 
-- Every type-section slot appends exactly one `TypeDef` to `dc.c.TypeDefs`.
-- `decodeTypeSection` (at `binary/decoder.go:216`) gains a one-liner per case:
+```go
+// Spec: Binary.md:118-126 aliastarget grammar.
+type AliasTarget struct {
+    // IsExport selects between the two variants: true = export-alias
+    // (InstanceIdx + ExportName), false = outer-alias (OuterCount +
+    // OuterIndex).
+    IsExport bool
+
+    // Outer alias fields (when IsExport == false).
+    OuterCount uint32
+    OuterIndex uint32
+
+    // Export alias fields (when IsExport == true).
+    InstanceIdx uint32
+    ExportName  string
+}
+```
+
+`TypeDefKind` gains one new variant — `TypeDefKindAlias` — alongside
+the existing Func/Component/Instance/Resource/Defined variants. A
+slot with `Kind == TypeDefKindAlias` has `Alias != nil` and every
+other kind-specific field zeroed.
+
+**Densification invariant.** `len(c.TypeDefs) == c.NextTypeIdx` after
+`DecodeComponent` returns. This mirrors wasmparser's flat typeidx-
+indexed table in `Validator`, where every type-section entry AND every
+outer/export type alias consumes a slot in the component's flat type
+index space. Wizer's standalone counter-based parser makes this
+explicit: `crates/wizer/src/component/parse.rs:110-185` calls
+`inc_types()` for every type-section entry AND every outer/export
+type alias. Wasmtime's translator never indexes a flat typeidx array
+directly — it calls `validator.types(0).component_any_type_at(idx)`
+which transparently walks alias chains
+(`crates/environ/src/component/translate.rs:796-801`). Wazero's
+`Component.ResolveTypeDef` is the Go equivalent.
+
+The `TypeDef` struct already exists at `component.go:126–144` in the
+post-Session-0 shape. Session 1 populates it during decoding:
+
+- Every type-section slot appends exactly one `TypeDef` to
+  `dc.c.TypeDefs`.
+- Every outer or export type alias section also appends exactly one
+  `TypeDef` (with `Kind == TypeDefKindAlias`) to preserve the flat
+  typeidx index space.
+- `decodeTypeSection` (at `binary/decoder.go:216`) gains a one-liner
+  per case:
 
 ```go
 case TypeOpFuncSync, TypeOpFuncAsync:
@@ -447,6 +500,29 @@ case TypeOpResourceSync:
 
 // (same for TypeOpResourceAsync, TypeOpInstance, TypeOpComponent, and every ValTypeOpcode* case)
 ```
+
+For type aliases, `binary/alias.go`'s `SortType` branches (both outer
+and export) append a `TypeDefKindAlias` entry alongside the
+`NextTypeIdx++` bump:
+
+```go
+case component.SortType:
+    alias.Idx = c.NextTypeIdx
+    c.NextTypeIdx++
+    c.TypeDefs = append(c.TypeDefs, component.TypeDef{
+        Kind: component.TypeDefKindAlias,
+        Alias: &component.AliasTarget{
+            IsExport:   false,       // or true for export aliases
+            OuterCount: alias.OuterCount,
+            OuterIndex: alias.OuterIndex,
+        },
+    })
+```
+
+`DecodeComponent` ends with an explicit invariant check
+(`len(dc.c.TypeDefs) == dc.c.NextTypeIdx`) that surfaces any
+densification regression as a typed error rather than a silent
+sparsity bug.
 
 **Gotcha: the `*types.TypeFunc` pointer problem.** The canonical bag's `Funcs []TypeFunc` is a slice; appending to it invalidates pointers to earlier entries. The decoder populates `TypeDefs` incrementally during decoding (before the builder is finished), so any `&dc.c.Types.Funcs[ftIdx]` captured now will dangle after subsequent appends. **Resolution:** store `types.FuncTypeIdx` on `TypeDef.Func` as an index, not a pointer. But the existing `TypeDef.Func` is typed `*types.TypeFunc`. Options:
 
@@ -1215,7 +1291,8 @@ func (l *ComponentLinker) bindResourceTypes(inst *Instance, c *Component) error 
 
 Matches wasmtime's `Instantiator::resource` at `runtime/component/instance.rs:912-931`: walk per-resource declarations, create a `ResourceType::guest(store_id, instance, resource.index)`-equivalent (wazero's pointer-identity `*runtime.ResourceType{Impl: inst.rt, Dtor: ...}`), push into `instance_resource_types` (wazero's `inst.rt.ResourceTypes`). No Abstract/Concrete state machine — direct binding per declaration.
 
-`TypeDef` gains three new fields for resource declarations:
+`TypeDef` gains three new fields for resource declarations plus the
+`Alias *AliasTarget` variant (Decision 5 densification):
 
 ```go
 type TypeDef struct {
@@ -1225,6 +1302,12 @@ type TypeDef struct {
     ValType  types.ValType
     Instance  *InstanceTypeDef
     Component *ComponentTypeDef
+
+    // Alias carries the unresolved target of a type alias when
+    // Kind == TypeDefKindAlias. Populated by binary/alias.go at
+    // decode time; resolved at use time via Component.ResolveTypeDef.
+    // Spec: Binary.md:118-126 aliastarget grammar.
+    Alias *AliasTarget
 
     // Resource destructor metadata (populated for Kind==TypeDefKindResource).
     // Session 1 adds these so bindResourceTypes can wire Dtor without
@@ -1254,7 +1337,7 @@ The `!rt.Concrete` trap check is removed from `liftOwnHandle` and `liftBorrowHan
 
 ## Decoder → Linker Indirection — `Component.TypeDefs`
 
-Full decoder change: every `decodeTypeSection` case that previously populated `dc.funcTypeIdx` or `dc.resourceDefs` instead (or also) appends a `TypeDef` to `dc.c.TypeDefs`. The private maps are deleted.
+Full decoder change: every `decodeTypeSection` case that previously populated `dc.funcTypeIdx` or `dc.resourceDefs` instead (or also) appends a `TypeDef` to `dc.c.TypeDefs`. The private maps are deleted. Additionally, every outer/export type alias in `binary/alias.go` appends a `TypeDefKindAlias` entry alongside its `NextTypeIdx++` bump — the densification guarantee that `len(c.TypeDefs) == c.NextTypeIdx` across the full decode.
 
 For resource declarations, `decodeResourceDecl` returns a `ResourceTypeDef` with destructor metadata; the decoder extracts `Dtor`, `DtorAsync`, `DtorCallback` and stores them on the `TypeDef` (Decision 2 adjustment).
 
@@ -1264,12 +1347,14 @@ For value types (records, variants, lists, etc.), the decoder stores the `types.
 
 For instance / component type declarations, the decoder stores a `*InstanceTypeDef` / `*ComponentTypeDef` pointer (the existing shape from pre-Session-0).
 
+For type aliases, the decoder stores a `TypeDefKindAlias` entry with a populated `Alias *AliasTarget` carrying the unresolved outer (`OuterCount` + `OuterIndex`) or export (`InstanceIdx` + `ExportName`) target. Resolution happens at use time via `Component.ResolveTypeDef`, which walks alias chains until it hits a concrete kind — mirror of wasmparser's `Validator.component_any_type_at(typeidx)` (`crates/environ/src/component/translate.rs:796-801`).
+
 All callers:
 
-- `component_linker.go::Instantiate` and its helpers — use `c.TypeDefs[canon.TypeIdx]` for canon operations.
-- `type_checker.go::checkFuncDefinition` / `checkInstanceDefinition` — use `c.TypeDefs[expected.TypeIdx]` for expected-type lookup.
-- `instance.go::ResourceNew`/`ResourceRep`/`ResourceDrop` — take `types.ResourceIdx` directly; resolution via `c.TypeDefs` happens in the wiring layer (`createResourceOpExport`).
-- `nested_component.go::resolveExportTypeAlias` — walks `parent.component.TypeDefs` to resolve a type alias export.
+- `component_linker.go::Instantiate` and its helpers — resolve `canon.TypeIdx` via `slot, _, err := c.ResolveTypeDef(canon.TypeIdx)` for canon operations. Direct `c.TypeDefs[canon.TypeIdx]` indexing is only valid when the caller has already proven the slot is not an alias.
+- `type_checker.go::checkFuncDefinition` / `checkInstanceDefinition` — use `c.ResolveTypeDef(expected.TypeIdx)` for expected-type lookup.
+- `instance.go::ResourceNew`/`ResourceRep`/`ResourceDrop` — take `types.ResourceIdx` directly; resolution via `c.ResolveTypeDef` happens in the wiring layer (`createResourceOpExport`).
+- `nested_component.go::resolveExportTypeAlias` — walks `parent.component.TypeDefs` to resolve a type alias export. Cross-scope outer aliases (`OuterCount > 0`) and export aliases are deferred to this wiring-layer helper rather than resolved by `ResolveTypeDef`.
 - Test code in `component_linker_test.go`, `linker_test.go`, `nested_component_test.go`, etc. — test fixtures build small Components with hand-populated `TypeDefs` slices.
 
 ## Canon Resource Ops — Host Module Export Shapes
