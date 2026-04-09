@@ -260,7 +260,7 @@ func TestComponentLinker_TypeCheckingIntegration(t *testing.T) {
 
 	ctx := context.Background()
 	_, err = linker.Instantiate(ctx, compiled)
-	// DefineFunc doesn't provide type info on FuncDef, so type checking
-	// passes (trusts the host). We just verify no panic.
-	_ = err
+	// DefineFunc doesn't provide type info on FuncDef, so the type checker
+	// trusts the host and Instantiate should succeed without error.
+	require.NoError(t, err)
 }
