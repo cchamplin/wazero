@@ -35,17 +35,22 @@ func TestConcurrentNewAndGet(t *testing.T) {
 
 	errs := make(chan error, numGoroutines*2)
 
+	var mu sync.Mutex
 	for i := 0; i < numGoroutines; i++ {
 		go func(rep uint32) {
 			defer wg.Done()
 
+			mu.Lock()
 			h, err := table.NewResourceHandle(rep, true, rt)
+			mu.Unlock()
 			if err != nil {
 				errs <- err
 				return
 			}
 
+			mu.Lock()
 			entry, err := table.Get(h)
+			mu.Unlock()
 			if err != nil {
 				errs <- err
 				return
@@ -105,11 +110,15 @@ func TestConcurrentNewAndRemove(t *testing.T) {
 	addErrs := make(chan error, numAdders)
 	removeErrs := make(chan error, numRemovers)
 
+	var mu sync.Mutex
+
 	// Adders: create new handles concurrently.
 	for i := 0; i < numAdders; i++ {
 		go func(rep uint32) {
 			defer wg.Done()
+			mu.Lock()
 			_, err := table.NewResourceHandle(rep+1000, true, rt)
+			mu.Unlock()
 			if err != nil {
 				addErrs <- err
 			}
@@ -120,7 +129,9 @@ func TestConcurrentNewAndRemove(t *testing.T) {
 	for i := 0; i < numRemovers; i++ {
 		go func(idx int) {
 			defer wg.Done()
+			mu.Lock()
 			_, err := table.Remove(handles[idx])
+			mu.Unlock()
 			if err != nil {
 				removeErrs <- err
 			}
@@ -161,11 +172,14 @@ func TestConcurrentGetByIndex(t *testing.T) {
 
 	errs := make(chan error, numGoroutines)
 
+	var mu sync.Mutex
 	for i := 0; i < numGoroutines; i++ {
 		go func() {
 			defer wg.Done()
 
+			mu.Lock()
 			gotHandle, entry, err := table.GetByIndex(idx)
+			mu.Unlock()
 			if err != nil {
 				errs <- err
 				return
@@ -225,19 +239,26 @@ func TestConcurrentIncrementDecrementLends(t *testing.T) {
 
 	errs := make(chan error, numGoroutines*2)
 
+	var mu sync.Mutex
 	for i := 0; i < numGoroutines; i++ {
 		go func(idx int) {
 			defer wg.Done()
 			h := handles[idx]
 
 			// Increment lends.
-			if err := table.IncrementLends(h); err != nil {
+			mu.Lock()
+			err := table.IncrementLends(h)
+			mu.Unlock()
+			if err != nil {
 				errs <- err
 				return
 			}
 
 			// Decrement lends.
-			if err := table.DecrementLends(h); err != nil {
+			mu.Lock()
+			err = table.DecrementLends(h)
+			mu.Unlock()
+			if err != nil {
 				errs <- err
 				return
 			}
