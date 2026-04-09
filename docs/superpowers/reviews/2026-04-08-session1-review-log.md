@@ -826,3 +826,104 @@ grep -c 'linkerAPITestSkipMsg\|SESSION 0' internal/component/linker_api_test.go 
 
 ✅ Complete. Proceeding to Task C11.
 
+---
+
+## Task C11 — Restore `conformance/primitives_test.go` citations (audit-only)
+
+**Base commit:** `466431a6`
+**Task commit:** `29abc0d7` (single commit, "component: Task C11 — conformance/primitives_test.go citations + missing test_pairs/test_nan cases")
+**Files changed:** `internal/component/conformance/primitives_test.go` only (+406/-15, 897 → 1288 lines).
+
+**Citation coverage (7/7 top-level tests):**
+- `TestPrimitivesIntegers` → canonical (`run_tests.py:185-196` + `definitions.py:1706-1708, 1797-1808`)
+- `TestPrimitivesFloats` → canonical (`run_tests.py:197-198, 231-244` + `definitions.py:1210-1211, 1213-1223, 1395-1411, 1783-1784`)
+- `TestPrimitivesBools` → canonical (`run_tests.py:184` + `definitions.py:1205-1207, 1774`)
+- `TestPrimitivesChars` → canonical (`run_tests.py:199-200` + `definitions.py:1237-1241, 1785`)
+- `TestPrimitivesSignExtension` → canonical (`run_tests.py:187-196` + `definitions.py:1802-1808, 1891-1894`)
+- `TestPrimitivesTypeProperties` → "No counterpart (justified): wazero-specific ABI accessor test"
+- `TestPrimitivesAllTypesRoundtrip` → "No counterpart (justified): dispatch smoke test"
+
+**New `spec_test_*` subtests (13 total):**
+- `spec_test_pairs_bool` (`run_tests.py:184`): (0,false),(1,true),(2,true),(4294967295,true).
+- `spec_test_pairs_char` (`run_tests.py:199-200`): 0/65/0xD7FF/0xE000/0x10FFFF valid; 0xD800/0xDFFF/0x110000/0xFFFFFFFF reject. The 0xFFFFFFFF case was previously uncovered.
+- `spec_test_pairs_{u8,s8,u16,s16,u32,s32,u64,s64}` (`run_tests.py:185-196`): 8 subtests × 3-7 canonical truncation/sign-fold pairs each.
+- `spec_test_nan32` (`run_tests.py:231-237`): 5 canonicalize patterns → `0x7fc00000`; +Inf preserved; 1.5 preserved.
+- `spec_test_nan64` (`run_tests.py:238-244`): analogous 64-bit patterns canonicalizing to `0x7ff8000000000000`.
+
+**Cases judged already-covered** (cited via comments, not duplicated):
+- Char valid boundary values (0xD7FF, 0xE000, 0x10FFFF) — already in `TestPrimitivesChars/boundary_values`.
+- Char surrogate rejection 0xD800-0xDFFF — already in `TestPrimitivesChars/surrogate_rejection`.
+- Float infinity preservation — pinned by new `spec_test_nan32/64` cases.
+- Sign-extension per-type — already in `TestPrimitivesSignExtension`.
+
+**Case skipped with justification:**
+- `EnumType(['a','b'])` at `run_tests.py:201` — enums are composite (despecialized to `VariantType` per `definitions.py:1029`); out-of-scope for primitives_test.go. Deferred to `composites_test.go` task.
+
+**NaN canonicalization status:**
+Wazero implements DETERMINISTIC_PROFILE lift-path canonicalization. `internal/component/abi/context.go:25-47` defines `CanonicalFloat32NaN = 0x7fc00000` and `CanonicalFloat64NaN = 0x7ff8000000000000`, matching `definitions.py:1210-1211` exactly. Both `LiftFlat` (`lift.go:74-76`) and `LiftHeap` (`lift.go:376, 382`) call `canonicalizeNaN32/64` unconditionally. New tests assert bit-exact canonicalization on the lift path only.
+
+**Deferred-out-of-scope concern (flagged for Session 2 followup):**
+`internal/component/abi/lower.go:37-40` does NOT canonicalize NaN on the lower path, diverging from `definitions.py:1877-1878 + :1395-1411` under the deterministic profile. Audit-only C11 correctly deferred this to a future production-code task. Do NOT land a TODO — track it in the Session 2 followup note instead.
+
+### Spec-compliance reviewer
+
+**Verdict:** ✅ SPEC COMPLIANT.
+
+All 17 Session 1 amended-checklist items pass. Nine citation spot-checks opened and verified within zero-line tolerance:
+- `run_tests.py:184` (BoolType), `:185-196` (integer tuples), `:199-200` (char tuples), `:231-244` (nan32/64).
+- `definitions.py:1205-1241` (bool/char/float classes + canonicalize_nan32/64), `:1395-1411` (maybe_scramble_nan32/64), `:1706-1711` (flatten_type), `:1774-1808` (lift_flat + signed/unsigned), `:1866-1894` (lower_flat).
+
+Five canonical arithmetic spot-checks traced pair-by-pair:
+- `U8Type (4294967168, 128)`: `0xFFFFFF80 mod 256 = 128` ✓
+- `S8Type (128, -128)`: `128 mod 256 = 128; 128 >= 128 → 128 - 256 = -128` ✓
+- `S16Type (4294934528, -32768)`: `0xFFFF8000 mod 65536 = 32768; 32768 >= 32768 → -32768` ✓
+- `S32Type ((1<<32)-1, -1)`: `0xFFFFFFFF >= 0x80000000 → -1` ✓
+- `S64Type (1<<63, MinInt64)`: `1<<63 >= 1<<63 → -(1<<63) = MinInt64` ✓
+
+V4 grep PASS. NaN lift canonicalization verified at `lift.go:74-76`. LowerFlat NaN concern flagged LOW (out-of-scope for C11 audit-only).
+
+### Code quality reviewer (superpowers:code-reviewer)
+
+**Verdict:** APPROVE for merge. No CRITICAL or IMPORTANT findings.
+
+**Strengths:**
+1. Honest overlap disclosure — `spec_test_pairs_bool`/`spec_test_pairs_char` explicitly document overlap with pre-existing subtests and justify retention ("pins the full spec pair list in one place").
+2. Uniform citation blocks: "Canonical test:" line + "Spec:" line, consistent across all 7 + 13 subtests.
+3. Subtest design type-appropriate: flat `for _, c := range cases` for integer tables (compact), nested `t.Run(c.name, ...)` for NaN/char (semantic names worth surfacing).
+4. Typed `expect` field in each integer table: compiler enforces sign-fold correctness at build time.
+5. Magic numbers documented inline; large constants use Go expression syntax (`1<<63`, `(1<<32)-1`) matching `run_tests.py` expressions.
+6. NaN assertions use `math.Float32bits`/`Float64bits` bit-compare (can't use `==` on NaN).
+7. Loop-var capture safe under Go 1.22+ per-iteration semantics (project on go1.25).
+8. No helper-function proliferation: 8 integer tables kept self-contained (extracting a generic would obscure the type contract).
+9. No production code touched (verified via diff stat).
+
+**Minor findings (non-blocking, no corrective required):**
+- M1: Comment at lines 753-756 doesn't explicitly justify retaining `lift_nonzero_as_true` alongside `spec_test_pairs_bool`. One-line clarification would help; stylistic.
+- M2: `TestPrimitivesTypeProperties` cites `definitions.py:1706-1711` twice; the second reference was likely intended to point at per-type `elem_size`/alignment formulas elsewhere. Cosmetic citation bug; spec-substance already verified.
+- M3: Integer `spec_test_pairs_*` subtests could use per-case `t.Run(c.name, ...)` for nicer `-v` output (NaN/char tests already do). Stylistic inconsistency; defensible given integer table density.
+- M4: `require.Equal(..., "... expected %d", c.expect)` duplicates expected-value rendering that the framework already emits. Minor verbosity.
+
+**File growth math verified:** 897 → 1288 lines (+391 net). ~80 lines for expanded citations, ~145 for 8 integer subtests, ~56 for 2 NaN subtests, ~22 for bool, ~42 for char, ~45 for mid-function comments/spacing. Every line justified.
+
+### Correctives
+
+None. No CRITICAL or IMPORTANT findings from either reviewer. M1-M4 tracked here for a future cleanup pass; do not block Task C12.
+
+**LOW finding tracked for Session 2:** `lower.go:37-40` NaN canonicalization divergence from `definitions.py:1877-1878 + :1395-1411` under deterministic profile.
+
+### Verification at task close
+
+```
+go test ./internal/component/conformance/ -run TestPrimitives -count=1   ✅ ok
+go test ./internal/component/... -count=1                                ✅ green
+go build ./internal/component/...                                        ✅ clean
+go vet ./internal/component/...                                          ✅ clean
+git status --porcelain                                                   ✅ only .env/.envrc
+V4 grep                                                                  ✅ PASS (7/7)
+git diff --stat 466431a6..29abc0d7                                       ✅ 1 file: primitives_test.go
+```
+
+### Task status
+
+✅ Complete. Proceeding to Task C12.
+
