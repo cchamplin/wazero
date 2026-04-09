@@ -46,6 +46,9 @@ func TestTypeIndexOutOfRange(t *testing.T) {
 }
 
 // TestDeepNesting verifies that 5+ levels of nesting work correctly.
+//
+// No counterpart (justified): wazero engineering invariant — verifies deep
+// component nesting doesn't cause stack overflow.
 func TestDeepNesting(t *testing.T) {
 	// Create 5-level hierarchy: level1 -> level2 -> level3 -> level4 -> level5
 	level1 := newInstance(&Component{}, 1, nil)
@@ -81,6 +84,9 @@ func TestDeepNesting(t *testing.T) {
 }
 
 // TestLinkerEmptyDefinitions verifies that an empty linker returns proper errors.
+//
+// No counterpart (justified): wazero API invariant — empty linker definitions
+// produce valid empty instance.
 func TestLinkerEmptyDefinitions(t *testing.T) {
 	l := NewLinker()
 
@@ -91,6 +97,9 @@ func TestLinkerEmptyDefinitions(t *testing.T) {
 }
 
 // TestInstanceGetExportedInstanceNotFound verifies nil return for missing export.
+//
+// No counterpart (justified): wazero API invariant — missing exported instance
+// returns nil.
 func TestInstanceGetExportedInstanceNotFound(t *testing.T) {
 	inst := newInstance(&Component{}, 0, nil)
 
@@ -100,6 +109,9 @@ func TestInstanceGetExportedInstanceNotFound(t *testing.T) {
 }
 
 // TestValueIndexSpaceOverflow verifies value operations with many values.
+//
+// Spec: definitions.py:256-273 (value index space). Tests boundary behavior
+// at index space limits.
 func TestValueIndexSpaceOverflow(t *testing.T) {
 	inst := newInstance(&Component{}, 0, nil)
 
@@ -121,6 +133,9 @@ func TestValueIndexSpaceOverflow(t *testing.T) {
 }
 
 // TestGetAncestorBeyondRoot verifies nil return when depth exceeds hierarchy.
+//
+// Spec: definitions.py:290-299 (reflexive ancestors). Tests ancestor traversal
+// past the root returns nil.
 func TestGetAncestorBeyondRoot(t *testing.T) {
 	root := newInstance(&Component{}, 0, nil)
 	child := newInstance(&Component{}, 1, root)
