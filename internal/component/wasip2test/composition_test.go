@@ -486,14 +486,14 @@ func defineLoggingInterface(linker *component.ComponentLinker, table *runtime.Ta
 				return []types.Val{}, nil
 			}
 			resEntry, resOk := entry.(*runtime.ResourceHandleEntry)
-				_ = resEntry
-				if !resOk {
+			_ = resEntry
+			if !resOk {
 				return []types.Val{}, nil
 			}
 
 			// Task E4: resolve *Logger via per-module registry using resEntry.Rep
-				var logger *Logger
-				if logger != nil {
+			var logger *Logger
+			if logger != nil {
 				logger.Log(message)
 			}
 
