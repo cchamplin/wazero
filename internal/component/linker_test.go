@@ -14,8 +14,6 @@ import (
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
-const linkerTestSkipMsg = "session 1 work: see docs/plans/2026-04-07-canonical-abi-unification-session0-followup.md"
-
 // TestNewLinker asserts NewLinker returns a non-nil Linker with an
 // initialised definitions map so subsequent DefineFunc/DefineInstance
 // calls can insert without a nil-map panic.
@@ -727,38 +725,246 @@ func TestLinker_RelaxedSemverMatching_Post1_0(t *testing.T) {
 	require.Error(t, err, "relaxed mode should not affect post-1.0 versions")
 }
 
+// TestLinker_MatchLockedDep asserts Linker.MatchImport resolves a
+// "locked-dep=pkg:M.m.p" import name to the definition registered
+// under "pkg@M.m.p". This is the wazero encoding of the component
+// model's locked-dep import name form.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/component/linker.rs:27-60
+// (the semver doc comment on Linker). Wasmtime does not directly
+// parse the textual "locked-dep=..." form at the Linker API layer —
+// wazero's ParseImportName / matchLockedDep path
+// (linker.go:240-250) is an embedder-facing convenience for
+// hosts that want to consume the raw import-name string. The
+// assertion is verified against wazero's matchLockedDep behaviour.
+// No counterpart (justified): canonical-abi run_tests.py does not
+// exercise the host linker.
 func TestLinker_MatchLockedDep(t *testing.T) {
-	t.Skip(linkerTestSkipMsg)
+	l := NewLinker()
+
+	// Define the dependency with version in namespace.
+	err := l.DefineInstance("my-pkg@1.2.3").
+		Func("fn", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+			return nil, nil
+		}).
+		Build()
+	require.NoError(t, err)
+
+	// Match locked-dep import.
+	def, err := l.MatchImport("locked-dep=my-pkg:1.2.3")
+	require.NoError(t, err)
+	require.NotNil(t, def)
+
+	// Verify it's the instance we defined.
+	instDef, ok := def.(*InstanceDef)
+	require.True(t, ok)
+	require.NotNil(t, instDef.Exports["fn"])
 }
 
+// TestLinker_MatchLockedDep_NotFound asserts matchLockedDep returns
+// an error when no exact-version match is found. locked-dep is
+// exact-match only — it does not walk semver-compatible alternatives.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/component/linker.rs:27-60
+// (semver doc comment). Wazero's matchLockedDep is exact-only by
+// design (linker.go:240-250 constructs a single key and returns on
+// miss). The test asserts this exact-only behaviour.
+// No counterpart (justified): canonical-abi run_tests.py does not
+// exercise the host linker.
 func TestLinker_MatchLockedDep_NotFound(t *testing.T) {
-	t.Skip(linkerTestSkipMsg)
+	l := NewLinker()
+
+	// Define a different version.
+	err := l.DefineInstance("my-pkg@1.0.0").
+		Func("fn", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+			return nil, nil
+		}).
+		Build()
+	require.NoError(t, err)
+
+	// Request exact version that doesn't exist.
+	_, err = l.MatchImport("locked-dep=my-pkg:1.2.3")
+	require.Error(t, err)
 }
 
+// TestLinker_MatchUnlockedDep asserts matchUnlockedDep selects the
+// highest version that satisfies the requested range. Three versions
+// are registered (1.0.0, 1.5.0, 2.0.0); the request `[>=1.0.0 <2.0.0)`
+// should pick 1.5.0 (highest in range).
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/component/linker.rs:27-60
+// (semver doc comment). Wasmtime does not directly parse the textual
+// "unlocked-dep=..." form at the Linker API layer — wazero's
+// matchUnlockedDep (linker.go:253-299) is an embedder-facing
+// convenience for hosts that want to consume the raw import-name
+// string.
+// No counterpart (justified): canonical-abi run_tests.py does not
+// exercise the host linker.
 func TestLinker_MatchUnlockedDep(t *testing.T) {
-	t.Skip(linkerTestSkipMsg)
+	l := NewLinker()
+
+	// Define multiple versions.
+	for _, ver := range []string{"1.0.0", "1.5.0", "2.0.0"} {
+		err := l.DefineInstance("my-pkg@"+ver).
+			Func("fn", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+				return nil, nil
+			}).
+			Build()
+		require.NoError(t, err)
+	}
+
+	// Match unlocked-dep with range — should get highest in range (1.5.0).
+	def, err := l.MatchImport("unlocked-dep=my-pkg:{>=1.0.0 <2.0.0}")
+	require.NoError(t, err)
+	require.NotNil(t, def)
 }
 
+// TestLinker_MatchUnlockedDep_MatchAll asserts the "*" wildcard
+// range matches all versions and selects the highest. Three versions
+// are registered (0.1.0, 1.0.0, 3.0.0); the request `{*}` should
+// pick 3.0.0.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/component/linker.rs:27-60
+// (semver doc comment). Wazero-specific matchUnlockedDep behaviour
+// with no direct wasmtime counterpart.
+// No counterpart (justified): canonical-abi run_tests.py does not
+// exercise the host linker.
 func TestLinker_MatchUnlockedDep_MatchAll(t *testing.T) {
-	t.Skip(linkerTestSkipMsg)
+	l := NewLinker()
+
+	for _, ver := range []string{"0.1.0", "1.0.0", "3.0.0"} {
+		err := l.DefineInstance("pkg@"+ver).
+			Func("fn", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+				return nil, nil
+			}).
+			Build()
+		require.NoError(t, err)
+	}
+
+	// Match all versions — should get highest (3.0.0).
+	def, err := l.MatchImport("unlocked-dep=pkg:*")
+	require.NoError(t, err)
+	require.NotNil(t, def)
 }
 
+// TestLinker_MatchUnlockedDep_NoMatch asserts matchUnlockedDep
+// returns an error when no registered version falls within the
+// requested range.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/component/linker.rs:27-60
+// (semver doc comment). Wazero-specific matchUnlockedDep behaviour.
+// No counterpart (justified): canonical-abi run_tests.py does not
+// exercise the host linker.
 func TestLinker_MatchUnlockedDep_NoMatch(t *testing.T) {
-	t.Skip(linkerTestSkipMsg)
+	l := NewLinker()
+
+	// Define versions outside the requested range.
+	for _, ver := range []string{"0.5.0", "3.0.0"} {
+		err := l.DefineInstance("my-pkg@"+ver).
+			Func("fn", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+				return nil, nil
+			}).
+			Build()
+		require.NoError(t, err)
+	}
+
+	// Request range that has no matches.
+	_, err := l.MatchImport("unlocked-dep=my-pkg:{>=1.0.0 <2.0.0}")
+	require.Error(t, err)
 }
 
+// TestLinker_MatchURLImport asserts MatchImport rejects "url=..."
+// import names with a non-nil error whose message contains
+// "URL imports not supported". wazero does not currently support
+// fetching components by URL at link time.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/component/linker.rs:27-60
+// (the semver doc comment describes name handling at the Linker API
+// layer; wasmtime also does not fetch URL-named imports at the linker
+// layer). wazero's matchImport path at linker.go:226-228 returns the
+// "not supported" error — the assertion pins that exact behaviour.
+// No counterpart (justified): canonical-abi run_tests.py does not
+// exercise the host linker.
 func TestLinker_MatchURLImport(t *testing.T) {
-	t.Skip(linkerTestSkipMsg)
+	l := NewLinker()
+
+	_, err := l.MatchImport("url=https://example.com/component.wasm")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "URL imports not supported")
 }
 
+// TestLinker_MatchHashImport asserts MatchImport rejects
+// "integrity=sha256:..." import names. Like URL imports, content-
+// addressed imports are not resolved at link time in wazero.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/component/linker.rs:27-60
+// (semver doc comment — wasmtime also does not resolve integrity
+// hashes at the linker layer). wazero's matchImport at
+// linker.go:228-229 returns the "not supported" error.
+// No counterpart (justified): canonical-abi run_tests.py does not
+// exercise the host linker.
 func TestLinker_MatchHashImport(t *testing.T) {
-	t.Skip(linkerTestSkipMsg)
+	l := NewLinker()
+
+	_, err := l.MatchImport("integrity=sha256:abc123")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "hash imports not supported")
 }
 
+// TestLinker_MatchPlainImport asserts MatchImport resolves plain
+// (non-versioned, single-segment) names via direct lookup.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/environ/src/component/names.rs:105-117
+// (NameMap::get tries the direct definitions map first; only
+// semver-looking names go through alternate_lookups).
+// No counterpart (justified): canonical-abi run_tests.py does not
+// exercise the host linker.
 func TestLinker_MatchPlainImport(t *testing.T) {
-	t.Skip(linkerTestSkipMsg)
+	l := NewLinker()
+
+	// Define a plain instance (no version, no slash).
+	err := l.DefineInstance("my-component").
+		Func("fn", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+			return nil, nil
+		}).
+		Build()
+	require.NoError(t, err)
+
+	// Match plain import.
+	def, err := l.MatchImport("my-component")
+	require.NoError(t, err)
+	require.NotNil(t, def)
 }
 
+// TestLinker_MatchInterfaceImport_Unchanged pins the regression that
+// an interface import with an identical version to the registered
+// instance still matches. This is the baseline case that must not
+// regress as matchInterfaceImport / matchLegacyImport evolve.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/component/linker.rs:27-60
+// (semver doc comment — same version always matches). wazero's
+// matchInterfaceImport (linker.go:310-321) reconstructs the full
+// import name and delegates to matchLegacyImport.
+// No counterpart (justified): canonical-abi run_tests.py does not
+// exercise the host linker.
 func TestLinker_MatchInterfaceImport_Unchanged(t *testing.T) {
-	t.Skip(linkerTestSkipMsg)
+	l := NewLinker()
+
+	// Define instance at v0.2.0.
+	err := l.DefineInstance("wasi:cli/environment@0.2.0").
+		Func("get-environment", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+			return nil, nil
+		}).
+		Build()
+	require.NoError(t, err)
+
+	// Request the same version — should match.
+	def, err := l.MatchImport("wasi:cli/environment@0.2.0")
+	require.NoError(t, err)
+	require.NotNil(t, def)
+
+	// Verify we got the instance.
+	instDef, ok := def.(*InstanceDef)
+	require.True(t, ok)
+	require.NotNil(t, instDef.Exports["get-environment"])
 }
