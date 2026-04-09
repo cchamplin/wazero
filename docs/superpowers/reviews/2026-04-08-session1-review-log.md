@@ -1250,3 +1250,35 @@ No CRITICAL or IMPORTANT. Ready for Checkpoint D.
 
 ✅ Checkpoint C complete and closed. Ready to proceed to Checkpoint D.
 
+---
+
+## Task D1 — Implement `resolveExportTypeAlias`
+
+**Base commit:** `bbf0e02f`
+**Task commit:** `699f4cc7` ("component: Task D1 — implement resolveExportTypeAlias")
+**Corrective commit:** `ab6bf22e` (addresses I1 + I2 from code-quality review)
+**Files changed:** `internal/component/nested_component.go` (replaced panic stub, ~40 lines) + `internal/component/nested_component_resolve_alias_test.go` (new, 4 tests).
+
+**Implementation:** Walks `parent.instanceSpace[alias.InstanceIdx]` → source component exports → `TypeDefs[export.Idx]` via `Component.ResolveTypeDef` for alias-chain safety. Nil-safe on all paths (nil instanceSpace, nil source instance, nil source component, missing export, wrong export kind).
+
+### Spec-compliance reviewer
+
+**Verdict:** ✅ SPEC COMPLIANT.
+
+All 11 checklist items pass. Citation spot-check: `wasmtime types.rs:1129-1141` (`ComponentItem::from_export` resolving `Export::Type(idx)` via `Self::from(engine, idx, ty)`) — exact match. `instance.rs:260-273` (`get_resource` matching `Export::Type(TypeDef::Resource(id))`) — exact match.
+
+### Code quality reviewer (superpowers:code-reviewer)
+
+**Verdict:** APPROVED with 2 IMPORTANT findings (both addressed in corrective `ab6bf22e`):
+- **I1:** Unused `c *Component` parameter → renamed to `_ *Component`.
+- **I2:** `ResolveTypeDef` fallback could leak `TypeDefKindAlias` entries → added nil-guard when fallback is alias.
+- M1-M4: Minor test/style items (tracked for follow-up, non-blocking).
+
+### Corrective verification
+
+Both correctives verified: `go test ./internal/component/... -count=1` green, `go vet` clean, `git diff` shows exactly 2 changes (parameter rename + alias-kind guard).
+
+### Task status
+
+✅ Complete. Proceeding to Task D2.
+
