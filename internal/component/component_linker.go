@@ -634,26 +634,111 @@ func resolveCoreMemoryViaSpace(inst *Instance, memIdx uint32, space *CoreMemoryI
 	return mem, nil
 }
 
-// processNestedInstances handles nested component instantiation. The
-// full restoration of instantiateNestedComponent lives in Checkpoint D
-// (Task D2). Session 1 Stage 3 returns an empty placeholder map and
-// traps at the first nested ParsedComponentInstance with a precise
-// Checkpoint D pointer.
+// processNestedInstances walks c.ComponentInstances and processes each
+// entry. For Instantiate-kind entries, instantiateNestedComponent is called
+// to create a child instance that runs the nested pipeline. For Inline-kind
+// entries, exports are resolved from the current scope's index spaces.
 //
-// Note: ParsedComponentInstance.Kind is ComponentInstanceExprKind with
-// Instantiate/Inline variants (there is no "alias" kind — aliases are a
-// separate Component.Aliases section). Both variants are deferred.
+// The returned map associates each component instance index with an
+// InstanceDef that wireExports can consume.
+//
+// Spec: Component-model nested instantiation (Explainer.md :1020+).
+// Plan: docs/superpowers/plans/2026-04-08-canonical-abi-session1-plan.md
+//   (Task D2).
 func (l *ComponentLinker) processNestedInstances(ctx context.Context, inst *Instance, c *Component) (map[uint32]*InstanceDef, error) {
-	_ = ctx
-	_ = inst
 	componentInstDefs := make(map[uint32]*InstanceDef)
-	if len(c.ComponentInstances) > 0 {
-		ci := &c.ComponentInstances[0]
-		return nil, fmt.Errorf(
-			"nested component instantiation: rebuild in progress (Session 1 Checkpoint D Task D2). ParsedComponentInstance kind %v at index 0",
-			ci.Kind)
+	for i := range c.ComponentInstances {
+		ci := &c.ComponentInstances[i]
+		switch ci.Kind {
+		case ComponentInstanceExprInstantiate:
+			child, err := l.instantiateNestedComponent(ctx, inst, ci, c)
+			if err != nil {
+				return nil, fmt.Errorf("component instance %d: %w", i, err)
+			}
+			// Store child in parent's instance space. Instance imports
+			// (step 6) have already consumed earlier slots, so append
+			// to the end to get the correct component-instance-index.
+			slotIdx := inst.AddInstanceToSpace(child)
+			// Create an InstanceDef for wireExports.
+			componentInstDefs[slotIdx] = instanceToDefinition(child)
+
+		case ComponentInstanceExprInline:
+			// Inline instances declare exports from the current scope's
+			// index spaces. They don't instantiate a new component.
+			instDef := &InstanceDef{Exports: make(map[string]Definition)}
+			for _, exp := range ci.InlineExports {
+				def, err := l.resolveInlineExport(inst, c, exp)
+				if err != nil {
+					return nil, fmt.Errorf("component instance %d inline export %q: %w", i, exp.Name, err)
+				}
+				if def != nil {
+					instDef.Exports[exp.Name] = def
+				}
+			}
+			// Inline instances don't produce a child Instance; they
+			// produce an InstanceDef that wireExports can consume.
+			// Append a nil to instanceSpace to keep indices aligned.
+			slotIdx := uint32(len(inst.instanceSpace))
+			inst.instanceSpace = append(inst.instanceSpace, nil)
+			componentInstDefs[slotIdx] = instDef
+
+		default:
+			return nil, fmt.Errorf("component instance %d: unknown kind %v", i, ci.Kind)
+		}
 	}
 	return componentInstDefs, nil
+}
+
+// resolveInlineExport resolves a single ComponentInlineExport from the
+// current instance's index spaces. The Sort field tells which space to
+// look in.
+//
+// Spec: inline component instances re-export items from the current
+// scope (Explainer.md component-instance grammar).
+func (l *ComponentLinker) resolveInlineExport(
+	inst *Instance,
+	c *Component,
+	exp ComponentInlineExport,
+) (Definition, error) {
+	switch exp.Sort {
+	case SortFunc:
+		fn, ok := inst.componentFuncs[exp.Idx]
+		if !ok {
+			return nil, fmt.Errorf("func %d not found in instance", exp.Idx)
+		}
+		return &FuncDef{Type: fn.Type, Callback: fn.Impl}, nil
+
+	case SortInstance:
+		child := inst.GetInstanceFromSpace(exp.Idx)
+		if child == nil {
+			return nil, fmt.Errorf("instance %d not found in instance space", exp.Idx)
+		}
+		return instanceToDefinition(child), nil
+
+	case SortType:
+		td := inst.GetTypeFromSpace(exp.Idx)
+		if td == nil {
+			return nil, fmt.Errorf("type %d not found in type space", exp.Idx)
+		}
+		return &TypeDefDef{TypeDef: td}, nil
+
+	case SortValue:
+		v, err := inst.GetValue(exp.Idx)
+		if err != nil {
+			return nil, fmt.Errorf("value %d: %w", exp.Idx, err)
+		}
+		return &ImportedValueDef{Value: v}, nil
+
+	case SortComponent:
+		comp := inst.GetComponentFromSpace(exp.Idx)
+		if comp == nil {
+			return nil, fmt.Errorf("component %d not found in component space", exp.Idx)
+		}
+		return &ComponentDef{Component: comp}, nil
+
+	default:
+		return nil, fmt.Errorf("unsupported inline export sort: %s", exp.Sort)
+	}
 }
 
 // buildCanonMaps indexes canon.lower / canon.resource.* declarations by

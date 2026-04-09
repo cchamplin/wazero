@@ -10,8 +10,16 @@ import (
 )
 
 // instantiateNestedComponent creates an instance of a nested component.
-// This is called when processing ParsedComponentInstance definitions of kind Instantiate.
-// It resolves arguments from the parent scope and establishes the parent/child relationship.
+// This is called when processing ParsedComponentInstance definitions of kind
+// Instantiate. It resolves arguments from the parent scope, creates the child
+// instance, and runs the nested instantiation pipeline (steps 2-14 from the
+// main Instantiate path, adapted for nested use).
+//
+// Spec: Component-model nested instantiation (Explainer.md :1020+).
+// Design: docs/superpowers/specs/2026-04-08-canonical-abi-session1-design.md
+//   lines 1134-1137.
+// Plan: docs/superpowers/plans/2026-04-08-canonical-abi-session1-plan.md
+//   (Task D2).
 func (l *ComponentLinker) instantiateNestedComponent(
 	ctx context.Context,
 	parent *Instance,
@@ -34,28 +42,80 @@ func (l *ComponentLinker) instantiateNestedComponent(
 		withArgs[arg.Name] = def
 	}
 
-	// Create nested instance via newInstance so the embedded
+	// Step 1 — Create nested instance via newInstance so the embedded
 	// *runtime.ComponentInstance is wired up with the parent's runtime
 	// state (Parent pointer, freshly-allocated Table, Destructors,
 	// ReentranceTracker, may_leave=true).
-	//
-	// Session 1 Task B4: replaces the former struct-literal allocation
-	// that directly set the deleted `table` field.
-	//
-	// Session 1 followup (Task C1+): nested instance IDs should be
-	// assigned monotonically by the linker so LookupResourceType's
-	// findInstance walk has a unique ID per runtime instance. Until
-	// the linker tracks an allocator, newly-created nested instances
-	// share id 0 — callers must not rely on ID uniqueness yet.
-	nestedInst := newInstance(nestedComp, 0, parent)
+	nestedInst := newInstance(nestedComp, l.nextInstanceID(), parent)
 
 	// Set parent relationship (wrapper-layer child list; rt.Parent is
 	// already wired by newInstance via the parent argument).
 	parent.AddChild(nestedInst)
 
-	// Store resolved arguments for later use during full instantiation
-	// For now, the basic instance is returned
-	// Full type checking and instantiation logic would validate imports against withArgs
+	// Step 2 — Bind resource type declarations to runtime identities.
+	if err := l.bindResourceTypes(nestedInst, nestedComp); err != nil {
+		return nil, fmt.Errorf("nested: bind resource types: %w", err)
+	}
+
+	// Step 3 — Build core index spaces from aliases.
+	funcSpace := NewCoreFuncIndexSpace()
+	memSpace := NewCoreMemoryIndexSpace()
+	l.buildCoreIndexSpaces(nestedComp, funcSpace, memSpace)
+
+	// Step 4 — Resolve and type-check imports from withArgs (not from
+	// the linker's global definitions).
+	tc := NewTypeChecker(nestedComp)
+	resolvedImports := make(map[string]Definition)
+	instanceToImport := make(map[uint32]string)
+	if err := l.resolveNestedImports(nestedComp, tc, resolvedImports, instanceToImport, withArgs); err != nil {
+		return nil, fmt.Errorf("nested: resolve imports: %w", err)
+	}
+
+	// Step 5 — Populate value index space from value imports.
+	l.populateValueImports(nestedInst, nestedComp, resolvedImports)
+
+	// Step 6 — Align instance index space with instance imports.
+	l.alignInstanceImports(nestedInst, nestedComp)
+
+	// Step 7 — Build component function index space from canon.lift
+	// declarations + resolved function imports.
+	l.buildComponentFuncs(nestedInst, nestedComp, resolvedImports)
+
+	// Step 8 — Build type index space for further nested instantiation.
+	l.buildTypeSpace(nestedInst, nestedComp)
+
+	// Step 9 — Process nested component instances (recursive).
+	componentInstDefs, err := l.processNestedInstances(ctx, nestedInst, nestedComp)
+	if err != nil {
+		return nil, fmt.Errorf("nested: nested instances: %w", err)
+	}
+
+	_ = instanceToImport
+
+	// Steps 10-12 — Canon maps, function aliases, core module instantiation.
+	// For nested components, core module instantiation requires a
+	// CompiledComponent (with pre-compiled modules), which the raw
+	// *Component in parentComponent.Components does not carry. If the
+	// nested component has core instances, error with a precise message.
+	// Steps 10 and 11 only produce inputs for step 12, so they are also
+	// skipped when step 12 is skipped.
+	if len(nestedComp.CoreInstances) > 0 {
+		return nil, fmt.Errorf(
+			"nested core module instantiation requires CompiledComponent for nested components (nested component has %d core instance(s)) — deferred to Task D3",
+			len(nestedComp.CoreInstances))
+	}
+
+	// Step 13 — Execute start function.
+	if err := l.executeStartFunction(ctx, nestedInst, nestedComp); err != nil {
+		return nil, fmt.Errorf("nested: start function: %w", err)
+	}
+
+	// Step 14 — Wire exports.
+	// wireExports currently returns an error for non-func export kinds.
+	// For nested components with no exports, this is a no-op.
+	if err := l.wireExports(nestedInst, nestedComp, componentInstDefs, funcSpace, memSpace); err != nil {
+		return nil, fmt.Errorf("nested: wire exports: %w", err)
+	}
 
 	return nestedInst, nil
 }
@@ -124,6 +184,40 @@ func (l *ComponentLinker) resolveFromParentScope(
 	default:
 		return nil, fmt.Errorf("unsupported sort for component instantiation: %s", arg.Sort)
 	}
+}
+
+// resolveNestedImports walks the nested component's imports and resolves
+// each from the withArgs map (parent-scope resolved definitions) rather
+// than from the linker's global definitions. Type checking is still
+// performed via tc.CheckDefinition.
+//
+// This is the nested-instantiation analog of resolveAndCheckImports.
+//
+// Spec: Component-model import resolution for nested instantiation.
+func (l *ComponentLinker) resolveNestedImports(
+	c *Component,
+	tc *TypeChecker,
+	resolvedImports map[string]Definition,
+	instanceToImport map[uint32]string,
+	withArgs map[string]Definition,
+) error {
+	var instanceIdx uint32
+	for i := range c.Imports {
+		imp := &c.Imports[i]
+		def, ok := withArgs[imp.Name]
+		if !ok {
+			return fmt.Errorf("import %q: not provided by parent scope", imp.Name)
+		}
+		if err := tc.CheckDefinition(&imp.ExternDesc, imp.Name, def); err != nil {
+			return fmt.Errorf("import %q: type check: %w", imp.Name, err)
+		}
+		resolvedImports[imp.Name] = def
+		if imp.ExternDesc.Kind == ImportExternDescInstance {
+			instanceToImport[instanceIdx] = imp.Name
+			instanceIdx++
+		}
+	}
+	return nil
 }
 
 // resolveTypeAlias resolves a type index that came from an alias (export or outer)
