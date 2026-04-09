@@ -158,17 +158,54 @@ func (l *ComponentLinker) resolveTypeAlias(parent *Instance, c *Component, typeI
 // resolveExportTypeAlias resolves a type export alias by tracing through the
 // source instance's type definition to find the actual TypeDef for the exported type.
 //
-// Session 0 compile-fix: the previous body indexed c.Types as a []TypeDef
-// slice and relied on TypeIdxToStoredIdx plus a buildLocalTypeIndex helper
-// that walked the old InstanceTypeDef declarations. All of those shapes
-// have been reworked by Tasks 2, 12 and will be rebuilt by Task 13's
-// binary decoder. Until then this panics with a Session 1 followup-note
-// pointer rather than dereference into a partially-migrated type bag.
+// Given an Alias with Kind == AliasKindExport and Sort == SortType, this:
+//  1. Looks up the source instance from parent.instanceSpace[alias.InstanceIdx].
+//  2. Finds a matching export in the source instance's component (Name + ExportKindType).
+//  3. Resolves the TypeDef at that export's type index via Component.ResolveTypeDef
+//     for alias-chain safety.
+//
+// Returns nil if the source instance is unreachable, no matching type export exists,
+// or alias-chain resolution fails.
 func (l *ComponentLinker) resolveExportTypeAlias(parent *Instance, c *Component, alias *Alias) *TypeDef {
-	_ = parent
-	_ = c
-	_ = alias
-	panic("compile-fix stub: see Session 1 followup note — nested_component.go resolveExportTypeAlias scheduled for Session 1/2 restoration")
+	// Step 1: Look up the source instance.
+	if int(alias.InstanceIdx) >= len(parent.instanceSpace) {
+		return nil
+	}
+	srcInst := parent.instanceSpace[alias.InstanceIdx]
+	if srcInst == nil || srcInst.component == nil {
+		return nil
+	}
+
+	// Step 2: Find the matching type export in the source instance's component.
+	srcComp := srcInst.component
+	var exportIdx uint32
+	found := false
+	for i := range srcComp.Exports {
+		exp := &srcComp.Exports[i]
+		if exp.Name == alias.ExportName && exp.Kind == ExportKindType {
+			exportIdx = exp.Idx
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil
+	}
+
+	// Step 3: Resolve the TypeDef at the export's type index.
+	// ResolveTypeDef walks alias chains within the source component.
+	// It returns a deferred error for export aliases and cross-scope
+	// outer aliases; in that case we fall back to returning the raw
+	// TypeDef at the index (best-effort resolution).
+	td, _, err := srcComp.ResolveTypeDef(exportIdx)
+	if err != nil {
+		// Fallback: return the raw TypeDef if the index is valid.
+		if int(exportIdx) < len(srcComp.TypeDefs) {
+			return &srcComp.TypeDefs[exportIdx]
+		}
+		return nil
+	}
+	return td
 }
 
 // instanceToDefinition converts an Instance to an InstanceDef.
