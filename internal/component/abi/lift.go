@@ -708,6 +708,128 @@ func liftBorrowHandle(ctx *LiftContext, typ types.ValType, handleIdx uint32) (ty
 	return types.ValBorrow(handleIdx), nil
 }
 
+// LiftParams lifts flat ABI parameter values into component Vals. This
+// is the symmetric lift companion to LowerParams. Implements the
+// aggregate boundary decision from lift_flat_values at
+// debug-vendored/component-model/design/mvp/canonical-abi/definitions.py:1943-1952:
+//
+//   - Flatten paramTypes via FlattenParams.
+//   - If len(flatTypes) <= maxFlat: consume the flat iterator per-param
+//     via LiftFlat, collecting the resulting Vals in order.
+//   - If len(flatTypes) >  maxFlat: read flat[0] as an i32 retptr,
+//     validate alignment + memory bounds against the tuple-of-params
+//     layout, then iterate LiftHeap at ptr + offsets[i] for each param.
+//
+// Spec: definitions.py:1943-1952 lift_flat_values, used on the caller
+// side of canon.lower to lift args the callee receives.
+// Wasmtime parallel: runtime/component/func.rs Func::call_raw
+// lift_results path has the analogous load_results branch.
+func LiftParams(ctx *LiftContext, paramTypes []types.ValType, flat []uint64, maxFlat int) ([]types.Val, error) {
+	if ctx == nil || ctx.Types == nil {
+		return nil, fmt.Errorf("LiftParams: no component types available")
+	}
+	flatTypes := FlattenParams(ctx.Types, paramTypes)
+	if len(flatTypes) > maxFlat {
+		if len(flat) == 0 {
+			return nil, fmt.Errorf("LiftParams: retptr path but flat is empty")
+		}
+		if ctx.Memory == nil {
+			return nil, fmt.Errorf("LiftParams: retptr path requires memory")
+		}
+		ptr := uint32(flat[0])
+		tupleSize, tupleAlign, offsets := paramsTupleLayout(ctx.Types, paramTypes)
+		if ptr != alignTo(ptr, tupleAlign) {
+			return nil, fmt.Errorf(
+				"LiftParams: retptr %d not aligned to %d", ptr, tupleAlign)
+		}
+		if uint64(ptr)+uint64(tupleSize) > uint64(ctx.Memory.Size()) {
+			return nil, fmt.Errorf(
+				"LiftParams: retptr %d + tuple size %d out of memory bounds",
+				ptr, tupleSize)
+		}
+		vals := make([]types.Val, len(paramTypes))
+		for i, pt := range paramTypes {
+			v, err := LiftHeap(ctx, pt, ptr+offsets[i])
+			if err != nil {
+				return nil, fmt.Errorf("LiftParams: param %d: %w", i, err)
+			}
+			vals[i] = v
+		}
+		return vals, nil
+	}
+	// Flat path: consume flat iterator per-param.
+	iter := NewFlatIter(flat)
+	vals := make([]types.Val, len(paramTypes))
+	for i, pt := range paramTypes {
+		v, err := LiftFlat(ctx, pt, iter)
+		if err != nil {
+			return nil, fmt.Errorf("LiftParams: param %d: %w", i, err)
+		}
+		vals[i] = v
+	}
+	return vals, nil
+}
+
+// LiftResults lifts flat ABI result values into component Vals. Mirrors
+// LiftParams with the MAX_FLAT_RESULTS threshold (single-result cap
+// for synchronous calls). Called from canon.lift at the return-path
+// boundary (definitions.py:1997) where the spec function iterates the
+// core-wasm return values back into component Vals.
+//
+// Spec: definitions.py:1943-1952 lift_flat_values applied to
+// canon_lift return-path at definitions.py:1997.
+func LiftResults(ctx *LiftContext, resultTypes []types.ValType, flat []uint64, maxFlat int) ([]types.Val, error) {
+	if ctx == nil || ctx.Types == nil {
+		return nil, fmt.Errorf("LiftResults: no component types available")
+	}
+	// Compute the flattened width directly (FlattenResults collapses to
+	// nil+needsRetptr=true at the MaxFlatResults threshold, but we
+	// respect the caller-supplied maxFlat parameter here).
+	width := 0
+	for _, rt := range resultTypes {
+		width += len(flattenType(ctx.Types, rt))
+	}
+	if width > maxFlat {
+		if len(flat) == 0 {
+			return nil, fmt.Errorf("LiftResults: retptr path but flat is empty")
+		}
+		if ctx.Memory == nil {
+			return nil, fmt.Errorf("LiftResults: retptr path requires memory")
+		}
+		ptr := uint32(flat[0])
+		tupleSize, tupleAlign, offsets := paramsTupleLayout(ctx.Types, resultTypes)
+		if ptr != alignTo(ptr, tupleAlign) {
+			return nil, fmt.Errorf(
+				"LiftResults: retptr %d not aligned to %d", ptr, tupleAlign)
+		}
+		if uint64(ptr)+uint64(tupleSize) > uint64(ctx.Memory.Size()) {
+			return nil, fmt.Errorf(
+				"LiftResults: retptr %d + tuple size %d out of memory bounds",
+				ptr, tupleSize)
+		}
+		vals := make([]types.Val, len(resultTypes))
+		for i, rt := range resultTypes {
+			v, err := LiftHeap(ctx, rt, ptr+offsets[i])
+			if err != nil {
+				return nil, fmt.Errorf("LiftResults: result %d: %w", i, err)
+			}
+			vals[i] = v
+		}
+		return vals, nil
+	}
+	// Flat path: consume flat iterator per-result.
+	iter := NewFlatIter(flat)
+	vals := make([]types.Val, len(resultTypes))
+	for i, rt := range resultTypes {
+		v, err := LiftFlat(ctx, rt, iter)
+		if err != nil {
+			return nil, fmt.Errorf("LiftResults: result %d: %w", i, err)
+		}
+		vals[i] = v
+	}
+	return vals, nil
+}
+
 // alignTo rounds offset up to the given alignment. align must be a
 // power of two.
 func alignTo(offset, align uint32) uint32 {

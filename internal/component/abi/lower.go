@@ -682,6 +682,37 @@ func lowerBorrowHandleFlat(ctx *LowerContext, typ types.ValType, val types.Val) 
 	return []uint64{uint64(h.Index())}, nil
 }
 
+// paramsTupleLayout computes the (size, align, per-element offsets) of
+// the synthetic tuple-of-params formed from the given component param
+// types. This is the shared abi-layer helper used by the retptr paths
+// of LowerParams / LiftParams / LiftResults; the algorithm mirrors
+// computeRecordABI / computeTupleABI at
+// internal/component/types/abi_info.go:107-142 (the spec's
+// alignment(tuple_type) / elem_size(tuple_type) from
+// definitions.py:1087-1091, :1145-1151). It is kept in the abi package
+// because callers already own a finished *types.ComponentTypes and do
+// not want to intern a fresh tuple type just to query its layout.
+//
+// Spec: definitions.py:1947-1949, :1966-1967 — lift/lower flat values
+// retptr branches compute alignment(tuple_type) and
+// elem_size(tuple_type) on the TupleType(ts) synthesized from the
+// param/result type list.
+func paramsTupleLayout(ct *types.ComponentTypes, elems []types.ValType) (size, align uint32, offsets []uint32) {
+	size, align = 0, 1
+	offsets = make([]uint32, len(elems))
+	for i, e := range elems {
+		ea := e.ABI(ct)
+		if ea.Align32 > align {
+			align = ea.Align32
+		}
+		size = alignTo(size, ea.Align32)
+		offsets[i] = size
+		size += ea.Size32
+	}
+	size = alignTo(size, align)
+	return size, align, offsets
+}
+
 // LowerParams lowers a slice of component-level argument values into the
 // flat core-wasm form expected by the callee. Implements the aggregate
 // boundary decision from lower_flat_values at
@@ -691,7 +722,7 @@ func lowerBorrowHandleFlat(ctx *LowerContext, typ types.ValType, val types.Val) 
 //   - If len(flatTypes) <= maxFlat: lower each argument with LowerFlat
 //     and concatenate the resulting u64 slices.
 //   - If len(flatTypes) >  maxFlat: compute the tuple-of-params layout
-//     (align/size via the same algorithm as computeRecordABI), realloc
+//     via paramsTupleLayout (same algorithm as computeRecordABI), realloc
 //     a buffer, store each arg via LowerHeap at the aligned offset, and
 //     return [ptr] as the single flat u64.
 //
@@ -728,31 +759,15 @@ func LowerParams(ctx *LowerContext, paramTypes []types.ValType, args []types.Val
 		return result, nil
 	}
 
-	// Retptr path: compute the tuple-of-params layout, realloc a buffer,
-	// store each arg via LowerHeap, return [ptr].
-	//
-	// Tuple layout algorithm mirrors computeRecordABI /
-	// computeTupleABI in internal/component/types/abi_info.go, which is
-	// the spec's alignment(tuple_type) / elem_size(tuple_type) from
-	// definitions.py. We compute it inline rather than interning a new
-	// tuple type because ctx.Types is finished at call time.
+	// Retptr path: compute the tuple-of-params layout via the shared
+	// helper, realloc a buffer, store each arg via LowerHeap, return
+	// [ptr].
 	if ctx.Realloc == nil {
 		return nil, fmt.Errorf(
 			"LowerParams: realloc required for retptr path (%d flat > maxFlat=%d)",
 			len(flatTypes), maxFlat)
 	}
-	var tupleSize, tupleAlign uint32 = 0, 1
-	offsets := make([]uint32, len(paramTypes))
-	for i, pt := range paramTypes {
-		pa := pt.ABI(ctx.Types)
-		if pa.Align32 > tupleAlign {
-			tupleAlign = pa.Align32
-		}
-		tupleSize = alignTo(tupleSize, pa.Align32)
-		offsets[i] = tupleSize
-		tupleSize += pa.Size32
-	}
-	tupleSize = alignTo(tupleSize, tupleAlign)
+	tupleSize, tupleAlign, offsets := paramsTupleLayout(ctx.Types, paramTypes)
 
 	ptr, err := ctx.Realloc(0, 0, tupleAlign, tupleSize)
 	if err != nil {
@@ -764,6 +779,101 @@ func LowerParams(ctx *LowerContext, paramTypes []types.ValType, args []types.Val
 		}
 	}
 	return []uint64{uint64(ptr)}, nil
+}
+
+// LowerResults lowers component Val results into the flat core-wasm
+// form returned by a lowered component function. This is the symmetric
+// companion to LowerParams for the canon.lower return path; it is
+// called from the Go host side of canon.lower once the callee has
+// produced its results.
+//
+// Two modes, driven by needsRetptr (equivalent to the bool returned by
+// FlattenResults / CoreSignature):
+//
+//   - needsRetptr == false: the flattened result width is <= maxFlat
+//     and the core function is expected to return the results directly
+//     as its core-wasm return values. LowerResults lowers each result
+//     with LowerFlat and writes the concatenated u64 values into
+//     stack[0..flatResultWidth], left-aligned. The caller uses this
+//     prefix as the core return values.
+//
+//   - needsRetptr == true: the flattened result width exceeds maxFlat.
+//     By the convention emitted by CoreSignature at
+//     internal/component/abi/flatten.go:41-51, the retptr is appended
+//     as the LAST core-wasm parameter of a lowered function (a
+//     `(params..., retptr: i32)` signature). The canon.lower host glue
+//     places the core-wasm parameter stack in `stack`; therefore
+//     stack[len(stack)-1] holds the caller-provided retptr. LowerResults
+//     reads that retptr, computes the tuple-of-results layout via the
+//     shared paramsTupleLayout helper, and stores each result via
+//     LowerHeap at ptr + offsets[i]. This matches wasmtime's
+//     runtime/component/func.rs Func::call_raw result-store path (the
+//     store_args mirror for results) and the spec's canon_lower path at
+//     definitions.py:2104 which passes `flat_args` as `out_param` so
+//     that lower_flat_values :1964 reads the retptr from the next i32
+//     of the in-iter (definitively the trailing core-wasm param after
+//     flat param consumption).
+//
+// Spec: definitions.py:1954-1974 lower_flat_values;
+// definitions.py:2104 canon_lower calls lower_flat_values with
+// flat_args as out_param for the result path.
+func LowerResults(ctx *LowerContext, resultTypes []types.ValType, results []types.Val, stack []uint64, needsRetptr bool, maxFlat int) error {
+	if ctx == nil || ctx.Types == nil {
+		return fmt.Errorf("LowerResults: no component types available")
+	}
+	if len(results) != len(resultTypes) {
+		return fmt.Errorf(
+			"LowerResults: %d results for %d result types",
+			len(results), len(resultTypes))
+	}
+
+	if needsRetptr {
+		// Retptr path: stack[len(stack)-1] is the caller-provided retptr
+		// by the CoreSignature convention (see flatten.go:41-51 — retptr
+		// is appended as the final core-wasm param).
+		if len(stack) == 0 {
+			return fmt.Errorf("LowerResults: needsRetptr=true but stack is empty")
+		}
+		ptr := uint32(stack[len(stack)-1])
+		tupleSize, tupleAlign, offsets := paramsTupleLayout(ctx.Types, resultTypes)
+		if ptr != alignTo(ptr, tupleAlign) {
+			return fmt.Errorf(
+				"LowerResults: retptr %d not aligned to %d", ptr, tupleAlign)
+		}
+		if ctx.Memory == nil {
+			return fmt.Errorf("LowerResults: retptr path requires memory")
+		}
+		if uint64(ptr)+uint64(tupleSize) > uint64(ctx.Memory.Size()) {
+			return fmt.Errorf(
+				"LowerResults: retptr %d + tuple size %d out of memory bounds",
+				ptr, tupleSize)
+		}
+		for i, rt := range resultTypes {
+			if err := LowerHeap(ctx, rt, results[i], ptr+offsets[i]); err != nil {
+				return fmt.Errorf("LowerResults: result %d: %w", i, err)
+			}
+		}
+		return nil
+	}
+
+	// Flat path: lower each result and write into stack in order.
+	idx := 0
+	for i, rt := range resultTypes {
+		lowered, err := LowerFlat(ctx, rt, results[i])
+		if err != nil {
+			return fmt.Errorf("LowerResults: result %d: %w", i, err)
+		}
+		for _, v := range lowered {
+			if idx >= len(stack) {
+				return fmt.Errorf(
+					"LowerResults: flat overflow stack (idx=%d, len=%d)",
+					idx, len(stack))
+			}
+			stack[idx] = v
+			idx++
+		}
+	}
+	return nil
 }
 
 // isValidUnicodeScalarRune checks if a rune is a valid Unicode scalar value.
