@@ -208,9 +208,110 @@ func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledCom
 	// resolution.
 	l.buildTypeSpace(inst, c)
 
-	// Steps 9-14 land in subsequent tasks (C7..C11).
+	// Step 9 — Process nested component instances.
+	componentInstDefs, err := l.processNestedInstances(ctx, inst, c)
+	if err != nil {
+		return nil, fmt.Errorf("Instantiate: nested instances: %w", err)
+	}
+
+	// Step 10 — Build canon lower / canon resource info maps from CanonicalDef.
+	canonLowers, canonResources := l.buildCanonMaps(c)
+
+	// Step 11 — Build function alias map for inline instance resolution.
+	funcAliases := l.buildFuncAliases(c)
+
+	// Steps 12-14 land in subsequent tasks (C8..C11).
 	_ = instanceToImport
+	_ = componentInstDefs
+	_ = canonLowers
+	_ = canonResources
+	_ = funcAliases
 	return inst, nil
+}
+
+// processNestedInstances handles nested component instantiation. The
+// full restoration of instantiateNestedComponent lives in Checkpoint D
+// (Task D2). Session 1 Stage 3 returns an empty placeholder map and
+// traps at the first nested ParsedComponentInstance with a precise
+// Checkpoint D pointer.
+//
+// Note: ParsedComponentInstance.Kind is ComponentInstanceExprKind with
+// Instantiate/Inline variants (there is no "alias" kind — aliases are a
+// separate Component.Aliases section). Both variants are deferred.
+func (l *ComponentLinker) processNestedInstances(ctx context.Context, inst *Instance, c *Component) (map[uint32]*InstanceDef, error) {
+	_ = ctx
+	_ = inst
+	componentInstDefs := make(map[uint32]*InstanceDef)
+	if len(c.ComponentInstances) > 0 {
+		ci := &c.ComponentInstances[0]
+		return nil, fmt.Errorf(
+			"nested component instantiation: rebuild in progress (Session 1 Checkpoint D Task D2). ParsedComponentInstance kind %v at index 0",
+			ci.Kind)
+	}
+	return componentInstDefs, nil
+}
+
+// buildCanonMaps indexes canon.lower / canon.resource.* declarations by
+// the core function slot they occupy. The returned maps are consumed by
+// Task C8 when wiring core module host imports.
+//
+// Spec: definitions.py canon.lower / canon.resource.* declaration shapes.
+func (l *ComponentLinker) buildCanonMaps(c *Component) (map[uint32]canonLowerInfo, map[uint32]canonResourceInfo) {
+	lowers := make(map[uint32]canonLowerInfo)
+	resources := make(map[uint32]canonResourceInfo)
+	for i := range c.Canonicals {
+		canon := &c.Canonicals[i]
+		switch canon.Kind {
+		case CanonKindLower:
+			lowers[canon.CoreFuncIdx] = canonLowerInfo{
+				funcIdx: canon.FuncIdx,
+				typeIdx: canon.TypeIdx,
+				options: canon.Options,
+			}
+		case CanonKindResourceNew, CanonKindResourceDrop, CanonKindResourceRep:
+			resources[canon.CoreFuncIdx] = canonResourceInfo{
+				kind:    canon.Kind,
+				typeIdx: canon.TypeIdx,
+			}
+		}
+	}
+	return lowers, resources
+}
+
+// buildFuncAliases indexes function-producing aliases by their alias
+// target index (Alias.Idx). Covers core-export aliases with CoreSortFunc
+// and component-level export/outer aliases with SortFunc.
+func (l *ComponentLinker) buildFuncAliases(c *Component) map[uint32]*Alias {
+	aliases := make(map[uint32]*Alias)
+	for i := range c.Aliases {
+		a := &c.Aliases[i]
+		switch a.Kind {
+		case AliasKindCoreExport:
+			if a.CoreSort == CoreSortFunc {
+				aliases[a.Idx] = a
+			}
+		case AliasKindExport, AliasKindOuter:
+			if a.Sort == SortFunc {
+				aliases[a.Idx] = a
+			}
+		}
+	}
+	return aliases
+}
+
+// canonLowerInfo captures a canon.lower declaration indexed by the core
+// function slot it occupies. Consumed by Task C8.
+type canonLowerInfo struct {
+	funcIdx uint32
+	typeIdx uint32
+	options CanonicalOptions
+}
+
+// canonResourceInfo captures a canon.resource.{new,drop,rep} declaration
+// indexed by the core function slot it occupies. Consumed by Task C8.
+type canonResourceInfo struct {
+	kind    CanonKind
+	typeIdx uint32
 }
 
 // resolveAndCheckImports walks c.Imports, resolves each from the linker's
