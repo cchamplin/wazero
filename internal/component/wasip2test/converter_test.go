@@ -109,8 +109,8 @@ func TestComponentConvert(t *testing.T) {
 	resourceTable := runtime.NewTable()
 	testCtx := component.WithResourceTable(ctx, resourceTable)
 
-	// session 1 work: ComponentLinker.Instantiate not yet implemented
-	t.Skip("session 1 work: ComponentLinker.Instantiate not yet implemented")
+	// ComponentLinker.Instantiate does not yet support complex component pipelines
+	t.Skip("ComponentLinker.Instantiate does not yet support complex component pipelines")
 
 	instance, err := componentLinker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
 	if err != nil {
@@ -209,8 +209,8 @@ func TestComponentConvert_NegativeTemperature(t *testing.T) {
 	resourceTable := runtime.NewTable()
 	testCtx := component.WithResourceTable(ctx, resourceTable)
 
-	// session 1 work: ComponentLinker.Instantiate not yet implemented
-	t.Skip("session 1 work: ComponentLinker.Instantiate not yet implemented")
+	// ComponentLinker.Instantiate does not yet support complex component pipelines
+	t.Skip("ComponentLinker.Instantiate does not yet support complex component pipelines")
 
 	instance, err := componentLinker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
 	if err != nil {
@@ -308,8 +308,8 @@ func TestComponentConvert_Zero(t *testing.T) {
 	resourceTable := runtime.NewTable()
 	testCtx := component.WithResourceTable(ctx, resourceTable)
 
-	// session 1 work: ComponentLinker.Instantiate not yet implemented
-	t.Skip("session 1 work: ComponentLinker.Instantiate not yet implemented")
+	// ComponentLinker.Instantiate does not yet support complex component pipelines
+	t.Skip("ComponentLinker.Instantiate does not yet support complex component pipelines")
 
 	instance, err := componentLinker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
 	if err != nil {
@@ -417,8 +417,8 @@ func TestComponentConvert_HostFunctionCalled(t *testing.T) {
 	resourceTable := runtime.NewTable()
 	testCtx := component.WithResourceTable(ctx, resourceTable)
 
-	// session 1 work: ComponentLinker.Instantiate not yet implemented
-	t.Skip("session 1 work: ComponentLinker.Instantiate not yet implemented")
+	// ComponentLinker.Instantiate does not yet support complex component pipelines
+	t.Skip("ComponentLinker.Instantiate does not yet support complex component pipelines")
 
 	instance, err := componentLinker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
 	if err != nil {
@@ -528,8 +528,8 @@ func TestComponentConvert_MultipleConversions(t *testing.T) {
 	resourceTable := runtime.NewTable()
 	testCtx := component.WithResourceTable(ctx, resourceTable)
 
-	// session 1 work: ComponentLinker.Instantiate not yet implemented
-	t.Skip("session 1 work: ComponentLinker.Instantiate not yet implemented")
+	// ComponentLinker.Instantiate does not yet support complex component pipelines
+	t.Skip("ComponentLinker.Instantiate does not yet support complex component pipelines")
 
 	instance, err := componentLinker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
 	if err != nil {

@@ -14,7 +14,7 @@ import (
 // tests. Defined here (in the test-only helpers file) so any of the
 // remaining conformance test files that still call t.Skip can reference
 // it without depending on a particular restored test file.
-const session1SkipReason = "session 1 work: see docs/plans/2026-04-07-canonical-abi-unification-session0-followup.md"
+const session1SkipReason = "later work: async lift/lower (definitions.py async_task machinery)"
 
 // newBuilder returns a fresh ComponentTypesBuilder. Test helper to
 // keep call sites short.

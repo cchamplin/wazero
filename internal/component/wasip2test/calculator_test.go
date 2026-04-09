@@ -79,8 +79,8 @@ func TestCalculatorPlugins(t *testing.T) {
 			testCtx := wasip2.WithConfig(ctx, wasiConfig)
 			testCtx = component.WithResourceTable(testCtx, resourceTable)
 
-			// session 1 work: ComponentLinker.Instantiate not yet implemented
-			t.Skip("session 1 work: ComponentLinker.Instantiate not yet implemented")
+			// ComponentLinker.Instantiate does not yet support complex component pipelines
+			t.Skip("ComponentLinker.Instantiate does not yet support complex component pipelines")
 
 			// Instantiate the component
 			instance, err := linker.Instantiate(testCtx, compiled.(*component.CompiledComponent))

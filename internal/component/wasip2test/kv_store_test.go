@@ -248,7 +248,7 @@ func TestResourceLifecycle_LinkerDefinition(t *testing.T) {
 // TestResourceLifecycle_TableWithDestructor tests the ResourceTable's
 // destructor management APIs.
 func TestResourceLifecycle_TableWithDestructor(t *testing.T) {
-	t.Skip("session 1 work: CreateResourceDropFunc API removed in canonical-ABI unification")
+	t.Skip("CreateResourceDropFunc API removed in canonical-ABI unification")
 }
 
 // TestResourceLifecycle_BorrowSemantics tests borrow vs own handle semantics.
@@ -544,8 +544,8 @@ func TestResourceLifecycle_ComponentWithResource(t *testing.T) {
 	resourceTable := runtime.NewTable()
 	testCtx := component.WithResourceTable(ctx, resourceTable)
 
-	// ComponentLinker.Instantiate is a session-1 stub — skip rather than panic
-	t.Skip("session 1 work: ComponentLinker.Instantiate not yet implemented")
+	// ComponentLinker.Instantiate does not yet support complex component pipelines
+	t.Skip("ComponentLinker.Instantiate does not yet support complex component pipelines")
 
 	// Try to instantiate
 	instance, err := linker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
@@ -780,7 +780,7 @@ func TestResourceLifecycle_ResourceMethodCallback(t *testing.T) {
 // TestResourceLifecycle_TypedResources tests resource type tracking
 // using ResourceTypeID.
 func TestResourceLifecycle_TypedResources(t *testing.T) {
-	t.Skip("session 1 work: NewResourceTypeID and NewWithType APIs removed in canonical-ABI unification")
+	t.Skip("NewResourceTypeID and NewWithType APIs removed in canonical-ABI unification")
 }
 
 // TestResourceLifecycle_MergeLinkers tests merging resource definitions

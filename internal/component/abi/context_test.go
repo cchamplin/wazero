@@ -321,11 +321,11 @@ func TestLiftContextNilMemory(t *testing.T) {
 }
 
 func TestLowerContext_WithSubtask(t *testing.T) {
-	t.Skip("session 1 work: see docs/plans/2026-04-07-canonical-abi-unification-session0-followup.md")
+	t.Skip("LowerContext does not expose Subtask field — async task machinery not implemented")
 }
 
 func TestLowerContext_BorrowScope_NilSubtask(t *testing.T) {
-	t.Skip("session 1 work: see docs/plans/2026-04-07-canonical-abi-unification-session0-followup.md")
+	t.Skip("LowerContext does not expose BorrowScope via Subtask — async task machinery not implemented")
 }
 
 func TestLiftContext_NewShape(t *testing.T) {
