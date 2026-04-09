@@ -834,14 +834,14 @@ func LowerResults(ctx *LowerContext, resultTypes []types.ValType, results []type
 		if len(stack) == 0 {
 			return fmt.Errorf("LowerResults: needsRetptr=true but stack is empty")
 		}
+		if ctx.Memory == nil {
+			return fmt.Errorf("LowerResults: retptr path requires memory")
+		}
 		ptr := uint32(stack[len(stack)-1])
 		tupleSize, tupleAlign, offsets := paramsTupleLayout(ctx.Types, resultTypes)
 		if ptr != alignTo(ptr, tupleAlign) {
 			return fmt.Errorf(
 				"LowerResults: retptr %d not aligned to %d", ptr, tupleAlign)
-		}
-		if ctx.Memory == nil {
-			return fmt.Errorf("LowerResults: retptr path requires memory")
 		}
 		if uint64(ptr)+uint64(tupleSize) > uint64(ctx.Memory.Size()) {
 			return fmt.Errorf(
