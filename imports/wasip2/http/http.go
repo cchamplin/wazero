@@ -185,7 +185,7 @@ func instantiateTypes(linker *component.Linker) error {
 
 // Host-managed resource type singletons. One *ResourceType per host
 // resource kind. Impl is nil because these resources are host-owned;
-// destruction flows through the existing Destroyable interface on Rep.
+// destruction flows through ResourceType.HostDestructor.
 var (
 	httpPollableResourceType               = &runtime.ResourceType{}
 	httpFieldsResourceType                 = &runtime.ResourceType{}

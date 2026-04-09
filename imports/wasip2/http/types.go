@@ -232,7 +232,7 @@ func (f *Fields) Clone() *Fields {
 }
 
 // Destroy clears all entries in the Fields.
-// This implements the Destroyable interface for resource cleanup.
+// This handles resource cleanup.
 // Safe to call multiple times (idempotent).
 func (f *Fields) Destroy() {
 	if f.entries != nil {
@@ -323,7 +323,7 @@ func (r *OutgoingRequest) Body() (*OutgoingBody, error) {
 }
 
 // Destroy releases all resources held by the request.
-// This implements the Destroyable interface for resource cleanup.
+// This handles resource cleanup.
 // Safe to call multiple times (idempotent).
 func (r *OutgoingRequest) Destroy() {
 	if r.headers != nil {
@@ -571,7 +571,7 @@ func (r *IncomingResponse) Consume() (*IncomingBody, error) {
 }
 
 // Destroy releases all resources held by the response.
-// This implements the Destroyable interface for resource cleanup.
+// This handles resource cleanup.
 // Safe to call multiple times (idempotent).
 func (r *IncomingResponse) Destroy() {
 	if r.headers != nil {
@@ -626,7 +626,7 @@ func (b *IncomingBody) Close() {
 }
 
 // Destroy closes the reader and releases resources.
-// This implements the Destroyable interface for resource cleanup.
+// This handles resource cleanup.
 // Safe to call multiple times (idempotent).
 func (b *IncomingBody) Destroy() {
 	b.Close()
@@ -682,7 +682,7 @@ func (b *OutgoingBody) Bytes() []byte {
 }
 
 // Destroy clears the buffer and releases resources.
-// This implements the Destroyable interface for resource cleanup.
+// This handles resource cleanup.
 // Safe to call multiple times (idempotent).
 func (b *OutgoingBody) Destroy() {
 	b.buffer = nil
@@ -764,7 +764,7 @@ func (f *FutureIncomingResponse) IsReady() bool {
 }
 
 // Destroy marks the future as consumed and destroys any held response.
-// This implements the Destroyable interface for resource cleanup.
+// This handles resource cleanup.
 // Safe to call multiple times (idempotent).
 func (f *FutureIncomingResponse) Destroy() {
 	f.retrieved = true
@@ -896,7 +896,7 @@ func (p *ResponseOutparam) WaitForResponse(ctx context.Context) (*OutgoingRespon
 	}
 }
 
-// Destroy implements the Destroyable interface for resource cleanup.
+// Destroy handles resource cleanup.
 // It closes the result channel, unblocking any pending WaitForResponse caller.
 func (p *ResponseOutparam) Destroy() {
 	p.mu.Lock()

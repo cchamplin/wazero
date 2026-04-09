@@ -20,7 +20,7 @@ import (
 
 // Host-managed resource type singletons. One *ResourceType per host
 // resource kind. Impl is nil because these resources are host-owned;
-// destruction flows through the existing Destroyable interface on Rep.
+// destruction flows through ResourceType.HostDestructor.
 var (
 	networkResourceType              = &runtime.ResourceType{}
 	tcpSocketResourceType            = &runtime.ResourceType{}
@@ -894,7 +894,7 @@ func (s *UdpSocket) Close() error {
 }
 
 // Destroy closes the socket and clears all state.
-// This implements the Destroyable interface for resource cleanup.
+// This handles resource cleanup.
 // Safe to call multiple times (idempotent).
 func (s *UdpSocket) Destroy() {
 	s.Close()

@@ -9,7 +9,7 @@ import (
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
-// Tests for Destroyable interface implementation
+// Tests for Destroy method
 
 func TestFields_Destroy(t *testing.T) {
 	fields := NewFields()

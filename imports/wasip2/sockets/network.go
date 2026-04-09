@@ -7,7 +7,6 @@ package sockets
 
 import (
 	"context"
-	"errors"
 	"net"
 	"strings"
 
@@ -224,10 +223,3 @@ func networkErrorCode(ctx context.Context, _ *types.TypeFunc, args []types.Val) 
 	return []types.Val{types.ValOption(nil)}, nil
 }
 
-// networkErrorCodePlaceholder references errors.As and SocketError to
-// prevent unused-import errors until Task E4 wires the registry.
-var _ = func() {
-	var sockErr *SocketError
-	_ = errors.As(nil, &sockErr)
-	_ = types.ValEnum(string(sockErr.Code))
-}

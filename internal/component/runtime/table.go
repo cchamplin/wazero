@@ -25,12 +25,6 @@ var (
 // From the spec, this is 2^28 - 1.
 const MaxTableLength = uint32(1<<28 - 1)
 
-// Destroyable is retained for backward compatibility with Delete().
-// New code should use ResourceType.HostDestructor instead.
-type Destroyable interface {
-	Destroy()
-}
-
 // Handle is a 64-bit resource handle: upper 32 bits = generation, lower 32 = index.
 // Generation counting prevents use-after-free when slots are reused.
 type Handle uint64

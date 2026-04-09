@@ -17,7 +17,7 @@ import (
 
 // Host-managed resource type singletons. One *ResourceType per host
 // resource kind. Impl is nil because these resources are host-owned;
-// destruction flows through the existing Destroyable interface on Rep.
+// destruction flows through ResourceType.HostDestructor.
 var (
 	inputStreamResourceType  = &runtime.ResourceType{}
 	outputStreamResourceType = &runtime.ResourceType{}
@@ -145,7 +145,7 @@ func (s *InputStream) IsClosed() bool {
 }
 
 // Destroy closes the reader if it implements io.Closer.
-// This implements the Destroyable interface for resource cleanup.
+// This handles resource cleanup.
 // Safe to call multiple times (idempotent).
 func (s *InputStream) Destroy() {
 	s.Close()
@@ -276,7 +276,7 @@ func (s *OutputStream) IsClosed() bool {
 }
 
 // Destroy flushes (if Flusher), then closes (if io.Closer) the writer.
-// This implements the Destroyable interface for resource cleanup.
+// This handles resource cleanup.
 // Safe to call multiple times (idempotent).
 func (s *OutputStream) Destroy() {
 	// Flush first if possible (ignore errors during cleanup)

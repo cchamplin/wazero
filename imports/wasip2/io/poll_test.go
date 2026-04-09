@@ -110,7 +110,7 @@ func TestPollableReady_HostFunction(t *testing.T) {
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create a pollable that is ready
-	pollable := NewReadyPollable()
+	_ = NewReadyPollable() // Task E4: will wire via per-module registry
 	handle, errHandle113 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
 	if errHandle113 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle113)
@@ -130,7 +130,7 @@ func TestPollableReady_HostFunction_NotReady(t *testing.T) {
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create a pollable that is not ready
-	pollable := NewPollable(func() bool { return false }, nil)
+	_ = NewPollable(func() bool { return false }, nil) // Task E4: will wire via per-module registry
 	handle, errHandle130 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
 	if errHandle130 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle130)
@@ -220,7 +220,7 @@ func TestPollableBlock_HostFunction_NilBlockFn(t *testing.T) {
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create a pollable with no block function
-	pollable := NewReadyPollable()
+	_ = NewReadyPollable() // Task E4: will wire via per-module registry
 	handle, errHandle211 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
 	if errHandle211 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle211)
@@ -252,9 +252,9 @@ func TestPoll_AllReady(t *testing.T) {
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create three ready pollables
-	p1 := NewReadyPollable()
-	p2 := NewReadyPollable()
-	p3 := NewReadyPollable()
+	_ = NewReadyPollable()  // Task E4: will wire via per-module registry
+	_ = NewReadyPollable()  // Task E4: will wire via per-module registry
+	_ = NewReadyPollable()  // Task E4: will wire via per-module registry
 	h1, errHandle242 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
 	if errHandle242 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle242)
@@ -292,9 +292,9 @@ func TestPoll_SomeReady(t *testing.T) {
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create pollables: first ready, second not ready, third ready
-	p1 := NewReadyPollable()
-	p2 := NewPollable(func() bool { return false }, nil)
-	p3 := NewReadyPollable()
+	_ = NewReadyPollable()                                  // Task E4: will wire via per-module registry
+	_ = NewPollable(func() bool { return false }, nil)      // Task E4: will wire via per-module registry
+	_ = NewReadyPollable()                                  // Task E4: will wire via per-module registry
 	h1, errHandle273 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
 	if errHandle273 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle273)
@@ -332,7 +332,7 @@ func TestPoll_NoneReady_WithBlock(t *testing.T) {
 
 	// Create pollables that are initially not ready but become ready after block
 	ready := false
-	p1 := NewPollable(
+	_ = NewPollable( // Task E4: will wire via per-module registry
 		func() bool { return ready },
 		func() { ready = true },
 	)
@@ -363,7 +363,7 @@ func TestPoll_NoneReady_NoBlockFn(t *testing.T) {
 	// Create pollable that is not ready and has no block function
 	// This is an edge case - in practice, pollables should either be ready
 	// or have a way to become ready via blocking
-	p1 := NewPollable(func() bool { return false }, nil)
+	_ = NewPollable(func() bool { return false }, nil) // Task E4: will wire via per-module registry
 	h1, errHandle330 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
 	if errHandle330 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle330)
@@ -420,7 +420,7 @@ func TestPoll_BlockConcurrent(t *testing.T) {
 	// Create a pollable that becomes ready from another goroutine
 	var mu sync.Mutex
 	ready := false
-	p1 := NewPollable(
+	_ = NewPollable( // Task E4: will wire via per-module registry
 		func() bool {
 			mu.Lock()
 			defer mu.Unlock()
@@ -522,7 +522,7 @@ func TestPoll_MultiplePollables_FastOneReturnsFirst(t *testing.T) {
 	var mu1, mu2, mu3 sync.Mutex
 	ready1, ready2, ready3 := false, false, false
 
-	p1 := NewPollableWithChannel(
+	_ = NewPollableWithChannel( // Task E4: will wire via per-module registry
 		func() bool {
 			mu1.Lock()
 			defer mu1.Unlock()
@@ -536,7 +536,7 @@ func TestPoll_MultiplePollables_FastOneReturnsFirst(t *testing.T) {
 		},
 	)
 
-	p2 := NewPollableWithChannel(
+	_ = NewPollableWithChannel( // Task E4: will wire via per-module registry
 		func() bool {
 			mu2.Lock()
 			defer mu2.Unlock()
@@ -550,7 +550,7 @@ func TestPoll_MultiplePollables_FastOneReturnsFirst(t *testing.T) {
 		},
 	)
 
-	p3 := NewPollableWithChannel(
+	_ = NewPollableWithChannel( // Task E4: will wire via per-module registry
 		func() bool {
 			mu3.Lock()
 			defer mu3.Unlock()
@@ -636,9 +636,9 @@ func TestPoll_MultiplePollables_AllReadyAtOnce(t *testing.T) {
 		)
 	}
 
-	p1 := makePollable()
-	p2 := makePollable()
-	p3 := makePollable()
+	_ = makePollable() // Task E4: will wire via per-module registry
+	_ = makePollable() // Task E4: will wire via per-module registry
+	_ = makePollable() // Task E4: will wire via per-module registry
 
 	h1, errHandle585 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
 	if errHandle585 != nil {
@@ -677,7 +677,7 @@ func TestPoll_ChannelBasedPollable(t *testing.T) {
 	// Create a pollable with a channel for signaling readiness
 	readyCh := make(chan struct{})
 
-	p := NewPollableWithChannel(
+	_ = NewPollableWithChannel( // Task E4: will wire via per-module registry
 		func() bool {
 			select {
 			case <-readyCh:

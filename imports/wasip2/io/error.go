@@ -116,7 +116,7 @@ func (e *Error) Unwrap() error {
 	return e.err
 }
 
-// Destroy implements Destroyable (no-op for errors).
+// Destroy handles resource cleanup (no-op for errors).
 func (e *Error) Destroy() {
 	// Nothing to clean up
 }
