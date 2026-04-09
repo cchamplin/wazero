@@ -1915,22 +1915,223 @@ Dispatch both reviewers. Spec reviewer MUST verify the `needsRetptr` convention 
 
 ---
 
-### Task C3: Change `ComponentLinker.DefineFunc` signature to require `*types.TypeFunc`
+### Task C3: Adopt wasmtime's `func_new` dynamic-host-function model (revised 2026-04-09)
 
-**Design reference:** Decision 6 (design lines 449-475); File Manifest (lines 1930-1932).
-**Spec citation:** Wasmtime parallel `runtime/component/matching.rs:51` — "function implementation is missing" on `None` actual. Session 1 enforces typed host functions at registration time.
-**Files modified:** `internal/component/component_linker.go`, `internal/component/linker.go`, every call site in `imports/wasip2/`, plus test fixtures that use the old signature.
+**Revision history:** This task was rewritten on 2026-04-09 after a deep audit of wasmtime's component-model linker/host APIs. The original Task C3 prescribed "host declares `*types.TypeFunc` at registration via per-module builders" and was incompatible with (a) wasmtime's actual dynamic host-function path which never asks the host for a type, (b) Decision 5's same-bag integer comparison which requires both sides to live in the component's bag, and (c) cross-subtree resource identity (per-subtree builders mint disjoint indices for the same conceptual resource). See revised Decision 6 in `2026-04-08-canonical-abi-session1-design.md` for the full audit + rationale.
 
-- [ ] **Step C3.1: Audit current call sites**
+**Design reference:** Decision 6 (revised). Wasmtime parallels:
+- `debug-vendored/wasmtime/crates/wasmtime/src/runtime/component/linker.rs:665-675` — `func_new` dynamic host registration takes NO type argument.
+- `debug-vendored/wasmtime/crates/wasmtime/src/runtime/component/func/host.rs:619-626` — `DynamicHostFn::typecheck` validates only the async bit; param/result types are validated at lift/lower time against the component's import via `cx.types[ty]` (`host.rs:640-694`).
+- `debug-vendored/wasmtime/tests/all/component_model/import.rs:149,471,920` — real `func_new` callsites use `|_, _, args, results| { ... }`, ignoring the type handle; the runtime lifts args against the component's import type before invoking the closure.
+
+**Files modified:** `api/component.go`, `api/component/component.go`, `internal/component/linker.go`, `internal/component/component_linker.go`, `internal/component/linker_api.go`, `internal/component/type_checker.go`, every `imports/wasip2/` host module file (mechanical rename + signature update of the host callback), plus test fixtures.
+
+**Step C3.0: Read the authoritative WIT schemas**
+
+Before touching any `imports/wasip2/<subtree>/` host module, read the authoritative WIT files vendored at `debug-vendored/WASI/proposals/<subtree>/wit/`:
+
+| wazero subtree | WIT source files |
+|---|---|
+| `imports/wasip2/cli/` | `debug-vendored/WASI/proposals/cli/wit/{environment,exit,stdio,terminal,imports}.wit` |
+| `imports/wasip2/clocks/` | `debug-vendored/WASI/proposals/clocks/wit/{monotonic-clock,wall-clock}.wit` |
+| `imports/wasip2/filesystem/` | `debug-vendored/WASI/proposals/filesystem/wit/{types,preopens}.wit` |
+| `imports/wasip2/http/` | `debug-vendored/WASI/proposals/http/wit/{types,handler,proxy}.wit` |
+| `imports/wasip2/io/` | `debug-vendored/WASI/proposals/io/wit/{error,poll,streams}.wit` |
+| `imports/wasip2/random/` | `debug-vendored/WASI/proposals/random/wit/{random,insecure,insecure-seed}.wit` |
+| `imports/wasip2/sockets/` | `debug-vendored/WASI/proposals/sockets/wit/{network,tcp,tcp-create-socket,udp,udp-create-socket,ip-name-lookup,instance-network}.wit` |
+
+Package version: `@0.2.9` (wazero pins import strings at `@0.2.0` — types are forward-compatible within 0.2.x). DO NOT use `debug-vendored/wasmtime/crates/wasi/src/p2/wit/deps/*.wit` (`@0.2.6`) — the WASI proposals tree is the upstream source.
+
+When migrating each `imports/wasip2/<subtree>/<file>.go`, add a top-of-file comment:
+
+```go
+// WIT source of truth: debug-vendored/WASI/proposals/<subtree>/wit/<file>.wit
+// Package version: wasi:<name>@0.2.9 (wazero targets @0.2.0)
+```
+
+This is mechanical: each Go file that exports a host module for a particular WIT interface gets one citation. Reviewers will diff the host's case-handling against the WIT file. Variant case order (e.g., `wasi:http/types.error-code` 40 cases, `wasi:filesystem/types.error-code` 37 cases, `wasi:sockets/network.error-code` 22 cases) MUST match the WIT source — encoding from memory is the most dangerous pattern in this migration.
+
+**Step C3.1: Audit current call sites**
 
 ```bash
 grep -rn '\.DefineFunc(' internal/component/ imports/wasip2/ 2>&1 | head -50
-grep -rn 'FuncNoType' internal/component/ imports/wasip2/ 2>&1 | head -30
+grep -rn 'FuncNoType\b' internal/component/ imports/wasip2/ 2>&1 | head -50
+grep -rn '\.Func(' imports/wasip2/ 2>&1 | head -30
+grep -rn '\.Func(' internal/component/wasip2test/ 2>&1 | head -30
 ```
 
-Record every hit. The `ComponentLinker.DefineFunc` signature changes; the `Linker.DefineFunc` (if distinct) may already have a typed variant per the Checkpoint B audit. The `InstanceBuilder.FuncNoType` escape hatch is removed or gated behind a typed wrapper.
+Record every hit by file. The current state (per the 2026-04-09 audit):
+- ~176 `FuncNoType` call sites in `imports/wasip2/{cli,clocks,filesystem,http,io,random,sockets}/`.
+- ~25-27 call sites in `internal/component/wasip2test/`.
+- 4 call sites in `internal/component/linker_api.go` that pass `nil` as the type to the internal API (these become a clean pass-through under the new model).
 
-- [ ] **Step C3.2: Write failing test**
+**Step C3.2: Update the public `HostFunc` type and the `api.ComponentInstanceBuilder.Func` signature**
+
+In `internal/component/linker.go`, redeclare `HostFunc` to mirror wasmtime's `func_new` callback shape:
+
+```go
+// HostFunc is the canonical host function callback. It mirrors
+// wasmtime's func_new dynamic host path:
+//   debug-vendored/wasmtime/crates/wasmtime/src/runtime/component/linker.rs:665-675
+//
+// fnType is the *types.TypeFunc looked up from the component's import
+// declaration at call time and supplied by the runtime. The host has
+// no type to declare — the component's import IS the source of truth.
+// Most callers ignore fnType and read args directly; complex hosts
+// (e.g., generic dispatchers) may inspect it.
+//
+// Spec: definitions.py:1997 (canon_lift), :2089 (canon_lower) lift
+// the args against the component's import type and pass them as
+// []types.Val to the host. The host returns []types.Val which the
+// runtime lowers back per the same import type.
+type HostFunc func(
+    ctx context.Context,
+    fnType *types.TypeFunc,
+    args []types.Val,
+) ([]types.Val, error)
+```
+
+Re-export from `api/component/component.go` as a type alias (`type HostFunc = internalcomponent.HostFunc`).
+
+In `api/component.go`, change the public interface method signature:
+
+```go
+type ComponentInstanceBuilder interface {
+    // Func adds a host function export. fn is the canonical typed
+    // HostFunc. The component-declared import type is supplied to fn
+    // as its second argument at call time; the host has no type to
+    // declare. Mirrors wasmtime LinkerInstance::func_new
+    // (linker.rs:665-675).
+    Func(name string, fn component.HostFunc) ComponentInstanceBuilder
+
+    Resource(name string, dtor func(rep uint32)) ComponentInstanceBuilder
+    SkipValidation() ComponentInstanceBuilder
+    Build() error
+
+    internalapi.WazeroOnly
+}
+```
+
+**Step C3.3: Delete `FuncNoType` and the untyped `fn any` bridge**
+
+Delete `InstanceBuilder.FuncNoType` and `ComponentInstanceBuilder.FuncNoType` from `internal/component/linker.go` and `internal/component/component_linker.go`. They are redundant under the new model — `Func` IS the canonical entry point because there is no longer an untyped variant.
+
+In `internal/component/linker_api.go`, replace the `if hf, ok := fn.(HostFunc); ok` assertion + `nil`-returning fallback at lines 102-114 and 141-153 with a direct pass-through:
+
+```go
+// ComponentInstanceBuilderWrapper.Func — direct pass-through.
+func (b *ComponentInstanceBuilderWrapper) Func(name string, fn component.HostFunc) api.ComponentInstanceBuilder {
+    b.builder.Func(name, fn)
+    return b
+}
+```
+
+The `builder.Func(name, fn)` call goes to the (newly typed) internal `InstanceBuilder.Func(name, fn HostFunc)`. No type assertion; no nil-returning wrapper; no reflection.
+
+**Step C3.4: Update `internal/component/component_linker.go`'s `DefineFunc`**
+
+```go
+// DefineFunc adds a host function definition. The host has no type
+// to declare — the component's import declaration IS the canonical
+// type, looked up by the type checker at instantiate time and
+// supplied to the host's HostFunc callback at call time.
+//
+// Mirrors wasmtime LinkerInstance::func_new
+// (debug-vendored/wasmtime/.../runtime/component/linker.rs:665-675).
+func (l *ComponentLinker) DefineFunc(namespace, name string, fn HostFunc) error {
+    if fn == nil {
+        return fmt.Errorf("DefineFunc: nil HostFunc for %q.%q", namespace, name)
+    }
+    fd := &FuncDef{
+        // Type is populated by the type checker at instantiate time
+        // from the component's import declaration. It is left nil at
+        // registration; reading it before instantiate is a programming
+        // error.
+        Type:     nil,
+        Callback: fn,
+    }
+    key := namespace
+    if name != "" {
+        key = namespace + "#" + name
+    }
+    l.definitions[key] = fd
+    return nil
+}
+```
+
+Apply the same change to `ComponentInstanceBuilder.Func`. Delete any `if typ == nil` validation (the old plan's gate is gone — there is no type to validate).
+
+**Step C3.5: Update `type_checker.go::checkFuncDefinition`**
+
+When the type checker resolves an import, it now MUST populate `FuncDef.Type` from the component's import declaration so that lift/lower at call time can pass it to the host's `HostFunc` callback. This mirrors wasmtime's `cx.types[ty]` lookup at `host.rs:640-694`.
+
+```go
+// type_checker.go::checkFuncDefinition (revised)
+//
+// Spec: wasmtime func/host.rs:619-626 DynamicHostFn::typecheck only
+// validates the async bit; the rest of the type-checking happens at
+// lift/lower time against the component's import type via cx.types[ty].
+// wazero's parallel: resolve the expected type from c.TypeDefs via
+// ResolveTypeDef, attach it to the actual FuncDef so lift/lower can
+// hand it to the HostFunc callback.
+func (tc *typeChecker) checkFuncDefinition(expected *FuncDef, actual *FuncDef, c *Component) error {
+    expectedType, _, err := c.ResolveTypeDef(expected.TypeIdx)
+    if err != nil {
+        return fmt.Errorf("checkFuncDefinition: resolve expected type: %w", err)
+    }
+    if expectedType.Kind != TypeDefKindFunc {
+        return fmt.Errorf("checkFuncDefinition: expected TypeDefKindFunc, got %v", expectedType.Kind)
+    }
+    expectedFuncType := expectedType.FuncType(c)
+
+    // Async bit MUST match (matches wasmtime DynamicHostFn::typecheck).
+    if actual.Type != nil && actual.Type.Async != expectedFuncType.Async {
+        return fmt.Errorf("checkFuncDefinition: async mismatch (expected %v, host %v)",
+            expectedFuncType.Async, actual.Type.Async)
+    }
+
+    // Bind the resolved type to the host FuncDef. Lift/lower at call
+    // time will pass this type to the HostFunc callback as fnType.
+    actual.Type = expectedFuncType
+    return nil
+}
+```
+
+**Step C3.6: Wire the resolved type into lift/lower invocation**
+
+When the canon.lower or canon.lift code site invokes a host function (Task C5+ work), it uses the resolved `FuncDef.Type` to:
+
+1. Lift the core wasm flat values into `[]types.Val` via `abi.LiftParams(ctx, fnType.Params, flat, MaxFlatParams)`.
+2. Invoke `fd.Callback(ctx, fnType, vals)` — passing the type as the second argument.
+3. Lower the returned `[]types.Val` back via `abi.LowerResults(ctx, fnType.Results, results, stack, needsRetptr, MaxFlatResults)`.
+
+This wiring lands in Tasks C5-C8 (the Instantiate rebuild). Task C3's scope is the signature change + call-site migration only.
+
+**Step C3.7: Migrate every `imports/wasip2/` call site**
+
+The migration is purely mechanical:
+
+1. Each `inst.FuncNoType("name", fnX)` becomes `inst.Func("name", fnX)`.
+2. Each host callback `fnX(ctx context.Context, args []types.Val) ([]types.Val, error)` gains a middle parameter: `fnX(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error)`. Most hosts ignore the new parameter with `_`; complex dispatchers may inspect it.
+
+Touch order (subagent dispatches should follow this for reviewability):
+
+| Order | Subtree | Approx call sites | Notes |
+|---|---|---|---|
+| 1 | `imports/wasip2/random/` | 5 | Simplest — primitives only |
+| 2 | `imports/wasip2/clocks/` | 6 | Single resource (`pollable` from `io`) |
+| 3 | `imports/wasip2/cli/` | 10 | Stdio uses `input-stream`/`output-stream` from `io` |
+| 4 | `imports/wasip2/io/` | 19 | Defines the shared resource types |
+| 5 | `imports/wasip2/filesystem/` | 30 | Uses streams + descriptor resource |
+| 6 | `imports/wasip2/sockets/` | 53 | tcp/udp/network resources + io streams |
+| 7 | `imports/wasip2/http/` | 53 | Most complex — error-code 40 cases |
+| 8 | `internal/component/wasip2test/` | 25-27 | Test fixtures |
+
+Each subtree's host callback signature change is a single-file find/replace; the complexity comes from reading the WIT file (Step C3.0) to verify the case-handling logic in each callback still matches the schema after the type-handle parameter is added.
+
+**Important: NO per-module `ComponentTypesBuilder`.** The original plan's "per-module builder discipline" is **deleted** under the revised model. Host modules do not construct `*types.TypeFunc` values at all. The type comes from the component's import declaration via the type checker, and is supplied to the callback by the runtime at call time.
+
+**Step C3.8: Failing test for the new model**
 
 Create `internal/component/component_linker_definefunc_test.go`:
 
@@ -1938,163 +2139,68 @@ Create `internal/component/component_linker_definefunc_test.go`:
 package component
 
 import (
-	"context"
-	"testing"
+    "context"
+    "testing"
 
-	"github.com/tetratelabs/wazero/internal/component/types"
+    "github.com/tetratelabs/wazero/internal/component/types"
+    "github.com/tetratelabs/wazero/internal/testing/require"
 )
 
-// TestComponentLinkerDefineFuncRequiresTypeFunc asserts ComponentLinker.DefineFunc
-// rejects nil *types.TypeFunc at registration time.
+// TestComponentLinkerDefineFuncDynamicTyping asserts that DefineFunc
+// accepts a typed HostFunc without requiring the host to declare a
+// *types.TypeFunc. The component's import declaration is the source
+// of truth; the runtime supplies the type to the callback at call
+// time.
 //
-// Spec: wasmtime matching.rs:51 (every actual must be typed) — wazero
-// Session 1 Decision 6 enforces this at registration rather than at match.
-func TestComponentLinkerDefineFuncRequiresTypeFunc(t *testing.T) {
-	l := NewComponentLinker()
-	fn := HostFunc(func(ctx context.Context, args []types.Val) ([]types.Val, error) {
-		return nil, nil
-	})
-	// Nil type must be rejected.
-	if err := l.DefineFunc("ns", "f", nil, fn); err == nil {
-		t.Fatalf("DefineFunc(nil) = nil error, want rejection")
-	}
-	// Typed registration must succeed.
-	builder := types.NewComponentTypesBuilder()
-	ft := &types.TypeFunc{
-		Params:  builder.InternTuple(nil),
-		Results: builder.InternTuple(nil),
-	}
-	if err := l.DefineFunc("ns", "f", ft, fn); err != nil {
-		t.Fatalf("DefineFunc(typed) = %v, want nil", err)
-	}
+// Spec: wasmtime linker.rs:665-675 (func_new), host.rs:619-626
+// (DynamicHostFn::typecheck — validates only the async bit at link
+// time; param/result types are validated at lift/lower time against
+// cx.types[ty]).
+func TestComponentLinkerDefineFuncDynamicTyping(t *testing.T) {
+    l := NewComponentLinker()
+
+    var observedType *types.TypeFunc
+    fn := HostFunc(func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+        observedType = fnType
+        return nil, nil
+    })
+
+    // Registration must succeed without any type argument.
+    err := l.DefineFunc("ns", "f", fn)
+    require.NoError(t, err)
+
+    // Nil HostFunc must be rejected (the only thing DefineFunc validates
+    // at registration time).
+    err = l.DefineFunc("ns", "g", nil)
+    require.Error(t, err)
+    require.Contains(t, err.Error(), "nil HostFunc")
+
+    // observedType is unused at this layer (no call has happened yet);
+    // the explicit assignment exists so the test would catch a future
+    // refactor that fails to thread the type into the callback. Lift/lower
+    // wiring lands in Task C5+.
+    _ = observedType
 }
 ```
 
-- [ ] **Step C3.3: Run the test to confirm it fails**
+**Step C3.9: Run the test, build, run reviewers**
 
 ```bash
-go test ./internal/component/ -run TestComponentLinkerDefineFuncRequiresTypeFunc -count=1 2>&1 | tail -10
-```
-
-Expected: compile error `too many arguments in call to l.DefineFunc` OR `cannot use nil as HostFunc` depending on current signature order.
-
-- [ ] **Step C3.4: Change the signature**
-
-Edit `internal/component/component_linker.go`:
-
-```go
-// DefineFunc adds a host function definition with a required type.
-// Spec: wasmtime matching.rs:51 (every host function must be typed).
-// Session 1 Decision 6: the prior signature took an untyped HostFunc
-// and relied on runtime type matching at import resolution time; that
-// opens a gap where typos in import names surface as opaque trap
-// messages. The typed signature rejects missing types at registration.
-func (l *ComponentLinker) DefineFunc(namespace, name string, typ *types.TypeFunc, fn HostFunc) error {
-	if typ == nil {
-		return fmt.Errorf("DefineFunc: type is nil (every host function must declare a *types.TypeFunc)")
-	}
-	// Existing body, but store typ on the FuncDef.
-	fd := &FuncDef{
-		Type:     typ,
-		Callback: fn,
-	}
-	key := namespace
-	if name != "" {
-		key = namespace + "#" + name
-	}
-	l.definitions[key] = fd
-	return nil
-}
-```
-
-(Adapt the body to whatever existing `definitions` map shape is currently in use.)
-
-Apply the same signature change to `ComponentInstanceBuilder.Func` (line 112 area):
-
-```go
-func (b *ComponentInstanceBuilder) Func(name string, typ *types.TypeFunc, fn HostFunc) *ComponentInstanceBuilder {
-	if typ == nil {
-		b.err = fmt.Errorf("ComponentInstanceBuilder.Func %q: type is nil", name)
-		return b
-	}
-	b.exports[name] = &FuncDef{Type: typ, Callback: fn}
-	return b
-}
-```
-
-- [ ] **Step C3.5: Migrate all `imports/wasip2/` call sites**
-
-First enumerate the files. As of the plan's authoring, the following `imports/wasip2/` subtrees contain `*.Func(` call sites that register host functions via the old untyped signature (verify via grep):
-
-```bash
-grep -rln '\.Func(' imports/wasip2/ 2>&1
-```
-
-Expected files (the migration must cover all of them; re-run the grep at execution time to catch any files added after the plan was written):
-
-- `imports/wasip2/cli/` — `environment.go`, `exit.go`, `stdin.go`, `stdout.go`, `stderr.go`, `terminal_input.go`, `terminal_output.go`, `terminal_stdin.go`, `terminal_stdout.go`, `terminal_stderr.go`
-- `imports/wasip2/clocks/` — `monotonic_clock.go`, `wall_clock.go`
-- `imports/wasip2/filesystem/` — `types.go`, `preopens.go`, the descriptor / directory-entry-stream host exports
-- `imports/wasip2/http/` — `incoming_handler.go`, `outgoing_handler.go`, `types.go`, the request / response / body / fields host exports
-- `imports/wasip2/io/` — `streams.go`, `poll.go`, `error.go`
-- `imports/wasip2/random/` — `random.go`, `insecure.go`, `insecure_seed.go`
-- `imports/wasip2/sockets/` — `instance_network.go`, `ip_name_lookup.go`, `network.go`, `tcp.go`, `tcp_create_socket.go`, `udp.go`, `udp_create_socket.go`
-- `internal/component/wasip2test/` — any test fixture calling `.Func(name, fn)`
-
-For each enumerated file, open it, find every `InstanceBuilder.Func(name, fn)` or `ComponentInstanceBuilder.Func(name, fn)` call, and add a `*types.TypeFunc` argument constructed via a per-module builder. Session 1 migration must touch EVERY file listed above — a migration that leaves any wasip2 subtree partially updated fails the V-check gate in F12.
-
-**Per-module builder discipline:** each `imports/wasip2/<subtree>/` package declares a single package-level `var <subtree>Builder = types.NewComponentTypesBuilder()` and constructs every `*types.TypeFunc` for that subtree's exports from the same builder. Do NOT share one global builder across subtrees (that would create a single global `*types.ComponentTypes` bag, which Session 0 explicitly rejected for correctness reasons). Do NOT re-initialize a fresh builder inside a function call — the interning guarantee only holds if a single builder is used.
-
-Example pattern (wasip2/io/streams.go):
-
-```go
-// Top of file — shared builder per host module.
-var ioBuilder = types.NewComponentTypesBuilder()
-
-// Somewhere at init/build time — construct the TypeFunc for each export.
-var (
-	inputStreamReadType = &types.TypeFunc{
-		Params: ioBuilder.InternTuple([]types.ValType{
-			{Kind: types.TypeKindOwn, Index: inputStreamResourceTableIdx},
-			types.U64, // len
-		}),
-		Results: ioBuilder.InternTuple([]types.ValType{
-			ioBuilder.InternResult(
-				ioBuilder.InternList(types.U8),   // ok
-				streamErrorType,                  // err
-			),
-		}),
-	}
-	// ... one per export ...
-)
-
-// At Func() call time:
-builder.Func("read", inputStreamReadType, readImpl)
-```
-
-(The builder API shapes are from Session 0 — adapt to the actual builder method names.)
-
-Every `imports/wasip2/` file that currently calls `.Func(name, fn)` must supply a typed `*types.TypeFunc`. Do NOT add a `FuncNoType` escape hatch; the whole point of Decision 6 is to eliminate untyped host functions.
-
-- [ ] **Step C3.6: Build the full tree**
-
-```bash
+go test ./internal/component/ -run TestComponentLinkerDefineFuncDynamicTyping -count=1 2>&1 | tail -10
 go build ./... 2>&1 | head -40
 ```
 
-Expected: empty. Iterate until green.
+Expected: build empty, test PASS. Iterate per-subtree until all 200+ call sites compile.
 
-- [ ] **Step C3.7: Run the test**
+**Step C3.10: Per-task reviewer dispatch**
 
-```bash
-go test ./internal/component/ -run TestComponentLinkerDefineFuncRequiresTypeFunc -count=1 2>&1 | tail -10
-```
+Dispatch both reviewers. Scope: every file changed by the migration. Spec reviewer checklist items:
 
-Expected: PASS.
-
-- [ ] **Step C3.8: Run per-task reviewers**
-
-Dispatch both reviewers. Scope: `internal/component/component_linker.go` + `internal/component/linker.go` + every file in `imports/wasip2/` touched. Spec reviewer checklist item: "every wasip2 module constructs its `*types.TypeFunc` values via a single per-module ComponentTypesBuilder to avoid duplicate interned entries across modules."
+- Every touched `imports/wasip2/` file carries a top-of-file comment citing its authoritative WIT source path under `debug-vendored/WASI/proposals/`.
+- Every host callback signature is exactly `func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error)` (or named the second param if used).
+- Zero `FuncNoType` references remain (`grep -rn 'FuncNoType' internal/ imports/` returns empty).
+- Zero per-subtree `ComponentTypesBuilder` package-level vars exist in `imports/wasip2/`.
+- `linker_api.go` no longer contains the `nil`-returning `fn any` bridge.
 
 ---
 

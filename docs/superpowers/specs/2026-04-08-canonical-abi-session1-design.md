@@ -533,33 +533,151 @@ sparsity bug.
 
 **Deleted:** `decodeContext.funcTypeIdx` and `decodeContext.resourceDefs` maps on `binary/decoder.go`. Their callers inside the `binary/` package (if any) migrate to `c.TypeDefs[slot]`.
 
-### Decision 6: `type_checker.go` — strict same-bag checks for Session 1
+### Decision 6: Type checker + dynamic-host-function model (revised 2026-04-09)
 
-Session 1 fixes three bugs in the type checker:
+**Revision history:** This Decision was rewritten on 2026-04-09 after a deep audit of wasmtime's component-model linker/host APIs. The original Decision 6 prescribed a "host declares `*types.TypeFunc` at registration time" model with per-module `ComponentTypesBuilder`s. That model was incompatible with three things at once: (a) wasmtime's actual dynamic host-function path, which never asks the host to declare a type; (b) Decision 5's `c.TypeDefs[idx]` integer-index comparison which requires both sides to live in the same bag; and (c) the cross-subtree resource identity problem (wasi-clocks's `pollable` and wasi-io's `pollable` must be the SAME type, but per-subtree builders mint disjoint indices). The audit findings are recorded in `docs/superpowers/reviews/2026-04-08-session1-review-log.md` under the "Gap 1 + Gap 2 wasmtime audit" entry.
 
-1. `checkFuncDefinition` / `checkInstanceDefinition` currently ignore the `expected` side entirely (`type_checker.go:192, 206`). Session 1 reads `expected.TypeIdx` via `c.TypeDefs` (Decision 5) and type-checks against the resolved `*types.TypeFunc` / `*InstanceTypeDef`.
+#### The wasmtime model
 
-2. Host functions without a declared type currently slip through silently. Session 1 **requires** every host `FuncDef` to carry a non-nil `*types.TypeFunc`. `ComponentLinker.DefineFunc` / `Linker.DefineFunc` / `InstanceBuilder.Func` / `ComponentInstanceBuilder.Func` signatures change to take `typ *types.TypeFunc` as a required parameter. A host function registered without a type is a programming error rejected at registration time. Matches wasmtime `matching.rs:51` which bails on `None` actual.
+Wasmtime offers two host-function registration paths. Both live on `LinkerInstance<'a, T>` in `debug-vendored/wasmtime/crates/wasmtime/src/runtime/component/linker.rs`:
 
-3. `checkInstance` currently only checks that each required export exists + has the right Go-level kind (`type_checker.go:76-97`). Session 1 extends it to **recursively** type-check each declared export against the corresponding actual export (func → recurse into `checkFuncType`, instance → recurse into `checkInstanceDefinition`). Matches wasmtime `matching.rs:162`.
+1. **`func_wrap` (statically typed)** at `linker.rs:426-434`:
+   ```rust
+   pub fn func_wrap<F, Params, Return>(&mut self, name: &str, func: F) -> Result<()>
+   where F: Fn(StoreContextMut<T>, Params) -> Result<Return> + ...,
+         Params: ComponentNamedList + Lift + 'static,
+         Return: ComponentNamedList + Lower + 'static,
+   ```
+   The function's type is **derived from `F`'s signature** via Rust generic monomorphization. No explicit `FuncType` argument. Used by `wit-bindgen` generated host stubs.
 
-`checkFuncType` uses identity on `(Async, Params, Results)` only — **no ParamNames comparison**. Spec `definitions.py:88-101` `FuncType.param_types()` / `result_type()` return ValTypes with names stripped; names are metadata, not part of the type equation. Wasmtime's `matching.rs` also does not compare names.
+2. **`func_new` (dynamically typed)** at `linker.rs:665-675`:
+   ```rust
+   pub fn func_new(
+       &mut self,
+       name: &str,
+       func: impl Fn(StoreContextMut<'_, T>, types::ComponentFunc, &[Val], &mut [Val]) -> Result<()>,
+   ) -> Result<()>
+   ```
+   **No `FuncType` argument is ever passed by the caller.** The `types::ComponentFunc` type handle is supplied by the runtime to the callback at call time, looked up from the component's import declaration. Used by hand-written embedders.
+
+Both paths share a `HostFunc` (`func/host.rs:35-53`) carrying a `typecheck: fn(TypeFuncIndex, &InstanceType<'_>) -> Result<()>` function pointer that runs at `instantiate_pre` time against the component's bag (`linker.rs:163-181`, `matching.rs:168-174`). For the dynamic path (`DynamicHostFn::typecheck` at `host.rs:619-626`), this function only validates the async bit:
+
+```rust
+fn typecheck(ty: TypeFuncIndex, types: &InstanceType<'_>) -> Result<()> {
+    let ty = &types.types[ty];
+    if ASYNC != ty.async_ { bail!("type mismatch with async"); }
+    Ok(())
+}
+```
+
+Param/result types are validated **at lift/lower time** against the component-declared type via `cx.types[ty]` (`host.rs:640-694`). The host accepts ANY type the component declares; the runtime lifts the params via the component's import type and hands the host a `&[Val]`.
+
+**The point.** Wasmtime never asks the host to declare a type for the dynamic path because the component's import declaration IS the source of truth. Requiring the host to redeclare it adds 200 sites of duplicated work, creates cross-subtree identity bugs (each builder mints its own resource indices), and is more strict than wasmtime without buying any safety.
+
+#### Cross-subtree resource identity in wasmtime
+
+Wasmtime never has cross-subtree identity bugs because **there is no host-side type bag at all**. `Linker<T>` holds `NameMap<usize, Definition>` plus an `Engine` (`linker.rs:61-68`). Resource types are `ResourceType::host::<T>() = TypeId::of::<T>()` (`resources/ty.rs:44-48`). When `wasi-http` exports a function taking `Resource<InputStream>`, the type identity is `TypeId::of::<InputStream>()` which is the same `TypeId` no matter which crate registers it. wit-bindgen's `with: { "wasi:io": wasmtime_wasi::p2::bindings::io }` directive (`wasi-http/src/bindings.rs:14-30`) re-exports the SAME Rust types across crates via `pub type Request = super::http_types::Request` aliases (`component-macro/tests/expanded/share-types.rs:257`). Cross-crate type identity flows via Rust module paths, not via interned numeric indices.
+
+The Go equivalent of "Rust type identity flows via the type system" is "the component's import declaration is the canonical type, and the host accepts any value the runtime lifts against that type." The host function gets a `*types.TypeFunc` parameter at call time and a `[]types.Val` carrying the lifted args.
+
+#### Wazero's adopted model
+
+**`ComponentLinker.DefineFunc` / `ComponentInstanceBuilder.Func` / `Linker.DefineFunc` / `InstanceBuilder.Func` take NO `*types.TypeFunc` parameter at registration time.** The host registers a typed `HostFunc`:
+
+```go
+// internal/component/linker.go
+//
+// HostFunc is the canonical host-function callback shape, modeled on
+// wasmtime's `func_new` dynamic host path (linker.rs:665-675,
+// host.rs:619-626). The fnType parameter is supplied by the runtime
+// at call time, looked up from the component's import declaration
+// (the canonical source of truth — there is no host-declared type).
+//
+// Spec: definitions.py:1997 (canon_lift), :2089 (canon_lower) lift
+// the args against the component's import type and pass them as
+// []types.Val to the host. The host returns []types.Val which the
+// runtime lowers back per the same import type.
+type HostFunc func(
+    ctx context.Context,
+    fnType *types.TypeFunc,
+    args []types.Val,
+) ([]types.Val, error)
+```
+
+At the public API surface:
+
+```go
+// api/component.go
+type ComponentInstanceBuilder interface {
+    // Func adds a host function export. fn is the canonical typed
+    // HostFunc. The component-declared import type is supplied to fn
+    // as its second argument at call time; the host has no type to
+    // declare. Mirrors wasmtime LinkerInstance::func_new.
+    Func(name string, fn component.HostFunc) ComponentInstanceBuilder
+
+    Resource(name string, dtor func(rep uint32)) ComponentInstanceBuilder
+    SkipValidation() ComponentInstanceBuilder
+    Build() error
+
+    internalapi.WazeroOnly
+}
+```
+
+`InstanceBuilder.FuncNoType` is **deleted** — the typed `Func` IS the canonical entry point because there is no untyped variant under the new model.
+
+#### Type checker — what changes
+
+The type checker still does three things, but bullet (2) is **dropped entirely**:
+
+1. `checkFuncDefinition` / `checkInstanceDefinition` currently ignore the `expected` side entirely (`type_checker.go:192, 206`). Session 1 reads `expected.TypeIdx` via `c.ResolveTypeDef(expected.TypeIdx)` (Decision 5) and resolves to a concrete `*types.TypeFunc` / `*InstanceTypeDef`. For host functions, the type checker stores the resolved `*types.TypeFunc` on the resolved `FuncDef` so that lift/lower at call time can pass it to the host's `HostFunc` callback. This mirrors wasmtime's `cx.types[ty]` pattern at `host.rs:640-694`.
+
+2. ~~Host functions without a declared type currently slip through silently. Session 1 **requires** every host `FuncDef` to carry a non-nil `*types.TypeFunc`...~~ **DROPPED.** Wasmtime's `DynamicHostFn::typecheck` at `host.rs:619-626` proves this is over-strict. The host accepts the component's import type by definition; the type checker's job is to look up the import's `*types.TypeFunc` and bind it to the host callback for use at lift/lower time.
+
+3. `checkInstance` currently only checks that each required export exists + has the right Go-level kind (`type_checker.go:76-97`). Session 1 extends it to **recursively** type-check each declared export against the corresponding actual export (func → recurse into `checkFuncType`, instance → recurse into `checkInstanceDefinition`). Matches wasmtime `matching.rs:162`. For host-function actuals, this is a no-op (the host accepts any type) — only the component's declared signature is structurally validated against itself + against any nested imports.
+
+`checkFuncType` uses identity on `(Async, Params, Results)` only — **no ParamNames comparison**. Spec `definitions.py:88-101` `FuncType.param_types()` / `result_type()` return ValTypes with names stripped; names are metadata, not part of the type equation. Wasmtime's `matching.rs` also does not compare names. This rule still applies for the cross-component / nested-component cases where both sides are component-declared.
 
 Full function bodies for the rewritten `checkFuncType`, `checkFuncDefinition`, and `checkInstanceDefinition` are in the "Type Checker Scope — Session 1" section later in this document.
 
-**`DefineFunc` signature change** (affects every `imports/wasip2/...` call site):
+#### Lift/lower wiring
+
+When the component invokes a host import, the canon.lower (or canon.lift, depending on direction) site:
+
+1. Resolves the import's `*types.TypeFunc` from the component's bag via the type checker's recorded mapping.
+2. Lifts the core wasm flat values into a `[]types.Val` using `abi.LiftParams(ctx, ft.Params, flat, MaxFlatParams)`.
+3. Invokes `hostFunc(ctx, ft, vals)` — handing the host the canonical type AND the lifted values.
+4. Lowers the returned `[]types.Val` back into core wasm flat values using `abi.LowerResults(ctx, ft.Results, results, stack, needsRetptr, MaxFlatResults)`.
+
+The host function never constructs a `*types.TypeFunc`. It only inspects the one supplied by the runtime (typically ignoring it and reading from `args` directly).
+
+#### Cross-bag structural walk — still Session 2
+
+For the case where two different components have different `*types.ComponentTypes` bags and need to satisfy imports across the boundary, Session 1 retains the same-bag integer comparison (Decision 5's `c.TypeDefs[idx]` resolution after `ResolveTypeDef` walks aliases) and defers structural cross-bag walking to Session 2. The host-side dynamic-typing model removes one source of cross-bag traffic (host modules no longer mint types in a separate bag); the remaining cross-bag case is purely component-vs-component.
+
+#### Authoritative WIT schema for wasip2 host modules
+
+When wazero's `imports/wasip2/<subtree>/` host modules dispatch on the component-declared import type at call time, they need to KNOW which fields/cases the type contains so they can correctly read `args` and construct results. The authoritative source for every wasip2 type is the WIT schema vendored at `debug-vendored/WASI/proposals/<subtree>/wit/`:
+
+| wazero subtree | WIT source |
+|---|---|
+| `imports/wasip2/cli/` | `debug-vendored/WASI/proposals/cli/wit/{environment,exit,stdio,terminal,imports}.wit` |
+| `imports/wasip2/clocks/` | `debug-vendored/WASI/proposals/clocks/wit/{monotonic-clock,wall-clock}.wit` |
+| `imports/wasip2/filesystem/` | `debug-vendored/WASI/proposals/filesystem/wit/{types,preopens}.wit` |
+| `imports/wasip2/http/` | `debug-vendored/WASI/proposals/http/wit/{types,handler,proxy}.wit` |
+| `imports/wasip2/io/` | `debug-vendored/WASI/proposals/io/wit/{error,poll,streams}.wit` |
+| `imports/wasip2/random/` | `debug-vendored/WASI/proposals/random/wit/{random,insecure,insecure-seed}.wit` |
+| `imports/wasip2/sockets/` | `debug-vendored/WASI/proposals/sockets/wit/{network,tcp,tcp-create-socket,udp,udp-create-socket,ip-name-lookup,instance-network}.wit` |
+
+Package version: `@0.2.9` (wazero pins import strings at `@0.2.0`, the first stable release of the 0.2.x series; types are forward-compatible within 0.2.x). Every migrated `imports/wasip2/<subtree>/*.go` file MUST carry a top-of-file comment of the form:
 
 ```go
-// BEFORE (Session 0):
-// func (l *ComponentLinker) DefineFunc(namespace, name string, fn HostFunc) error
-
-// AFTER (Session 1):
-func (l *ComponentLinker) DefineFunc(namespace, name string, typ *types.TypeFunc, fn HostFunc) error
+// WIT source of truth: debug-vendored/WASI/proposals/<subtree>/wit/<file>.wit
+// Package version: wasi:<name>@0.2.9 (wazero targets @0.2.0)
 ```
 
-The `typ` parameter is constructed by the host module via a package-level `types.ComponentTypesBuilder`. This is the same builder-per-host-module pattern the Rep-as-u32 refactor (Decision 4 Gap 4) requires for the same files. Both migrations land together.
+so that reviewers can diff the host's case-handling against the canonical schema. Variant case order MUST match the WIT source exactly — encoding `wasi:http/types.error-code` (40 cases), `wasi:filesystem/types.error-code` (37 cases), or `wasi:sockets/network.error-code` (22 cases) from memory rather than from the file is the most dangerous pattern in this migration.
 
-Cross-bag structural walk (for components where the host and the guest have different `*types.ComponentTypes` bags) stays deferred to Session 2.
+DO NOT use `debug-vendored/wasmtime/crates/wasi/src/p2/wit/deps/*.wit` (package version `@0.2.6`) — although it is functionally compatible, the `debug-vendored/WASI/proposals/` tree is the upstream source. The wasmtime copy is for cross-reference only.
 
 ### Decision 7: Spec-correct `Instance.ResourceNew` / `ResourceRep` / `ResourceDrop` signatures
 
