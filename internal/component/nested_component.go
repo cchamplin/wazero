@@ -171,43 +171,6 @@ func (l *ComponentLinker) resolveExportTypeAlias(parent *Instance, c *Component,
 	panic("compile-fix stub: see Session 1 followup note — nested_component.go resolveExportTypeAlias scheduled for Session 1/2 restoration")
 }
 
-// buildTypeSpace populates the instance's type index space from the component's
-// type definitions and type aliases.
-//
-// Session 0 compile-fix: the old TypeIdxToStoredIdx + []TypeDef indexing
-// path is gone. Only the outer-alias branch still produces useful TypeDef
-// pointers today; the top-level section-7 types are threaded through the
-// canonical bag (Component.Types *types.ComponentTypes) and will be
-// rewired by Task 13's binary decoder rewrite.
-func (l *ComponentLinker) buildTypeSpace(inst *Instance, c *Component) {
-	for i := range c.Aliases {
-		alias := &c.Aliases[i]
-		if alias.Sort != SortType {
-			continue
-		}
-
-		for uint32(len(inst.typeSpace)) <= alias.Idx {
-			inst.typeSpace = append(inst.typeSpace, nil)
-		}
-		if inst.typeSpace[alias.Idx] != nil {
-			continue
-		}
-
-		switch alias.Kind {
-		case AliasKindExport:
-			if resolved := l.resolveExportTypeAlias(inst, c, alias); resolved != nil {
-				inst.typeSpace[alias.Idx] = resolved
-			}
-		case AliasKindOuter:
-			if resolved, err := ResolveOuterAlias(inst, alias); err == nil {
-				if td, ok := resolved.(*TypeDef); ok {
-					inst.typeSpace[alias.Idx] = td
-				}
-			}
-		}
-	}
-}
-
 // instanceToDefinition converts an Instance to an InstanceDef.
 // This allows an existing instance to be provided as an import argument
 // to a nested component.

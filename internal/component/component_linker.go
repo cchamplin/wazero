@@ -183,12 +183,162 @@ func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledCom
 	funcSpace := NewCoreFuncIndexSpace()
 	memSpace := NewCoreMemoryIndexSpace()
 	l.buildCoreIndexSpaces(c, funcSpace, memSpace)
-
-	// Steps 4-14 land in subsequent tasks (C6..C11). For now,
-	// Instantiate returns after step 3 and is extended task-by-task.
 	_ = funcSpace
 	_ = memSpace
+
+	// Step 4 — Resolve and type-check imports.
+	tc := NewTypeChecker(c)
+	resolvedImports := make(map[string]Definition)
+	instanceToImport := make(map[uint32]string)
+	if err := l.resolveAndCheckImports(c, tc, resolvedImports, instanceToImport); err != nil {
+		return nil, fmt.Errorf("Instantiate: resolve imports: %w", err)
+	}
+
+	// Step 5 — Populate value index space from value imports.
+	l.populateValueImports(inst, c, resolvedImports)
+
+	// Step 6 — Align instance index space with instance imports.
+	l.alignInstanceImports(inst, c)
+
+	// Step 7 — Build component function index space from canon.lift
+	// declarations + resolved function imports.
+	l.buildComponentFuncs(inst, c, resolvedImports)
+
+	// Step 8 — Build type index space for nested instantiation arg
+	// resolution.
+	l.buildTypeSpace(inst, c)
+
+	// Steps 9-14 land in subsequent tasks (C7..C11).
+	_ = instanceToImport
 	return inst, nil
+}
+
+// resolveAndCheckImports walks c.Imports, resolves each from the linker's
+// definitions, and type-checks the resolved definition against the
+// expected extern-desc type.
+//
+// Spec: Explainer.md:920-982 (component-model import type matching).
+// Wasmtime parallel: runtime/component/matching.rs:51-162.
+func (l *ComponentLinker) resolveAndCheckImports(
+	c *Component,
+	tc *TypeChecker,
+	resolvedImports map[string]Definition,
+	instanceToImport map[uint32]string,
+) error {
+	var instanceIdx uint32
+	for i := range c.Imports {
+		imp := &c.Imports[i]
+		def, err := l.MatchImport(imp.Name)
+		if err != nil {
+			return fmt.Errorf("import %q: %w", imp.Name, err)
+		}
+		if err := tc.CheckDefinition(&imp.ExternDesc, imp.Name, def); err != nil {
+			return fmt.Errorf("import %q: type check: %w", imp.Name, err)
+		}
+		resolvedImports[imp.Name] = def
+		if imp.ExternDesc.Kind == ImportExternDescInstance {
+			instanceToImport[instanceIdx] = imp.Name
+			instanceIdx++
+		}
+	}
+	return nil
+}
+
+// populateValueImports fills inst.values with value imports (constants)
+// in import-declaration order.
+func (l *ComponentLinker) populateValueImports(inst *Instance, c *Component, resolvedImports map[string]Definition) {
+	for i := range c.Imports {
+		imp := &c.Imports[i]
+		if imp.ExternDesc.Kind != ImportExternDescValue {
+			continue
+		}
+		vd, ok := resolvedImports[imp.Name].(*ImportedValueDef)
+		if !ok || vd == nil {
+			continue
+		}
+		inst.values = append(inst.values, vd.Value)
+		inst.valuesConsumed = append(inst.valuesConsumed, false)
+	}
+}
+
+// alignInstanceImports ensures inst.instanceSpace has a slot for every
+// instance import. The slot is populated by a later wiring step.
+func (l *ComponentLinker) alignInstanceImports(inst *Instance, c *Component) {
+	for i := range c.Imports {
+		if c.Imports[i].ExternDesc.Kind != ImportExternDescInstance {
+			continue
+		}
+		inst.instanceSpace = append(inst.instanceSpace, nil)
+	}
+}
+
+// buildComponentFuncs populates inst.componentFuncs from canon.lift
+// declarations + resolved function imports. Function imports consume
+// component-function-index slots in declaration order, starting from 0,
+// ahead of canon.lift entries. Each ComponentFunc.Type is the type
+// RESOLVED from the component's import declaration via ResolveTypeDef
+// (alias-safe) — NOT from the shared *FuncDef, whose Type is nil under
+// Task C3's wasmtime func_new model.
+func (l *ComponentLinker) buildComponentFuncs(
+	inst *Instance,
+	c *Component,
+	resolvedImports map[string]Definition,
+) {
+	// Function imports occupy the first N slots of the component function
+	// index space in declaration order.
+	var funcIdx uint32
+	for i := range c.Imports {
+		imp := &c.Imports[i]
+		if imp.ExternDesc.Kind != ImportExternDescFunc {
+			continue
+		}
+		fd, ok := resolvedImports[imp.Name].(*FuncDef)
+		if !ok || fd == nil {
+			funcIdx++
+			continue
+		}
+		// Resolve the component's import-declaration type through any
+		// alias chain (Task A4 corrective): aliases for imported types
+		// must be walked via ResolveTypeDef.
+		var resolvedType *types.TypeFunc
+		if td, _, err := c.ResolveTypeDef(imp.ExternDesc.TypeIdx); err == nil && td.Kind == TypeDefKindFunc {
+			resolvedType = td.FuncType(c)
+		}
+		inst.componentFuncs[funcIdx] = ComponentFunc{
+			Type: resolvedType,
+			Impl: fd.Callback,
+		}
+		funcIdx++
+	}
+
+	// Walk canon.lift declarations. Each lift allocates a new component
+	// function slot at ComponentFuncIdx.
+	for i := range c.Canonicals {
+		canon := &c.Canonicals[i]
+		if canon.Kind != CanonKindLift {
+			continue
+		}
+		td, _, err := c.ResolveTypeDef(canon.TypeIdx)
+		if err != nil || td.Kind != TypeDefKindFunc {
+			continue
+		}
+		inst.componentFuncs[canon.ComponentFuncIdx] = ComponentFunc{
+			Type: td.FuncType(c),
+			// Impl is filled by wireExports after core modules
+			// instantiate (Task C8/C9).
+			Impl: nil,
+		}
+	}
+}
+
+// buildTypeSpace populates inst.typeSpace in declaration order from
+// c.TypeDefs. Nested instantiations read from this slice when they
+// resolve type arguments from the parent scope.
+func (l *ComponentLinker) buildTypeSpace(inst *Instance, c *Component) {
+	inst.typeSpace = make([]*TypeDef, len(c.TypeDefs))
+	for i := range c.TypeDefs {
+		inst.typeSpace[i] = &c.TypeDefs[i]
+	}
 }
 
 // nextInstanceID returns the next monotonic instance ID for this linker.
