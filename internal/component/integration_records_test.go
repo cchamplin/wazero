@@ -1,20 +1,31 @@
 // internal/component/integration_records_test.go
 //
-// SESSION 0 COMPILE-FIX STUB (Task 17).
+// Integration tests for record types through the public API. These exercise
+// the full pipeline: wazero.Runtime.CompileComponent, InstantiateComponent,
+// and ExportedFunction.Call with record-valued parameters and results.
 //
-// This external test file used to import github.com/tetratelabs/wazero,
-// which transitively imports internal/component/binary (rewritten by
-// Task 13). Tests reduced to t.Skip until then.
+// The echo_record component currently fails at InstantiateComponent because
+// wireExports cannot resolve core function index 0 in the alias-aware core
+// func space. Tests carry specific skip messages referencing this gap.
 package component_test
 
 import "testing"
 
-const integrationRecordsTestSkipMsg = "session 1 work: see docs/plans/2026-04-07-canonical-abi-unification-session0-followup.md"
-
+// TestPublicAPIRecordEcho verifies round-tripping a record {x: s32, y: s32}
+// through the echo_record component via the public API.
+//
+// Spec: Explainer.md record type definition; definitions.py
+// flatten/lift/lower for record types at :1978-2040 (canon_lift).
+// Wasmtime parallel: tests/all/component_model/func.rs echo_record.
 func TestPublicAPIRecordEcho(t *testing.T) {
-	t.Skip(integrationRecordsTestSkipMsg)
+	t.Skip("wireExports cannot resolve core function index 0 for echo_record (record-typed lift requires alias-aware core func space — see component_linker.go wireExports)")
 }
 
+// TestPublicAPIRecordWithDifferentValues verifies edge cases (zeros,
+// negatives, mixed, boundary values) for the echo_record component.
+//
+// Spec: Explainer.md record type definition; definitions.py record
+// flatten/lift/lower.
 func TestPublicAPIRecordWithDifferentValues(t *testing.T) {
-	t.Skip(integrationRecordsTestSkipMsg)
+	t.Skip("wireExports cannot resolve core function index 0 for echo_record (record-typed lift requires alias-aware core func space — see component_linker.go wireExports)")
 }

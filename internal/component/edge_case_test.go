@@ -2,6 +2,7 @@
 package component
 
 import (
+	"context"
 	"testing"
 
 	"github.com/tetratelabs/wazero/internal/component/types"
@@ -9,11 +10,39 @@ import (
 )
 
 // TestTypeIndexOutOfRange verifies error handling when type index is invalid.
+//
+// The TypeChecker resolves import TypeIdx via Component.ResolveTypeDef.
+// When TypeIdx exceeds len(c.TypeDefs), the checker must return an error
+// instead of panicking with an out-of-range index.
+//
+// Spec: wasmtime matching.rs:51-162 — function import type resolution
+// uses component_any_type_at(type_idx) which traps on out-of-range.
+// Wasmtime parallel: crates/environ/src/component/translate.rs:796-801.
 func TestTypeIndexOutOfRange(t *testing.T) {
-	// Session 0 compile-fix: the TypeChecker no longer indexes
-	// c.Types as a []TypeDef slice (it's now the canonical type bag). See
-	// type_checker.go.
-	t.Skip("session 1 work: see docs/plans/2026-04-07-canonical-abi-unification-session0-followup.md")
+	// Build a component with no type definitions but an import
+	// referencing TypeIdx = 99 (out of range).
+	c := &Component{
+		Types:              &types.ComponentTypes{},
+		TypeDefs:           nil, // empty — index 99 is out of range
+		FuncIdxToCanonical: make(map[uint32]uint32),
+		Imports: []Import{{
+			Name: "ns/f",
+			ExternDesc: ImportExternDesc{
+				Kind:    ImportExternDescFunc,
+				TypeIdx: 99,
+			},
+		}},
+	}
+	compiled := NewCompiledComponent(c, nil, nil)
+	l := NewComponentLinker(nil)
+	err := l.DefineFunc("ns", "f", func(_ context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+		return args, nil
+	})
+	require.NoError(t, err)
+
+	_, err = l.Instantiate(context.Background(), compiled)
+	require.Error(t, err, "expected error for out-of-range type index")
+	require.Contains(t, err.Error(), "out of range")
 }
 
 // TestDeepNesting verifies that 5+ levels of nesting work correctly.
