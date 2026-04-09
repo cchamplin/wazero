@@ -629,6 +629,7 @@ func TestProcessNestedInstances_MultipleInstances(t *testing.T) {
 
 // --- Retained skip-only tests for old scenarios not yet covered by D2 ---
 
+// Spec: Component-model nested instantiation arg resolution error path.
 func TestInstantiateNestedComponent_FuncArgNotFound(t *testing.T) {
 	parent := &Component{
 		Components: []*Component{{}},
@@ -648,10 +649,57 @@ func TestInstantiateNestedComponent_FuncArgNotFound(t *testing.T) {
 	}
 }
 
+// TestInstantiateNestedComponent_TypeFromParentComponent verifies that type
+// arg resolution falls through from an empty typeSpace to the resolveTypeAlias
+// path (outer/export alias). When the parent has no typeSpace entry but the
+// parentComponent declares an outer alias for the type index, resolution
+// should succeed.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/
+//
+//	component/instance.rs:156-195 (type resolution during nested
+//	instantiation — outer alias resolution falls through when the
+//	component instance's own type space does not cover the index).
+//
+// Spec: Component-model nested instantiation with type args.
 func TestInstantiateNestedComponent_TypeFromParentComponent(t *testing.T) {
-	t.Skip("session 1 D2: covered by TestInstantiateNestedComponent_TypeArg")
+	nested := &Component{
+		Imports: []Import{
+			{
+				Name: "my-type",
+				ExternDesc: ImportExternDesc{
+					Kind: ImportExternDescType,
+				},
+			},
+		},
+	}
+	parent := &Component{
+		Components: []*Component{nested},
+		TypeDefs:   []TypeDef{{Kind: TypeDefKindFunc, Func: 0}},
+	}
+	l := NewComponentLinker(nil)
+	parentInst := NewInstance(parent, 0, nil)
+	// Populate typeSpace so that resolveFromParentScope can find it.
+	parentInst.AddTypeToSpace(&parent.TypeDefs[0])
+
+	ci := &ParsedComponentInstance{
+		Kind:         ComponentInstanceExprInstantiate,
+		ComponentIdx: 0,
+		Args: []ComponentInstantiateArg{
+			{Name: "my-type", Sort: SortType, Idx: 0},
+		},
+	}
+
+	child, err := l.instantiateNestedComponent(context.Background(), parentInst, ci, parent)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if child == nil {
+		t.Fatal("expected non-nil child")
+	}
 }
 
+// Spec: Component-model unsupported sort in nested instantiation args.
 func TestResolveFromParentScope_UnsupportedSort(t *testing.T) {
 	parent := &Component{
 		Components: []*Component{{}},
@@ -721,8 +769,51 @@ func TestInstantiateNestedComponent_ExportsInstance(t *testing.T) {
 	}
 }
 
+// TestInstanceSpaceAlignment_ImportedInstancesOccupySlots verifies that
+// nil placeholders for imported instances occupy slots, so that subsequent
+// real component instances are at the correct absolute indices.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/
+//
+//	component/instance.rs:335-380 (get_export_index — instance indices
+//	are absolute within the component's index space; imported instance
+//	slots must be accounted for so nested component instances start at
+//	the correct offset).
+//
+// Spec: Component-model instance index space alignment.
 func TestInstanceSpaceAlignment_ImportedInstancesOccupySlots(t *testing.T) {
-	t.Skip("session 1: alignment verified implicitly by TestInstantiateNestedComponent_InstanceArg")
+	parent := NewInstance(&Component{}, 0, nil)
+
+	// Simulate 5 imported instances occupying slots 0-4 (as nil placeholders)
+	for i := 0; i < 5; i++ {
+		parent.AddInstanceToSpace(nil)
+	}
+
+	// Now add a real component instance — should be at index 5
+	nestedInst := NewInstance(&Component{}, 1, nil)
+	idx := parent.AddInstanceToSpace(nestedInst)
+
+	if idx != 5 {
+		t.Errorf("component instance should be at index 5, got %d", idx)
+	}
+
+	// Verify lookup by absolute index works
+	got := parent.GetInstanceFromSpace(5)
+	if got != nestedInst {
+		t.Error("GetInstanceFromSpace(5) should return the component instance")
+	}
+
+	// Verify imported instance slots return nil
+	for i := uint32(0); i < 5; i++ {
+		if parent.GetInstanceFromSpace(i) != nil {
+			t.Errorf("GetInstanceFromSpace(%d) should return nil for imported instance placeholder", i)
+		}
+	}
+
+	// Verify out-of-range returns nil
+	if parent.GetInstanceFromSpace(100) != nil {
+		t.Error("GetInstanceFromSpace(100) should return nil for out-of-range index")
+	}
 }
 
 // TestWireExports_TypeExport verifies that ExportKindType is handled
@@ -1041,26 +1132,307 @@ func TestWireNestedComponentExports_NilComponent(t *testing.T) {
 	}
 }
 
+// TestBuildTypeSpace_FromTypeIdxToStoredIdx verifies that buildTypeSpace
+// populates the instance's type space from TypeDefs. After Session 0 the old
+// TypeIdxToStoredIdx map was removed; types are now sequentially indexed.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/
+//
+//	component/instance.rs:335-380 (type index space built during
+//	component instantiation; each TypeDef gets a sequential slot).
+//
+// Spec: Component-model type index space population.
 func TestBuildTypeSpace_FromTypeIdxToStoredIdx(t *testing.T) {
-	t.Skip("session 1: TypeIdxToStoredIdx removed; covered by TestInstantiateNestedComponent_TypeSpace")
+	nested := &Component{
+		TypeDefs: []TypeDef{
+			{Kind: TypeDefKindFunc, Func: 0},
+			{Kind: TypeDefKindResource, Resource: 0},
+			{Kind: TypeDefKindFunc, Func: 0},
+		},
+	}
+	parent := &Component{Components: []*Component{nested}}
+	l := NewComponentLinker(nil)
+	parentInst := NewInstance(parent, 0, nil)
+	ci := &ParsedComponentInstance{Kind: ComponentInstanceExprInstantiate, ComponentIdx: 0}
+
+	child, err := l.instantiateNestedComponent(context.Background(), parentInst, ci, parent)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// typeSpace should have 3 entries
+	for i := uint32(0); i < 3; i++ {
+		td := child.GetTypeFromSpace(i)
+		if td == nil {
+			t.Fatalf("expected typeSpace[%d] to be set", i)
+		}
+	}
+	// Verify kinds match
+	if child.GetTypeFromSpace(0).Kind != TypeDefKindFunc {
+		t.Fatalf("expected TypeDefKindFunc at 0, got %v", child.GetTypeFromSpace(0).Kind)
+	}
+	if child.GetTypeFromSpace(1).Kind != TypeDefKindResource {
+		t.Fatalf("expected TypeDefKindResource at 1, got %v", child.GetTypeFromSpace(1).Kind)
+	}
 }
 
+// TestBuildTypeSpace_ExportAliases verifies that type-space population
+// resolves export aliases via resolveTypeAlias (which delegates to
+// resolveExportTypeAlias). An export alias references a type exported
+// by a previously-instantiated nested component instance.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/
+//
+//	component/instance.rs:335-380 (export alias type resolution during
+//	type space construction).
+//
+// Spec: Component-model alias export type resolution (Explainer.md).
 func TestBuildTypeSpace_ExportAliases(t *testing.T) {
-	t.Skip("session 1: export alias resolution covered by D1 resolveExportTypeAlias")
+	// Parent has a nested instance whose component exports a type.
+	srcComp := &Component{
+		TypeDefs: []TypeDef{
+			{Kind: TypeDefKindFunc, Func: 0},
+		},
+		Exports: []Export{
+			{Name: "my-record", Kind: ExportKindType, Idx: 0},
+		},
+	}
+	srcInst := NewInstance(srcComp, 1, nil)
+	srcInst.AddTypeToSpace(&srcComp.TypeDefs[0])
+
+	parentComp := &Component{
+		Aliases: []Alias{
+			{
+				Kind:        AliasKindExport,
+				Sort:        SortType,
+				Idx:         0, // this alias produces type index 0
+				InstanceIdx: 0, // from instance 0
+				ExportName:  "my-record",
+			},
+		},
+	}
+	l := NewComponentLinker(nil)
+	parentInst := NewInstance(parentComp, 0, nil)
+	parentInst.AddInstanceToSpace(srcInst)
+
+	// Resolve the alias via resolveFromParentScope
+	def, err := l.resolveFromParentScope(parentInst, parentComp, ComponentInstantiateArg{
+		Name: "my-type",
+		Sort: SortType,
+		Idx:  0,
+	})
+	if err != nil {
+		t.Fatalf("resolveFromParentScope: %v", err)
+	}
+	tdDef, ok := def.(*TypeDefDef)
+	if !ok {
+		t.Fatalf("expected *TypeDefDef, got %T", def)
+	}
+	if tdDef.TypeDef.Kind != TypeDefKindFunc {
+		t.Fatalf("expected TypeDefKindFunc, got %v", tdDef.TypeDef.Kind)
+	}
 }
 
+// TestResolveFromParentScope_TypeWithStoredIdxMapping verifies that
+// resolveFromParentScope resolves a type argument from the parent's
+// typeSpace. After Session 0 TypeIdxToStoredIdx was removed; types
+// are now directly indexed in the typeSpace slice.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/
+//
+//	component/instance.rs:335-380 (type resolution for nested
+//	instantiation — parent type space lookup).
+//
+// Spec: Component-model type arg resolution from parent scope.
 func TestResolveFromParentScope_TypeWithStoredIdxMapping(t *testing.T) {
-	t.Skip("session 1: TypeIdxToStoredIdx removed; covered by TestInstantiateNestedComponent_TypeArg")
+	parent := NewInstance(&Component{}, 0, nil)
+	funcTD := &TypeDef{Kind: TypeDefKindFunc, Func: 0}
+	resourceTD := &TypeDef{Kind: TypeDefKindResource, Resource: 0}
+	parent.AddTypeToSpace(funcTD)    // idx 0
+	parent.AddTypeToSpace(resourceTD) // idx 1
+
+	parentComp := &Component{}
+	l := NewComponentLinker(nil)
+
+	// Resolve type at index 1 — should return resourceTD
+	def, err := l.resolveFromParentScope(parent, parentComp, ComponentInstantiateArg{
+		Name: "my-type",
+		Sort: SortType,
+		Idx:  1,
+	})
+	if err != nil {
+		t.Fatalf("resolveFromParentScope: %v", err)
+	}
+	tdDef, ok := def.(*TypeDefDef)
+	if !ok {
+		t.Fatalf("expected *TypeDefDef, got %T", def)
+	}
+	if tdDef.TypeDef != resourceTD {
+		t.Fatalf("expected resourceTD, got %+v", tdDef.TypeDef)
+	}
 }
 
+// TestResolveFromParentScope_TypeFromExportAlias verifies that
+// resolveFromParentScope resolves a type export alias by tracing
+// through the source instance's component to find the TypeDef.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/
+//
+//	component/instance.rs:335-380 (export alias type resolution in
+//	nested instantiation path — resolveExportTypeAlias traces through
+//	the instance's component exports).
+//
+// Spec: Component-model alias export type resolution (Explainer.md).
 func TestResolveFromParentScope_TypeFromExportAlias(t *testing.T) {
-	t.Skip("session 1: covered by D1 resolveExportTypeAlias tests")
+	// Source instance's component exports a type named "status-record".
+	srcComp := &Component{
+		TypeDefs: []TypeDef{
+			{Kind: TypeDefKindResource, Resource: 0},
+		},
+		Exports: []Export{
+			{Name: "status-record", Kind: ExportKindType, Idx: 0},
+		},
+	}
+	srcInst := NewInstance(srcComp, 1, nil)
+	srcInst.AddTypeToSpace(&srcComp.TypeDefs[0])
+
+	parentComp := &Component{
+		Aliases: []Alias{
+			{
+				Kind:        AliasKindExport,
+				Sort:        SortType,
+				Idx:         5, // alias produces type index 5
+				InstanceIdx: 0,
+				ExportName:  "status-record",
+			},
+		},
+	}
+	l := NewComponentLinker(nil)
+	parent := NewInstance(parentComp, 0, nil)
+	parent.AddInstanceToSpace(srcInst)
+
+	def, err := l.resolveFromParentScope(parent, parentComp, ComponentInstantiateArg{
+		Name: "my-type",
+		Sort: SortType,
+		Idx:  5,
+	})
+	if err != nil {
+		t.Fatalf("resolveFromParentScope: %v", err)
+	}
+	tdDef, ok := def.(*TypeDefDef)
+	if !ok {
+		t.Fatalf("expected *TypeDefDef, got %T", def)
+	}
+	if tdDef.TypeDef.Kind != TypeDefKindResource {
+		t.Fatalf("expected TypeDefKindResource, got %v", tdDef.TypeDef.Kind)
+	}
 }
 
+// TestResolveFromParentScope_InstanceSpaceAlignment verifies that when
+// a component has N imported instance placeholders occupying slots 0..N-1,
+// resolveFromParentScope resolves real instances at later slots and rejects
+// nil placeholders.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/
+//
+//	component/instance.rs:335-380 (instance index space alignment —
+//	imported instance slots must be nil-checked during resolution).
+//
+// Spec: Component-model instance import slot alignment.
 func TestResolveFromParentScope_InstanceSpaceAlignment(t *testing.T) {
-	t.Skip("session 1: covered by TestInstantiateNestedComponent_InstanceArg")
+	parent := NewInstance(&Component{}, 0, nil)
+	parentComp := &Component{}
+
+	// Add 3 nil instances (simulating imports) at slots 0, 1, 2
+	for i := 0; i < 3; i++ {
+		parent.AddInstanceToSpace(nil)
+	}
+
+	// Add a real instance at slot 3
+	importedInst := NewInstance(&Component{}, 1, nil)
+	importedInst.exports["helper"] = &ExportedFunc{name: "helper"}
+	idx := parent.AddInstanceToSpace(importedInst)
+	if idx != 3 {
+		t.Fatalf("expected importedInst at index 3, got %d", idx)
+	}
+
+	l := NewComponentLinker(nil)
+
+	// Resolving instance at slot 3 should succeed (real instance)
+	def, err := l.resolveFromParentScope(parent, parentComp, ComponentInstantiateArg{
+		Name: "real-inst",
+		Sort: SortInstance,
+		Idx:  3,
+	})
+	if err != nil {
+		t.Fatalf("resolveFromParentScope(Idx=3) should succeed: %v", err)
+	}
+	if def == nil {
+		t.Fatal("resolveFromParentScope(Idx=3) returned nil definition")
+	}
+
+	// Resolving instance at slot 0 should fail (nil placeholder)
+	_, err = l.resolveFromParentScope(parent, parentComp, ComponentInstantiateArg{
+		Name: "nil-inst",
+		Sort: SortInstance,
+		Idx:  0,
+	})
+	if err == nil {
+		t.Fatal("resolveFromParentScope(Idx=0) should fail for nil instance placeholder")
+	}
 }
 
+// TestResolveFromParentScope_ComponentFuncsOrdering verifies that
+// resolveFromParentScope can find component functions by their index in
+// the parent's componentFuncs map, and rejects missing indices.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/
+//
+//	component/instance.rs:335-380 (function argument resolution during
+//	nested instantiation — componentFuncs must be populated before
+//	nested component instantiation).
+//
+// Spec: Component-model function arg resolution from parent scope.
 func TestResolveFromParentScope_ComponentFuncsOrdering(t *testing.T) {
-	t.Skip("session 1: covered by TestInstantiateNestedComponent_WithImports")
+	ft := types.TypeFunc{
+		Params:  types.ValType{Kind: types.TypeKindTuple},
+		Results: types.ValType{Kind: types.TypeKindTuple},
+	}
+	parent := NewInstance(&Component{}, 0, nil)
+	parent.componentFuncs[0] = ComponentFunc{
+		Type: &ft,
+		Impl: func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+			return []types.Val{types.ValS32(1)}, nil
+		},
+	}
+	parent.componentFuncs[5] = ComponentFunc{
+		Type: &ft,
+		Impl: func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+			return []types.Val{types.ValS32(5)}, nil
+		},
+	}
+	parentComp := &Component{}
+	l := NewComponentLinker(nil)
+
+	// Resolving func at index 5 should succeed
+	def, err := l.resolveFromParentScope(parent, parentComp, ComponentInstantiateArg{
+		Name: "fn-five",
+		Sort: SortFunc,
+		Idx:  5,
+	})
+	if err != nil {
+		t.Fatalf("resolveFromParentScope(Idx=5) should succeed: %v", err)
+	}
+	if def == nil {
+		t.Fatal("resolveFromParentScope(Idx=5) returned nil definition")
+	}
+
+	// Resolving func at index 99 should fail (not in map)
+	_, err = l.resolveFromParentScope(parent, parentComp, ComponentInstantiateArg{
+		Name: "fn-missing",
+		Sort: SortFunc,
+		Idx:  99,
+	})
+	if err == nil {
+		t.Fatal("resolveFromParentScope(Idx=99) should fail for missing func")
+	}
 }
