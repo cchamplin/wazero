@@ -166,7 +166,7 @@ func (l *ComponentLinker) resolveTypeAlias(parent *Instance, c *Component, typeI
 //
 // Returns nil if the source instance is unreachable, no matching type export exists,
 // or alias-chain resolution fails.
-func (l *ComponentLinker) resolveExportTypeAlias(parent *Instance, c *Component, alias *Alias) *TypeDef {
+func (l *ComponentLinker) resolveExportTypeAlias(parent *Instance, _ *Component, alias *Alias) *TypeDef {
 	// Step 1: Look up the source instance.
 	if int(alias.InstanceIdx) >= len(parent.instanceSpace) {
 		return nil
@@ -199,9 +199,17 @@ func (l *ComponentLinker) resolveExportTypeAlias(parent *Instance, c *Component,
 	// TypeDef at the index (best-effort resolution).
 	td, _, err := srcComp.ResolveTypeDef(exportIdx)
 	if err != nil {
-		// Fallback: return the raw TypeDef if the index is valid.
+		// ResolveTypeDef returns a deferred error for export aliases and
+		// cross-scope outer aliases. Fall back to the raw TypeDef slot,
+		// but only if it's a concrete type — returning an unresolved
+		// TypeDefKindAlias would silently leak into callers that switch
+		// on td.Kind without handling the alias variant.
 		if int(exportIdx) < len(srcComp.TypeDefs) {
-			return &srcComp.TypeDefs[exportIdx]
+			fallback := &srcComp.TypeDefs[exportIdx]
+			if fallback.Kind == TypeDefKindAlias {
+				return nil
+			}
+			return fallback
 		}
 		return nil
 	}
