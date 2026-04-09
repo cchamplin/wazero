@@ -22,7 +22,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
@@ -177,15 +176,4 @@ func (l *ComponentLinker) MergeFrom(linker *Linker) {
 	for key, def := range linker.definitions {
 		l.definitions[key] = def
 	}
-}
-
-// coreSignature returns the core signature for a lowered component function.
-//
-// Session 0 compile-fix stub: the real flattening lives in the rewritten
-// abi/ package (Task 15). Session 1 must delete this and route through
-// abi.Flatten directly.
-func coreSignature(paramTypes, resultTypes []types.ValType) (params, results []api.ValueType, needsRetptr bool) {
-	_ = paramTypes
-	_ = resultTypes
-	panic("compile-fix stub: see Session 1 followup note — component_linker.go flatten helpers scheduled for deletion")
 }
