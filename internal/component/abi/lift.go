@@ -631,10 +631,15 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (types.Val, er
 
 // liftOwnHandle implements the TypeKindOwn lift arm.
 //
-// Spec: definitions.py:1336-1347 (lift_own).
-// In Session 0, ctx.Instance.ResourceTypes is empty (Concrete promotion
-// is Session 2 work) and this traps for any real handle. The dispatch
-// arm exists, compiles, and traps with a precise error.
+// Spec: definitions.py:1333-1339 (lift_own).
+//
+//	def lift_own(cx, i, t):
+//	  h = cx.inst.table.remove(i)           # :1334
+//	  trap_if(not isinstance(h, ResourceHandle))
+//	  trap_if(h.rt is not t.rt)             # :1336
+//	  trap_if(h.num_lends != 0)             # :1337
+//	  trap_if(not h.own)                    # :1338
+//	  return h.rep                          # :1339
 func liftOwnHandle(ctx *LiftContext, typ types.ValType, handleIdx uint32) (types.Val, error) {
 	if ctx == nil || ctx.Instance == nil {
 		return types.Val{}, fmt.Errorf("lift own: no component instance available")
@@ -647,30 +652,57 @@ func liftOwnHandle(ctx *LiftContext, typ types.ValType, handleIdx uint32) (types
 	}
 	rt := ctx.Types.ResourceTables[typ.Index]
 	if !rt.Concrete {
-		return types.Val{}, fmt.Errorf(
-			"cannot lift abstract resource at runtime (type %d)", typ.Index)
+		return types.Val{}, fmt.Errorf("cannot lift abstract resource at runtime (type %d)", typ.Index)
 	}
 	expectedRT := ctx.Instance.LookupResourceType(rt.Instance, rt.Resource)
 	if expectedRT == nil {
 		return types.Val{}, fmt.Errorf(
-			"no resource type for instance %d declaration %d "+
-				"(resource concrete promotion not yet wired — session 2)",
+			"lift own: no resource type for instance %d declaration %d "+
+				"(cross-instance resolution: session 2 wiring)",
 			rt.Instance, rt.Resource)
 	}
-	h := runtime.Handle(handleIdx)
-	if err := ctx.Instance.Table.ValidateType(h, expectedRT); err != nil {
-		return types.Val{}, err
+
+	// Gap 3: GetByIndex bridges Wasm-side u32 to runtime 64-bit Handle.
+	// Spec: definitions.py:1334 h = cx.inst.table.remove(i)
+	h, entry, err := ctx.Instance.Table.GetByIndex(handleIdx)
+	if err != nil {
+		return types.Val{}, fmt.Errorf("lift own: %w", err)
 	}
-	// For own<>: transfer ownership via the table.
+	resEntry, ok := entry.(*runtime.ResourceHandleEntry)
+	if !ok {
+		return types.Val{}, fmt.Errorf("lift own: handle %d is not a resource handle", handleIdx)
+	}
+	// Spec: definitions.py:1336 — trap_if(h.rt is not t.rt)
+	if resEntry.RT != expectedRT {
+		return types.Val{}, fmt.Errorf("lift own: resource type mismatch")
+	}
+	// Gap 2: Spec: definitions.py:1337 — trap_if(h.num_lends != 0)
+	if resEntry.NumLends != 0 {
+		return types.Val{}, fmt.Errorf("lift own: handle has %d outstanding lends", resEntry.NumLends)
+	}
+	// Gap 1: Spec: definitions.py:1338 — trap_if(not h.own)
+	if !resEntry.Own {
+		return types.Val{}, fmt.Errorf("lift own: handle %d is a borrow, not an own", handleIdx)
+	}
+	// All checks passed — remove and return rep.
 	if _, err := ctx.Instance.Table.Remove(h); err != nil {
-		return types.Val{}, err
+		return types.Val{}, fmt.Errorf("lift own: %w", err)
 	}
-	return types.ValOwn(handleIdx), nil
+	// Gap 4: Spec: definitions.py:1339 — return h.rep (not the handle index)
+	return types.ValOwn(resEntry.Rep), nil
 }
 
 // liftBorrowHandle implements the TypeKindBorrow lift arm.
 //
-// Spec: definitions.py:1338-1347 (lift_borrow).
+// Spec: definitions.py:1341-1347 (lift_borrow).
+//
+//	def lift_borrow(cx, i, t):
+//	  assert(isinstance(cx.borrow_scope, Subtask))  # :1342
+//	  h = cx.inst.table.get(i)              # :1343
+//	  trap_if(not isinstance(h, ResourceHandle))
+//	  trap_if(h.rt is not t.rt)             # :1345
+//	  cx.borrow_scope.add_lender(h)         # :1346
+//	  return h.rep                          # :1347
 func liftBorrowHandle(ctx *LiftContext, typ types.ValType, handleIdx uint32) (types.Val, error) {
 	if ctx == nil || ctx.Instance == nil {
 		return types.Val{}, fmt.Errorf("lift borrow: no component instance available")
@@ -678,34 +710,46 @@ func liftBorrowHandle(ctx *LiftContext, typ types.ValType, handleIdx uint32) (ty
 	if ctx.Types == nil {
 		return types.Val{}, fmt.Errorf("lift borrow: no component types available")
 	}
+	// Spec: definitions.py:1342 — assert(isinstance(cx.borrow_scope, Subtask))
+	if ctx.BorrowScope == nil {
+		return types.Val{}, fmt.Errorf("lift borrow: no borrow scope active")
+	}
 	if int(typ.Index) >= len(ctx.Types.ResourceTables) {
 		return types.Val{}, fmt.Errorf("lift borrow: resource table index %d out of range", typ.Index)
 	}
 	rt := ctx.Types.ResourceTables[typ.Index]
 	if !rt.Concrete {
-		return types.Val{}, fmt.Errorf(
-			"cannot lift abstract resource at runtime (type %d)", typ.Index)
+		return types.Val{}, fmt.Errorf("cannot lift abstract resource at runtime (type %d)", typ.Index)
 	}
 	expectedRT := ctx.Instance.LookupResourceType(rt.Instance, rt.Resource)
 	if expectedRT == nil {
 		return types.Val{}, fmt.Errorf(
-			"no resource type for instance %d declaration %d "+
-				"(resource concrete promotion not yet wired — session 2)",
+			"lift borrow: no resource type for instance %d declaration %d "+
+				"(cross-instance resolution: session 2 wiring)",
 			rt.Instance, rt.Resource)
 	}
-	h := runtime.Handle(handleIdx)
-	if err := ctx.Instance.Table.ValidateType(h, expectedRT); err != nil {
-		return types.Val{}, err
+
+	// Gap 3: GetByIndex bridges Wasm-side u32 to runtime 64-bit Handle.
+	// Spec: definitions.py:1343 h = cx.inst.table.get(i) — note: GET, not remove
+	h, entry, err := ctx.Instance.Table.GetByIndex(handleIdx)
+	if err != nil {
+		return types.Val{}, fmt.Errorf("lift borrow: %w", err)
 	}
-	if err := ctx.Instance.Table.IncrementLends(h); err != nil {
-		return types.Val{}, err
+	resEntry, ok := entry.(*runtime.ResourceHandleEntry)
+	if !ok {
+		return types.Val{}, fmt.Errorf("lift borrow: handle %d is not a resource handle", handleIdx)
 	}
-	if ctx.BorrowScope != nil {
-		if err := ctx.BorrowScope.AddLender(h); err != nil {
-			return types.Val{}, err
-		}
+	// Spec: definitions.py:1345 — trap_if(h.rt is not t.rt)
+	if resEntry.RT != expectedRT {
+		return types.Val{}, fmt.Errorf("lift borrow: resource type mismatch")
 	}
-	return types.ValBorrow(handleIdx), nil
+	// Spec: definitions.py:1346 — cx.borrow_scope.add_lender(h)
+	// AddLender internally calls IncrementLends — do NOT call IncrementLends separately.
+	if err := ctx.BorrowScope.AddLender(h); err != nil {
+		return types.Val{}, fmt.Errorf("lift borrow: %w", err)
+	}
+	// Gap 4: Spec: definitions.py:1347 — return h.rep (not the handle index)
+	return types.ValBorrow(resEntry.Rep), nil
 }
 
 // LiftParams lifts flat ABI parameter values into component Vals. This
