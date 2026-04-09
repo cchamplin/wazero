@@ -677,9 +677,9 @@ func (l *ComponentLinker) processNestedInstances(ctx context.Context, inst *Inst
 			}
 			// Inline instances don't produce a child Instance; they
 			// produce an InstanceDef that wireExports can consume.
-			// Append a nil to instanceSpace to keep indices aligned.
-			slotIdx := uint32(len(inst.instanceSpace))
-			inst.instanceSpace = append(inst.instanceSpace, nil)
+			// Reserve a nil slot in instanceSpace to keep indices aligned
+			// via the same abstraction the Instantiate path uses.
+			slotIdx := inst.AddInstanceToSpace(nil)
 			componentInstDefs[slotIdx] = instDef
 
 		default:
@@ -697,7 +697,7 @@ func (l *ComponentLinker) processNestedInstances(ctx context.Context, inst *Inst
 // scope (Explainer.md component-instance grammar).
 func (l *ComponentLinker) resolveInlineExport(
 	inst *Instance,
-	c *Component,
+	_ *Component,
 	exp ComponentInlineExport,
 ) (Definition, error) {
 	switch exp.Sort {

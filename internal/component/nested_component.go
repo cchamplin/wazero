@@ -90,6 +90,8 @@ func (l *ComponentLinker) instantiateNestedComponent(
 		return nil, fmt.Errorf("nested: nested instances: %w", err)
 	}
 
+	// instanceToImport is consumed by step 12 (core module instantiation)
+	// which is deferred to Task D3. Suppress unused-variable until then.
 	_ = instanceToImport
 
 	// Steps 10-12 — Canon maps, function aliases, core module instantiation.
