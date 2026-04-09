@@ -25,10 +25,8 @@ var (
 // From the spec, this is 2^28 - 1.
 const MaxTableLength = uint32(1<<28 - 1)
 
-// Destroyable is implemented by resources that need cleanup when deleted.
-// When a resource implementing this interface is deleted from the Table
-// via Delete(), its Destroy() method will be called automatically if the
-// handle was owned (not borrowed).
+// Destroyable is retained for backward compatibility with Delete().
+// New code should use ResourceType.HostDestructor instead.
 type Destroyable interface {
 	Destroy()
 }
@@ -62,12 +60,17 @@ type TableEntry interface {
 // Replaces the old HandleEntry{RT ResourceTypeID, ...} struct. RT is
 // now a *ResourceType with pointer identity, fixing the cross-instance
 // type-index collision bug in the deleted ValidateType.
+//
+// Spec: definitions.py:337-349 class ResourceHandle.
+// Rep is uint32 per spec (definitions.py:337-349 ResourceHandle.rep: int,
+// u32 invariant). Wasmtime parallel: runtime/component/instance.rs:383-387
+// resource_new32 + vm/component/resources.rs rep: u32 throughout.
 type ResourceHandleEntry struct {
 	RT          *ResourceType // Resource type this handle belongs to (pointer identity)
-	Rep         any           // The resource representation value
+	Rep         uint32        // The resource representation value (u32 per spec)
 	Own         bool          // True if this is an owning handle
 	NumLends    uint32        // Number of active borrows from this handle
-	BorrowScope any           // The scope that created this borrow (for borrowed handles)
+	BorrowScope *BorrowScope  // The scope that created this borrow (for borrowed handles)
 }
 
 func (*ResourceHandleEntry) tableEntry() {}
@@ -148,9 +151,9 @@ func (t *Table) add(entry TableEntry) (Handle, error) {
 }
 
 // NewResourceHandle inserts a resource handle into the table and returns
-// its index. The RT is a *ResourceType pointer for spec-correct identity
-// comparisons.
-func (t *Table) NewResourceHandle(rep any, own bool, rt *ResourceType) (Handle, error) {
+// its handle. The RT is a *ResourceType pointer for spec-correct identity
+// comparisons. Rep is uint32 per spec (definitions.py:337-349).
+func (t *Table) NewResourceHandle(rep uint32, own bool, rt *ResourceType) (Handle, error) {
 	entry := &ResourceHandleEntry{RT: rt, Rep: rep, Own: own}
 	return t.add(entry)
 }
@@ -163,7 +166,7 @@ func (t *Table) NewResourceHandle(rep any, own bool, rt *ResourceType) (Handle, 
 //	def canon_resource_new(rt, thread, rep):
 //	  trap_if(not thread.task.inst.may_leave)
 //	  ...
-func (t *Table) NewWithMayLeaveCheck(rep any, own bool, rt *ResourceType, inst *ComponentInstance) (Handle, error) {
+func (t *Table) NewWithMayLeaveCheck(rep uint32, own bool, rt *ResourceType, inst *ComponentInstance) (Handle, error) {
 	if inst != nil && !inst.IsMayLeave() {
 		return 0, ErrMayNotLeave
 	}
@@ -272,16 +275,16 @@ func (t *Table) Remove(h Handle) (*ResourceHandleEntry, error) {
 	return resEntry, nil
 }
 
-// Delete removes a handle from the table and calls Destroy() if applicable.
-// This is the preferred method for dropping resources as it handles cleanup.
+// Delete removes a handle from the table and invokes the HostDestructor
+// on the ResourceType if applicable (owned handles only).
 //
 // For owned handles (entry.Own == true):
 //   - Removes the handle from the table
-//   - If the resource implements Destroyable, calls Destroy()
+//   - If entry.RT.HostDestructor is set, calls it with entry.Rep
 //
 // For borrowed handles (entry.Own == false):
 //   - Removes the handle from the table
-//   - Does NOT call Destroy() (borrows don't own the resource)
+//   - Does NOT call destructor (borrows don't own the resource)
 //
 // Returns ErrResourceInUse if the handle has active borrows (NumLends > 0).
 func (t *Table) Delete(h Handle) error {
@@ -290,11 +293,9 @@ func (t *Table) Delete(h Handle) error {
 		return err
 	}
 
-	// Only call Destroy for owned handles
-	if entry.Own {
-		if destroyable, ok := entry.Rep.(Destroyable); ok {
-			destroyable.Destroy()
-		}
+	// Only call destructor for owned handles
+	if entry.Own && entry.RT != nil && entry.RT.HostDestructor != nil {
+		return entry.RT.HostDestructor(entry.Rep)
 	}
 
 	return nil
@@ -328,21 +329,14 @@ func (t *Table) DecrementLends(h Handle) error {
 // Rep returns the representation value for a handle.
 // This is the underlying uint32 value that identifies the resource.
 // Returns an error if the handle is invalid.
+//
+// Spec: definitions.py:337-349 ResourceHandle.rep: int (u32 invariant).
 func (t *Table) Rep(h Handle) (uint32, error) {
 	entry, err := t.GetResourceHandle(h)
 	if err != nil {
 		return 0, err
 	}
-	// The rep is stored as any, but for canonical ABI purposes
-	// it should be a uint32
-	switch v := entry.Rep.(type) {
-	case uint32:
-		return v, nil
-	case int:
-		return uint32(v), nil
-	default:
-		return 0, fmt.Errorf("resource rep is not a uint32: %T", entry.Rep)
-	}
+	return entry.Rep, nil
 }
 
 // CreateResourceNewFunc creates a core function for resource.new that
@@ -377,14 +371,8 @@ func (t *Table) CreateResourceDropFunc(rt *ResourceType, destructor func(rep uin
 			return // Silently ignore invalid handles per spec
 		}
 		// Per spec: borrows do not own the resource, so no destructor call
-		if destructor != nil && entry.Own && entry.Rep != nil {
-			// Convert rep to uint32 and call destructor
-			switch rep := entry.Rep.(type) {
-			case uint32:
-				destructor(rep)
-			case int:
-				destructor(uint32(rep))
-			}
+		if destructor != nil && entry.Own {
+			destructor(entry.Rep)
 		}
 	}
 }
@@ -492,15 +480,7 @@ func (t *Table) RepWithType(h Handle, expectedRT *ResourceType) (uint32, error) 
 	if err != nil {
 		return 0, err
 	}
-
-	switch v := entry.Rep.(type) {
-	case uint32:
-		return v, nil
-	case int:
-		return uint32(v), nil
-	default:
-		return 0, fmt.Errorf("resource rep is not a uint32: %T", entry.Rep)
-	}
+	return entry.Rep, nil
 }
 
 // RemoveWithType removes a handle from the table after validating its type.
@@ -545,13 +525,8 @@ func (t *Table) CreateResourceDropFuncWithTrap(rt *ResourceType, destructor func
 
 		// Call destructor for owned resources only
 		// Per spec: borrows do not own the resource, so no destructor call
-		if destructor != nil && entry.Own && entry.Rep != nil {
-			switch rep := entry.Rep.(type) {
-			case uint32:
-				destructor(rep)
-			case int:
-				destructor(uint32(rep))
-			}
+		if destructor != nil && entry.Own {
+			destructor(entry.Rep)
 		}
 	}
 }
@@ -661,17 +636,7 @@ func (t *Table) DropOwned(
 		return nil
 	}
 
-	// Get the rep value
-	var rep uint32
-	switch v := entry.Rep.(type) {
-	case uint32:
-		rep = v
-	case int:
-		rep = uint32(v)
-	default:
-		// No valid rep, skip destructor
-		return nil
-	}
+	rep := entry.Rep
 
 	// Same-instance vs cross-instance destructor call
 	if currentInstanceID == definingInstanceID {

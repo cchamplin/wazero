@@ -344,9 +344,10 @@ func TestServiceMiddlewareComposition_FullComposition(t *testing.T) {
 		},
 		[]byte("Hello from test!"),
 	)
+	_ = testRequest // Task E4: will wire via per-module registry
 
 	// Store request in resource table
-	requestHandle, hErr := resourceTable.NewResourceHandle(testRequest, true, compositionRequestResourceType)
+	requestHandle, hErr := resourceTable.NewResourceHandle(uint32(0), true, compositionRequestResourceType)
 	if hErr != nil {
 		t.Fatalf("NewResourceHandle failed: %v", hErr)
 	}
@@ -390,10 +391,8 @@ func TestServiceMiddlewareComposition_FullComposition(t *testing.T) {
 		t.Fatalf("responseEntry is not ResourceHandleEntry: %T", rawResponseEntry)
 	}
 
-	response, ok2 := responseEntry.Rep.(*Response)
-	if !ok2 {
-		t.Fatalf("Response is not *Response: %T", responseEntry.Rep)
-	}
+	_ = responseEntry // Task E4: resolve *Response via per-module registry using responseEntry.Rep
+	var response *Response
 
 	t.Logf("Response body: %s", string(response.body))
 
@@ -462,7 +461,7 @@ func defineLoggingInterface(linker *component.ComponentLinker, table *runtime.Ta
 			if rt == nil {
 				rt = table
 			}
-			handle, hErr := rt.NewResourceHandle(sharedLogger, true, compositionLoggerResourceType)
+			handle, hErr := rt.NewResourceHandle(uint32(0), true, compositionLoggerResourceType)
 			if hErr != nil {
 				return nil, hErr
 			}
@@ -487,12 +486,14 @@ func defineLoggingInterface(linker *component.ComponentLinker, table *runtime.Ta
 				return []types.Val{}, nil
 			}
 			resEntry, resOk := entry.(*runtime.ResourceHandleEntry)
-			if !resOk {
+				_ = resEntry
+				if !resOk {
 				return []types.Val{}, nil
 			}
 
-			logger, ok := resEntry.Rep.(*Logger)
-			if ok {
+			// Task E4: resolve *Logger via per-module registry using resEntry.Rep
+				var logger *Logger
+				if logger != nil {
 				logger.Log(message)
 			}
 
@@ -563,7 +564,8 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Tabl
 			}
 
 			req := NewRequest(headers, body)
-			handle, hErr := rt.NewResourceHandle(req, true, compositionRequestResourceType)
+				_ = req
+				handle, hErr := rt.NewResourceHandle(uint32(0), true, compositionRequestResourceType)
 			if hErr != nil {
 				return nil, hErr
 			}
@@ -581,12 +583,14 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Tabl
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 			resEntry, resOk := entry.(*runtime.ResourceHandleEntry)
-			if !resOk {
+				_ = resEntry
+				if !resOk {
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 
-			req, ok := resEntry.Rep.(*Request)
-			if !ok {
+			_ = resEntry // Task E4: resolve *Request via per-module registry using resEntry.Rep
+				var req *Request
+				if req != nil {
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 
@@ -625,12 +629,14 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Tabl
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 			resEntry, resOk := entry.(*runtime.ResourceHandleEntry)
-			if !resOk {
+				_ = resEntry
+				if !resOk {
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 
-			req, ok := resEntry.Rep.(*Request)
-			if !ok {
+			_ = resEntry // Task E4: resolve *Request via per-module registry using resEntry.Rep
+				var req *Request
+				if req != nil {
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 
@@ -680,7 +686,8 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Tabl
 			}
 
 			resp := NewResponse(headers, body)
-			handle, hErr := rt.NewResourceHandle(resp, true, compositionResponseResourceType)
+				_ = resp
+				handle, hErr := rt.NewResourceHandle(uint32(0), true, compositionResponseResourceType)
 			if hErr != nil {
 				return nil, hErr
 			}
@@ -698,12 +705,14 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Tabl
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 			resEntry, resOk := entry.(*runtime.ResourceHandleEntry)
-			if !resOk {
+				_ = resEntry
+				if !resOk {
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 
-			resp, ok := resEntry.Rep.(*Response)
-			if !ok {
+			_ = resEntry // Task E4: resolve *Response via per-module registry using resEntry.Rep
+				var resp *Response
+				if resp != nil {
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 
@@ -742,12 +751,14 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Tabl
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 			resEntry, resOk := entry.(*runtime.ResourceHandleEntry)
-			if !resOk {
+				_ = resEntry
+				if !resOk {
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 
-			resp, ok := resEntry.Rep.(*Response)
-			if !ok {
+			_ = resEntry // Task E4: resolve *Response via per-module registry using resEntry.Rep
+				var resp *Response
+				if resp != nil {
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 

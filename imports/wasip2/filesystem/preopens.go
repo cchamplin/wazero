@@ -75,9 +75,10 @@ func getDirectories(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([
 
 		// Create descriptor with read+write+mutate-directory permissions
 		desc := NewDescriptor(file, true, hostPath, DescriptorFlagRead|DescriptorFlagWrite|DescriptorFlagMutateDirectory)
+		_ = desc // Task E4: will wire via per-module registry
 
 		// Add to resource table
-		handle, hErr := table.NewResourceHandle(desc, true, descriptorResourceType)
+		handle, hErr := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
 		if hErr != nil {
 			file.Close()
 			continue

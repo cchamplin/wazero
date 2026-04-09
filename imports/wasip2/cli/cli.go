@@ -183,9 +183,10 @@ func getStdin(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types
 
 	// Create an InputStream from the config's stdin reader
 	stream := wasip2io.NewInputStream(config.Stdin())
+	_ = stream // Task E4: will wire via per-module registry
 
 	// Register in resource table and get handle
-	handle, hErr := table.NewResourceHandle(stream, true, cliInputStreamResourceType)
+	handle, hErr := table.NewResourceHandle(uint32(0), true, cliInputStreamResourceType)
 	if hErr != nil {
 		return []types.Val{types.ValOwn(0)}, nil
 	}
@@ -214,9 +215,10 @@ func getStdout(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]type
 
 	// Create an OutputStream from the config's stdout writer
 	stream := wasip2io.NewOutputStream(config.Stdout())
+	_ = stream // Task E4: will wire via per-module registry
 
 	// Register in resource table and get handle
-	handle, hErr := table.NewResourceHandle(stream, true, cliOutputStreamResourceType)
+	handle, hErr := table.NewResourceHandle(uint32(0), true, cliOutputStreamResourceType)
 	if hErr != nil {
 		return []types.Val{types.ValOwn(1)}, nil
 	}
@@ -245,9 +247,10 @@ func getStderr(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]type
 
 	// Create an OutputStream from the config's stderr writer
 	stream := wasip2io.NewOutputStream(config.Stderr())
+	_ = stream // Task E4: will wire via per-module registry
 
 	// Register in resource table and get handle
-	handle, hErr := table.NewResourceHandle(stream, true, cliOutputStreamResourceType)
+	handle, hErr := table.NewResourceHandle(uint32(0), true, cliOutputStreamResourceType)
 	if hErr != nil {
 		return []types.Val{types.ValOwn(2)}, nil
 	}
@@ -310,7 +313,7 @@ func getTerminalStdin(ctx context.Context, _ *types.TypeFunc, args []types.Val) 
 	if table == nil {
 		return []types.Val{types.ValOption(nil)}, nil
 	}
-	handle, hErr := table.NewResourceHandle(&TerminalInput{}, true, cliTerminalInputResourceType)
+	handle, hErr := table.NewResourceHandle(uint32(0), true, cliTerminalInputResourceType)
 	if hErr != nil {
 		return []types.Val{types.ValOption(nil)}, nil
 	}
@@ -354,7 +357,7 @@ func getTerminalStdout(ctx context.Context, _ *types.TypeFunc, args []types.Val)
 	if table == nil {
 		return []types.Val{types.ValOption(nil)}, nil
 	}
-	handle, hErr := table.NewResourceHandle(&TerminalOutput{}, true, cliTerminalOutputResourceType)
+	handle, hErr := table.NewResourceHandle(uint32(0), true, cliTerminalOutputResourceType)
 	if hErr != nil {
 		return []types.Val{types.ValOption(nil)}, nil
 	}
@@ -398,7 +401,7 @@ func getTerminalStderr(ctx context.Context, _ *types.TypeFunc, args []types.Val)
 	if table == nil {
 		return []types.Val{types.ValOption(nil)}, nil
 	}
-	handle, hErr := table.NewResourceHandle(&TerminalOutput{}, true, cliTerminalOutputResourceType)
+	handle, hErr := table.NewResourceHandle(uint32(0), true, cliTerminalOutputResourceType)
 	if hErr != nil {
 		return []types.Val{types.ValOption(nil)}, nil
 	}

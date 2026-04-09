@@ -32,7 +32,16 @@ type ResourceType struct {
 
 	// DtorCallback is the callback function index for async destructors.
 	DtorCallback *uint32
+
+	// HostDestructor is the Go-side destructor callback for host-managed
+	// resources. Called by Delete() when dropping an owned handle whose
+	// ResourceType has this field set. Nil for guest-defined resources.
+	//
+	// Spec: definitions.py:351-361 (ResourceType); the host destructor
+	// path is an implementation detail for host-imported resources.
+	HostDestructor func(rep uint32) error
 }
 
-// HasDestructor reports whether this resource type has a destructor.
-func (r *ResourceType) HasDestructor() bool { return r.Dtor != nil }
+// HasDestructor reports whether this resource type has a destructor
+// (either a core Wasm destructor index or a host destructor callback).
+func (r *ResourceType) HasDestructor() bool { return r.Dtor != nil || r.HostDestructor != nil }

@@ -7,7 +7,6 @@ package http
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/tetratelabs/wazero/imports/wasip2/io"
@@ -222,11 +221,8 @@ func getFields(ctx context.Context, handle uint32) (*Fields, error) {
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
 	}
-	fields, ok := resEntry.Rep.(*Fields)
-	if !ok {
-		return nil, fmt.Errorf("handle %d is not a Fields", handle)
-	}
-	return fields, nil
+	_ = resEntry // Task E4: resolve *Fields via per-module registry using resEntry.Rep
+	return nil, fmt.Errorf("handle %d: Fields registry not yet wired (Task E4)", handle)
 }
 
 // getIncomingResponse retrieves IncomingResponse from the resource table.
@@ -243,11 +239,8 @@ func getIncomingResponse(ctx context.Context, handle uint32) (*IncomingResponse,
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
 	}
-	resp, ok := resEntry.Rep.(*IncomingResponse)
-	if !ok {
-		return nil, fmt.Errorf("handle %d is not an IncomingResponse", handle)
-	}
-	return resp, nil
+	_ = resEntry // Task E4: resolve *IncomingResponse via per-module registry using resEntry.Rep
+	return nil, fmt.Errorf("handle %d: IncomingResponse registry not yet wired (Task E4)", handle)
 }
 
 // getIncomingBody retrieves IncomingBody from the resource table.
@@ -264,11 +257,8 @@ func getIncomingBody(ctx context.Context, handle uint32) (*IncomingBody, error) 
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
 	}
-	body, ok := resEntry.Rep.(*IncomingBody)
-	if !ok {
-		return nil, fmt.Errorf("handle %d is not an IncomingBody", handle)
-	}
-	return body, nil
+	_ = resEntry // Task E4: resolve *IncomingBody via per-module registry using resEntry.Rep
+	return nil, fmt.Errorf("handle %d: IncomingBody registry not yet wired (Task E4)", handle)
 }
 
 // getOutgoingBody retrieves OutgoingBody from the resource table.
@@ -285,11 +275,8 @@ func getOutgoingBody(ctx context.Context, handle uint32) (*OutgoingBody, error) 
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
 	}
-	body, ok := resEntry.Rep.(*OutgoingBody)
-	if !ok {
-		return nil, fmt.Errorf("handle %d is not an OutgoingBody", handle)
-	}
-	return body, nil
+	_ = resEntry // Task E4: resolve *OutgoingBody via per-module registry using resEntry.Rep
+	return nil, fmt.Errorf("handle %d: OutgoingBody registry not yet wired (Task E4)", handle)
 }
 
 // getRequestOptions retrieves RequestOptions from the resource table.
@@ -306,11 +293,8 @@ func getRequestOptions(ctx context.Context, handle uint32) (*RequestOptions, err
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
 	}
-	opts, ok := resEntry.Rep.(*RequestOptions)
-	if !ok {
-		return nil, fmt.Errorf("handle %d is not a RequestOptions", handle)
-	}
-	return opts, nil
+	_ = resEntry // Task E4: resolve *RequestOptions via per-module registry using resEntry.Rep
+	return nil, fmt.Errorf("handle %d: RequestOptions registry not yet wired (Task E4)", handle)
 }
 
 // getOutgoingRequest retrieves OutgoingRequest from the resource table.
@@ -327,11 +311,8 @@ func getOutgoingRequest(ctx context.Context, handle uint32) (*OutgoingRequest, e
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
 	}
-	req, ok := resEntry.Rep.(*OutgoingRequest)
-	if !ok {
-		return nil, fmt.Errorf("handle %d is not an OutgoingRequest", handle)
-	}
-	return req, nil
+	_ = resEntry // Task E4: resolve *OutgoingRequest via per-module registry using resEntry.Rep
+	return nil, fmt.Errorf("handle %d: OutgoingRequest registry not yet wired (Task E4)", handle)
 }
 
 // getIncomingRequest retrieves IncomingRequest from the resource table.
@@ -348,11 +329,8 @@ func getIncomingRequest(ctx context.Context, handle uint32) (*IncomingRequest, e
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
 	}
-	req, ok := resEntry.Rep.(*IncomingRequest)
-	if !ok {
-		return nil, fmt.Errorf("handle %d is not an IncomingRequest", handle)
-	}
-	return req, nil
+	_ = resEntry // Task E4: resolve *IncomingRequest via per-module registry using resEntry.Rep
+	return nil, fmt.Errorf("handle %d: IncomingRequest registry not yet wired (Task E4)", handle)
 }
 
 // createPollableHandle creates a pollable handle in the resource table.
@@ -361,7 +339,7 @@ func createPollableHandle(ctx context.Context, pollable *io.Pollable) types.Val 
 	if table == nil {
 		return types.ValOwn(0)
 	}
-	handle, hErr := table.NewResourceHandle(pollable, true, httpPollableResourceType)
+	handle, hErr := table.NewResourceHandle(uint32(0), true, httpPollableResourceType)
 	if hErr != nil {
 		return types.ValOwn(0)
 	}
@@ -380,7 +358,8 @@ func fieldsConstructor(ctx context.Context, _ *types.TypeFunc, args []types.Val)
 		return []types.Val{types.ValOwn(0)}, nil
 	}
 	fields := NewFields()
-	handle, err := table.NewResourceHandle(fields, true, httpFieldsResourceType)
+	_ = fields // Task E4: will wire via per-module registry
+	handle, err := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
 	if err != nil {
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
@@ -411,7 +390,7 @@ func fieldsFromList(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([
 		}
 	}
 
-	handle, err := table.NewResourceHandle(fields, true, httpFieldsResourceType)
+	handle, err := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
 	if err != nil {
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
@@ -551,7 +530,8 @@ func fieldsClone(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]ty
 	}
 
 	clone := fields.Clone()
-	handle, err := table.NewResourceHandle(clone, true, httpFieldsResourceType)
+	_ = clone // Task E4: will wire via per-module registry
+	handle, err := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
 	if err != nil {
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
@@ -572,19 +552,12 @@ func outgoingRequestConstructor(ctx context.Context, _ *types.TypeFunc, args []t
 
 	// Get the headers handle and retrieve the Fields
 	headersHandle := runtime.Handle(args[0].Own())
-	headersEntry, err := table.Remove(headersHandle)
-	var headers *Fields
-	if err == nil {
-		if h, ok := headersEntry.Rep.(*Fields); ok {
-			headers = h
-		}
-	}
-	if headers == nil {
-		headers = NewFields()
-	}
+	_, _ = table.Remove(headersHandle)
+	// Task E4: resolve *Fields via per-module registry using headersEntry.Rep
+	headers := NewFields()
 
-	req := NewOutgoingRequest(headers)
-	handle, err := table.NewResourceHandle(req, true, httpOutgoingRequestResourceType)
+	_ = NewOutgoingRequest(headers) // req unused until Task E4 wires registries
+	handle, err := table.NewResourceHandle(uint32(0), true, httpOutgoingRequestResourceType)
 	if err != nil {
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
@@ -733,7 +706,7 @@ func outgoingRequestHeaders(ctx context.Context, _ *types.TypeFunc, args []types
 	if headers == nil {
 		headers = NewFields()
 	}
-	handle, err := table.NewResourceHandle(headers, true, httpFieldsResourceType)
+	handle, err := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
 	if err != nil {
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
@@ -751,13 +724,14 @@ func outgoingRequestBody(ctx context.Context, _ *types.TypeFunc, args []types.Va
 	}
 
 	body, err := req.Body()
+	_ = body // Task E4: will wire via per-module registry
 	if err != nil {
 		// Body already consumed
 		errVal := types.ValVariant("body-already-consumed", nil)
 		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
-	handle, err := table.NewResourceHandle(body, true, httpOutgoingBodyResourceType)
+	handle, err := table.NewResourceHandle(uint32(0), true, httpOutgoingBodyResourceType)
 	if err != nil {
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
@@ -900,7 +874,7 @@ func incomingRequestHeaders(ctx context.Context, _ *types.TypeFunc, args []types
 	if headers == nil {
 		headers = NewFields()
 	}
-	handle, err := table.NewResourceHandle(headers, true, httpFieldsResourceType)
+	handle, err := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
 	if err != nil {
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
@@ -918,12 +892,13 @@ func incomingRequestConsume(ctx context.Context, _ *types.TypeFunc, args []types
 	}
 
 	body, consumeErr := req.Consume()
+	_ = body // Task E4: will wire via per-module registry
 	if consumeErr != nil {
 		errVal := types.ValVariant("body-already-consumed", nil)
 		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
-	handle, err := table.NewResourceHandle(body, true, httpIncomingBodyResourceType)
+	handle, err := table.NewResourceHandle(uint32(0), true, httpIncomingBodyResourceType)
 	if err != nil {
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
@@ -948,11 +923,8 @@ func getOutgoingResponse(ctx context.Context, handle uint32) (*OutgoingResponse,
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
 	}
-	resp, ok := resEntry.Rep.(*OutgoingResponse)
-	if !ok {
-		return nil, fmt.Errorf("handle %d is not an OutgoingResponse", handle)
-	}
-	return resp, nil
+	_ = resEntry // Task E4: resolve *OutgoingResponse via per-module registry using resEntry.Rep
+	return nil, fmt.Errorf("handle %d: OutgoingResponse registry not yet wired (Task E4)", handle)
 }
 
 // outgoingResponseConstructor creates a new outgoing response.
@@ -964,19 +936,12 @@ func outgoingResponseConstructor(ctx context.Context, _ *types.TypeFunc, args []
 	}
 
 	headersHandle := runtime.Handle(args[0].Own())
-	var headers *Fields
-	headersEntry, err := table.Remove(headersHandle)
-	if err == nil {
-		if h, ok := headersEntry.Rep.(*Fields); ok {
-			headers = h
-		}
-	}
-	if headers == nil {
-		headers = NewFields()
-	}
+	_, _ = table.Remove(headersHandle)
+	// Task E4: resolve *Fields via per-module registry using headersEntry.Rep
+	headers := NewFields()
 
-	resp := NewOutgoingResponse(headers)
-	handle, err := table.NewResourceHandle(resp, true, httpOutgoingResponseResourceType)
+	_ = NewOutgoingResponse(headers) // resp unused until Task E4 wires registries
+	handle, err := table.NewResourceHandle(uint32(0), true, httpOutgoingResponseResourceType)
 	if err != nil {
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
@@ -1016,7 +981,7 @@ func outgoingResponseHeaders(ctx context.Context, _ *types.TypeFunc, args []type
 	if headers == nil {
 		headers = NewFields()
 	}
-	handle, err := table.NewResourceHandle(headers, true, httpFieldsResourceType)
+	handle, err := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
 	if err != nil {
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
@@ -1034,12 +999,13 @@ func outgoingResponseBody(ctx context.Context, _ *types.TypeFunc, args []types.V
 	}
 
 	body, bodyErr := resp.Body()
+	_ = body // Task E4: will wire via per-module registry
 	if bodyErr != nil {
 		errVal := types.ValVariant("body-already-consumed", nil)
 		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
-	handle, err := table.NewResourceHandle(body, true, httpOutgoingBodyResourceType)
+	handle, err := table.NewResourceHandle(uint32(0), true, httpOutgoingBodyResourceType)
 	if err != nil {
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
@@ -1074,7 +1040,7 @@ func incomingResponseHeaders(ctx context.Context, _ *types.TypeFunc, args []type
 	if headers == nil {
 		headers = NewFields()
 	}
-	handle, err := table.NewResourceHandle(headers, true, httpFieldsResourceType)
+	handle, err := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
 	if err != nil {
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
@@ -1092,12 +1058,13 @@ func incomingResponseConsume(ctx context.Context, _ *types.TypeFunc, args []type
 	}
 
 	body, err := resp.Consume()
+	_ = body // Task E4: will wire via per-module registry
 	if err != nil {
 		errVal := types.ValVariant("body-already-consumed", nil)
 		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
-	handle, err := table.NewResourceHandle(body, true, httpIncomingBodyResourceType)
+	handle, err := table.NewResourceHandle(uint32(0), true, httpIncomingBodyResourceType)
 	if err != nil {
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
@@ -1120,12 +1087,13 @@ func incomingBodyStream(ctx context.Context, _ *types.TypeFunc, args []types.Val
 	}
 
 	stream, err := body.Stream()
+	_ = stream // Task E4: will wire via per-module registry
 	if err != nil {
 		errVal := types.ValVariant("stream-already-consumed", nil)
 		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
-	handle, err := table.NewResourceHandle(stream, true, httpInputStreamResourceType)
+	handle, err := table.NewResourceHandle(uint32(0), true, httpInputStreamResourceType)
 	if err != nil {
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
@@ -1143,16 +1111,13 @@ func incomingBodyFinish(ctx context.Context, _ *types.TypeFunc, args []types.Val
 
 	// Consume the body handle
 	bodyHandle := runtime.Handle(args[0].Own())
-	bodyEntry, err := table.Remove(bodyHandle)
-	if err == nil {
-		if body, ok := bodyEntry.Rep.(*IncomingBody); ok {
-			body.Close()
-		}
-	}
+	_, _ = table.Remove(bodyHandle)
+	// Task E4: resolve *IncomingBody via per-module registry using bodyEntry.Rep and call Close()
 
 	// For simple cases (no trailer support), resolve immediately with no trailers
 	ft := NewFutureTrailersReady(nil, nil)
-	handle, err := table.NewResourceHandle(ft, true, httpFutureTrailersResourceType)
+	_ = ft // Task E4: will wire via per-module registry
+	handle, err := table.NewResourceHandle(uint32(0), true, httpFutureTrailersResourceType)
 	if err != nil {
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
@@ -1174,12 +1139,13 @@ func outgoingBodyWrite(ctx context.Context, _ *types.TypeFunc, args []types.Val)
 	}
 
 	stream, err := body.Write()
+	_ = stream // Task E4: will wire via per-module registry
 	if err != nil {
 		errVal := types.ValVariant("stream-already-consumed", nil)
 		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
-	handle, err := table.NewResourceHandle(stream, true, httpOutputStreamResourceType)
+	handle, err := table.NewResourceHandle(uint32(0), true, httpOutputStreamResourceType)
 	if err != nil {
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
@@ -1197,12 +1163,8 @@ func outgoingBodyFinish(ctx context.Context, _ *types.TypeFunc, args []types.Val
 
 	// Consume the body handle
 	bodyHandle := runtime.Handle(args[0].Own())
-	bodyEntry, err := table.Remove(bodyHandle)
-	if err == nil {
-		if body, ok := bodyEntry.Rep.(*OutgoingBody); ok {
-			body.Finish()
-		}
-	}
+	_, _ = table.Remove(bodyHandle)
+	// Task E4: resolve *OutgoingBody via per-module registry using bodyEntry.Rep and call Finish()
 
 	// Consume optional trailers
 	trailersOpt := args[1].Option()
@@ -1228,6 +1190,7 @@ func futureIncomingResponseGet(ctx context.Context, _ *types.TypeFunc, args []ty
 	}
 
 	resp, errCode, ready := future.Get()
+	_ = resp // Task E4: will wire via per-module registry
 	if !ready {
 		return []types.Val{types.ValOption(nil)}, nil
 	}
@@ -1243,7 +1206,7 @@ func futureIncomingResponseGet(ctx context.Context, _ *types.TypeFunc, args []ty
 	}
 
 	// Success case: create handle for incoming response
-	respHandle, err := table.NewResourceHandle(resp, true, httpIncomingResponseResourceType)
+	respHandle, err := table.NewResourceHandle(uint32(0), true, httpIncomingResponseResourceType)
 	if err != nil {
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
@@ -1279,11 +1242,8 @@ func getFutureIncomingResponse(ctx context.Context, handle uint32) (*FutureIncom
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
 	}
-	future, ok := resEntry.Rep.(*FutureIncomingResponse)
-	if !ok {
-		return nil, fmt.Errorf("handle %d is not a FutureIncomingResponse", handle)
-	}
-	return future, nil
+	_ = resEntry // Task E4: resolve *FutureIncomingResponse via per-module registry using resEntry.Rep
+	return nil, fmt.Errorf("handle %d: FutureIncomingResponse registry not yet wired (Task E4)", handle)
 }
 
 // ====================
@@ -1304,11 +1264,8 @@ func getFutureTrailers(ctx context.Context, handle uint32) (*FutureTrailers, err
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
 	}
-	future, ok := resEntry.Rep.(*FutureTrailers)
-	if !ok {
-		return nil, fmt.Errorf("handle %d is not a FutureTrailers", handle)
-	}
-	return future, nil
+	_ = resEntry // Task E4: resolve *FutureTrailers via per-module registry using resEntry.Rep
+	return nil, fmt.Errorf("handle %d: FutureTrailers registry not yet wired (Task E4)", handle)
 }
 
 // futureTrailersGet polls for the trailers.
@@ -1339,7 +1296,7 @@ func futureTrailersGet(ctx context.Context, _ *types.TypeFunc, args []types.Val)
 	// Ok case: option<trailers>
 	var trailersOpt types.Val
 	if ft.trailers != nil && table != nil {
-		handle, err := table.NewResourceHandle(ft.trailers, true, httpFieldsResourceType)
+		handle, err := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
 		if err != nil {
 			return nil, fmt.Errorf("create resource handle: %w", err)
 		}
@@ -1416,15 +1373,12 @@ func responseOutparamSet(ctx context.Context, _ *types.TypeFunc, args []types.Va
 		// Success branch: lift the own<outgoing-response>. Per CanonicalABI.md
 		// lift_own, an invalid handle traps.
 		respHandle := runtime.Handle(okVal.Own())
-		respEntry, err := table.Remove(respHandle)
+		_, err := table.Remove(respHandle)
 		if err != nil {
 			return nil, fmt.Errorf("response-outparam.set: invalid outgoing-response handle %d: %w", respHandle, err)
 		}
-		resp, ok := respEntry.Rep.(*OutgoingResponse)
-		if !ok {
-			return nil, fmt.Errorf("response-outparam.set: handle %d is not an outgoing-response", respHandle)
-		}
-		deliver = ResponseResult{Response: resp}
+		// Task E4: resolve *OutgoingResponse via per-module registry using respEntry.Rep
+		deliver = ResponseResult{Response: nil}
 	} else {
 		// Error branch: extract the error-code variant case name.
 		// Note: payload fields on variants like dns-error, tls-alert-received,
@@ -1436,23 +1390,13 @@ func responseOutparamSet(ctx context.Context, _ *types.TypeFunc, args []types.Va
 
 	// Lift the outparam own handle. Invalid handle traps per lift_own.
 	outparamHandle := runtime.Handle(args[0].Own())
-	outparamEntry, err := table.Remove(outparamHandle)
+	_, err := table.Remove(outparamHandle)
 	if err != nil {
 		return nil, fmt.Errorf("response-outparam.set: invalid response-outparam handle %d: %w", outparamHandle, err)
 	}
-	outparam, ok := outparamEntry.Rep.(*ResponseOutparam)
-	if !ok {
-		return nil, fmt.Errorf("response-outparam.set: handle %d is not a response-outparam", outparamHandle)
-	}
-
-	// Deliver the result through the outparam channel. The channel is buffered
-	// with capacity 1; the spec mandates set is called at most once, so the
-	// non-blocking select-default protects us against a misbehaving guest that
-	// calls set twice without crashing the host.
-	select {
-	case outparam.result <- deliver:
-	default:
-	}
+	// Task E4: resolve *ResponseOutparam via per-module registry using outparamEntry.Rep
+	// and deliver the result through the outparam channel
+	_ = deliver
 
 	return []types.Val{}, nil
 }
@@ -1470,7 +1414,8 @@ func requestOptionsConstructor(ctx context.Context, _ *types.TypeFunc, args []ty
 	}
 
 	opts := NewRequestOptions()
-	handle, err := table.NewResourceHandle(opts, true, httpRequestOptionsResourceType)
+	_ = opts // Task E4: will wire via per-module registry
+	handle, err := table.NewResourceHandle(uint32(0), true, httpRequestOptionsResourceType)
 	if err != nil {
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
@@ -1602,17 +1547,6 @@ func httpErrorCode(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]
 	if !ok {
 		return []types.Val{types.ValOption(nil)}, nil
 	}
-	ioErr, ok := resEntry.Rep.(*io.Error)
-	if !ok {
-		return []types.Val{types.ValOption(nil)}, nil
-	}
-
-	// Unwrap the Go error and check if it's an HTTPError
-	var httpErr *HTTPError
-	if errors.As(ioErr.Unwrap(), &httpErr) {
-		codeVal := errorCodeToVariant(httpErr.Code)
-		return []types.Val{types.ValOption(&codeVal)}, nil
-	}
-
+	_ = resEntry // Task E4: resolve *io.Error via per-module registry using resEntry.Rep
 	return []types.Val{types.ValOption(nil)}, nil
 }

@@ -82,6 +82,7 @@ func createTcpSocket(ctx context.Context, _ *types.TypeFunc, args []types.Val) (
 
 	// Create socket
 	sock := NewTcpSocket(family)
+	_ = sock // Task E4: will wire via per-module registry
 
 	// Store in resource table
 	table := component.ResourceTableFromContext(ctx)
@@ -91,7 +92,7 @@ func createTcpSocket(ctx context.Context, _ *types.TypeFunc, args []types.Val) (
 		return []types.Val{types.ValResultOk(&handle)}, nil
 	}
 
-	handle, hErr := table.NewResourceHandle(sock, true, tcpSocketResourceType)
+	handle, hErr := table.NewResourceHandle(uint32(0), true, tcpSocketResourceType)
 	if hErr != nil {
 		handle := types.ValOwn(0)
 		return []types.Val{types.ValResultOk(&handle)}, nil
@@ -265,16 +266,18 @@ func tcpSocketFinishConnect(ctx context.Context, _ *types.TypeFunc, args []types
 
 	// Create TcpInputStream and TcpOutputStream wrappers
 	inStream := NewTcpInputStream(sock)
+	_ = inStream // Task E4: will wire via per-module registry
 	outStream := NewTcpOutputStream(sock)
+	_ = outStream // Task E4: will wire via per-module registry
 
-	inHandle, hErr1 := table.NewResourceHandle(inStream, true, tcpInputStreamResourceType)
+	inHandle, hErr1 := table.NewResourceHandle(uint32(0), true, tcpInputStreamResourceType)
 	if hErr1 != nil {
 		inputStream := types.ValOwn(0)
 		outputStream := types.ValOwn(1)
 		tuple := types.ValTuple([]types.Val{inputStream, outputStream})
 		return []types.Val{types.ValResultOk(&tuple)}, nil
 	}
-	outHandle, hErr2 := table.NewResourceHandle(outStream, true, tcpOutputStreamResourceType)
+	outHandle, hErr2 := table.NewResourceHandle(uint32(0), true, tcpOutputStreamResourceType)
 	if hErr2 != nil {
 		inputStream := types.ValOwn(uint32(inHandle))
 		outputStream := types.ValOwn(1)
@@ -383,20 +386,22 @@ func tcpSocketAccept(ctx context.Context, _ *types.TypeFunc, args []types.Val) (
 	}
 
 	// Create resources
-	sockHandle, err := table.NewResourceHandle(acceptedSock, true, tcpSocketResourceType)
+	sockHandle, err := table.NewResourceHandle(uint32(0), true, tcpSocketResourceType)
 	if err != nil {
 		acceptedSock.Close()
 		return nil, fmt.Errorf("tcpSocketAccept: register socket handle: %w", err)
 	}
 	inStream := NewTcpInputStream(acceptedSock)
+	_ = inStream // Task E4: will wire via per-module registry
 	outStream := NewTcpOutputStream(acceptedSock)
-	inHandle, err := table.NewResourceHandle(inStream, true, tcpInputStreamResourceType)
+	_ = outStream // Task E4: will wire via per-module registry
+	inHandle, err := table.NewResourceHandle(uint32(0), true, tcpInputStreamResourceType)
 	if err != nil {
 		table.Remove(sockHandle)
 		acceptedSock.Close()
 		return nil, fmt.Errorf("tcpSocketAccept: register input stream handle: %w", err)
 	}
-	outHandle, err := table.NewResourceHandle(outStream, true, tcpOutputStreamResourceType)
+	outHandle, err := table.NewResourceHandle(uint32(0), true, tcpOutputStreamResourceType)
 	if err != nil {
 		table.Remove(inHandle)
 		table.Remove(sockHandle)
@@ -726,7 +731,8 @@ func tcpSocketSubscribe(ctx context.Context, _ *types.TypeFunc, args []types.Val
 	// TCP socket subscribe creates a pollable that is always ready since
 	// Go's net package handles TCP operations synchronously.
 	pollable := wasipIO.NewReadyPollable()
-	pollHandle, hErr := table.NewResourceHandle(pollable, true, socketsPollableResourceType)
+	_ = pollable // Task E4: will wire via per-module registry
+	pollHandle, hErr := table.NewResourceHandle(uint32(0), true, socketsPollableResourceType)
 	if hErr != nil {
 		return []types.Val{types.ValOwn(0)}, nil
 	}

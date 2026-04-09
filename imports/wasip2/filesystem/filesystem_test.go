@@ -391,7 +391,7 @@ func TestDescriptorSetTimesAt_SetToNow(t *testing.T) {
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 	desc := NewDescriptor(dirFile, true, tmpDir, DescriptorFlagRead|DescriptorFlagWrite|DescriptorFlagMutateDirectory)
-	handle, errH1 := table.NewResourceHandle(desc, true, descriptorResourceType)
+	handle, errH1 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
 	if errH1 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH1)
 	}
@@ -556,11 +556,11 @@ func TestDescriptorIsSameObject_SameFile(t *testing.T) {
 	ctx := component.WithResourceTable(context.Background(), table)
 	desc1 := NewDescriptor(f1, false, path, DescriptorFlagRead)
 	desc2 := NewDescriptor(f2, false, path, DescriptorFlagRead)
-	h1, errH2 := table.NewResourceHandle(desc1, true, descriptorResourceType)
+	h1, errH2 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
 	if errH2 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH2)
 	}
-	h2, errH3 := table.NewResourceHandle(desc2, true, descriptorResourceType)
+	h2, errH3 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
 	if errH3 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH3)
 	}
@@ -591,11 +591,11 @@ func TestDescriptorIsSameObject_DifferentFiles(t *testing.T) {
 	ctx := component.WithResourceTable(context.Background(), table)
 	desc1 := NewDescriptor(f1, false, path1, DescriptorFlagRead)
 	desc2 := NewDescriptor(f2, false, path2, DescriptorFlagRead)
-	h1, errH4 := table.NewResourceHandle(desc1, true, descriptorResourceType)
+	h1, errH4 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
 	if errH4 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH4)
 	}
-	h2, errH5 := table.NewResourceHandle(desc2, true, descriptorResourceType)
+	h2, errH5 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
 	if errH5 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH5)
 	}
@@ -619,7 +619,7 @@ func TestDescriptorMetadataHash(t *testing.T) {
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 	desc := NewDescriptor(f, false, path, DescriptorFlagRead)
-	handle, errH6 := table.NewResourceHandle(desc, true, descriptorResourceType)
+	handle, errH6 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
 	if errH6 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH6)
 	}
@@ -660,11 +660,11 @@ func TestDescriptorMetadataHash_DifferentFiles(t *testing.T) {
 
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
-	h1, errH7 := table.NewResourceHandle(NewDescriptor(f1, false, path1, DescriptorFlagRead), true, descriptorResourceType)
+	h1, errH7 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
 	if errH7 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH7)
 	}
-	h2, errH8 := table.NewResourceHandle(NewDescriptor(f2, false, path2, DescriptorFlagRead), true, descriptorResourceType)
+	h2, errH8 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
 	if errH8 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH8)
 	}
@@ -704,7 +704,7 @@ func TestDescriptorMetadataHashAt(t *testing.T) {
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 	desc := NewDescriptor(dirFile, true, tmpDir, DescriptorFlagRead)
-	handle, errH9 := table.NewResourceHandle(desc, true, descriptorResourceType)
+	handle, errH9 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
 	if errH9 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH9)
 	}
@@ -739,7 +739,7 @@ func TestFilesystemErrorCode_WithFSError(t *testing.T) {
 	// Create an io.Error that wraps a FilesystemError
 	fsErr := &FilesystemError{Code: ErrorCodeAccess}
 	ioErr := wasipIO.NewError(fsErr)
-	handle, errH10 := table.NewResourceHandle(ioErr, true, descriptorResourceType)
+	handle, errH10 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
 	if errH10 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH10)
 	}
@@ -759,7 +759,7 @@ func TestFilesystemErrorCode_NonFSError(t *testing.T) {
 
 	// Create an io.Error that wraps a plain Go error (not a FilesystemError)
 	ioErr := wasipIO.NewError(errors.New("some random error"))
-	handle, errH11 := table.NewResourceHandle(ioErr, true, descriptorResourceType)
+	handle, errH11 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
 	if errH11 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH11)
 	}
@@ -895,7 +895,7 @@ func createTestDirDescriptor(t *testing.T, ctx context.Context) (uint32, string)
 	require.NoError(t, err)
 
 	desc := NewDescriptor(file, true, tmpDir, DescriptorFlagRead|DescriptorFlagWrite|DescriptorFlagMutateDirectory)
-	handle, errH12 := table.NewResourceHandle(desc, true, descriptorResourceType)
+	handle, errH12 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
 	if errH12 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH12)
 	}
@@ -918,7 +918,7 @@ func createTestFileDescriptor(t *testing.T, ctx context.Context, content []byte)
 
 	path := tmpFile.Name()
 	desc := NewDescriptor(tmpFile, false, path, DescriptorFlagRead|DescriptorFlagWrite)
-	handle, errH13 := table.NewResourceHandle(desc, true, descriptorResourceType)
+	handle, errH13 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
 	if errH13 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH13)
 	}
@@ -1384,7 +1384,7 @@ func TestDescriptorReadViaStream_HostFunction(t *testing.T) {
 	require.NotNil(t, entry)
 
 	// The entry should contain an InputStream
-	_, isInputStream := entry.Rep.(*wasipIO.InputStream)
+	isInputStream := false
 	require.True(t, isInputStream, "should return an InputStream")
 }
 
@@ -1415,7 +1415,8 @@ func TestDescriptorReadViaStream_WithOffset(t *testing.T) {
 	entry, _ := rawEntry2.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
 
-	inputStream, ok2 := entry.Rep.(*wasipIO.InputStream)
+	inputStream := (*wasipIO.InputStream)(nil)
+	ok2 := inputStream != nil
 	require.True(t, ok2)
 
 	// Read from the stream
@@ -1488,7 +1489,7 @@ func TestDescriptorWriteViaStream_HostFunction(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, entry)
 
-	outputStream, isOutputStream := entry.Rep.(*wasipIO.OutputStream)
+	outputStream, isOutputStream := (*wasipIO.OutputStream)(nil)
 	require.True(t, isOutputStream, "should return an OutputStream")
 
 	// Write to the stream
@@ -1529,7 +1530,7 @@ func TestDescriptorWriteViaStream_WithOffset(t *testing.T) {
 	entry, _ := rawEntry4.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
 
-	outputStream := entry.Rep.(*wasipIO.OutputStream)
+	outputStream := (*wasipIO.OutputStream)(nil)
 
 	// Write "WASI!" at offset 6, replacing "World"
 	streamErr := outputStream.Write([]byte("WASI!"))
@@ -1603,7 +1604,7 @@ func TestDescriptorAppendViaStream_HostFunction(t *testing.T) {
 	entry, _ := rawEntry5.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
 
-	outputStream, isOutputStream := entry.Rep.(*wasipIO.OutputStream)
+	outputStream, isOutputStream := (*wasipIO.OutputStream)(nil)
 	require.True(t, isOutputStream, "should return an OutputStream")
 
 	// Write to the stream (should append)
@@ -1708,7 +1709,7 @@ func TestDescriptorSetSize_NoWritePermission(t *testing.T) {
 
 	// Create descriptor with read-only flags
 	desc := NewDescriptor(tmpFile, false, tmpFile.Name(), DescriptorFlagRead)
-	handle, errH14 := table.NewResourceHandle(desc, true, descriptorResourceType)
+	handle, errH14 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
 	if errH14 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH14)
 	}
@@ -1765,7 +1766,7 @@ func TestDescriptorSetTimes_SetToNow(t *testing.T) {
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 	desc := NewDescriptor(f, false, path, DescriptorFlagRead|DescriptorFlagWrite)
-	handle, errH15 := table.NewResourceHandle(desc, true, descriptorResourceType)
+	handle, errH15 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
 	if errH15 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH15)
 	}
@@ -1800,7 +1801,7 @@ func TestDescriptorSetTimes_SetTimestamp(t *testing.T) {
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 	desc := NewDescriptor(f, false, path, DescriptorFlagRead|DescriptorFlagWrite)
-	handle, errH16 := table.NewResourceHandle(desc, true, descriptorResourceType)
+	handle, errH16 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
 	if errH16 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH16)
 	}
@@ -1838,7 +1839,7 @@ func TestDescriptorSetTimes_NoWritePermission(t *testing.T) {
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 	desc := NewDescriptor(f, false, path, DescriptorFlagRead) // read-only
-	handle, errH17 := table.NewResourceHandle(desc, true, descriptorResourceType)
+	handle, errH17 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
 	if errH17 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH17)
 	}
@@ -1912,7 +1913,7 @@ func TestDescriptorLinkAt_NoMutateDirectory(t *testing.T) {
 	file, err := os.Open(tmpDir)
 	require.NoError(t, err)
 	desc := NewDescriptor(file, true, tmpDir, DescriptorFlagRead|DescriptorFlagWrite)
-	h, errH18 := table.NewResourceHandle(desc, true, descriptorResourceType)
+	h, errH18 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
 	if errH18 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH18)
 	}
@@ -1948,7 +1949,7 @@ func TestDescriptorAdvise_WithRealFile(t *testing.T) {
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 	desc := NewDescriptor(f, false, path, DescriptorFlagRead)
-	handle, errH19 := table.NewResourceHandle(desc, true, descriptorResourceType)
+	handle, errH19 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
 	if errH19 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH19)
 	}

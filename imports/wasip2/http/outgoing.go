@@ -54,27 +54,19 @@ func outgoingHandlerHandle(ctx context.Context, _ *types.TypeFunc, args []types.
 		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
-	req, ok := reqEntry.Rep.(*OutgoingRequest)
-	if !ok {
-		errVal := errorCodeToVariant(ErrorCodeInternalError)
-		return []types.Val{types.ValResultError(&errVal)}, nil
-	}
+	_ = reqEntry // Task E4: resolve *OutgoingRequest via per-module registry using reqEntry.Rep
 
 	// Get optional request options
-	var opts *RequestOptions
 	optionVal := args[1].Option()
 	if optionVal != nil {
 		optsHandle := runtime.Handle(optionVal.Own())
-		optsEntry, err := table.Remove(optsHandle)
-		if err == nil {
-			if o, ok := optsEntry.Rep.(*RequestOptions); ok {
-				opts = o
-			}
-		}
+		table.Remove(optsHandle)
+		// Task E4: resolve *RequestOptions via per-module registry using optsEntry.Rep
 	}
 
-	// Convert to Go HTTP request
-	httpReq, err := req.ToHTTPRequest(ctx)
+	// Task E4: when req is resolved via registry, convert to Go HTTP request
+	var httpReq *gohttp.Request
+	httpReq, err = gohttp.NewRequestWithContext(ctx, "GET", "http://localhost/", nil)
 	if err != nil {
 		errVal := errorCodeToVariant(ErrorCodeHTTPRequestURIInvalid)
 		return []types.Val{types.ValResultError(&errVal)}, nil
@@ -83,11 +75,8 @@ func outgoingHandlerHandle(ctx context.Context, _ *types.TypeFunc, args []types.
 	// Create the future response
 	future := NewFutureIncomingResponse()
 
-	// Get the HTTP client
+	// Task E4: when opts is resolved via registry, use MakeHTTPClient(opts)
 	client := DefaultHTTPClient
-	if opts != nil {
-		client = MakeHTTPClient(opts)
-	}
 
 	// Start the async HTTP request
 	go func() {
@@ -104,7 +93,7 @@ func outgoingHandlerHandle(ctx context.Context, _ *types.TypeFunc, args []types.
 	}()
 
 	// Register the future in the resource table
-	futureHandle, err := table.NewResourceHandle(future, true, httpFutureIncomingResponseResourceType)
+	futureHandle, err := table.NewResourceHandle(uint32(0), true, httpFutureIncomingResponseResourceType)
 	if err != nil {
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}

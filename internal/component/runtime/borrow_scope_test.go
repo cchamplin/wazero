@@ -10,9 +10,9 @@ import (
 
 func TestBorrowScope_TrackLenders(t *testing.T) {
 	table := NewTable()
-	h1, err := table.NewResourceHandle("resource1", true, nil)
+	h1, err := table.NewResourceHandle(uint32(1), true, nil)
 	require.NoError(t, err)
-	h2, err := table.NewResourceHandle("resource2", true, nil)
+	h2, err := table.NewResourceHandle(uint32(2), true, nil)
 	require.NoError(t, err)
 
 	scope := NewBorrowScope(table)
@@ -38,7 +38,7 @@ func TestBorrowScope_TrackLenders(t *testing.T) {
 
 func TestBorrowScope_SameLenderMultipleTimes(t *testing.T) {
 	table := NewTable()
-	h, err := table.NewResourceHandle("resource", true, nil)
+	h, err := table.NewResourceHandle(uint32(3), true, nil)
 	require.NoError(t, err)
 
 	scope := NewBorrowScope(table)

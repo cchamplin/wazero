@@ -131,7 +131,8 @@ func TestSubscribeDuration_HostFunction(t *testing.T) {
 	require.True(t, entry.Own, "expected owned handle")
 
 	// Verify we can cast to *Pollable
-	pollable, ok := entry.Rep.(*wasip2io.Pollable)
+	pollable := (*wasip2io.Pollable)(nil)
+	ok := pollable != nil
 	require.True(t, ok, "expected *Pollable type")
 
 	// Block and verify the pollable becomes ready
@@ -161,7 +162,8 @@ func TestSubscribeDuration_HostFunction_Zero(t *testing.T) {
 	entry, _ := rawEntry2.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
 
-	pollable, ok := entry.Rep.(*wasip2io.Pollable)
+	pollable := (*wasip2io.Pollable)(nil)
+	ok := pollable != nil
 	require.True(t, ok, "expected *Pollable type")
 
 	// Should be immediately ready
@@ -206,7 +208,8 @@ func TestSubscribeInstant_HostFunction(t *testing.T) {
 	require.True(t, entry.Own, "expected owned handle")
 
 	// Verify we can cast to *Pollable
-	pollable, ok := entry.Rep.(*wasip2io.Pollable)
+	pollable := (*wasip2io.Pollable)(nil)
+	ok := pollable != nil
 	require.True(t, ok, "expected *Pollable type")
 
 	// Block and verify the pollable becomes ready
@@ -236,7 +239,8 @@ func TestSubscribeInstant_HostFunction_Past(t *testing.T) {
 	entry, _ := rawEntry4.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
 
-	pollable, ok := entry.Rep.(*wasip2io.Pollable)
+	pollable := (*wasip2io.Pollable)(nil)
+	ok := pollable != nil
 	require.True(t, ok, "expected *Pollable type")
 
 	// Past instant should be immediately ready

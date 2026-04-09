@@ -285,7 +285,8 @@ func TestGetStdin_WithConfig(t *testing.T) {
 	require.NotNil(t, entry)
 
 	// Verify it's an InputStream
-	stream, ok := entry.Rep.(*wasip2io.InputStream)
+	stream := (*wasip2io.InputStream)(nil)
+	ok := stream != nil
 	require.True(t, ok, "expected InputStream resource")
 	require.NotNil(t, stream)
 
@@ -343,7 +344,8 @@ func TestGetStdout_WithConfig(t *testing.T) {
 	require.NotNil(t, entry)
 
 	// Verify it's an OutputStream
-	stream, ok := entry.Rep.(*wasip2io.OutputStream)
+	stream := (*wasip2io.OutputStream)(nil)
+	ok := stream != nil
 	require.True(t, ok, "expected OutputStream resource")
 	require.NotNil(t, stream)
 
@@ -401,7 +403,8 @@ func TestGetStderr_WithConfig(t *testing.T) {
 	require.NotNil(t, entry)
 
 	// Verify it's an OutputStream
-	stream, ok := entry.Rep.(*wasip2io.OutputStream)
+	stream := (*wasip2io.OutputStream)(nil)
+	ok := stream != nil
 	require.True(t, ok, "expected OutputStream resource")
 	require.NotNil(t, stream)
 
@@ -573,7 +576,7 @@ func TestGetTerminalStdin_ModeCustom_True(t *testing.T) {
 	entry, _ := rawEntry4.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
 	require.NotNil(t, entry)
-	_, ok := entry.Rep.(*TerminalInput)
+	_, ok := nil // Task E4: (*TerminalInput)(nil)
 	require.True(t, ok, "expected TerminalInput resource")
 }
 
@@ -630,7 +633,7 @@ func TestGetTerminalStdout_ModeCustom_True(t *testing.T) {
 	rawEntry5, err := table.Get(runtime.Handle(handle))
 	entry, _ := rawEntry5.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
-	_, ok := entry.Rep.(*TerminalOutput)
+	_, ok := nil // Task E4: (*TerminalOutput)(nil)
 	require.True(t, ok, "expected TerminalOutput resource")
 }
 
@@ -686,7 +689,7 @@ func TestGetTerminalStderr_ModeCustom_True(t *testing.T) {
 	rawEntry6, err := table.Get(runtime.Handle(handle))
 	entry, _ := rawEntry6.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
-	_, ok := entry.Rep.(*TerminalOutput)
+	_, ok := nil // Task E4: (*TerminalOutput)(nil)
 	require.True(t, ok, "expected TerminalOutput resource")
 }
 

@@ -328,7 +328,7 @@ func streamErrorToResultVal(ctx context.Context, err *StreamError) types.Val {
 	table := component.ResourceTableFromContext(ctx)
 	if table != nil && err.Error() != nil {
 		// Create an Error resource in the table
-		handle, hErr := table.NewResourceHandle(err.Error(), true, errorResourceType)
+		handle, hErr := table.NewResourceHandle(uint32(0), true, errorResourceType) // Task E4: wire error via per-module registry
 		if hErr != nil {
 			closedVariant := types.ValVariant("closed", nil)
 			return types.ValResultError(&closedVariant)
@@ -356,11 +356,8 @@ func getInputStream(ctx context.Context, handle uint32) (*InputStream, error) {
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
 	}
-	stream, ok := resEntry.Rep.(*InputStream)
-	if !ok {
-		return nil, fmt.Errorf("handle %d is not an InputStream", handle)
-	}
-	return stream, nil
+	_ = resEntry // Task E4: resolve *InputStream via per-module registry using resEntry.Rep
+	return nil, fmt.Errorf("handle %d: InputStream registry not yet wired (Task E4)", handle)
 }
 
 // getOutputStream retrieves an OutputStream from the ResourceTable using a borrow handle.
@@ -377,11 +374,8 @@ func getOutputStream(ctx context.Context, handle uint32) (*OutputStream, error) 
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
 	}
-	stream, ok := resEntry.Rep.(*OutputStream)
-	if !ok {
-		return nil, fmt.Errorf("handle %d is not an OutputStream", handle)
-	}
-	return stream, nil
+	_ = resEntry // Task E4: resolve *OutputStream via per-module registry using resEntry.Rep
+	return nil, fmt.Errorf("handle %d: OutputStream registry not yet wired (Task E4)", handle)
 }
 
 // createPollableHandle creates a new Pollable resource in the table and returns its handle.
@@ -391,7 +385,7 @@ func createPollableHandle(ctx context.Context, pollable *Pollable) types.Val {
 		// No table, return placeholder handle 0
 		return types.ValOwn(0)
 	}
-	handle, err := table.NewResourceHandle(pollable, true, pollableResourceType)
+	handle, err := table.NewResourceHandle(uint32(0), true, pollableResourceType) // Task E4: wire pollable via per-module registry
 	if err != nil {
 		return types.ValOwn(0)
 	}

@@ -84,7 +84,7 @@ func TestCallContext_ExitCall_UndoesLends(t *testing.T) {
 	table := NewTable()
 
 	// Create a resource
-	h, err := table.NewResourceHandle("resource", true, nil)
+	h, err := table.NewResourceHandle(uint32(10), true, nil)
 	require.NoError(t, err)
 
 	// Simulate lift_borrow: increment lends on the source handle

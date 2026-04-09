@@ -554,7 +554,7 @@ func TestInputStreamRead_HostFunction(t *testing.T) {
 	// Create input stream and add to table
 	reader := bytes.NewReader([]byte("hello world"))
 	stream := NewInputStream(reader)
-	handle, errH1 := table.NewResourceHandle(stream, true, inputStreamResourceType)
+	handle, errH1 := table.NewResourceHandle(uint32(0), true, inputStreamResourceType)
 	if errH1 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH1)
 	}
@@ -591,7 +591,7 @@ func TestInputStreamRead_ClosedStream(t *testing.T) {
 	reader := bytes.NewReader([]byte("hello"))
 	stream := NewInputStream(reader)
 	stream.Close()
-	handle, errH2 := table.NewResourceHandle(stream, true, inputStreamResourceType)
+	handle, errH2 := table.NewResourceHandle(uint32(0), true, inputStreamResourceType)
 	if errH2 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH2)
 	}
@@ -615,7 +615,7 @@ func TestInputStreamSkip_HostFunction(t *testing.T) {
 
 	reader := bytes.NewReader([]byte("hello world"))
 	stream := NewInputStream(reader)
-	handle, errH3 := table.NewResourceHandle(stream, true, inputStreamResourceType)
+	handle, errH3 := table.NewResourceHandle(uint32(0), true, inputStreamResourceType)
 	if errH3 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH3)
 	}
@@ -640,7 +640,7 @@ func TestInputStreamSubscribe_HostFunction(t *testing.T) {
 
 	reader := bytes.NewReader([]byte("test"))
 	stream := NewInputStream(reader)
-	handle, errH4 := table.NewResourceHandle(stream, true, inputStreamResourceType)
+	handle, errH4 := table.NewResourceHandle(uint32(0), true, inputStreamResourceType)
 	if errH4 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH4)
 	}
@@ -664,7 +664,7 @@ func TestOutputStreamCheckWrite_HostFunction(t *testing.T) {
 
 	buf := &bytes.Buffer{}
 	stream := NewOutputStream(buf)
-	handle, errH5 := table.NewResourceHandle(stream, true, inputStreamResourceType)
+	handle, errH5 := table.NewResourceHandle(uint32(0), true, inputStreamResourceType)
 	if errH5 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH5)
 	}
@@ -688,7 +688,7 @@ func TestOutputStreamWrite_HostFunction(t *testing.T) {
 
 	buf := &bytes.Buffer{}
 	stream := NewOutputStream(buf)
-	handle, errH6 := table.NewResourceHandle(stream, true, inputStreamResourceType)
+	handle, errH6 := table.NewResourceHandle(uint32(0), true, inputStreamResourceType)
 	if errH6 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH6)
 	}
@@ -721,7 +721,7 @@ func TestOutputStreamFlush_HostFunction(t *testing.T) {
 
 	buf := &flushableWriter{}
 	stream := NewOutputStream(buf)
-	handle, errH7 := table.NewResourceHandle(stream, true, inputStreamResourceType)
+	handle, errH7 := table.NewResourceHandle(uint32(0), true, inputStreamResourceType)
 	if errH7 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH7)
 	}
@@ -744,7 +744,7 @@ func TestOutputStreamWriteZeroes_HostFunction(t *testing.T) {
 
 	buf := &bytes.Buffer{}
 	stream := NewOutputStream(buf)
-	handle, errH8 := table.NewResourceHandle(stream, true, inputStreamResourceType)
+	handle, errH8 := table.NewResourceHandle(uint32(0), true, inputStreamResourceType)
 	if errH8 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH8)
 	}
@@ -772,14 +772,14 @@ func TestOutputStreamSplice_HostFunction(t *testing.T) {
 
 	srcReader := bytes.NewReader([]byte("source data"))
 	srcStream := NewInputStream(srcReader)
-	srcHandle, errH9 := table.NewResourceHandle(srcStream, true, inputStreamResourceType)
+	srcHandle, errH9 := table.NewResourceHandle(uint32(0), true, inputStreamResourceType)
 	if errH9 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH9)
 	}
 
 	dstBuf := &bytes.Buffer{}
 	dstStream := NewOutputStream(dstBuf)
-	dstHandle, errH10 := table.NewResourceHandle(dstStream, true, inputStreamResourceType)
+	dstHandle, errH10 := table.NewResourceHandle(uint32(0), true, inputStreamResourceType)
 	if errH10 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH10)
 	}
@@ -806,7 +806,7 @@ func TestOutputStreamSubscribe_HostFunction(t *testing.T) {
 
 	buf := &bytes.Buffer{}
 	stream := NewOutputStream(buf)
-	handle, errH11 := table.NewResourceHandle(stream, true, inputStreamResourceType)
+	handle, errH11 := table.NewResourceHandle(uint32(0), true, inputStreamResourceType)
 	if errH11 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH11)
 	}
@@ -856,7 +856,7 @@ func TestHostFunction_WrongResourceType(t *testing.T) {
 	// Create an OutputStream but try to use it as InputStream
 	buf := &bytes.Buffer{}
 	stream := NewOutputStream(buf)
-	handle, errH12 := table.NewResourceHandle(stream, true, inputStreamResourceType)
+	handle, errH12 := table.NewResourceHandle(uint32(0), true, inputStreamResourceType)
 	if errH12 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH12)
 	}

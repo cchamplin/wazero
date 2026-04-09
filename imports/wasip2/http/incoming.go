@@ -65,14 +65,14 @@ func NewHTTPHandler(callHandle func(ctx context.Context, requestHandle, outparam
 		// r.Body is always non-nil for server requests; it returns EOF when
 		// there is no body.
 		req.SetBody(NewIncomingBodyFromReader(r.Body))
-		requestHandle, err := table.NewResourceHandle(req, true, httpIncomingRequestResourceType)
+		requestHandle, err := table.NewResourceHandle(uint32(0), true, httpIncomingRequestResourceType)
 		if err != nil {
 			panic(fmt.Errorf("create resource handle: %w", err))
 		}
 
 		// Create response outparam with channel
 		outparam := NewResponseOutparam()
-		outparamHandle, err := table.NewResourceHandle(outparam, true, httpOutgoingResponseResourceType)
+		outparamHandle, err := table.NewResourceHandle(uint32(0), true, httpOutgoingResponseResourceType)
 		if err != nil {
 			panic(fmt.Errorf("create resource handle: %w", err))
 		}
@@ -81,10 +81,8 @@ func NewHTTPHandler(callHandle func(ctx context.Context, requestHandle, outparam
 		// no-op if the component already consumed the handle.
 		defer func() {
 			_, _ = table.Remove(requestHandle)
-			if entry, err := table.Remove(outparamHandle); err == nil {
-				if op, ok := entry.Rep.(*ResponseOutparam); ok {
-					op.Destroy()
-				}
+			if _, err := table.Remove(outparamHandle); err == nil {
+				// Task E4: resolve *ResponseOutparam via per-module registry and call Destroy()
 			}
 		}()
 

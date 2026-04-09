@@ -151,11 +151,8 @@ func getPollable(ctx context.Context, handle uint32) (*Pollable, error) {
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
 	}
-	pollable, ok := resEntry.Rep.(*Pollable)
-	if !ok {
-		return nil, fmt.Errorf("handle %d is not a Pollable", handle)
-	}
-	return pollable, nil
+	_ = resEntry // Task E4: resolve *Pollable via per-module registry using resEntry.Rep
+	return nil, fmt.Errorf("handle %d: Pollable registry not yet wired (Task E4)", handle)
 }
 
 func instantiatePoll(linker *component.Linker) error {

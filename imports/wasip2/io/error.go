@@ -152,14 +152,6 @@ func errorToDebugString(ctx context.Context, _ *types.TypeFunc, args []types.Val
 	if !ok {
 		return []types.Val{types.ValString("not a resource handle")}, nil
 	}
-	wasiErr, ok := resEntry.Rep.(*Error)
-	if !ok {
-		// Try to handle as generic error
-		if genericErr, ok := resEntry.Rep.(error); ok {
-			return []types.Val{types.ValString(genericErr.Error())}, nil
-		}
-		return []types.Val{types.ValString("not an error resource")}, nil
-	}
-
-	return []types.Val{types.ValString(wasiErr.ToDebugString())}, nil
+	_ = resEntry // Task E4: resolve *Error via per-module registry using resEntry.Rep
+	return []types.Val{types.ValString("error resource registry not yet wired (Task E4)")}, nil
 }

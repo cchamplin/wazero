@@ -45,11 +45,8 @@ func getDescriptor(ctx context.Context, handle uint32) (*Descriptor, error) {
 	if !ok {
 		return nil, errors.New("handle is not a resource handle")
 	}
-	desc, ok := resEntry.Rep.(*Descriptor)
-	if !ok {
-		return nil, errors.New("handle is not a Descriptor")
-	}
-	return desc, nil
+	_ = resEntry // Task E4: resolve *Descriptor via per-module registry using resEntry.Rep
+	return nil, errors.New("Descriptor registry not yet wired (Task E4)")
 }
 
 // getDirEntryStream retrieves a DirectoryEntryStream from the ResourceTable using a handle.
@@ -66,11 +63,8 @@ func getDirEntryStream(ctx context.Context, handle uint32) (*DirectoryEntryStrea
 	if !ok {
 		return nil, errors.New("handle is not a resource handle")
 	}
-	stream, ok := resEntry.Rep.(*DirectoryEntryStream)
-	if !ok {
-		return nil, errors.New("handle is not a DirectoryEntryStream")
-	}
-	return stream, nil
+	_ = resEntry // Task E4: resolve *DirectoryEntryStream via per-module registry using resEntry.Rep
+	return nil, errors.New("DirectoryEntryStream registry not yet wired (Task E4)")
 }
 
 // FilesystemError wraps an ErrorCode so it can be stored in io.Error and extracted later.
@@ -257,9 +251,10 @@ func descriptorReadViaStream(ctx context.Context, _ *types.TypeFunc, args []type
 
 	// Create an input stream from the file
 	inputStream := wasipIO.NewInputStream(file)
+	_ = inputStream // Task E4: will wire via per-module registry
 
 	// Add the stream to the resource table
-	streamHandle, hErr := table.NewResourceHandle(inputStream, true, fsInputStreamResourceType)
+	streamHandle, hErr := table.NewResourceHandle(uint32(0), true, fsInputStreamResourceType)
 	if hErr != nil {
 		file.Close()
 		return errorResult(ErrorCodeIO), nil
@@ -311,9 +306,10 @@ func descriptorWriteViaStream(ctx context.Context, _ *types.TypeFunc, args []typ
 
 	// Create an output stream from the file
 	outputStream := wasipIO.NewOutputStream(file)
+	_ = outputStream // Task E4: will wire via per-module registry
 
 	// Add the stream to the resource table
-	streamHandle, hErr := table.NewResourceHandle(outputStream, true, fsOutputStreamResourceType)
+	streamHandle, hErr := table.NewResourceHandle(uint32(0), true, fsOutputStreamResourceType)
 	if hErr != nil {
 		file.Close()
 		return errorResult(ErrorCodeIO), nil
@@ -355,9 +351,10 @@ func descriptorAppendViaStream(ctx context.Context, _ *types.TypeFunc, args []ty
 
 	// Create an output stream from the file
 	outputStream := wasipIO.NewOutputStream(file)
+	_ = outputStream // Task E4: will wire via per-module registry
 
 	// Add the stream to the resource table
-	streamHandle, hErr := table.NewResourceHandle(outputStream, true, fsOutputStreamResourceType)
+	streamHandle, hErr := table.NewResourceHandle(uint32(0), true, fsOutputStreamResourceType)
 	if hErr != nil {
 		file.Close()
 		return errorResult(ErrorCodeIO), nil
@@ -655,6 +652,7 @@ func descriptorReadDirectory(ctx context.Context, _ *types.TypeFunc, args []type
 
 	// Create directory entry stream
 	stream := NewDirectoryEntryStream(dirEntries)
+	_ = stream // Task E4: will wire via per-module registry
 
 	// Add to resource table
 	table := component.ResourceTableFromContext(ctx)
@@ -662,7 +660,7 @@ func descriptorReadDirectory(ctx context.Context, _ *types.TypeFunc, args []type
 		return errorResult(ErrorCodeIO), nil
 	}
 
-	newHandle, hErr := table.NewResourceHandle(stream, true, dirEntryStreamResourceType)
+	newHandle, hErr := table.NewResourceHandle(uint32(0), true, dirEntryStreamResourceType)
 	if hErr != nil {
 		return errorResult(ErrorCodeIO), nil
 	}
@@ -1024,6 +1022,7 @@ func descriptorOpenAt(ctx context.Context, _ *types.TypeFunc, args []types.Val) 
 
 	// Create new descriptor
 	newDesc := NewDescriptor(file, fileInfo.IsDir(), cleanPath, newDescFlags)
+	_ = newDesc // Task E4: will wire via per-module registry
 
 	// Add to resource table
 	table := component.ResourceTableFromContext(ctx)
@@ -1032,7 +1031,7 @@ func descriptorOpenAt(ctx context.Context, _ *types.TypeFunc, args []types.Val) 
 		return errorResult(ErrorCodeIO), nil
 	}
 
-	newHandle, hErr := table.NewResourceHandle(newDesc, true, descriptorResourceType)
+	newHandle, hErr := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
 	if hErr != nil {
 		file.Close()
 		return errorResult(ErrorCodeIO), nil
@@ -1375,18 +1374,7 @@ func filesystemErrorCode(ctx context.Context, _ *types.TypeFunc, args []types.Va
 	if !ok {
 		return []types.Val{types.ValOption(nil)}, nil
 	}
-	ioErr, ok := resEntry.Rep.(*wasipIO.Error)
-	if !ok {
-		return []types.Val{types.ValOption(nil)}, nil
-	}
-
-	// Unwrap the Go error and check if it's a FilesystemError
-	var fsErr *FilesystemError
-	if errors.As(ioErr.Unwrap(), &fsErr) {
-		codeVal := types.ValEnum(string(fsErr.Code))
-		return []types.Val{types.ValOption(&codeVal)}, nil
-	}
-
+	_ = resEntry // Task E4: resolve *wasipIO.Error via per-module registry using resEntry.Rep
 	return []types.Val{types.ValOption(nil)}, nil
 }
 

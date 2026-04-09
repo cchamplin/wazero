@@ -260,7 +260,7 @@ func TestPostReturn_IntegrationWithResourceTable(t *testing.T) {
 	// NewResourceHandle(rep, own, rt) instead of the deleted
 	// Table.New helper; rt can be nil when no concrete ResourceType
 	// identity check is needed.
-	handle, err := table.NewResourceHandle("my-resource-data", true, nil)
+	handle, err := table.NewResourceHandle(uint32(77), true, nil)
 	require.NoError(t, err)
 
 	// Create a borrow scope for tracking lends.
@@ -297,7 +297,7 @@ func TestPostReturn_IntegrationWithResourceTable(t *testing.T) {
 	// Resource can now be dropped.
 	entry, err = table.Remove(handle)
 	require.NoError(t, err)
-	require.Equal(t, "my-resource-data", entry.Rep)
+	require.Equal(t, uint32(77), entry.Rep)
 }
 
 // TestPostReturn_NestedCalls asserts that nested calls have

@@ -111,7 +111,7 @@ func TestPollableReady_HostFunction(t *testing.T) {
 
 	// Create a pollable that is ready
 	pollable := NewReadyPollable()
-	handle, errHandle113 := table.NewResourceHandle(pollable, true, pollableResourceType)
+	handle, errHandle113 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
 	if errHandle113 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle113)
 	}
@@ -131,7 +131,7 @@ func TestPollableReady_HostFunction_NotReady(t *testing.T) {
 
 	// Create a pollable that is not ready
 	pollable := NewPollable(func() bool { return false }, nil)
-	handle, errHandle130 := table.NewResourceHandle(pollable, true, pollableResourceType)
+	handle, errHandle130 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
 	if errHandle130 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle130)
 	}
@@ -173,7 +173,7 @@ func TestPollableReady_HostFunction_WrongType(t *testing.T) {
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Add something that's not a Pollable
-	handle, errHandle := table.NewResourceHandle("not a pollable", true, pollableResourceType)
+	handle, errHandle := table.NewResourceHandle(uint32(0), true, pollableResourceType)
 	if errHandle != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle)
 	}
@@ -196,7 +196,7 @@ func TestPollableBlock_HostFunction(t *testing.T) {
 		func() bool { return blocked },
 		func() { blocked = true },
 	)
-	handle, errHandle189 := table.NewResourceHandle(pollable, true, pollableResourceType)
+	handle, errHandle189 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
 	if errHandle189 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle189)
 	}
@@ -221,7 +221,7 @@ func TestPollableBlock_HostFunction_NilBlockFn(t *testing.T) {
 
 	// Create a pollable with no block function
 	pollable := NewReadyPollable()
-	handle, errHandle211 := table.NewResourceHandle(pollable, true, pollableResourceType)
+	handle, errHandle211 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
 	if errHandle211 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle211)
 	}
@@ -255,15 +255,15 @@ func TestPoll_AllReady(t *testing.T) {
 	p1 := NewReadyPollable()
 	p2 := NewReadyPollable()
 	p3 := NewReadyPollable()
-	h1, errHandle242 := table.NewResourceHandle(p1, true, pollableResourceType)
+	h1, errHandle242 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
 	if errHandle242 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle242)
 	}
-	h2, errHandle243 := table.NewResourceHandle(p2, true, pollableResourceType)
+	h2, errHandle243 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
 	if errHandle243 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle243)
 	}
-	h3, errHandle244 := table.NewResourceHandle(p3, true, pollableResourceType)
+	h3, errHandle244 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
 	if errHandle244 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle244)
 	}
@@ -295,15 +295,15 @@ func TestPoll_SomeReady(t *testing.T) {
 	p1 := NewReadyPollable()
 	p2 := NewPollable(func() bool { return false }, nil)
 	p3 := NewReadyPollable()
-	h1, errHandle273 := table.NewResourceHandle(p1, true, pollableResourceType)
+	h1, errHandle273 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
 	if errHandle273 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle273)
 	}
-	h2, errHandle274 := table.NewResourceHandle(p2, true, pollableResourceType)
+	h2, errHandle274 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
 	if errHandle274 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle274)
 	}
-	h3, errHandle275 := table.NewResourceHandle(p3, true, pollableResourceType)
+	h3, errHandle275 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
 	if errHandle275 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle275)
 	}
@@ -336,7 +336,7 @@ func TestPoll_NoneReady_WithBlock(t *testing.T) {
 		func() bool { return ready },
 		func() { ready = true },
 	)
-	h1, errHandle305 := table.NewResourceHandle(p1, true, pollableResourceType)
+	h1, errHandle305 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
 	if errHandle305 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle305)
 	}
@@ -364,7 +364,7 @@ func TestPoll_NoneReady_NoBlockFn(t *testing.T) {
 	// This is an edge case - in practice, pollables should either be ready
 	// or have a way to become ready via blocking
 	p1 := NewPollable(func() bool { return false }, nil)
-	h1, errHandle330 := table.NewResourceHandle(p1, true, pollableResourceType)
+	h1, errHandle330 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
 	if errHandle330 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle330)
 	}
@@ -434,7 +434,7 @@ func TestPoll_BlockConcurrent(t *testing.T) {
 			mu.Unlock()
 		},
 	)
-	h1, errHandle397 := table.NewResourceHandle(p1, true, pollableResourceType)
+	h1, errHandle397 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
 	if errHandle397 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle397)
 	}
@@ -465,7 +465,7 @@ func TestGetPollable(t *testing.T) {
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	pollable := NewReadyPollable()
-	handle, errHandle425 := table.NewResourceHandle(pollable, true, pollableResourceType)
+	handle, errHandle425 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
 	if errHandle425 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle425)
 	}
@@ -496,7 +496,7 @@ func TestGetPollable_WrongType(t *testing.T) {
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
-	handle, errHandle := table.NewResourceHandle("not a pollable", true, pollableResourceType)
+	handle, errHandle := table.NewResourceHandle(uint32(0), true, pollableResourceType)
 	if errHandle != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle)
 	}
@@ -564,15 +564,15 @@ func TestPoll_MultiplePollables_FastOneReturnsFirst(t *testing.T) {
 		},
 	)
 
-	h1, errHandle518 := table.NewResourceHandle(p1, true, pollableResourceType)
+	h1, errHandle518 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
 	if errHandle518 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle518)
 	}
-	h2, errHandle519 := table.NewResourceHandle(p2, true, pollableResourceType)
+	h2, errHandle519 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
 	if errHandle519 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle519)
 	}
-	h3, errHandle520 := table.NewResourceHandle(p3, true, pollableResourceType)
+	h3, errHandle520 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
 	if errHandle520 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle520)
 	}
@@ -640,15 +640,15 @@ func TestPoll_MultiplePollables_AllReadyAtOnce(t *testing.T) {
 	p2 := makePollable()
 	p3 := makePollable()
 
-	h1, errHandle585 := table.NewResourceHandle(p1, true, pollableResourceType)
+	h1, errHandle585 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
 	if errHandle585 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle585)
 	}
-	h2, errHandle586 := table.NewResourceHandle(p2, true, pollableResourceType)
+	h2, errHandle586 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
 	if errHandle586 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle586)
 	}
-	h3, errHandle587 := table.NewResourceHandle(p3, true, pollableResourceType)
+	h3, errHandle587 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
 	if errHandle587 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle587)
 	}
@@ -691,7 +691,7 @@ func TestPoll_ChannelBasedPollable(t *testing.T) {
 		},
 	)
 
-	h, errHandle627 := table.NewResourceHandle(p, true, pollableResourceType)
+	h, errHandle627 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
 	if errHandle627 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle627)
 	}

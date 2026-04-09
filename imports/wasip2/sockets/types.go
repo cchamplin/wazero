@@ -792,11 +792,8 @@ func getTcpSocket(ctx context.Context, handle uint32) (*TcpSocket, error) {
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
 	}
-	sock, ok := resEntry.Rep.(*TcpSocket)
-	if !ok {
-		return nil, fmt.Errorf("handle %d is not a TcpSocket", handle)
-	}
-	return sock, nil
+	_ = resEntry // Task E4: resolve *TcpSocket via per-module registry using resEntry.Rep
+	return nil, fmt.Errorf("handle %d: TcpSocket registry not yet wired (Task E4)", handle)
 }
 
 // getUdpSocket retrieves a UdpSocket from the ResourceTable using a borrow handle.
@@ -813,11 +810,8 @@ func getUdpSocket(ctx context.Context, handle uint32) (*UdpSocket, error) {
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
 	}
-	sock, ok := resEntry.Rep.(*UdpSocket)
-	if !ok {
-		return nil, fmt.Errorf("handle %d is not a UdpSocket", handle)
-	}
-	return sock, nil
+	_ = resEntry // Task E4: resolve *UdpSocket via per-module registry using resEntry.Rep
+	return nil, fmt.Errorf("handle %d: UdpSocket registry not yet wired (Task E4)", handle)
 }
 
 // getIncomingDatagramStream retrieves an IncomingDatagramStream from the ResourceTable.
@@ -834,11 +828,8 @@ func getIncomingDatagramStream(ctx context.Context, handle uint32) (*IncomingDat
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
 	}
-	stream, ok := resEntry.Rep.(*IncomingDatagramStream)
-	if !ok {
-		return nil, fmt.Errorf("handle %d is not an IncomingDatagramStream", handle)
-	}
-	return stream, nil
+	_ = resEntry // Task E4: resolve *IncomingDatagramStream via per-module registry using resEntry.Rep
+	return nil, fmt.Errorf("handle %d: IncomingDatagramStream registry not yet wired (Task E4)", handle)
 }
 
 // getOutgoingDatagramStream retrieves an OutgoingDatagramStream from the ResourceTable.
@@ -855,11 +846,8 @@ func getOutgoingDatagramStream(ctx context.Context, handle uint32) (*OutgoingDat
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
 	}
-	stream, ok := resEntry.Rep.(*OutgoingDatagramStream)
-	if !ok {
-		return nil, fmt.Errorf("handle %d is not an OutgoingDatagramStream", handle)
-	}
-	return stream, nil
+	_ = resEntry // Task E4: resolve *OutgoingDatagramStream via per-module registry using resEntry.Rep
+	return nil, fmt.Errorf("handle %d: OutgoingDatagramStream registry not yet wired (Task E4)", handle)
 }
 
 // parseAddressFamily parses an address family enum value.

@@ -88,6 +88,7 @@ func monotonicClockSubscribeInstant(ctx context.Context, _ *types.TypeFunc, args
 
 	// Create the pollable resource
 	pollable := wasip2io.NewPollable(readyFn, blockFn)
+	_ = pollable // Task E4: will wire via per-module registry
 
 	// Get the resource table from context
 	table := component.ResourceTableFromContext(ctx)
@@ -97,7 +98,7 @@ func monotonicClockSubscribeInstant(ctx context.Context, _ *types.TypeFunc, args
 	}
 
 	// Register the pollable in the resource table and return the handle
-	handle, hErr := table.NewResourceHandle(pollable, true, clocksPollableResourceType)
+	handle, hErr := table.NewResourceHandle(uint32(0), true, clocksPollableResourceType)
 	if hErr != nil {
 		return []types.Val{types.ValOwn(0)}, nil
 	}
@@ -113,6 +114,7 @@ func monotonicClockSubscribeDuration(ctx context.Context, _ *types.TypeFunc, arg
 
 	// Create the pollable resource
 	pollable := wasip2io.NewPollable(readyFn, blockFn)
+	_ = pollable // Task E4: will wire via per-module registry
 
 	// Get the resource table from context
 	table := component.ResourceTableFromContext(ctx)
@@ -122,7 +124,7 @@ func monotonicClockSubscribeDuration(ctx context.Context, _ *types.TypeFunc, arg
 	}
 
 	// Register the pollable in the resource table and return the handle
-	handle, hErr := table.NewResourceHandle(pollable, true, clocksPollableResourceType)
+	handle, hErr := table.NewResourceHandle(uint32(0), true, clocksPollableResourceType)
 	if hErr != nil {
 		return []types.Val{types.ValOwn(0)}, nil
 	}

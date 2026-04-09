@@ -11,7 +11,6 @@ import (
 	"net"
 	"strings"
 
-	wasipIO "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/component/types"
@@ -50,7 +49,8 @@ func instanceNetwork(ctx context.Context, _ *types.TypeFunc, args []types.Val) (
 	}
 
 	network := NewNetwork()
-	handle, hErr := table.NewResourceHandle(network, true, networkResourceType)
+	_ = network // Task E4: will wire via per-module registry
+	handle, hErr := table.NewResourceHandle(uint32(0), true, networkResourceType)
 	if hErr != nil {
 		return []types.Val{types.ValOwn(0)}, nil
 	}
@@ -107,7 +107,8 @@ func resolveAddresses(ctx context.Context, _ *types.TypeFunc, args []types.Val) 
 	if ip := net.ParseIP(name); ip != nil {
 		addr := netIPToIpAddress(ip)
 		stream := NewResolveAddressStream([]IpAddress{addr})
-		handle, hErr := table.NewResourceHandle(stream, true, resolveAddressStreamResourceType)
+		_ = stream // Task E4: will wire via per-module registry
+		handle, hErr := table.NewResourceHandle(uint32(0), true, resolveAddressStreamResourceType)
 		if hErr != nil {
 			errVal := types.ValEnum("invalid-argument")
 			return []types.Val{types.ValResultError(&errVal)}, nil
@@ -119,7 +120,7 @@ func resolveAddresses(ctx context.Context, _ *types.TypeFunc, args []types.Val) 
 	// Async DNS resolution with cancellable context
 	dnsCtx, cancel := context.WithCancel(context.Background())
 	stream := NewResolveAddressStreamAsync(cancel)
-	handle, hErr := table.NewResourceHandle(stream, true, resolveAddressStreamResourceType)
+	handle, hErr := table.NewResourceHandle(uint32(0), true, resolveAddressStreamResourceType)
 	if hErr != nil {
 		cancel()
 		errVal := types.ValEnum("invalid-argument")
@@ -167,31 +168,9 @@ func resolveNextAddress(ctx context.Context, _ *types.TypeFunc, args []types.Val
 		errVal := types.ValEnum("invalid-argument")
 		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
-	stream, ok := resEntry.Rep.(*ResolveAddressStream)
-	if !ok {
-		errVal := types.ValEnum("invalid-argument")
-		return []types.Val{types.ValResultError(&errVal)}, nil
-	}
-
-	if !stream.IsReady() {
-		errVal := types.ValEnum("would-block")
-		return []types.Val{types.ValResultError(&errVal)}, nil
-	}
-
-	addr, nextErr := stream.NextAddress()
-	if nextErr != nil {
-		errVal := types.ValEnum("name-unresolvable")
-		return []types.Val{types.ValResultError(&errVal)}, nil
-	}
-
-	if addr == nil {
-		none := types.ValOption(nil)
-		return []types.Val{types.ValResultOk(&none)}, nil
-	}
-
-	addrVal := ipAddressToVal(*addr)
-	opt := types.ValOption(&addrVal)
-	return []types.Val{types.ValResultOk(&opt)}, nil
+	_ = resEntry // Task E4: resolve *ResolveAddressStream via per-module registry using resEntry.Rep
+	errVal := types.ValEnum("invalid-argument")
+	return []types.Val{types.ValResultError(&errVal)}, nil
 }
 
 // resolveAddressStreamSubscribe returns a pollable for the stream.
@@ -213,16 +192,9 @@ func resolveAddressStreamSubscribe(ctx context.Context, _ *types.TypeFunc, args 
 	if !ok {
 		return []types.Val{types.ValOwn(0)}, nil
 	}
-	stream, ok := resEntry.Rep.(*ResolveAddressStream)
-	if !ok {
-		return []types.Val{types.ValOwn(0)}, nil
-	}
+	_ = resEntry // Task E4: resolve *ResolveAddressStream via per-module registry using resEntry.Rep
 
-	pollable := wasipIO.NewPollable(
-		func() bool { return stream.IsReady() },
-		func() { <-stream.done },
-	)
-	pollHandle, hErr := table.NewResourceHandle(pollable, true, socketsPollableResourceType)
+	pollHandle, hErr := table.NewResourceHandle(uint32(0), true, socketsPollableResourceType)
 	if hErr != nil {
 		return []types.Val{types.ValOwn(0)}, nil
 	}
@@ -248,17 +220,14 @@ func networkErrorCode(ctx context.Context, _ *types.TypeFunc, args []types.Val) 
 	if !ok {
 		return []types.Val{types.ValOption(nil)}, nil
 	}
-	ioErr, ok := resEntry.Rep.(*wasipIO.Error)
-	if !ok {
-		return []types.Val{types.ValOption(nil)}, nil
-	}
-
-	// Unwrap the Go error and check if it's a SocketError
-	var sockErr *SocketError
-	if errors.As(ioErr.Unwrap(), &sockErr) {
-		codeVal := types.ValEnum(string(sockErr.Code))
-		return []types.Val{types.ValOption(&codeVal)}, nil
-	}
-
+	_ = resEntry // Task E4: resolve *wasipIO.Error via per-module registry using resEntry.Rep
 	return []types.Val{types.ValOption(nil)}, nil
+}
+
+// networkErrorCodePlaceholder references errors.As and SocketError to
+// prevent unused-import errors until Task E4 wires the registry.
+var _ = func() {
+	var sockErr *SocketError
+	_ = errors.As(nil, &sockErr)
+	_ = types.ValEnum(string(sockErr.Code))
 }
