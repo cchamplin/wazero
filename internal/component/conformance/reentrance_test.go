@@ -8,6 +8,8 @@ import (
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
+// Spec: definitions.py:290-299 (call_might_be_recursive and the
+// reflexive-ancestor overlap check that gates reentrance).
 func TestInstance_CallDepthTracking(t *testing.T) {
 	inst := component.NewInstance(&component.Component{}, 0, nil)
 
@@ -26,6 +28,8 @@ func TestInstance_CallDepthTracking(t *testing.T) {
 	require.Equal(t, 0, inst.ActiveCallDepth())
 }
 
+// No counterpart (justified): nil-receiver safety is a Go-specific
+// defensive guard; the spec assumes non-nil instances.
 func TestInstance_CallDepthNilSafety(t *testing.T) {
 	var inst *component.Instance
 
@@ -37,6 +41,8 @@ func TestInstance_CallDepthNilSafety(t *testing.T) {
 	inst.ExitCall()
 }
 
+// No counterpart (justified): underflow guard is a Go-specific
+// defensive check; the spec assumes balanced enter/exit pairs.
 func TestInstance_CallDepthNoUnderflow(t *testing.T) {
 	inst := component.NewInstance(&component.Component{}, 0, nil)
 
@@ -50,6 +56,8 @@ func TestInstance_CallDepthNoUnderflow(t *testing.T) {
 	require.Equal(t, 0, inst.ActiveCallDepth(), "should still be 0")
 }
 
+// Spec: definitions.py:290-299 (call_might_be_recursive — reflexive-ancestor
+// overlap check for reentrance detection).
 func TestInstance_CallMightBeRecursive(t *testing.T) {
 	// Session 1 Task B4 corrective: CallMightBeRecursive implements the
 	// spec's structural reflexive-ancestor overlap check per
@@ -100,6 +108,8 @@ func TestInstance_CallMightBeRecursive(t *testing.T) {
 	})
 }
 
+// Spec: definitions.py:290-299 (call_might_be_recursive — ValidateNotRecursive
+// wraps the reflexive-ancestor overlap check).
 func TestInstance_ValidateNotRecursive(t *testing.T) {
 	inst := component.NewInstance(&component.Component{}, 1, nil)
 
@@ -149,6 +159,8 @@ func TestInstance_ValidateNotRecursive(t *testing.T) {
 	})
 }
 
+// Spec: definitions.py:290-299 (call_might_be_recursive requires knowing
+// the caller instance; these tests verify context-based caller tracking).
 func TestReentrance_CallerInstanceContext(t *testing.T) {
 	ctx := context.Background()
 
@@ -179,6 +191,8 @@ func TestReentrance_CallerInstanceContext(t *testing.T) {
 	})
 }
 
+// Spec: definitions.py:290-299 (deep call stacks exercise the reentrance
+// tracking infrastructure without exceeding stack limits).
 func TestReentrance_DeepCallStack(t *testing.T) {
 	inst := component.NewInstance(&component.Component{}, 0, nil)
 
@@ -195,6 +209,8 @@ func TestReentrance_DeepCallStack(t *testing.T) {
 	require.Equal(t, 0, inst.ActiveCallDepth())
 }
 
+// No counterpart (justified): negative-depth guard is a Go-specific
+// defensive check; the spec assumes balanced enter/exit pairs.
 func TestReentrance_ExitCallNeverNegative(t *testing.T) {
 	inst := component.NewInstance(&component.Component{}, 0, nil)
 
