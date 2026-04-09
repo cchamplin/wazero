@@ -927,3 +927,85 @@ git diff --stat 466431a6..29abc0d7                                       ✅ 1 f
 
 ✅ Complete. Proceeding to Task C12.
 
+---
+
+## Task C12 — Restore `conformance/may_leave_test.go` citations (audit-only)
+
+**Base commit:** `46f1f549`
+**Task commit:** `7ba764db` (single, "component: Task C12 — may_leave_test.go citation audit")
+**Files changed:** `internal/component/conformance/may_leave_test.go` only (+90/-2).
+
+**Citation coverage (9/9 top-level tests):**
+- `TestInstance_MayLeaveDefaultTrue` → `definitions.py:256-273 + :270`
+- `TestInstance_SetMayLeave` → `definitions.py:1955/:1973` (lower_flat_values toggle)
+- `TestInstance_MayLeaveFalseDuringLowering` → `definitions.py:1955/:1973`
+- `TestInstance_MayLeaveFalseDuringPostReturn` → `definitions.py:1999-2002` + `CanonicalABI.md:3286-3297` (post-return block + rationale; extended from the pre-audit `:3287-3289` range to include the rationale prose)
+- `TestInstance_ValidateMayLeave` → `definitions.py:2065, :2135, :2143` (three trap_if sites) + Session 1 B3 sentinel rename
+- `TestInstance_ValidateMayLeaveNilInstance` → `Spec: definitions.py:2065` + "No counterpart (justified): wazero nil-receiver concern"
+- `TestMayLeave_MultipleSetCycles` → `Spec: definitions.py:1955/:1973` + "No counterpart (justified): wazero accessor robustness"
+- `TestMayLeave_ValidationDuringLowering` → `definitions.py:2065` + Session 1 B3 sentinel rename
+- `TestMayLeave_ConcurrentAccess` → `Spec: definitions.py:256-273` single-threaded model + "No counterpart (justified): wazero accessor concurrency safety"
+
+**Test semantic rewrites:** Zero. All 9 tests already use Session 1 Task B1 spec-correct semantics (standalone boolean, decoupled from `enterCount`). No pre-Session-0 buggy behavior assertions present.
+
+**Production cross-check (verified):**
+- `instance.go:246` → `MayLeave()`
+- `instance.go:250` → `SetMayLeave()`
+- `instance.go:324-332` → `ValidateMayLeave()` (nil-guarded)
+- `instance.go:345` → `errMayNotLeave = "component instance cannot leave (may_leave=false)"` (matches `require.Contains` assertions)
+
+### Spec-compliance reviewer
+
+**Verdict:** ✅ SPEC COMPLIANT.
+
+All 13 Session 1 amended-checklist items pass. Nine citation spot-checks opened and verified character-accurate:
+- `definitions.py:260` → `  may_leave: bool` field inside `class ComponentInstance` ✓
+- `definitions.py:270` → `    self.may_leave = True` default in __init__ ✓
+- `definitions.py:1955` → `  cx.inst.may_leave = False` at entry of `lower_flat_values` ✓
+- `definitions.py:1973` → `  cx.inst.may_leave = True` at exit of `lower_flat_values` ✓
+- `definitions.py:1999-2002` → post-return `inst.may_leave = False / True` toggle in `canon_lift` ✓
+- `definitions.py:2065` → `  trap_if(not thread.task.inst.may_leave)` in `canon_lower` ✓
+- `definitions.py:2135` → same trap in `canon_resource_new` ✓
+- `definitions.py:2143` → same trap in `canon_resource_drop` ✓
+- `CanonicalABI.md:3286-3297` → post-return `may_leave` toggle block (3286-3291) + rationale prose (3293-3297) ✓
+
+No test asserts pre-B1 buggy semantics (all `enterCount` mentions are in citation prose documenting the decoupling). No production code modified. V4 grep PASS. Build + vet clean.
+
+### Code quality reviewer (superpowers:code-reviewer)
+
+**Verdict:** APPROVE. No CRITICAL or IMPORTANT findings.
+
+**Strengths:**
+1. Consistent 3-part citation-block template across all 9 tests.
+2. Line-accurate narrow citations (e.g., `:1955` for entry toggle, `:1973` for exit toggle) rather than whole-function citations.
+3. `CanonicalABI.md` reference pinned to specific HEAD (`verified on HEAD 46f1f549`) — strongest form of citation discipline.
+4. Fixed a stale in-body `CanonicalABI.md:3287-3289` reference to match the new header-block `:3286-3297` range — header and body in sync.
+5. "No counterpart (justified) + Spec:" hybrid blocks correctly anchor to nearest spec concept BEFORE the justification.
+6. No production-code churn, no parallel paths, no TODOs.
+7. File growth (+90/-2 for 9 tests, ~10 lines per test) is proportionate.
+
+**Minor suggestions (non-blocking, no corrective required):**
+- S1: Minor inconsistency in `Spec:` line-number separator — slash (`:1955/:1973`) vs comma (`:1955, :1973`). Plan-level convention worth documenting.
+- S2: `TestInstance_ValidateMayLeave` and `TestMayLeave_ValidationDuringLowering` each duplicate the "Session 1 B3 renamed the sentinel" comment in both header and body. Pure style.
+- S3: Em-dash vs ASCII hyphen consistency in citation prose. Optional.
+
+### Correctives
+
+None. No CRITICAL or IMPORTANT findings. S1-S3 are stylistic polish, tracked for a future convention pass across C10-C18.
+
+### Verification at task close
+
+```
+go test ./internal/component/conformance/ -run MayLeave -count=1   ✅ ok
+go test ./internal/component/... -count=1                          ✅ green
+go build ./internal/component/...                                  ✅ clean
+go vet ./internal/component/...                                    ✅ clean
+git status --porcelain                                             ✅ only .env/.envrc
+V4 grep                                                            ✅ PASS (9/9)
+git diff --stat 46f1f549..7ba764db                                 ✅ 1 file: may_leave_test.go
+```
+
+### Task status
+
+✅ Complete. Proceeding to Task C13.
+
