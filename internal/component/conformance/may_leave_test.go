@@ -192,41 +192,12 @@ func TestMayLeave_ValidationDuringLowering(t *testing.T) {
 	require.NoError(t, inst.ValidateMayLeave())
 }
 
-// TestMayLeave_ConcurrentAccess exercises the MayLeave/SetMayLeave/
-// ValidateMayLeave accessors from two goroutines at 1000 iterations each
-// to guard against accidental data-race regressions in the accessor
-// trio. The canonical ABI assumes a single-threaded per-ComponentInstance
-// execution model, so this is not testing a spec invariant.
-//
-// Spec: definitions.py:256-273 (class ComponentInstance — single-threaded
-// model; store-level locking is the spec concurrency boundary).
-// No counterpart (justified): wazero-specific robustness test for the
-// MayLeave/SetMayLeave accessor pair — not a canonical-abi invariant
-// per se.
-func TestMayLeave_ConcurrentAccess(t *testing.T) {
-	// Note: may_leave is typically single-threaded per component instance,
-	// but this tests basic safety.
-	inst := component.NewInstance(&component.Component{}, 0, nil)
-
-	done := make(chan bool)
-
-	go func() {
-		for i := 0; i < 1000; i++ {
-			inst.SetMayLeave(false)
-			_ = inst.MayLeave()
-			inst.SetMayLeave(true)
-		}
-		done <- true
-	}()
-
-	go func() {
-		for i := 0; i < 1000; i++ {
-			_ = inst.MayLeave()
-			_ = inst.ValidateMayLeave()
-		}
-		done <- true
-	}()
-
-	<-done
-	<-done
-}
+// TestMayLeave_ConcurrentAccess was deleted in Task C20 as a Checkpoint C
+// corrective: the canonical ABI models ComponentInstance as single-threaded
+// (Spec: definitions.py:256-273), and both `runtime.ComponentInstance.MayLeave`
+// and `component.Instance.SetMayLeave` intentionally carry no synchronization
+// because the concurrency boundary is the host-side store, not the instance.
+// A concurrent-access test for these accessors asserts a non-invariant and
+// races under -race. Per the design doc's Hard Constraints ("spec over
+// preservation"), the fix is to delete the spec-divergent test, not to
+// retrofit locking onto a field the spec declares single-threaded.
