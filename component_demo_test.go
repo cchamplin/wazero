@@ -11,46 +11,41 @@ import (
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
-// TestDemoComponentExecution demonstrates end-to-end component execution
-// using the internal ComponentLinker with runtime access.
-func TestDemoComponentExecution(t *testing.T) {
+// TestInstantiateAndCallLiftedFunc asserts a component that exports a
+// single function `add(s32, s32) -> s32` implemented in core wasm can
+// be instantiated and called through the lifted entry point.
+//
+// Spec: definitions.py:1978-2040 canon_lift full flow.
+// Canonical test: run_tests.py test_pairs (primitive round-trips).
+// Wasmtime parallel: runtime/component/func.rs Func::call (232-706).
+//
+// This is the Task C8-c end-to-end integration: real component binary
+// (testdata.AddS32Component) -> CompileComponent -> ComponentLinker.
+// Instantiate -> ExportedFunction("add").Call(7, 35) == 42.
+func TestInstantiateAndCallLiftedFunc(t *testing.T) {
 	ctx := context.Background()
 
-	// Create the wazero runtime
 	rt := NewRuntime(ctx)
 	defer rt.Close(ctx)
 
-	// Use the runtime to compile the component (handles parsing + core module compilation)
 	compiled, err := rt.CompileComponent(ctx, testdata.AddS32Component)
 	require.NoError(t, err)
 	defer compiled.Close(ctx)
 
-	// Get the internal CompiledComponent
 	cc, ok := compiled.(*component.CompiledComponent)
 	require.True(t, ok, "expected *component.CompiledComponent")
 
-	// Create ComponentLinker with runtime access
 	linker := component.NewComponentLinker(rt)
 
-	// session 1 work: ComponentLinker.Instantiate not yet implemented
-	t.Skip("session 1 work: ComponentLinker.Instantiate not yet implemented")
-
-	// Instantiate the component - this should instantiate core modules
 	instance, err := linker.Instantiate(ctx, cc)
 	require.NoError(t, err)
 	require.NotNil(t, instance)
 
-	// Get the add function
 	addFunc := instance.ExportedFunction("add")
-	if addFunc == nil {
-		t.Skip("add function not wired yet")
-	}
+	require.NotNil(t, addFunc, "expected exported function \"add\"")
 
-	// Call it: add(2, 3) = 5
-	results, err := addFunc.Call(ctx, types.ValS32(2), types.ValS32(3))
+	results, err := addFunc.Call(ctx, types.ValS32(7), types.ValS32(35))
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results))
-	require.Equal(t, int32(5), results[0].S32())
-
-	t.Logf("SUCCESS: add(2, 3) = %d", results[0].S32())
+	require.Equal(t, int32(42), results[0].S32())
 }

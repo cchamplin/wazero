@@ -226,7 +226,7 @@ func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledCom
 
 	// Step 12 — Instantiate core modules with wired host exports.
 	if err := l.instantiateCoreModules(ctx, inst, c, compiled.CompiledModules(),
-		resolvedImports, canonLowers, canonResources, funcAliases); err != nil {
+		canonLowers, canonResources, funcAliases); err != nil {
 		return nil, fmt.Errorf("Instantiate: core modules: %w", err)
 	}
 
@@ -277,7 +277,6 @@ func (l *ComponentLinker) instantiateCoreModules(
 	inst *Instance,
 	c *Component,
 	compiledModules []CompiledModuleCloser,
-	resolvedImports map[string]Definition,
 	canonLowers map[uint32]canonLowerInfo,
 	canonResources map[uint32]canonResourceInfo,
 	funcAliases map[uint32]*Alias,
@@ -292,8 +291,6 @@ func (l *ComponentLinker) instantiateCoreModules(
 			"instantiateCoreModules: runtime does not implement CoreModuleInstantiator (type %T); component has %d core instance(s)",
 			l.runtime, len(c.CoreInstances))
 	}
-	_ = resolvedImports
-
 	for ciIdx := range c.CoreInstances {
 		ci := &c.CoreInstances[ciIdx]
 		switch ci.Kind {
@@ -431,18 +428,12 @@ func (l *ComponentLinker) buildCoreHostModule(
 			// pre-Session-0 behaviour and let abi.LowerResults handle
 			// the retptr path when called with needsRetptr=false —
 			// C8-c's end-to-end test exercises precise retptr sizing.
-			fn := l.createCanonLowerFunc(inst, c, info, compFunc, paramElems, resultElems, false)
-			// Core signature is flat (i32/i64/f32/f64). C8-b uses i32
-			// placeholders matching the pre-Session-0 default; C8-c
-			// wires precise core-ABI flattening via FlattenType.
-			coreParams := make([]api.ValueType, len(paramElems))
-			for i := range coreParams {
-				coreParams[i] = api.ValueTypeI32
-			}
-			coreResults := make([]api.ValueType, len(resultElems))
-			for i := range coreResults {
-				coreResults[i] = api.ValueTypeI32
-			}
+			// Compute precise core-ABI flat types via abi.FlattenParams /
+			// FlattenResults so s64/f32/f64/aggregate params get the
+			// correct core wasm slot widths. The retptr decision drives
+			// the canon.lower closure's stack-shape contract.
+			coreParams, coreResults, needsRetptr := abi.CoreSignature(c.Types, paramElems, resultElems)
+			fn := l.createCanonLowerFunc(inst, c, info, compFunc, paramElems, resultElems, needsRetptr)
 			exports = append(exports, HostModuleExport{
 				Name:        ie.Name,
 				ParamTypes:  coreParams,
@@ -515,8 +506,13 @@ func (l *ComponentLinker) wireExports(
 	_ = componentInstDefs
 	for i := range c.Exports {
 		exp := &c.Exports[i]
-		if exp.Kind != ExportKindFunc {
-			continue
+		switch exp.Kind {
+		case ExportKindFunc:
+			// handled below
+		case ExportKindInstance:
+			return fmt.Errorf("export %q: instance exports deferred to Checkpoint D", exp.Name)
+		default:
+			return fmt.Errorf("export %q: export kind %v not yet wired (Checkpoint D)", exp.Name, exp.Kind)
 		}
 		ef, err := l.wireExportedFunc(inst, c, exp, funcSpace, memSpace)
 		if err != nil {
@@ -900,12 +896,32 @@ func (l *ComponentLinker) bindResourceTypes(inst *Instance, c *Component) error 
 	return nil
 }
 
-// buildCoreIndexSpaces is a one-line stub for Task C5; the full body
-// (walking c.Aliases and populating funcSpace/memSpace) lands with the
-// rest of the pipeline in Task C6 per
-// docs/superpowers/plans/2026-04-08-canonical-abi-session1-plan.md.
+// buildCoreIndexSpaces walks c.Aliases and populates the runtime view of
+// the core function and core memory index spaces from AliasKindCoreExport
+// entries. The decoder has already assigned each alias its index slot in
+// the appropriate space (binary/alias.go:107-133); this routine simply
+// records the (instanceIdx, exportName) pair under that slot so
+// resolveCoreFuncViaSpace / resolveCoreMemoryViaSpace can dereference a
+// canon.lift CoreFuncIdx (or memory/realloc/post_return idx) into a live
+// api.Function / api.Memory after core modules instantiate.
+//
+// Spec: Binary.md alias section + index-space densification rules.
+// Wasmtime parallel: runtime/component/instance.rs Instantiator stitches
+// the same (alias -> exported core item) edges before invoking host
+// imports.
 func (l *ComponentLinker) buildCoreIndexSpaces(c *Component, funcSpace *CoreFuncIndexSpace, memSpace *CoreMemoryIndexSpace) {
-	_, _, _ = c, funcSpace, memSpace
+	for i := range c.Aliases {
+		a := &c.Aliases[i]
+		if a.Kind != AliasKindCoreExport {
+			continue
+		}
+		switch a.CoreSort {
+		case CoreSortFunc:
+			funcSpace.AddAlias(a.Idx, a.InstanceIdx, a.ExportName)
+		case CoreSortMemory:
+			memSpace.AddAlias(a.Idx, a.InstanceIdx, a.ExportName)
+		}
+	}
 }
 
 // MatchImport finds a definition that satisfies the import name.
