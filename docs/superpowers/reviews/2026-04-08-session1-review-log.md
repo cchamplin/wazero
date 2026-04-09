@@ -1282,3 +1282,49 @@ Both correctives verified: `go test ./internal/component/... -count=1` green, `g
 
 ✅ Complete. Proceeding to Task D2.
 
+---
+
+## Task D2 — Rebuild `instantiateNestedComponent` + `processNestedInstances`
+
+**Base commit:** `a34ed767`
+**Task commit:** `ddfcbe36` ("component: Task D2 — rebuild processNestedInstances + extend instantiateNestedComponent")
+**Corrective commit:** `81d862b6` (I1: document instanceToImport; I2: use AddInstanceToSpace for inline path; M7: unused param rename)
+**Files changed:** `component_linker.go`, `nested_component.go`, `nested_component_test.go`.
+
+**Implementation:**
+- `processNestedInstances` placeholder trap deleted. Now loops over `c.ComponentInstances`:
+  - `ComponentInstanceExprInstantiate`: calls `instantiateNestedComponent`, stores child in `inst.instanceSpace` via `AddInstanceToSpace`.
+  - `ComponentInstanceExprInline`: resolves inline exports via new `resolveInlineExport` helper, stores `InstanceDef` in `componentInstDefs`.
+- `instantiateNestedComponent` extended with nested pipeline steps 2-14:
+  - Steps 2-9 fully wired (bindResourceTypes, buildCoreIndexSpaces, resolveNestedImports, populateValueImports, alignInstanceImports, buildComponentFuncs, buildTypeSpace, processNestedInstances recursive).
+  - Steps 10-12 skipped when no core instances; precise error ("deferred to Task D3") when `len(nestedComp.CoreInstances) > 0`.
+  - Steps 13-14 delegate to existing stubs (`executeStartFunction`, `wireExports`).
+- New `resolveNestedImports`: nested analog of `resolveAndCheckImports` that reads from `withArgs` (parent-scope definitions) instead of `l.definitions`. Type-checks via `tc.CheckDefinition`.
+- New `resolveInlineExport`: resolves `ComponentInlineExport` from instance's index spaces (SortFunc/SortInstance/SortType/SortValue/SortComponent).
+
+**Tests:** 15 real tests + retained skip stubs for backward compat. Covers empty, instantiate, inline (type/func/value), basic pipeline, out-of-range, imports with func/instance/type/component/value args, 3-level recursive nesting, multiple instances, missing func arg, unsupported sort.
+
+### Spec-compliance reviewer
+
+**Verdict:** ✅ SPEC COMPLIANT (1 LOW).
+
+All 12 checklist items pass. Placeholder trap fully removed. `resolveNestedImports` type-checks correctly. Recursive nesting verified via 3-level test. Inline export handles all Sort values. Build + vet clean.
+
+LOW: Citation line numbers for `Explainer.md :1020+` and `design.md:1134-1137` point at adjacent but not exact content. Inaccuracy originates from the plan document itself; implementer faithfully propagated it.
+
+### Code quality reviewer (superpowers:code-reviewer)
+
+**Verdict:** APPROVE with 2 IMPORTANT (addressed in corrective `81d862b6`):
+- **I1:** `_ = instanceToImport` dead code now documented with comment explaining it's consumed by Step 12 (deferred to D3).
+- **I2:** Inline instance path now uses `inst.AddInstanceToSpace(nil)` instead of direct append, consistent with Instantiate path.
+- **M7:** Unused `c *Component` param in `resolveInlineExport` renamed to `_`.
+- M3-M6: Minor test gap items tracked for follow-up (SortComponent/SortInstance inline export tests, direct resolveNestedImports negative test, unknown-kind negative test).
+
+### Corrective verification
+
+All tests pass after corrective. `go vet` clean. Diff shows exactly 3 changes (comment + AddInstanceToSpace + param rename).
+
+### Task status
+
+✅ Complete. Proceeding to Task D3.
+
