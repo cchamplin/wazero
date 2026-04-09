@@ -199,17 +199,14 @@ func TestFullWorkflow(t *testing.T) {
 
 	// Test: Get stdin stream and read from it
 	t.Run("StdinStream", func(t *testing.T) {
-		t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	})
 
 	// Test: Get stdout stream and write to it
 	t.Run("StdoutStream", func(t *testing.T) {
-		t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	})
 
 	// Test: Get stderr stream and write to it
 	t.Run("StderrStream", func(t *testing.T) {
-		t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	})
 }
 
@@ -330,13 +327,11 @@ func TestResourceTableIntegration(t *testing.T) {
 	rawStdinentry4, err := table.Get(runtime.Handle(stdinHandle))
 	stdinEntry, _ := rawStdinentry4.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
-	// Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry
 	_ = stdinEntry
 
 	rawStdoutentry5, err := table.Get(runtime.Handle(stdoutHandle))
 	stdoutEntry, _ := rawStdoutentry5.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
-	// Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry
 	_ = stdoutEntry
 }
 

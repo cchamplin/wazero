@@ -106,13 +106,12 @@ func TestInstantiatePoll_Duplicate(t *testing.T) {
 // Tests for host functions with ResourceTable
 
 func TestPollableReady_HostFunction(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create a pollable that is ready
-	_ = NewReadyPollable() // Task E4: will wire via per-module registry
-	handle, errHandle113 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
+	sid := RegisterPollable(NewReadyPollable())
+	handle, errHandle113 := table.NewResourceHandle(sid, true, pollableResourceType)
 	if errHandle113 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle113)
 	}
@@ -127,13 +126,12 @@ func TestPollableReady_HostFunction(t *testing.T) {
 }
 
 func TestPollableReady_HostFunction_NotReady(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create a pollable that is not ready
-	_ = NewPollable(func() bool { return false }, nil) // Task E4: will wire via per-module registry
-	handle, errHandle130 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
+	sid := RegisterPollable(NewPollable(func() bool { return false }, nil))
+	handle, errHandle130 := table.NewResourceHandle(sid, true, pollableResourceType)
 	if errHandle130 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle130)
 	}
@@ -170,13 +168,12 @@ func TestPollableReady_HostFunction_NoResourceTable(t *testing.T) {
 	require.Contains(t, err.Error(), "no resource table")
 }
 
-func TestPollableReady_HostFunction_WrongType(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
+func TestPollableReady_HostFunction_NotFound(t *testing.T) {
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
-	// Add something that's not a Pollable
-	handle, errHandle := table.NewResourceHandle(uint32(0), true, pollableResourceType)
+	// Rep 9999 has no object registered
+	handle, errHandle := table.NewResourceHandle(uint32(9999), true, pollableResourceType)
 	if errHandle != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle)
 	}
@@ -186,11 +183,10 @@ func TestPollableReady_HostFunction_WrongType(t *testing.T) {
 	}
 	_, err := pollableReady(ctx, nil, args)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "not a Pollable")
+	require.Contains(t, err.Error(), "Pollable not found in registry")
 }
 
 func TestPollableBlock_HostFunction(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
@@ -200,7 +196,8 @@ func TestPollableBlock_HostFunction(t *testing.T) {
 		func() bool { return blocked },
 		func() { blocked = true },
 	)
-	handle, errHandle189 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
+	sid := RegisterPollable(pollable)
+	handle, errHandle189 := table.NewResourceHandle(sid, true, pollableResourceType)
 	if errHandle189 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle189)
 	}
@@ -220,13 +217,12 @@ func TestPollableBlock_HostFunction(t *testing.T) {
 }
 
 func TestPollableBlock_HostFunction_NilBlockFn(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create a pollable with no block function
-	_ = NewReadyPollable() // Task E4: will wire via per-module registry
-	handle, errHandle211 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
+	sid := RegisterPollable(NewReadyPollable())
+	handle, errHandle211 := table.NewResourceHandle(sid, true, pollableResourceType)
 	if errHandle211 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle211)
 	}
@@ -253,23 +249,22 @@ func TestPollableBlock_HostFunction_InvalidHandle(t *testing.T) {
 }
 
 func TestPoll_AllReady(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create three ready pollables
-	_ = NewReadyPollable()  // Task E4: will wire via per-module registry
-	_ = NewReadyPollable()  // Task E4: will wire via per-module registry
-	_ = NewReadyPollable()  // Task E4: will wire via per-module registry
-	h1, errHandle242 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
+	sid1 := RegisterPollable(NewReadyPollable())
+	sid2 := RegisterPollable(NewReadyPollable())
+	sid3 := RegisterPollable(NewReadyPollable())
+	h1, errHandle242 := table.NewResourceHandle(sid1, true, pollableResourceType)
 	if errHandle242 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle242)
 	}
-	h2, errHandle243 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
+	h2, errHandle243 := table.NewResourceHandle(sid2, true, pollableResourceType)
 	if errHandle243 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle243)
 	}
-	h3, errHandle244 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
+	h3, errHandle244 := table.NewResourceHandle(sid3, true, pollableResourceType)
 	if errHandle244 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle244)
 	}
@@ -294,23 +289,22 @@ func TestPoll_AllReady(t *testing.T) {
 }
 
 func TestPoll_SomeReady(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create pollables: first ready, second not ready, third ready
-	_ = NewReadyPollable()                                  // Task E4: will wire via per-module registry
-	_ = NewPollable(func() bool { return false }, nil)      // Task E4: will wire via per-module registry
-	_ = NewReadyPollable()                                  // Task E4: will wire via per-module registry
-	h1, errHandle273 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
+	sid1 := RegisterPollable(NewReadyPollable())
+	sid2 := RegisterPollable(NewPollable(func() bool { return false }, nil))
+	sid3 := RegisterPollable(NewReadyPollable())
+	h1, errHandle273 := table.NewResourceHandle(sid1, true, pollableResourceType)
 	if errHandle273 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle273)
 	}
-	h2, errHandle274 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
+	h2, errHandle274 := table.NewResourceHandle(sid2, true, pollableResourceType)
 	if errHandle274 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle274)
 	}
-	h3, errHandle275 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
+	h3, errHandle275 := table.NewResourceHandle(sid3, true, pollableResourceType)
 	if errHandle275 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle275)
 	}
@@ -334,17 +328,16 @@ func TestPoll_SomeReady(t *testing.T) {
 }
 
 func TestPoll_NoneReady_WithBlock(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create pollables that are initially not ready but become ready after block
 	ready := false
-	_ = NewPollable( // Task E4: will wire via per-module registry
+	sid := RegisterPollable(NewPollable(
 		func() bool { return ready },
 		func() { ready = true },
-	)
-	h1, errHandle305 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
+	))
+	h1, errHandle305 := table.NewResourceHandle(sid, true, pollableResourceType)
 	if errHandle305 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle305)
 	}
@@ -365,15 +358,14 @@ func TestPoll_NoneReady_WithBlock(t *testing.T) {
 }
 
 func TestPoll_NoneReady_NoBlockFn(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create pollable that is not ready and has no block function
 	// This is an edge case - in practice, pollables should either be ready
 	// or have a way to become ready via blocking
-	_ = NewPollable(func() bool { return false }, nil) // Task E4: will wire via per-module registry
-	h1, errHandle330 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
+	sid := RegisterPollable(NewPollable(func() bool { return false }, nil))
+	h1, errHandle330 := table.NewResourceHandle(sid, true, pollableResourceType)
 	if errHandle330 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle330)
 	}
@@ -423,14 +415,13 @@ func TestPoll_InvalidHandle(t *testing.T) {
 }
 
 func TestPoll_BlockConcurrent(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create a pollable that becomes ready from another goroutine
 	var mu sync.Mutex
 	ready := false
-	_ = NewPollable( // Task E4: will wire via per-module registry
+	sid := RegisterPollable(NewPollable(
 		func() bool {
 			mu.Lock()
 			defer mu.Unlock()
@@ -443,8 +434,8 @@ func TestPoll_BlockConcurrent(t *testing.T) {
 			ready = true
 			mu.Unlock()
 		},
-	)
-	h1, errHandle397 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
+	))
+	h1, errHandle397 := table.NewResourceHandle(sid, true, pollableResourceType)
 	if errHandle397 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle397)
 	}
@@ -471,12 +462,12 @@ func TestPoll_BlockConcurrent(t *testing.T) {
 }
 
 func TestGetPollable(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	pollable := NewReadyPollable()
-	handle, errHandle425 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
+	sid := RegisterPollable(pollable)
+	handle, errHandle425 := table.NewResourceHandle(sid, true, pollableResourceType)
 	if errHandle425 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle425)
 	}
@@ -503,25 +494,24 @@ func TestGetPollable_InvalidHandle(t *testing.T) {
 	require.Contains(t, err.Error(), "invalid handle")
 }
 
-func TestGetPollable_WrongType(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
+func TestGetPollable_NotFound(t *testing.T) {
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
-	handle, errHandle := table.NewResourceHandle(uint32(0), true, pollableResourceType)
+	// Rep 9999 has no object registered - simulates stale/invalid rep
+	handle, errHandle := table.NewResourceHandle(uint32(9999), true, pollableResourceType)
 	if errHandle != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle)
 	}
 
 	_, err := getPollable(ctx, uint32(handle))
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "not a Pollable")
+	require.Contains(t, err.Error(), "Pollable not found in registry")
 }
 
 // Tests for poll multiplexing - Task 3.4
 
 func TestPoll_MultiplePollables_FastOneReturnsFirst(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
@@ -535,7 +525,7 @@ func TestPoll_MultiplePollables_FastOneReturnsFirst(t *testing.T) {
 	var mu1, mu2, mu3 sync.Mutex
 	ready1, ready2, ready3 := false, false, false
 
-	_ = NewPollableWithChannel( // Task E4: will wire via per-module registry
+	sid1 := RegisterPollable(NewPollableWithChannel(
 		func() bool {
 			mu1.Lock()
 			defer mu1.Unlock()
@@ -547,9 +537,9 @@ func TestPoll_MultiplePollables_FastOneReturnsFirst(t *testing.T) {
 			ready1 = true
 			mu1.Unlock()
 		},
-	)
+	))
 
-	_ = NewPollableWithChannel( // Task E4: will wire via per-module registry
+	sid2 := RegisterPollable(NewPollableWithChannel(
 		func() bool {
 			mu2.Lock()
 			defer mu2.Unlock()
@@ -561,9 +551,9 @@ func TestPoll_MultiplePollables_FastOneReturnsFirst(t *testing.T) {
 			ready2 = true
 			mu2.Unlock()
 		},
-	)
+	))
 
-	_ = NewPollableWithChannel( // Task E4: will wire via per-module registry
+	sid3 := RegisterPollable(NewPollableWithChannel(
 		func() bool {
 			mu3.Lock()
 			defer mu3.Unlock()
@@ -575,17 +565,17 @@ func TestPoll_MultiplePollables_FastOneReturnsFirst(t *testing.T) {
 			ready3 = true
 			mu3.Unlock()
 		},
-	)
+	))
 
-	h1, errHandle518 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
+	h1, errHandle518 := table.NewResourceHandle(sid1, true, pollableResourceType)
 	if errHandle518 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle518)
 	}
-	h2, errHandle519 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
+	h2, errHandle519 := table.NewResourceHandle(sid2, true, pollableResourceType)
 	if errHandle519 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle519)
 	}
-	h3, errHandle520 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
+	h3, errHandle520 := table.NewResourceHandle(sid3, true, pollableResourceType)
 	if errHandle520 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle520)
 	}
@@ -626,7 +616,6 @@ func TestPoll_MultiplePollables_FastOneReturnsFirst(t *testing.T) {
 }
 
 func TestPoll_MultiplePollables_AllReadyAtOnce(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
@@ -650,19 +639,19 @@ func TestPoll_MultiplePollables_AllReadyAtOnce(t *testing.T) {
 		)
 	}
 
-	_ = makePollable() // Task E4: will wire via per-module registry
-	_ = makePollable() // Task E4: will wire via per-module registry
-	_ = makePollable() // Task E4: will wire via per-module registry
+	sid1 := RegisterPollable(makePollable())
+	sid2 := RegisterPollable(makePollable())
+	sid3 := RegisterPollable(makePollable())
 
-	h1, errHandle585 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
+	h1, errHandle585 := table.NewResourceHandle(sid1, true, pollableResourceType)
 	if errHandle585 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle585)
 	}
-	h2, errHandle586 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
+	h2, errHandle586 := table.NewResourceHandle(sid2, true, pollableResourceType)
 	if errHandle586 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle586)
 	}
-	h3, errHandle587 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
+	h3, errHandle587 := table.NewResourceHandle(sid3, true, pollableResourceType)
 	if errHandle587 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle587)
 	}
@@ -685,14 +674,13 @@ func TestPoll_MultiplePollables_AllReadyAtOnce(t *testing.T) {
 }
 
 func TestPoll_ChannelBasedPollable(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create a pollable with a channel for signaling readiness
 	readyCh := make(chan struct{})
 
-	_ = NewPollableWithChannel( // Task E4: will wire via per-module registry
+	sid := RegisterPollable(NewPollableWithChannel(
 		func() bool {
 			select {
 			case <-readyCh:
@@ -704,9 +692,9 @@ func TestPoll_ChannelBasedPollable(t *testing.T) {
 		func() {
 			<-readyCh // Block until channel is closed
 		},
-	)
+	))
 
-	h, errHandle627 := table.NewResourceHandle(uint32(0), true, pollableResourceType)
+	h, errHandle627 := table.NewResourceHandle(sid, true, pollableResourceType)
 	if errHandle627 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errHandle627)
 	}

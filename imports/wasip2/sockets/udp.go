@@ -21,17 +21,20 @@ func instantiateUdp(linker *component.Linker) error {
 
 	// udp-socket resource
 	inst.Resource("udp-socket", func(rep uint32) {
-		// Destructor - close socket
+		if s := getUdpSocketFromRegistry(rep); s != nil {
+			s.Destroy()
+		}
+		unregisterUdpSocket(rep)
 	})
 
 	// incoming-datagram-stream resource
 	inst.Resource("incoming-datagram-stream", func(rep uint32) {
-		// Destructor - clean up stream
+		unregisterIncomingDatagramStream(rep)
 	})
 
 	// outgoing-datagram-stream resource
 	inst.Resource("outgoing-datagram-stream", func(rep uint32) {
-		// Destructor - clean up stream
+		unregisterOutgoingDatagramStream(rep)
 	})
 
 	// UDP socket methods
@@ -80,17 +83,17 @@ func createUdpSocket(ctx context.Context, _ *types.TypeFunc, args []types.Val) (
 
 	// Create socket
 	sock := NewUdpSocket(family)
-	_ = sock // Task E4: will wire via per-module registry
+	sid := registerUdpSocket(sock)
 
 	// Store in resource table
 	table := component.ResourceTableFromContext(ctx)
 	if table == nil {
-		// No table available, return placeholder
+		unregisterUdpSocket(sid)
 		handle := types.ValOwn(0)
 		return []types.Val{types.ValResultOk(&handle)}, nil
 	}
 
-	handle, hErr := table.NewResourceHandle(uint32(0), true, udpSocketResourceType)
+	handle, hErr := table.NewResourceHandle(sid, true, udpSocketResourceType)
 	if hErr != nil {
 		handle := types.ValOwn(0)
 		return []types.Val{types.ValResultOk(&handle)}, nil
@@ -223,16 +226,19 @@ func udpSocketStream(ctx context.Context, _ *types.TypeFunc, args []types.Val) (
 
 	// Create datagram streams
 	inStream := NewIncomingDatagramStream(sock)
-	_ = inStream // Task E4: will wire via per-module registry
+	inSid := registerIncomingDatagramStream(inStream)
 	outStream := NewOutgoingDatagramStream(sock)
-	_ = outStream // Task E4: will wire via per-module registry
+	outSid := registerOutgoingDatagramStream(outStream)
 
-	inHandle, err := table.NewResourceHandle(uint32(0), true, incomingDatagramStreamResourceType)
+	inHandle, err := table.NewResourceHandle(inSid, true, incomingDatagramStreamResourceType)
 	if err != nil {
+		unregisterIncomingDatagramStream(inSid)
+		unregisterOutgoingDatagramStream(outSid)
 		return nil, fmt.Errorf("udpSocketStream: register incoming datagram stream handle: %w", err)
 	}
-	outHandle, err := table.NewResourceHandle(uint32(0), true, outgoingDatagramStreamResourceType)
+	outHandle, err := table.NewResourceHandle(outSid, true, outgoingDatagramStreamResourceType)
 	if err != nil {
+		unregisterOutgoingDatagramStream(outSid)
 		table.Remove(inHandle)
 		return nil, fmt.Errorf("udpSocketStream: register outgoing datagram stream handle: %w", err)
 	}
@@ -403,8 +409,8 @@ func udpSocketSubscribe(ctx context.Context, _ *types.TypeFunc, args []types.Val
 	// Per wasmtime: UDP socket subscribe ready() is a no-op — UDP operations
 	// don't block at socket level. Blocking happens on datagram streams.
 	pollable := wasipIO.NewReadyPollable()
-	_ = pollable // Task E4: will wire via per-module registry
-	pollHandle, hErr := table.NewResourceHandle(uint32(0), true, socketsPollableResourceType)
+	pid := wasipIO.RegisterPollable(pollable)
+	pollHandle, hErr := table.NewResourceHandle(pid, true, socketsPollableResourceType)
 	if hErr != nil {
 		return []types.Val{types.ValOwn(0)}, nil
 	}
@@ -483,9 +489,10 @@ func incomingDatagramStreamSubscribe(ctx context.Context, _ *types.TypeFunc, arg
 	// Since we don't have a non-destructive readability check, use a ready pollable.
 	// In practice, WASI components poll then call receive().
 	pollable := wasipIO.NewReadyPollable()
-	_ = pollable // Task E4: will wire via per-module registry
-	pollHandle, hErr := table.NewResourceHandle(uint32(0), true, socketsPollableResourceType)
+	pid := wasipIO.RegisterPollable(pollable)
+	pollHandle, hErr := table.NewResourceHandle(pid, true, socketsPollableResourceType)
 	if hErr != nil {
+		wasipIO.UnregisterPollable(pid)
 		return []types.Val{types.ValOwn(0)}, nil
 	}
 	return []types.Val{types.ValOwn(uint32(pollHandle))}, nil
@@ -653,9 +660,10 @@ func outgoingDatagramStreamSubscribe(ctx context.Context, _ *types.TypeFunc, arg
 	if err != nil {
 		// Return a ready pollable on error - guest will discover error on next operation
 		pollable := wasipIO.NewReadyPollable()
-		_ = pollable // Task E4: will wire via per-module registry
-		pollHandle, hErr := table.NewResourceHandle(uint32(0), true, socketsPollableResourceType)
+		pid := wasipIO.RegisterPollable(pollable)
+		pollHandle, hErr := table.NewResourceHandle(pid, true, socketsPollableResourceType)
 		if hErr != nil {
+			wasipIO.UnregisterPollable(pid)
 			return []types.Val{types.ValOwn(0)}, nil
 		}
 		return []types.Val{types.ValOwn(uint32(pollHandle))}, nil
@@ -675,9 +683,10 @@ func outgoingDatagramStreamSubscribe(ctx context.Context, _ *types.TypeFunc, arg
 			}
 		},
 	)
-	_ = pollable // Task E4: will wire via per-module registry
-	pollHandle, hErr := table.NewResourceHandle(uint32(0), true, socketsPollableResourceType)
+	pid := wasipIO.RegisterPollable(pollable)
+	pollHandle, hErr := table.NewResourceHandle(pid, true, socketsPollableResourceType)
 	if hErr != nil {
+		wasipIO.UnregisterPollable(pid)
 		return []types.Val{types.ValOwn(0)}, nil
 	}
 	return []types.Val{types.ValOwn(uint32(pollHandle))}, nil

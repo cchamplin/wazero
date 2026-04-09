@@ -10,6 +10,7 @@ import (
 	"net"
 	"strings"
 
+	wasipIO "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/component/types"
@@ -21,7 +22,7 @@ func instantiateNetwork(linker *component.Linker) error {
 
 	// network resource - represents a network capability
 	inst.Resource("network", func(rep uint32) {
-		// Destructor - nothing to clean up for now
+		unregisterNetwork(rep)
 	})
 
 	inst.Func("network-error-code", networkErrorCode)
@@ -48,8 +49,8 @@ func instanceNetwork(ctx context.Context, _ *types.TypeFunc, args []types.Val) (
 	}
 
 	network := NewNetwork()
-	_ = network // Task E4: will wire via per-module registry
-	handle, hErr := table.NewResourceHandle(uint32(0), true, networkResourceType)
+	nid := registerNetwork(network)
+	handle, hErr := table.NewResourceHandle(nid, true, networkResourceType)
 	if hErr != nil {
 		return []types.Val{types.ValOwn(0)}, nil
 	}
@@ -62,7 +63,10 @@ func instantiateIpNameLookup(linker *component.Linker) error {
 
 	// resolve-address-stream resource
 	inst.Resource("resolve-address-stream", func(rep uint32) {
-		// Destructor - clean up resolver stream
+		if s := getResolveAddressStreamFromRegistry(rep); s != nil {
+			s.Close()
+		}
+		unregisterResolveAddressStream(rep)
 	})
 
 	// resolve-addresses: func(network: borrow<network>, name: string) -> result<own<resolve-address-stream>, error-code>
@@ -106,8 +110,8 @@ func resolveAddresses(ctx context.Context, _ *types.TypeFunc, args []types.Val) 
 	if ip := net.ParseIP(name); ip != nil {
 		addr := netIPToIpAddress(ip)
 		stream := NewResolveAddressStream([]IpAddress{addr})
-		_ = stream // Task E4: will wire via per-module registry
-		handle, hErr := table.NewResourceHandle(uint32(0), true, resolveAddressStreamResourceType)
+		sid := registerResolveAddressStream(stream)
+		handle, hErr := table.NewResourceHandle(sid, true, resolveAddressStreamResourceType)
 		if hErr != nil {
 			errVal := types.ValEnum("invalid-argument")
 			return []types.Val{types.ValResultError(&errVal)}, nil
@@ -119,7 +123,8 @@ func resolveAddresses(ctx context.Context, _ *types.TypeFunc, args []types.Val) 
 	// Async DNS resolution with cancellable context
 	dnsCtx, cancel := context.WithCancel(context.Background())
 	stream := NewResolveAddressStreamAsync(cancel)
-	handle, hErr := table.NewResourceHandle(uint32(0), true, resolveAddressStreamResourceType)
+	sid := registerResolveAddressStream(stream)
+	handle, hErr := table.NewResourceHandle(sid, true, resolveAddressStreamResourceType)
 	if hErr != nil {
 		cancel()
 		errVal := types.ValEnum("invalid-argument")
@@ -167,9 +172,24 @@ func resolveNextAddress(ctx context.Context, _ *types.TypeFunc, args []types.Val
 		errVal := types.ValEnum("invalid-argument")
 		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
-	_ = resEntry // Task E4: resolve *ResolveAddressStream via per-module registry using resEntry.Rep
-	errVal := types.ValEnum("invalid-argument")
-	return []types.Val{types.ValResultError(&errVal)}, nil
+	stream := getResolveAddressStreamFromRegistry(resEntry.Rep)
+	if stream == nil {
+		errVal := types.ValEnum("invalid-argument")
+		return []types.Val{types.ValResultError(&errVal)}, nil
+	}
+
+	addr, err := stream.NextAddress()
+	if err != nil {
+		errVal := types.ValEnum("name-unresolvable")
+		return []types.Val{types.ValResultError(&errVal)}, nil
+	}
+	if addr == nil {
+		none := types.ValOption(nil)
+		return []types.Val{types.ValResultOk(&none)}, nil
+	}
+	addrVal := ipAddressToVal(*addr)
+	opt := types.ValOption(&addrVal)
+	return []types.Val{types.ValResultOk(&opt)}, nil
 }
 
 // resolveAddressStreamSubscribe returns a pollable for the stream.
@@ -191,9 +211,16 @@ func resolveAddressStreamSubscribe(ctx context.Context, _ *types.TypeFunc, args 
 	if !ok {
 		return []types.Val{types.ValOwn(0)}, nil
 	}
-	_ = resEntry // Task E4: resolve *ResolveAddressStream via per-module registry using resEntry.Rep
-
-	pollHandle, hErr := table.NewResourceHandle(uint32(0), true, socketsPollableResourceType)
+	stream := getResolveAddressStreamFromRegistry(resEntry.Rep)
+	if stream == nil {
+		return []types.Val{types.ValOwn(0)}, nil
+	}
+	pollable := wasipIO.NewPollable(
+		func() bool { return stream.IsReady() },
+		nil,
+	)
+	pid := wasipIO.RegisterPollable(pollable)
+	pollHandle, hErr := table.NewResourceHandle(pid, true, socketsPollableResourceType)
 	if hErr != nil {
 		return []types.Val{types.ValOwn(0)}, nil
 	}
@@ -219,7 +246,18 @@ func networkErrorCode(ctx context.Context, _ *types.TypeFunc, args []types.Val) 
 	if !ok {
 		return []types.Val{types.ValOption(nil)}, nil
 	}
-	_ = resEntry // Task E4: resolve *wasipIO.Error via per-module registry using resEntry.Rep
+	ioErr := wasipIO.GetError(resEntry.Rep)
+	if ioErr == nil {
+		return []types.Val{types.ValOption(nil)}, nil
+	}
+	goErr := ioErr.Unwrap()
+	if goErr == nil {
+		return []types.Val{types.ValOption(nil)}, nil
+	}
+	if sockErr, ok := goErr.(*SocketError); ok {
+		codeVal := types.ValEnum(string(sockErr.Code))
+		return []types.Val{types.ValOption(&codeVal)}, nil
+	}
 	return []types.Val{types.ValOption(nil)}, nil
 }
 

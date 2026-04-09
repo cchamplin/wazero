@@ -49,6 +49,94 @@ import (
 	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
+// Per-module u32 registries for composition test resources.
+var (
+	compRequestRegistryMu sync.Mutex
+	compRequestRegistry   []*Request
+	compRequestFreelist   []uint32
+)
+
+func registerRequest(r *Request) uint32 {
+	compRequestRegistryMu.Lock()
+	defer compRequestRegistryMu.Unlock()
+	if n := len(compRequestFreelist); n > 0 {
+		id := compRequestFreelist[n-1]
+		compRequestFreelist = compRequestFreelist[:n-1]
+		compRequestRegistry[id] = r
+		return id
+	}
+	id := uint32(len(compRequestRegistry))
+	compRequestRegistry = append(compRequestRegistry, r)
+	return id
+}
+
+func getRequestFromRegistry(id uint32) *Request {
+	compRequestRegistryMu.Lock()
+	defer compRequestRegistryMu.Unlock()
+	if int(id) >= len(compRequestRegistry) {
+		return nil
+	}
+	return compRequestRegistry[id]
+}
+
+var (
+	compResponseRegistryMu sync.Mutex
+	compResponseRegistry   []*Response
+	compResponseFreelist   []uint32
+)
+
+func registerResponse(r *Response) uint32 {
+	compResponseRegistryMu.Lock()
+	defer compResponseRegistryMu.Unlock()
+	if n := len(compResponseFreelist); n > 0 {
+		id := compResponseFreelist[n-1]
+		compResponseFreelist = compResponseFreelist[:n-1]
+		compResponseRegistry[id] = r
+		return id
+	}
+	id := uint32(len(compResponseRegistry))
+	compResponseRegistry = append(compResponseRegistry, r)
+	return id
+}
+
+func getResponseFromRegistry(id uint32) *Response {
+	compResponseRegistryMu.Lock()
+	defer compResponseRegistryMu.Unlock()
+	if int(id) >= len(compResponseRegistry) {
+		return nil
+	}
+	return compResponseRegistry[id]
+}
+
+var (
+	compLoggerRegistryMu sync.Mutex
+	compLoggerRegistry   []*Logger
+	compLoggerFreelist   []uint32
+)
+
+func registerLogger(l *Logger) uint32 {
+	compLoggerRegistryMu.Lock()
+	defer compLoggerRegistryMu.Unlock()
+	if n := len(compLoggerFreelist); n > 0 {
+		id := compLoggerFreelist[n-1]
+		compLoggerFreelist = compLoggerFreelist[:n-1]
+		compLoggerRegistry[id] = l
+		return id
+	}
+	id := uint32(len(compLoggerRegistry))
+	compLoggerRegistry = append(compLoggerRegistry, l)
+	return id
+}
+
+func getLoggerFromRegistry(id uint32) *Logger {
+	compLoggerRegistryMu.Lock()
+	defer compLoggerRegistryMu.Unlock()
+	if int(id) >= len(compLoggerRegistry) {
+		return nil
+	}
+	return compLoggerRegistry[id]
+}
+
 // Host-managed resource type singletons for composition tests.
 var (
 	compositionLoggerResourceType  = &runtime.ResourceType{}
@@ -344,10 +432,10 @@ func TestServiceMiddlewareComposition_FullComposition(t *testing.T) {
 		},
 		[]byte("Hello from test!"),
 	)
-	_ = testRequest // Task E4: will wire via per-module registry
+	sid := registerRequest(testRequest)
 
 	// Store request in resource table
-	requestHandle, hErr := resourceTable.NewResourceHandle(uint32(0), true, compositionRequestResourceType)
+	requestHandle, hErr := resourceTable.NewResourceHandle(sid, true, compositionRequestResourceType)
 	if hErr != nil {
 		t.Fatalf("NewResourceHandle failed: %v", hErr)
 	}
@@ -391,8 +479,7 @@ func TestServiceMiddlewareComposition_FullComposition(t *testing.T) {
 		t.Fatalf("responseEntry is not ResourceHandleEntry: %T", rawResponseEntry)
 	}
 
-	_ = responseEntry // Task E4: resolve *Response via per-module registry using responseEntry.Rep
-	var response *Response
+	response := getResponseFromRegistry(responseEntry.Rep)
 
 	t.Logf("Response body: %s", string(response.body))
 
@@ -491,7 +578,7 @@ func defineLoggingInterface(linker *component.ComponentLinker, table *runtime.Ta
 				return []types.Val{}, nil
 			}
 
-			// Task E4: resolve *Logger via per-module registry using resEntry.Rep
+			_ = getLoggerFromRegistry(resEntry.Rep)
 			var logger *Logger
 			if logger != nil {
 				logger.Log(message)
@@ -564,8 +651,7 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Tabl
 			}
 
 			req := NewRequest(headers, body)
-				_ = req
-				handle, hErr := rt.NewResourceHandle(uint32(0), true, compositionRequestResourceType)
+				handle, hErr := rt.NewResourceHandle(registerRequest(req), true, compositionRequestResourceType)
 			if hErr != nil {
 				return nil, hErr
 			}
@@ -588,7 +674,7 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Tabl
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 
-			_ = resEntry // Task E4: resolve *Request via per-module registry using resEntry.Rep
+			_ = getRequestFromRegistry(resEntry.Rep)
 				var req *Request
 				if req != nil {
 				return []types.Val{types.ValList([]types.Val{})}, nil
@@ -634,7 +720,7 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Tabl
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 
-			_ = resEntry // Task E4: resolve *Request via per-module registry using resEntry.Rep
+			_ = getRequestFromRegistry(resEntry.Rep)
 				var req *Request
 				if req != nil {
 				return []types.Val{types.ValList([]types.Val{})}, nil
@@ -710,7 +796,7 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Tabl
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 
-			_ = resEntry // Task E4: resolve *Response via per-module registry using resEntry.Rep
+			_ = getResponseFromRegistry(resEntry.Rep)
 				var resp *Response
 				if resp != nil {
 				return []types.Val{types.ValList([]types.Val{})}, nil
@@ -756,7 +842,7 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Tabl
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 
-			_ = resEntry // Task E4: resolve *Response via per-module registry using resEntry.Rep
+			_ = getResponseFromRegistry(resEntry.Rep)
 				var resp *Response
 				if resp != nil {
 				return []types.Val{types.ValList([]types.Val{})}, nil

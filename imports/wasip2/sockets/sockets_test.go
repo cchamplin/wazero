@@ -124,7 +124,6 @@ func TestInstantiateIpNameLookup(t *testing.T) {
 }
 
 func TestResolveAddresses_IPv4Literal(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := contextWithResourceTable()
 
 	network := types.ValBorrow(0)
@@ -1173,7 +1172,6 @@ func TestTcpSocket_CreateAndBind(t *testing.T) {
 }
 
 func TestTcpSocket_ListenAndAccept(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := contextWithResourceTable()
 
 	// Create TCP socket
@@ -1229,7 +1227,6 @@ func TestTcpSocket_ListenAndAccept(t *testing.T) {
 }
 
 func TestTcpSocket_ConnectToListener(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := contextWithResourceTable()
 	network := types.ValBorrow(0)
 
@@ -1435,7 +1432,6 @@ func TestErrorCodeMapping(t *testing.T) {
 }
 
 func TestTcpSocket_InvalidStateTransitions(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := contextWithResourceTable()
 	network := types.ValBorrow(0)
 	family := types.ValEnum("ipv4")
@@ -1466,7 +1462,6 @@ func TestTcpSocket_InvalidStateTransitions(t *testing.T) {
 }
 
 func TestUdpSocket_InvalidStateTransitions(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := contextWithResourceTable()
 	network := types.ValBorrow(0)
 	family := types.ValEnum("ipv4")
@@ -1563,7 +1558,6 @@ func TestUdpSocket_Destroy_Idempotent(t *testing.T) {
 }
 
 func TestUdpSocket_Destroy_WithConnection(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := contextWithResourceTable()
 	network := types.ValBorrow(0)
 	family := types.ValEnum("ipv4")
@@ -1609,7 +1603,6 @@ func TestInstanceNetwork_ReturnsValidHandle(t *testing.T) {
 	rawEntry1, err := table.Get(runtime.Handle(handle))
 	_, _ = rawEntry1.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
-	// Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry
 }
 
 func TestInstanceNetwork_DistinctHandles(t *testing.T) {
@@ -1624,33 +1617,27 @@ func TestInstanceNetwork_DistinctHandles(t *testing.T) {
 }
 
 func TestTcpSocketSubscribe_ReturnsValidPollable(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 }
 
 func TestUdpSocketSubscribe_ImmediatelyReady(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 }
 
 func TestIncomingDatagramStreamSubscribe_ReturnsValidPollable(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 }
 
 func TestOutgoingDatagramStreamSubscribe_ReturnsValidPollable(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 }
 
 func TestOutgoingDatagramStreamSubscribe_WaitingState(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 }
 
 func TestOutgoingDatagramStreamCheckSend_InitialPermit(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := contextWithResourceTable()
 	table := component.ResourceTableFromContext(ctx)
 
 	sock := NewUdpSocket(IpAddressFamilyIpv4)
-	_ = NewOutgoingDatagramStream(sock) // Task E4: will wire via per-module registry
-	handle, errH6 := table.NewResourceHandle(uint32(0), true, socketsPollableResourceType)
+	sid := registerOutgoingDatagramStream(NewOutgoingDatagramStream(sock))
+	handle, errH6 := table.NewResourceHandle(sid, true, socketsPollableResourceType)
 	if errH6 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH6)
 	}
@@ -1664,13 +1651,12 @@ func TestOutgoingDatagramStreamCheckSend_InitialPermit(t *testing.T) {
 }
 
 func TestOutgoingDatagramStreamCheckSend_StablePermit(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := contextWithResourceTable()
 	table := component.ResourceTableFromContext(ctx)
 
 	sock := NewUdpSocket(IpAddressFamilyIpv4)
-	_ = NewOutgoingDatagramStream(sock) // Task E4: will wire via per-module registry
-	handle, errH7 := table.NewResourceHandle(uint32(0), true, socketsPollableResourceType)
+	sid := registerOutgoingDatagramStream(NewOutgoingDatagramStream(sock))
+	handle, errH7 := table.NewResourceHandle(sid, true, socketsPollableResourceType)
 	if errH7 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH7)
 	}
@@ -1714,14 +1700,13 @@ func makeOutgoingDatagramVal(data []byte) types.Val {
 // (createCanonLowerFunc) translates that into a panic which the wasm
 // runtime catches as a trap.
 func TestOutgoingDatagramStreamSend_TrapsOnMissingCheckSend(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := contextWithResourceTable()
 	table := component.ResourceTableFromContext(ctx)
 
 	sock := NewUdpSocket(IpAddressFamilyIpv4)
-	_ = NewOutgoingDatagramStream(sock) // Task E4: will wire via per-module registry
+	sid := registerOutgoingDatagramStream(NewOutgoingDatagramStream(sock))
 	// Default sendState is sendStateIdle — no check-send has been called.
-	handle, errH8 := table.NewResourceHandle(uint32(0), true, socketsPollableResourceType)
+	handle, errH8 := table.NewResourceHandle(sid, true, socketsPollableResourceType)
 	if errH8 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH8)
 	}
@@ -1740,13 +1725,12 @@ func TestOutgoingDatagramStreamSend_TrapsOnMissingCheckSend(t *testing.T) {
 // calling send with more datagrams than the most recent check-send permitted
 // traps the guest (udp.wit lines 256-257, cited above).
 func TestOutgoingDatagramStreamSend_TrapsOnDatagramsExceedingPermit(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := contextWithResourceTable()
 	table := component.ResourceTableFromContext(ctx)
 
 	sock := NewUdpSocket(IpAddressFamilyIpv4)
-	_ = NewOutgoingDatagramStream(sock) // Task E4: will wire via per-module registry
-	handle, errH9 := table.NewResourceHandle(uint32(0), true, socketsPollableResourceType)
+	sid := registerOutgoingDatagramStream(NewOutgoingDatagramStream(sock))
+	handle, errH9 := table.NewResourceHandle(sid, true, socketsPollableResourceType)
 	if errH9 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH9)
 	}
@@ -1782,8 +1766,8 @@ func TestOutgoingDatagramStreamSend_NoTrapWhenWithinPermit(t *testing.T) {
 	table := component.ResourceTableFromContext(ctx)
 
 	sock := NewUdpSocket(IpAddressFamilyIpv4)
-	_ = NewOutgoingDatagramStream(sock) // Task E4: will wire via per-module registry
-	handle, errH10 := table.NewResourceHandle(uint32(0), true, socketsPollableResourceType)
+	sid := registerOutgoingDatagramStream(NewOutgoingDatagramStream(sock))
+	handle, errH10 := table.NewResourceHandle(sid, true, socketsPollableResourceType)
 	if errH10 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH10)
 	}
@@ -1810,14 +1794,13 @@ func TestOutgoingDatagramStreamSend_NoTrapWhenWithinPermit(t *testing.T) {
 }
 
 func TestNetworkErrorCode_WithSocketError(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := contextWithResourceTable()
 	table := component.ResourceTableFromContext(ctx)
 
 	// Create an io.Error that wraps a SocketError
 	sockErr := &SocketError{Code: ErrorCodeConnectionRefused}
-	_ = wasipIO.NewError(sockErr) // Task E4: will wire via per-module registry
-	handle, errH11 := table.NewResourceHandle(uint32(0), true, socketsPollableResourceType)
+	sid := wasipIO.RegisterError(wasipIO.NewError(sockErr))
+	handle, errH11 := table.NewResourceHandle(sid, true, socketsPollableResourceType)
 	if errH11 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH11)
 	}
@@ -1836,8 +1819,8 @@ func TestNetworkErrorCode_NonSocketError(t *testing.T) {
 	ctx := contextWithResourceTable()
 	table := component.ResourceTableFromContext(ctx)
 
-	_ = wasipIO.NewError(errors.New("some random error")) // Task E4: will wire via per-module registry
-	handle, errH12 := table.NewResourceHandle(uint32(0), true, socketsPollableResourceType)
+	sid := wasipIO.RegisterError(wasipIO.NewError(errors.New("some random error")))
+	handle, errH12 := table.NewResourceHandle(sid, true, socketsPollableResourceType)
 	if errH12 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH12)
 	}

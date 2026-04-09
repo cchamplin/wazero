@@ -19,7 +19,6 @@ import (
 // - Starting and finishing listen
 // - Verifying local address has assigned port
 func TestTCPSocket_BindAndListen(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := contextWithResourceTable()
 
 	// Create a TCP socket
@@ -92,7 +91,6 @@ func TestTCPSocket_BindAndListen(t *testing.T) {
 // - Verifying connection is established
 // - Verifying remote address is correct
 func TestTCPSocket_Connect(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := contextWithResourceTable()
 	network := types.ValBorrow(0)
 	family := types.ValEnum("ipv4")
@@ -189,7 +187,6 @@ func TestTCPSocket_Connect(t *testing.T) {
 // - The accepted connection returns a new socket with streams
 // - The accepted socket has correct local and remote addresses
 func TestTCPSocket_Accept(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := contextWithResourceTable()
 	network := types.ValBorrow(0)
 	family := types.ValEnum("ipv4")
@@ -270,7 +267,6 @@ func TestTCPSocket_Accept(t *testing.T) {
 
 // TestTCPSocket_ConnectRefused tests that connecting to a non-listening port fails.
 func TestTCPSocket_ConnectRefused(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := contextWithResourceTable()
 	network := types.ValBorrow(0)
 	family := types.ValEnum("ipv4")
@@ -307,7 +303,6 @@ func TestTCPSocket_ConnectRefused(t *testing.T) {
 
 // TestTCPSocket_BindTwice tests that binding twice fails with correct error.
 func TestTCPSocket_BindTwice(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := contextWithResourceTable()
 	network := types.ValBorrow(0)
 	family := types.ValEnum("ipv4")
@@ -345,7 +340,6 @@ func TestTCPSocket_BindTwice(t *testing.T) {
 
 // TestTCPSocket_IPv6 tests TCP socket operations with IPv6.
 func TestTCPSocket_IPv6(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := contextWithResourceTable()
 	network := types.ValBorrow(0)
 	family := types.ValEnum("ipv6")

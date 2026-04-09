@@ -13,6 +13,7 @@ import (
 	goio "io"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	wasipIO "github.com/tetratelabs/wazero/imports/wasip2/io"
@@ -21,14 +22,118 @@ import (
 	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
+// Descriptor registry
+var (
+	descriptorRegistryMu sync.Mutex
+	descriptorRegistry   []*Descriptor
+	descriptorFreelist   []uint32
+)
+
+func registerDescriptor(d *Descriptor) uint32 {
+	descriptorRegistryMu.Lock()
+	defer descriptorRegistryMu.Unlock()
+	if n := len(descriptorFreelist); n > 0 {
+		id := descriptorFreelist[n-1]
+		descriptorFreelist = descriptorFreelist[:n-1]
+		descriptorRegistry[id] = d
+		return id
+	}
+	id := uint32(len(descriptorRegistry))
+	descriptorRegistry = append(descriptorRegistry, d)
+	return id
+}
+
+func getDescriptorFromRegistry(id uint32) *Descriptor {
+	descriptorRegistryMu.Lock()
+	defer descriptorRegistryMu.Unlock()
+	if int(id) >= len(descriptorRegistry) {
+		return nil
+	}
+	return descriptorRegistry[id]
+}
+
+func unregisterDescriptor(id uint32) {
+	descriptorRegistryMu.Lock()
+	defer descriptorRegistryMu.Unlock()
+	if int(id) < len(descriptorRegistry) {
+		descriptorRegistry[id] = nil
+		descriptorFreelist = append(descriptorFreelist, id)
+	}
+}
+
+// DirectoryEntryStream registry
+var (
+	dirEntryStreamRegistryMu sync.Mutex
+	dirEntryStreamRegistry   []*DirectoryEntryStream
+	dirEntryStreamFreelist   []uint32
+)
+
+func registerDirEntryStream(s *DirectoryEntryStream) uint32 {
+	dirEntryStreamRegistryMu.Lock()
+	defer dirEntryStreamRegistryMu.Unlock()
+	if n := len(dirEntryStreamFreelist); n > 0 {
+		id := dirEntryStreamFreelist[n-1]
+		dirEntryStreamFreelist = dirEntryStreamFreelist[:n-1]
+		dirEntryStreamRegistry[id] = s
+		return id
+	}
+	id := uint32(len(dirEntryStreamRegistry))
+	dirEntryStreamRegistry = append(dirEntryStreamRegistry, s)
+	return id
+}
+
+func getDirEntryStreamFromRegistry(id uint32) *DirectoryEntryStream {
+	dirEntryStreamRegistryMu.Lock()
+	defer dirEntryStreamRegistryMu.Unlock()
+	if int(id) >= len(dirEntryStreamRegistry) {
+		return nil
+	}
+	return dirEntryStreamRegistry[id]
+}
+
+func unregisterDirEntryStream(id uint32) {
+	dirEntryStreamRegistryMu.Lock()
+	defer dirEntryStreamRegistryMu.Unlock()
+	if int(id) < len(dirEntryStreamRegistry) {
+		dirEntryStreamRegistry[id] = nil
+		dirEntryStreamFreelist = append(dirEntryStreamFreelist, id)
+	}
+}
+
 // Host-managed resource type singletons. One *ResourceType per host
 // resource kind. Impl is nil because these resources are host-owned;
 // destruction flows through ResourceType.HostDestructor.
 var (
-	descriptorResourceType       = &runtime.ResourceType{}
-	dirEntryStreamResourceType   = &runtime.ResourceType{}
-	fsInputStreamResourceType    = &runtime.ResourceType{}
-	fsOutputStreamResourceType   = &runtime.ResourceType{}
+	descriptorResourceType = &runtime.ResourceType{
+		HostDestructor: func(rep uint32) error {
+			if d := getDescriptorFromRegistry(rep); d != nil {
+				d.Close()
+			}
+			unregisterDescriptor(rep)
+			return nil
+		},
+	}
+	dirEntryStreamResourceType = &runtime.ResourceType{
+		HostDestructor: func(rep uint32) error { unregisterDirEntryStream(rep); return nil },
+	}
+	fsInputStreamResourceType = &runtime.ResourceType{
+		HostDestructor: func(rep uint32) error {
+			if s := wasipIO.GetInputStream(rep); s != nil {
+				s.Destroy()
+			}
+			wasipIO.UnregisterInputStream(rep)
+			return nil
+		},
+	}
+	fsOutputStreamResourceType = &runtime.ResourceType{
+		HostDestructor: func(rep uint32) error {
+			if s := wasipIO.GetOutputStream(rep); s != nil {
+				s.Destroy()
+			}
+			wasipIO.UnregisterOutputStream(rep)
+			return nil
+		},
+	}
 )
 
 // getDescriptor retrieves a Descriptor from the ResourceTable using a handle.
@@ -45,8 +150,11 @@ func getDescriptor(ctx context.Context, handle uint32) (*Descriptor, error) {
 	if !ok {
 		return nil, errors.New("handle is not a resource handle")
 	}
-	_ = resEntry // Task E4: resolve *Descriptor via per-module registry using resEntry.Rep
-	return nil, errors.New("Descriptor registry not yet wired (Task E4)")
+	d := getDescriptorFromRegistry(resEntry.Rep)
+	if d == nil {
+		return nil, errors.New("Descriptor not found in registry")
+	}
+	return d, nil
 }
 
 // getDirEntryStream retrieves a DirectoryEntryStream from the ResourceTable using a handle.
@@ -63,8 +171,11 @@ func getDirEntryStream(ctx context.Context, handle uint32) (*DirectoryEntryStrea
 	if !ok {
 		return nil, errors.New("handle is not a resource handle")
 	}
-	_ = resEntry // Task E4: resolve *DirectoryEntryStream via per-module registry using resEntry.Rep
-	return nil, errors.New("DirectoryEntryStream registry not yet wired (Task E4)")
+	s := getDirEntryStreamFromRegistry(resEntry.Rep)
+	if s == nil {
+		return nil, errors.New("DirectoryEntryStream not found in registry")
+	}
+	return s, nil
 }
 
 // FilesystemError wraps an ErrorCode so it can be stored in io.Error and extracted later.
@@ -163,8 +274,10 @@ func instantiateTypes(linker *component.Linker) error {
 
 	// descriptor resource
 	inst.Resource("descriptor", func(rep uint32) {
-		// Destructor - close descriptor
-		// Full implementation will look up descriptor in ResourceTable and close it
+		if d := getDescriptorFromRegistry(rep); d != nil {
+			d.Close()
+		}
+		unregisterDescriptor(rep)
 	})
 
 	// descriptor methods
@@ -201,7 +314,7 @@ func instantiateTypes(linker *component.Linker) error {
 
 	// directory-entry-stream resource
 	inst.Resource("directory-entry-stream", func(rep uint32) {
-		// Destructor - release directory entry stream
+		unregisterDirEntryStream(rep)
 	})
 	inst.Func("[method]directory-entry-stream.read-directory-entry", directoryEntryStreamReadEntry)
 
@@ -251,10 +364,10 @@ func descriptorReadViaStream(ctx context.Context, _ *types.TypeFunc, args []type
 
 	// Create an input stream from the file
 	inputStream := wasipIO.NewInputStream(file)
-	_ = inputStream // Task E4: will wire via per-module registry
+	sid := wasipIO.RegisterInputStream(inputStream)
 
 	// Add the stream to the resource table
-	streamHandle, hErr := table.NewResourceHandle(uint32(0), true, fsInputStreamResourceType)
+	streamHandle, hErr := table.NewResourceHandle(sid, true, fsInputStreamResourceType)
 	if hErr != nil {
 		file.Close()
 		return errorResult(ErrorCodeIO), nil
@@ -306,11 +419,12 @@ func descriptorWriteViaStream(ctx context.Context, _ *types.TypeFunc, args []typ
 
 	// Create an output stream from the file
 	outputStream := wasipIO.NewOutputStream(file)
-	_ = outputStream // Task E4: will wire via per-module registry
+	sid := wasipIO.RegisterOutputStream(outputStream)
 
 	// Add the stream to the resource table
-	streamHandle, hErr := table.NewResourceHandle(uint32(0), true, fsOutputStreamResourceType)
+	streamHandle, hErr := table.NewResourceHandle(sid, true, fsOutputStreamResourceType)
 	if hErr != nil {
+		wasipIO.UnregisterOutputStream(sid)
 		file.Close()
 		return errorResult(ErrorCodeIO), nil
 	}
@@ -351,11 +465,12 @@ func descriptorAppendViaStream(ctx context.Context, _ *types.TypeFunc, args []ty
 
 	// Create an output stream from the file
 	outputStream := wasipIO.NewOutputStream(file)
-	_ = outputStream // Task E4: will wire via per-module registry
+	sid := wasipIO.RegisterOutputStream(outputStream)
 
 	// Add the stream to the resource table
-	streamHandle, hErr := table.NewResourceHandle(uint32(0), true, fsOutputStreamResourceType)
+	streamHandle, hErr := table.NewResourceHandle(sid, true, fsOutputStreamResourceType)
 	if hErr != nil {
+		wasipIO.UnregisterOutputStream(sid)
 		file.Close()
 		return errorResult(ErrorCodeIO), nil
 	}
@@ -652,15 +767,16 @@ func descriptorReadDirectory(ctx context.Context, _ *types.TypeFunc, args []type
 
 	// Create directory entry stream
 	stream := NewDirectoryEntryStream(dirEntries)
-	_ = stream // Task E4: will wire via per-module registry
+	sid := registerDirEntryStream(stream)
 
 	// Add to resource table
 	table := component.ResourceTableFromContext(ctx)
 	if table == nil {
+		unregisterDirEntryStream(sid)
 		return errorResult(ErrorCodeIO), nil
 	}
 
-	newHandle, hErr := table.NewResourceHandle(uint32(0), true, dirEntryStreamResourceType)
+	newHandle, hErr := table.NewResourceHandle(sid, true, dirEntryStreamResourceType)
 	if hErr != nil {
 		return errorResult(ErrorCodeIO), nil
 	}
@@ -1022,16 +1138,17 @@ func descriptorOpenAt(ctx context.Context, _ *types.TypeFunc, args []types.Val) 
 
 	// Create new descriptor
 	newDesc := NewDescriptor(file, fileInfo.IsDir(), cleanPath, newDescFlags)
-	_ = newDesc // Task E4: will wire via per-module registry
+	did := registerDescriptor(newDesc)
 
 	// Add to resource table
 	table := component.ResourceTableFromContext(ctx)
 	if table == nil {
+		unregisterDescriptor(did)
 		file.Close()
 		return errorResult(ErrorCodeIO), nil
 	}
 
-	newHandle, hErr := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
+	newHandle, hErr := table.NewResourceHandle(did, true, descriptorResourceType)
 	if hErr != nil {
 		file.Close()
 		return errorResult(ErrorCodeIO), nil
@@ -1374,7 +1491,18 @@ func filesystemErrorCode(ctx context.Context, _ *types.TypeFunc, args []types.Va
 	if !ok {
 		return []types.Val{types.ValOption(nil)}, nil
 	}
-	_ = resEntry // Task E4: resolve *wasipIO.Error via per-module registry using resEntry.Rep
+	ioErr := wasipIO.GetError(resEntry.Rep)
+	if ioErr == nil {
+		return []types.Val{types.ValOption(nil)}, nil
+	}
+	goErr := ioErr.Unwrap()
+	if goErr == nil {
+		return []types.Val{types.ValOption(nil)}, nil
+	}
+	if fsErr, ok := goErr.(*FilesystemError); ok {
+		codeVal := types.ValEnum(string(fsErr.Code))
+		return []types.Val{types.ValOption(&codeVal)}, nil
+	}
 	return []types.Val{types.ValOption(nil)}, nil
 }
 

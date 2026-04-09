@@ -283,7 +283,6 @@ func TestGetStdin_WithConfig(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, entry)
 
-	// Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry
 	_ = entry
 }
 
@@ -334,7 +333,6 @@ func TestGetStdout_WithConfig(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, entry)
 
-	// Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry
 	_ = entry
 }
 
@@ -385,7 +383,6 @@ func TestGetStderr_WithConfig(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, entry)
 
-	// Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry
 	_ = entry
 }
 
@@ -551,7 +548,6 @@ func TestGetTerminalStdin_ModeCustom_True(t *testing.T) {
 	entry, _ := rawEntry4.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
 	require.NotNil(t, entry)
-	// Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry
 }
 
 func TestGetTerminalStdin_ModeAuto_NotFile(t *testing.T) {
@@ -607,7 +603,6 @@ func TestGetTerminalStdout_ModeCustom_True(t *testing.T) {
 	rawEntry5, err := table.Get(runtime.Handle(handle))
 	_, _ = rawEntry5.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
-	// Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry
 }
 
 func TestGetTerminalStdout_ModeAuto_NotFile(t *testing.T) {
@@ -662,7 +657,6 @@ func TestGetTerminalStderr_ModeCustom_True(t *testing.T) {
 	rawEntry6, err := table.Get(runtime.Handle(handle))
 	_, _ = rawEntry6.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
-	// Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry
 }
 
 func TestGetTerminalStderr_ModeAuto_NotFile(t *testing.T) {

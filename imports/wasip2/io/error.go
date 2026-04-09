@@ -126,7 +126,10 @@ func instantiateError(linker *component.Linker) error {
 
 	// Define the error resource type
 	inst.Resource("error", func(rep uint32) {
-		// Destructor - nothing to clean up for simple errors
+		if e := GetError(rep); e != nil {
+			e.Destroy()
+		}
+		UnregisterError(rep)
 	})
 
 	// [method]error.to-debug-string: func(self: borrow<error>) -> string
@@ -152,6 +155,9 @@ func errorToDebugString(ctx context.Context, _ *types.TypeFunc, args []types.Val
 	if !ok {
 		return []types.Val{types.ValString("not a resource handle")}, nil
 	}
-	_ = resEntry // Task E4: resolve *Error via per-module registry using resEntry.Rep
-	return []types.Val{types.ValString("error resource registry not yet wired (Task E4)")}, nil
+	e := GetError(resEntry.Rep)
+	if e == nil {
+		return []types.Val{types.ValString("error not found in registry")}, nil
+	}
+	return []types.Val{types.ValString(e.ToDebugString())}, nil
 }

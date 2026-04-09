@@ -9,6 +9,7 @@ import (
 	"context"
 	"os"
 	"strings"
+	"sync"
 
 	wasip2io "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
@@ -16,13 +17,93 @@ import (
 	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
+// TerminalInput registry
+var (
+	terminalInputRegistryMu sync.Mutex
+	terminalInputRegistry   []*TerminalInput
+	terminalInputFreelist   []uint32
+)
+
+func registerTerminalInput(t *TerminalInput) uint32 {
+	terminalInputRegistryMu.Lock()
+	defer terminalInputRegistryMu.Unlock()
+	if n := len(terminalInputFreelist); n > 0 {
+		id := terminalInputFreelist[n-1]
+		terminalInputFreelist = terminalInputFreelist[:n-1]
+		terminalInputRegistry[id] = t
+		return id
+	}
+	id := uint32(len(terminalInputRegistry))
+	terminalInputRegistry = append(terminalInputRegistry, t)
+	return id
+}
+
+func unregisterTerminalInput(id uint32) {
+	terminalInputRegistryMu.Lock()
+	defer terminalInputRegistryMu.Unlock()
+	if int(id) < len(terminalInputRegistry) {
+		terminalInputRegistry[id] = nil
+		terminalInputFreelist = append(terminalInputFreelist, id)
+	}
+}
+
+// TerminalOutput registry
+var (
+	terminalOutputRegistryMu sync.Mutex
+	terminalOutputRegistry   []*TerminalOutput
+	terminalOutputFreelist   []uint32
+)
+
+func registerTerminalOutput(t *TerminalOutput) uint32 {
+	terminalOutputRegistryMu.Lock()
+	defer terminalOutputRegistryMu.Unlock()
+	if n := len(terminalOutputFreelist); n > 0 {
+		id := terminalOutputFreelist[n-1]
+		terminalOutputFreelist = terminalOutputFreelist[:n-1]
+		terminalOutputRegistry[id] = t
+		return id
+	}
+	id := uint32(len(terminalOutputRegistry))
+	terminalOutputRegistry = append(terminalOutputRegistry, t)
+	return id
+}
+
+func unregisterTerminalOutput(id uint32) {
+	terminalOutputRegistryMu.Lock()
+	defer terminalOutputRegistryMu.Unlock()
+	if int(id) < len(terminalOutputRegistry) {
+		terminalOutputRegistry[id] = nil
+		terminalOutputFreelist = append(terminalOutputFreelist, id)
+	}
+}
+
 // Host-managed resource type singletons. One *ResourceType per host
 // resource kind. Impl is nil because these resources are host-owned.
 var (
-	cliInputStreamResourceType    = &runtime.ResourceType{}
-	cliOutputStreamResourceType   = &runtime.ResourceType{}
-	cliTerminalInputResourceType  = &runtime.ResourceType{}
-	cliTerminalOutputResourceType = &runtime.ResourceType{}
+	cliInputStreamResourceType = &runtime.ResourceType{
+		HostDestructor: func(rep uint32) error {
+			if s := wasip2io.GetInputStream(rep); s != nil {
+				s.Destroy()
+			}
+			wasip2io.UnregisterInputStream(rep)
+			return nil
+		},
+	}
+	cliOutputStreamResourceType = &runtime.ResourceType{
+		HostDestructor: func(rep uint32) error {
+			if s := wasip2io.GetOutputStream(rep); s != nil {
+				s.Destroy()
+			}
+			wasip2io.UnregisterOutputStream(rep)
+			return nil
+		},
+	}
+	cliTerminalInputResourceType = &runtime.ResourceType{
+		HostDestructor: func(rep uint32) error { unregisterTerminalInput(rep); return nil },
+	}
+	cliTerminalOutputResourceType = &runtime.ResourceType{
+		HostDestructor: func(rep uint32) error { unregisterTerminalOutput(rep); return nil },
+	}
 )
 
 // ExitError is returned when a WASI program calls exit with an error status.
@@ -183,10 +264,10 @@ func getStdin(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types
 
 	// Create an InputStream from the config's stdin reader
 	stream := wasip2io.NewInputStream(config.Stdin())
-	_ = stream // Task E4: will wire via per-module registry
+	sid := wasip2io.RegisterInputStream(stream)
 
 	// Register in resource table and get handle
-	handle, hErr := table.NewResourceHandle(uint32(0), true, cliInputStreamResourceType)
+	handle, hErr := table.NewResourceHandle(sid, true, cliInputStreamResourceType)
 	if hErr != nil {
 		return []types.Val{types.ValOwn(0)}, nil
 	}
@@ -215,11 +296,12 @@ func getStdout(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]type
 
 	// Create an OutputStream from the config's stdout writer
 	stream := wasip2io.NewOutputStream(config.Stdout())
-	_ = stream // Task E4: will wire via per-module registry
+	sid := wasip2io.RegisterOutputStream(stream)
 
 	// Register in resource table and get handle
-	handle, hErr := table.NewResourceHandle(uint32(0), true, cliOutputStreamResourceType)
+	handle, hErr := table.NewResourceHandle(sid, true, cliOutputStreamResourceType)
 	if hErr != nil {
+		wasip2io.UnregisterOutputStream(sid)
 		return []types.Val{types.ValOwn(1)}, nil
 	}
 	return []types.Val{types.ValOwn(uint32(handle))}, nil
@@ -247,11 +329,12 @@ func getStderr(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]type
 
 	// Create an OutputStream from the config's stderr writer
 	stream := wasip2io.NewOutputStream(config.Stderr())
-	_ = stream // Task E4: will wire via per-module registry
+	sid := wasip2io.RegisterOutputStream(stream)
 
 	// Register in resource table and get handle
-	handle, hErr := table.NewResourceHandle(uint32(0), true, cliOutputStreamResourceType)
+	handle, hErr := table.NewResourceHandle(sid, true, cliOutputStreamResourceType)
 	if hErr != nil {
+		wasip2io.UnregisterOutputStream(sid)
 		return []types.Val{types.ValOwn(2)}, nil
 	}
 	return []types.Val{types.ValOwn(uint32(handle))}, nil
@@ -261,8 +344,10 @@ func getStderr(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]type
 func instantiateTerminalInput(linker *component.Linker) error {
 	inst := linker.DefineInstance("wasi:cli/terminal-input@0.2.0")
 
-	// Define terminal-input resource with no-op destructor
-	inst.Resource("terminal-input", func(rep uint32) {})
+	// Define terminal-input resource
+	inst.Resource("terminal-input", func(rep uint32) {
+		unregisterTerminalInput(rep)
+	})
 
 	return inst.SkipValidation().Build()
 }
@@ -271,8 +356,10 @@ func instantiateTerminalInput(linker *component.Linker) error {
 func instantiateTerminalOutput(linker *component.Linker) error {
 	inst := linker.DefineInstance("wasi:cli/terminal-output@0.2.0")
 
-	// Define terminal-output resource with no-op destructor
-	inst.Resource("terminal-output", func(rep uint32) {})
+	// Define terminal-output resource
+	inst.Resource("terminal-output", func(rep uint32) {
+		unregisterTerminalOutput(rep)
+	})
 
 	return inst.SkipValidation().Build()
 }
@@ -313,7 +400,8 @@ func getTerminalStdin(ctx context.Context, _ *types.TypeFunc, args []types.Val) 
 	if table == nil {
 		return []types.Val{types.ValOption(nil)}, nil
 	}
-	handle, hErr := table.NewResourceHandle(uint32(0), true, cliTerminalInputResourceType)
+	tid := registerTerminalInput(&TerminalInput{})
+	handle, hErr := table.NewResourceHandle(tid, true, cliTerminalInputResourceType)
 	if hErr != nil {
 		return []types.Val{types.ValOption(nil)}, nil
 	}
@@ -357,7 +445,8 @@ func getTerminalStdout(ctx context.Context, _ *types.TypeFunc, args []types.Val)
 	if table == nil {
 		return []types.Val{types.ValOption(nil)}, nil
 	}
-	handle, hErr := table.NewResourceHandle(uint32(0), true, cliTerminalOutputResourceType)
+	tid := registerTerminalOutput(&TerminalOutput{})
+	handle, hErr := table.NewResourceHandle(tid, true, cliTerminalOutputResourceType)
 	if hErr != nil {
 		return []types.Val{types.ValOption(nil)}, nil
 	}
@@ -401,7 +490,8 @@ func getTerminalStderr(ctx context.Context, _ *types.TypeFunc, args []types.Val)
 	if table == nil {
 		return []types.Val{types.ValOption(nil)}, nil
 	}
-	handle, hErr := table.NewResourceHandle(uint32(0), true, cliTerminalOutputResourceType)
+	tid := registerTerminalOutput(&TerminalOutput{})
+	handle, hErr := table.NewResourceHandle(tid, true, cliTerminalOutputResourceType)
 	if hErr != nil {
 		return []types.Val{types.ValOption(nil)}, nil
 	}

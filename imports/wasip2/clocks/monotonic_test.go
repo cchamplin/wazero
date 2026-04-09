@@ -106,11 +106,9 @@ func TestInstantiateMonotonicClock_Duplicate(t *testing.T) {
 // Tests for host functions with ResourceTable
 
 func TestSubscribeDuration_HostFunction(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 }
 
 func TestSubscribeDuration_HostFunction_Zero(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 }
 
 func TestSubscribeDuration_HostFunction_NoResourceTable(t *testing.T) {
@@ -128,11 +126,9 @@ func TestSubscribeDuration_HostFunction_NoResourceTable(t *testing.T) {
 }
 
 func TestSubscribeInstant_HostFunction(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 }
 
 func TestSubscribeInstant_HostFunction_Past(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 }
 
 func TestSubscribeInstant_HostFunction_NoResourceTable(t *testing.T) {

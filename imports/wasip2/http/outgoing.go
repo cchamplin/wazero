@@ -54,19 +54,30 @@ func outgoingHandlerHandle(ctx context.Context, _ *types.TypeFunc, args []types.
 		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
-	_ = reqEntry // Task E4: resolve *OutgoingRequest via per-module registry using reqEntry.Rep
+	var req *OutgoingRequest
+	if reqEntry != nil {
+		req = getOutgoingRequestFromRegistry(reqEntry.Rep)
+		unregisterOutgoingRequest(reqEntry.Rep)
+	}
+	if req == nil {
+		errVal := errorCodeToVariant(ErrorCodeInternalError)
+		return []types.Val{types.ValResultError(&errVal)}, nil
+	}
 
 	// Get optional request options
+	var opts *RequestOptions
 	optionVal := args[1].Option()
 	if optionVal != nil {
 		optsHandle := runtime.Handle(optionVal.Own())
-		table.Remove(optsHandle)
-		// Task E4: resolve *RequestOptions via per-module registry using optsEntry.Rep
+		optsEntry, _ := table.Remove(optsHandle)
+		if optsEntry != nil {
+			opts = getRequestOptionsFromRegistry(optsEntry.Rep)
+			unregisterRequestOptions(optsEntry.Rep)
+		}
 	}
 
-	// Task E4: when req is resolved via registry, convert to Go HTTP request
 	var httpReq *gohttp.Request
-	httpReq, err = gohttp.NewRequestWithContext(ctx, "GET", "http://localhost/", nil)
+	httpReq, err = req.ToHTTPRequest(ctx)
 	if err != nil {
 		errVal := errorCodeToVariant(ErrorCodeHTTPRequestURIInvalid)
 		return []types.Val{types.ValResultError(&errVal)}, nil
@@ -75,8 +86,10 @@ func outgoingHandlerHandle(ctx context.Context, _ *types.TypeFunc, args []types.
 	// Create the future response
 	future := NewFutureIncomingResponse()
 
-	// Task E4: when opts is resolved via registry, use MakeHTTPClient(opts)
-	client := DefaultHTTPClient
+	client := MakeHTTPClient(opts)
+	if opts == nil {
+		client = DefaultHTTPClient
+	}
 
 	// Start the async HTTP request
 	go func() {
@@ -93,7 +106,8 @@ func outgoingHandlerHandle(ctx context.Context, _ *types.TypeFunc, args []types.
 	}()
 
 	// Register the future in the resource table
-	futureHandle, err := table.NewResourceHandle(uint32(0), true, httpFutureIncomingResponseResourceType)
+	fid := registerFutureIncomingResponse(future)
+	futureHandle, err := table.NewResourceHandle(fid, true, httpFutureIncomingResponseResourceType)
 	if err != nil {
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}

@@ -338,13 +338,13 @@ func TestFieldsClone(t *testing.T) {
 }
 
 func TestFieldsHas_WithResourceTable(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	fields := NewFields()
 	fields.Set("Content-Type", [][]byte{[]byte("text/html")})
-	handle, errH1 := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
+	sid := registerFields(fields)
+	handle, errH1 := table.NewResourceHandle(sid, true, httpFieldsResourceType)
 	if errH1 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH1)
 	}
@@ -572,7 +572,6 @@ func TestIncomingRequestConsume(t *testing.T) {
 // TestIncomingRequest_Method_WithResourceTable tests that method accessor
 // returns the correct HTTP method from a registered incoming request.
 func TestIncomingRequest_Method_WithResourceTable(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	// Create resource table and context
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
@@ -582,10 +581,10 @@ func TestIncomingRequest_Method_WithResourceTable(t *testing.T) {
 	path := "/api/test?foo=bar"
 	authority := "example.com"
 	scheme := NewSchemeHTTPS()
-	_ = NewIncomingRequest(MethodPost, &scheme, &authority, &path, headers) // Task E4: will wire via per-module registry
+	sid := registerIncomingRequest(NewIncomingRequest(MethodPost, &scheme, &authority, &path, headers))
 
 	// Register in resource table
-	handle, errH2 := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
+	handle, errH2 := table.NewResourceHandle(sid, true, httpFieldsResourceType)
 	if errH2 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH2)
 	}
@@ -605,7 +604,6 @@ func TestIncomingRequest_Method_WithResourceTable(t *testing.T) {
 // TestIncomingRequest_PathWithQuery_WithResourceTable tests that path-with-query
 // accessor returns the correct path from a registered incoming request.
 func TestIncomingRequest_PathWithQuery_WithResourceTable(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	// Create resource table and context
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
@@ -615,10 +613,10 @@ func TestIncomingRequest_PathWithQuery_WithResourceTable(t *testing.T) {
 	path := "/api/test?foo=bar"
 	authority := "example.com"
 	scheme := NewSchemeHTTPS()
-	_ = NewIncomingRequest(MethodGet, &scheme, &authority, &path, headers) // Task E4: will wire via per-module registry
+	sid := registerIncomingRequest(NewIncomingRequest(MethodGet, &scheme, &authority, &path, headers))
 
 	// Register in resource table
-	handle, errH3 := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
+	handle, errH3 := table.NewResourceHandle(sid, true, httpFieldsResourceType)
 	if errH3 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH3)
 	}
@@ -639,7 +637,6 @@ func TestIncomingRequest_PathWithQuery_WithResourceTable(t *testing.T) {
 // TestIncomingRequest_Scheme_WithResourceTable tests that scheme accessor
 // returns the correct scheme from a registered incoming request.
 func TestIncomingRequest_Scheme_WithResourceTable(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	// Create resource table and context
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
@@ -649,10 +646,10 @@ func TestIncomingRequest_Scheme_WithResourceTable(t *testing.T) {
 	path := "/api/test"
 	authority := "example.com"
 	scheme := NewSchemeHTTPS()
-	_ = NewIncomingRequest(MethodGet, &scheme, &authority, &path, headers) // Task E4: will wire via per-module registry
+	sid := registerIncomingRequest(NewIncomingRequest(MethodGet, &scheme, &authority, &path, headers))
 
 	// Register in resource table
-	handle, errH4 := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
+	handle, errH4 := table.NewResourceHandle(sid, true, httpFieldsResourceType)
 	if errH4 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH4)
 	}
@@ -675,7 +672,6 @@ func TestIncomingRequest_Scheme_WithResourceTable(t *testing.T) {
 // TestIncomingRequest_Authority_WithResourceTable tests that authority accessor
 // returns the correct authority from a registered incoming request.
 func TestIncomingRequest_Authority_WithResourceTable(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	// Create resource table and context
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
@@ -685,10 +681,10 @@ func TestIncomingRequest_Authority_WithResourceTable(t *testing.T) {
 	path := "/api/test"
 	authority := "example.com:8080"
 	scheme := NewSchemeHTTPS()
-	_ = NewIncomingRequest(MethodGet, &scheme, &authority, &path, headers) // Task E4: will wire via per-module registry
+	sid := registerIncomingRequest(NewIncomingRequest(MethodGet, &scheme, &authority, &path, headers))
 
 	// Register in resource table
-	handle, errH5 := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
+	handle, errH5 := table.NewResourceHandle(sid, true, httpFieldsResourceType)
 	if errH5 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH5)
 	}
@@ -720,10 +716,10 @@ func TestIncomingRequest_Headers_WithResourceTable(t *testing.T) {
 	path := "/api/test"
 	authority := "example.com"
 	scheme := NewSchemeHTTPS()
-	_ = NewIncomingRequest(MethodGet, &scheme, &authority, &path, headers) // Task E4: will wire via per-module registry
+	sid := registerIncomingRequest(NewIncomingRequest(MethodGet, &scheme, &authority, &path, headers))
 
 	// Register in resource table
-	handle, errH6 := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
+	handle, errH6 := table.NewResourceHandle(sid, true, httpFieldsResourceType)
 	if errH6 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH6)
 	}
@@ -742,14 +738,12 @@ func TestIncomingRequest_Headers_WithResourceTable(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, entry)
 
-	// Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry
 	_ = entry
 }
 
 // TestIncomingRequest_Consume_WithResourceTable tests that consume
 // returns a valid incoming body handle from a registered incoming request.
 func TestIncomingRequest_Consume_WithResourceTable(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	// Create resource table and context
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
@@ -759,10 +753,10 @@ func TestIncomingRequest_Consume_WithResourceTable(t *testing.T) {
 	path := "/api/test"
 	authority := "example.com"
 	scheme := NewSchemeHTTPS()
-	_ = NewIncomingRequest(MethodPost, &scheme, &authority, &path, headers) // Task E4: will wire via per-module registry
+	sid := registerIncomingRequest(NewIncomingRequest(MethodPost, &scheme, &authority, &path, headers))
 
 	// Register in resource table
-	handle, errH7 := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
+	handle, errH7 := table.NewResourceHandle(sid, true, httpFieldsResourceType)
 	if errH7 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH7)
 	}
@@ -788,13 +782,11 @@ func TestIncomingRequest_Consume_WithResourceTable(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, entry)
 
-	// Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry
 	_ = entry
 }
 
 // TestIncomingRequest_AllMethods tests all methods for various HTTP methods.
 func TestIncomingRequest_AllMethods(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	methods := []struct {
 		method       Method
 		expectedName string
@@ -819,9 +811,9 @@ func TestIncomingRequest_AllMethods(t *testing.T) {
 			path := "/test"
 			authority := "localhost"
 			scheme := NewSchemeHTTP()
-			_ = NewIncomingRequest(tc.method, &scheme, &authority, &path, headers) // Task E4: will wire via per-module registry
+			sid := registerIncomingRequest(NewIncomingRequest(tc.method, &scheme, &authority, &path, headers))
 
-			handle, errH8 := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
+			handle, errH8 := table.NewResourceHandle(sid, true, httpFieldsResourceType)
 			if errH8 != nil {
 				t.Fatalf("NewResourceHandle failed: %v", errH8)
 			}
@@ -844,9 +836,9 @@ func TestIncomingRequest_NilScheme(t *testing.T) {
 	headers := NewFields()
 	path := "/test"
 	authority := "localhost"
-	_ = NewIncomingRequest(MethodGet, nil, &authority, &path, headers) // Task E4: will wire via per-module registry
+	sid := registerIncomingRequest(NewIncomingRequest(MethodGet, nil, &authority, &path, headers))
 
-	handle, errH9 := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
+	handle, errH9 := table.NewResourceHandle(sid, true, httpFieldsResourceType)
 	if errH9 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH9)
 	}
@@ -869,9 +861,9 @@ func TestIncomingRequest_NilPathWithQuery(t *testing.T) {
 	headers := NewFields()
 	authority := "localhost"
 	scheme := NewSchemeHTTP()
-	_ = NewIncomingRequest(MethodGet, &scheme, &authority, nil, headers) // Task E4: will wire via per-module registry
+	sid := registerIncomingRequest(NewIncomingRequest(MethodGet, &scheme, &authority, nil, headers))
 
-	handle, errH10 := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
+	handle, errH10 := table.NewResourceHandle(sid, true, httpFieldsResourceType)
 	if errH10 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH10)
 	}
@@ -894,9 +886,9 @@ func TestIncomingRequest_NilAuthority(t *testing.T) {
 	headers := NewFields()
 	path := "/test"
 	scheme := NewSchemeHTTP()
-	_ = NewIncomingRequest(MethodGet, &scheme, nil, &path, headers) // Task E4: will wire via per-module registry
+	sid := registerIncomingRequest(NewIncomingRequest(MethodGet, &scheme, nil, &path, headers))
 
-	handle, errH11 := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
+	handle, errH11 := table.NewResourceHandle(sid, true, httpFieldsResourceType)
 	if errH11 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH11)
 	}
@@ -978,12 +970,14 @@ func TestOutgoingResponseConstructor_WithResourceTable(t *testing.T) {
 
 	// Occupy slot 0 so that when headers (slot 1) is removed,
 	// the response gets allocated in a fresh slot (slot 2) with generation 0.
-	_, _ = table.NewResourceHandle(uint32(0), false, httpFieldsResourceType)
+	dummySid := registerFields(NewFields())
+	_, _ = table.NewResourceHandle(dummySid, false, httpFieldsResourceType)
 
 	// Create headers
 	headers := NewFields()
 	headers.Set("X-Test", [][]byte{[]byte("value")})
-	headersHandle, errH12 := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
+	hdrSid := registerFields(headers)
+	headersHandle, errH12 := table.NewResourceHandle(hdrSid, true, httpFieldsResourceType)
 	if errH12 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH12)
 	}
@@ -1002,13 +996,13 @@ func TestOutgoingResponseConstructor_WithResourceTable(t *testing.T) {
 }
 
 func TestOutgoingResponseStatusCode_WithResourceTable(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	resp := NewOutgoingResponse(NewFields())
+	sid := registerOutgoingResponse(resp)
 	resp.SetStatusCode(404)
-	handle, errH13 := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
+	handle, errH13 := table.NewResourceHandle(sid, true, httpFieldsResourceType)
 	if errH13 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH13)
 	}
@@ -1020,12 +1014,12 @@ func TestOutgoingResponseStatusCode_WithResourceTable(t *testing.T) {
 }
 
 func TestOutgoingResponseSetStatusCode_WithResourceTable(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	resp := NewOutgoingResponse(NewFields())
-	handle, errH14 := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
+	sid := registerOutgoingResponse(resp)
+	handle, errH14 := table.NewResourceHandle(sid, true, httpFieldsResourceType)
 	if errH14 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH14)
 	}
@@ -1040,12 +1034,11 @@ func TestOutgoingResponseSetStatusCode_WithResourceTable(t *testing.T) {
 }
 
 func TestOutgoingResponseBody_WithResourceTable(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
-	_ = NewOutgoingResponse(NewFields()) // Task E4: will wire via per-module registry
-	handle, errH15 := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
+	sid := registerOutgoingResponse(NewOutgoingResponse(NewFields()))
+	handle, errH15 := table.NewResourceHandle(sid, true, httpFieldsResourceType)
 	if errH15 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH15)
 	}
@@ -1210,7 +1203,6 @@ func TestFutureTrailersSubscribe(t *testing.T) {
 }
 
 func TestIncomingBodyFinish_ReturnsFutureTrailers(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
@@ -1230,13 +1222,12 @@ func TestIncomingBodyFinish_ReturnsFutureTrailers(t *testing.T) {
 }
 
 func TestFutureTrailersGet_NoTrailers(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create a ready FutureTrailers directly (no body removal to avoid slot reuse)
-	_ = NewFutureTrailersReady(nil, nil) // Task E4: will wire via per-module registry
-	ftHandle, errH16 := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
+	sid := registerFutureTrailers(NewFutureTrailersReady(nil, nil))
+	ftHandle, errH16 := table.NewResourceHandle(sid, true, httpFieldsResourceType)
 	if errH16 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH16)
 	}
@@ -1255,8 +1246,8 @@ func TestFutureTrailersGet_ConsumedOnSecondCall(t *testing.T) {
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
-	_ = NewFutureTrailersReady(nil, nil) // Task E4: will wire via per-module registry
-	ftHandle, errH17 := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
+	sid := registerFutureTrailers(NewFutureTrailersReady(nil, nil))
+	ftHandle, errH17 := table.NewResourceHandle(sid, true, httpFieldsResourceType)
 	if errH17 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH17)
 	}
@@ -1277,8 +1268,8 @@ func TestFutureTrailersSubscribe_ReturnsValidPollable(t *testing.T) {
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
-	_ = NewFutureTrailersReady(nil, nil) // Task E4: will wire via per-module registry
-	ftHandle, errH18 := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
+	sid := registerFutureTrailers(NewFutureTrailersReady(nil, nil))
+	ftHandle, errH18 := table.NewResourceHandle(sid, true, httpFieldsResourceType)
 	if errH18 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH18)
 	}
@@ -2116,19 +2107,20 @@ func TestIncomingBody_StreamRead(t *testing.T) {
 }
 
 func TestResponseOutparamSet_OkResponse(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	outparam := NewResponseOutparam()
-	outparamHandle, errH19 := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
+	opSid := registerResponseOutparam(outparam)
+	outparamHandle, errH19 := table.NewResourceHandle(opSid, true, httpFieldsResourceType)
 	if errH19 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH19)
 	}
 
 	resp := NewOutgoingResponse(NewFields())
+	sid := registerOutgoingResponse(resp)
 	resp.SetStatusCode(200)
-	respHandle, errH20 := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
+	respHandle, errH20 := table.NewResourceHandle(sid, true, httpFieldsResourceType)
 	if errH20 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH20)
 	}
@@ -2151,12 +2143,12 @@ func TestResponseOutparamSet_OkResponse(t *testing.T) {
 }
 
 func TestResponseOutparamSet_ErrorResponse(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	outparam := NewResponseOutparam()
-	outparamHandle, errH21 := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
+	opSid := registerResponseOutparam(outparam)
+	outparamHandle, errH21 := table.NewResourceHandle(opSid, true, httpFieldsResourceType)
 	if errH21 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH21)
 	}
@@ -2186,7 +2178,8 @@ func TestResponseOutparamSet_BadOutgoingResponseHandle(t *testing.T) {
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	outparam := NewResponseOutparam()
-	outparamHandle, errH22 := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
+	opSid := registerResponseOutparam(outparam)
+	outparamHandle, errH22 := table.NewResourceHandle(opSid, true, httpFieldsResourceType)
 	if errH22 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH22)
 	}
@@ -2245,8 +2238,9 @@ func TestIncomingRequestConsume_WithBody(t *testing.T) {
 	scheme := NewSchemeHTTPS()
 	pathStr := "/api"
 	req := NewIncomingRequest(MethodPost, &scheme, nil, &pathStr, NewFields())
+	sid := registerIncomingRequest(req)
 	req.SetBody(body)
-	handle, errH23 := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
+	handle, errH23 := table.NewResourceHandle(sid, true, httpFieldsResourceType)
 	if errH23 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH23)
 	}
@@ -2262,19 +2256,17 @@ func TestIncomingRequestConsume_WithBody(t *testing.T) {
 	rawEntry3, err := table.Get(runtime.Handle(bodyHandle))
 	entry, _ := rawEntry3.(*runtime.ResourceHandleEntry)
 	require.NoError(t, err)
-	// Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry
 	_ = entry
 }
 
 func TestIncomingRequestConsume_BodyAlreadyConsumed(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	scheme := NewSchemeHTTPS()
 	pathStr := "/api"
-	_ = NewIncomingRequest(MethodPost, &scheme, nil, &pathStr, NewFields()) // Task E4: will wire via per-module registry
-	handle, errH24 := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
+	sid := registerIncomingRequest(NewIncomingRequest(MethodPost, &scheme, nil, &pathStr, NewFields()))
+	handle, errH24 := table.NewResourceHandle(sid, true, httpFieldsResourceType)
 	if errH24 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH24)
 	}
@@ -2297,13 +2289,12 @@ func TestIncomingRequestConsume_BodyAlreadyConsumed(t *testing.T) {
 }
 
 func TestHttpErrorCode_WithHTTPError(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	httpErr := &HTTPError{Code: ErrorCodeConnectionRefused}
-	_ = io.NewError(httpErr) // Task E4: will wire via per-module registry
-	handle, errH25 := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
+	sid := io.RegisterError(io.NewError(httpErr))
+	handle, errH25 := table.NewResourceHandle(sid, true, httpFieldsResourceType)
 	if errH25 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH25)
 	}
@@ -2314,13 +2305,11 @@ func TestHttpErrorCode_WithHTTPError(t *testing.T) {
 
 	opt := result[0].Option()
 	require.NotNil(t, opt, "should return Some for HTTP error")
-	// HTTP error-code is a variant (not enum) — payload-carrying cases exist.
-	name, _ := opt.Variant()
+	name := opt.Enum()
 	require.Equal(t, "connection-refused", name)
 }
 
 func TestNewHTTPHandler_SimpleGET(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 }
 
 func TestNewHTTPHandler_CallHandleError(t *testing.T) {
@@ -2336,19 +2325,17 @@ func TestNewHTTPHandler_CallHandleError(t *testing.T) {
 }
 
 func TestNewHTTPHandler_ErrorCodeResponse(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 }
 
 func TestNewHTTPHandler_HeadersAreLowercased(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 }
 
 func TestHttpErrorCode_WithNonHTTPError(t *testing.T) {
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
-	_ = io.NewError(errors.New("some random error")) // Task E4: will wire via per-module registry
-	handle, errH26 := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
+	sid := io.RegisterError(io.NewError(errors.New("some random error")))
+	handle, errH26 := table.NewResourceHandle(sid, true, httpFieldsResourceType)
 	if errH26 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH26)
 	}

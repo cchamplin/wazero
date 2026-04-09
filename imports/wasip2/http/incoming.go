@@ -65,24 +65,33 @@ func NewHTTPHandler(callHandle func(ctx context.Context, requestHandle, outparam
 		// r.Body is always non-nil for server requests; it returns EOF when
 		// there is no body.
 		req.SetBody(NewIncomingBodyFromReader(r.Body))
-		requestHandle, err := table.NewResourceHandle(uint32(0), true, httpIncomingRequestResourceType)
+		reqID := registerIncomingRequest(req)
+		requestHandle, err := table.NewResourceHandle(reqID, true, httpIncomingRequestResourceType)
 		if err != nil {
+			unregisterIncomingRequest(reqID)
 			panic(fmt.Errorf("create resource handle: %w", err))
 		}
 
 		// Create response outparam with channel
 		outparam := NewResponseOutparam()
-		outparamHandle, err := table.NewResourceHandle(uint32(0), true, httpOutgoingResponseResourceType)
+		outparamID := registerResponseOutparam(outparam)
+		outparamHandle, err := table.NewResourceHandle(outparamID, true, httpOutgoingResponseResourceType)
 		if err != nil {
+			unregisterResponseOutparam(outparamID)
 			panic(fmt.Errorf("create resource handle: %w", err))
 		}
 
 		// Ensure resources are cleaned up on every exit path. Delete is a
 		// no-op if the component already consumed the handle.
 		defer func() {
-			_, _ = table.Remove(requestHandle)
-			if _, err := table.Remove(outparamHandle); err == nil {
-				// Task E4: resolve *ResponseOutparam via per-module registry and call Destroy()
+			if entry, err := table.Remove(requestHandle); err == nil && entry != nil {
+				unregisterIncomingRequest(entry.Rep)
+			}
+			if entry, err := table.Remove(outparamHandle); err == nil && entry != nil {
+				if p := getResponseOutparamFromRegistry(entry.Rep); p != nil {
+					p.Destroy()
+				}
+				unregisterResponseOutparam(entry.Rep)
 			}
 		}()
 

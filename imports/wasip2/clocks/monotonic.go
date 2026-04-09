@@ -17,7 +17,12 @@ import (
 
 // Host-managed resource type singletons. One *ResourceType per host
 // resource kind. Impl is nil because these resources are host-owned.
-var clocksPollableResourceType = &runtime.ResourceType{}
+var clocksPollableResourceType = &runtime.ResourceType{
+	HostDestructor: func(rep uint32) error {
+		wasip2io.UnregisterPollable(rep)
+		return nil
+	},
+}
 
 // monotonicBase is the starting point for monotonic time measurement.
 var monotonicBase = time.Now()
@@ -88,18 +93,19 @@ func monotonicClockSubscribeInstant(ctx context.Context, _ *types.TypeFunc, args
 
 	// Create the pollable resource
 	pollable := wasip2io.NewPollable(readyFn, blockFn)
-	_ = pollable // Task E4: will wire via per-module registry
+	pid := wasip2io.RegisterPollable(pollable)
 
 	// Get the resource table from context
 	table := component.ResourceTableFromContext(ctx)
 	if table == nil {
-		// Fallback - return placeholder handle if no resource table
+		wasip2io.UnregisterPollable(pid)
 		return []types.Val{types.ValOwn(0)}, nil
 	}
 
 	// Register the pollable in the resource table and return the handle
-	handle, hErr := table.NewResourceHandle(uint32(0), true, clocksPollableResourceType)
+	handle, hErr := table.NewResourceHandle(pid, true, clocksPollableResourceType)
 	if hErr != nil {
+		wasip2io.UnregisterPollable(pid)
 		return []types.Val{types.ValOwn(0)}, nil
 	}
 	return []types.Val{types.ValOwn(uint32(handle))}, nil
@@ -114,18 +120,19 @@ func monotonicClockSubscribeDuration(ctx context.Context, _ *types.TypeFunc, arg
 
 	// Create the pollable resource
 	pollable := wasip2io.NewPollable(readyFn, blockFn)
-	_ = pollable // Task E4: will wire via per-module registry
+	pid := wasip2io.RegisterPollable(pollable)
 
 	// Get the resource table from context
 	table := component.ResourceTableFromContext(ctx)
 	if table == nil {
-		// Fallback - return placeholder handle if no resource table
+		wasip2io.UnregisterPollable(pid)
 		return []types.Val{types.ValOwn(0)}, nil
 	}
 
 	// Register the pollable in the resource table and return the handle
-	handle, hErr := table.NewResourceHandle(uint32(0), true, clocksPollableResourceType)
+	handle, hErr := table.NewResourceHandle(pid, true, clocksPollableResourceType)
 	if hErr != nil {
+		wasip2io.UnregisterPollable(pid)
 		return []types.Val{types.ValOwn(0)}, nil
 	}
 	return []types.Val{types.ValOwn(uint32(handle))}, nil

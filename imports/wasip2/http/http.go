@@ -8,6 +8,7 @@ package http
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
@@ -37,7 +38,10 @@ func instantiateTypes(linker *component.Linker) error {
 	// Fields resource
 	// ==================
 	inst.Resource("fields", func(rep uint32) {
-		// Destructor - clean up fields
+		if f := getFieldsFromRegistry(rep); f != nil {
+			f.Destroy()
+		}
+		unregisterFields(rep)
 	})
 
 	inst.Func("[constructor]fields", fieldsConstructor)
@@ -54,7 +58,7 @@ func instantiateTypes(linker *component.Linker) error {
 	// Incoming request resource
 	// ==================
 	inst.Resource("incoming-request", func(rep uint32) {
-		// Destructor
+		unregisterIncomingRequest(rep)
 	})
 
 	inst.Func("[method]incoming-request.method", incomingRequestMethod)
@@ -68,7 +72,10 @@ func instantiateTypes(linker *component.Linker) error {
 	// Outgoing request resource
 	// ==================
 	inst.Resource("outgoing-request", func(rep uint32) {
-		// Destructor
+		if r := getOutgoingRequestFromRegistry(rep); r != nil {
+			r.Destroy()
+		}
+		unregisterOutgoingRequest(rep)
 	})
 
 	inst.Func("[constructor]outgoing-request", outgoingRequestConstructor)
@@ -87,7 +94,10 @@ func instantiateTypes(linker *component.Linker) error {
 	// Incoming response resource
 	// ==================
 	inst.Resource("incoming-response", func(rep uint32) {
-		// Destructor
+		if r := getIncomingResponseFromRegistry(rep); r != nil {
+			r.Destroy()
+		}
+		unregisterIncomingResponse(rep)
 	})
 
 	inst.Func("[method]incoming-response.status", incomingResponseStatus)
@@ -98,7 +108,7 @@ func instantiateTypes(linker *component.Linker) error {
 	// Outgoing response resource
 	// ==================
 	inst.Resource("outgoing-response", func(rep uint32) {
-		// Destructor
+		unregisterOutgoingResponse(rep)
 	})
 
 	inst.Func("[constructor]outgoing-response", outgoingResponseConstructor)
@@ -111,7 +121,10 @@ func instantiateTypes(linker *component.Linker) error {
 	// Incoming body resource
 	// ==================
 	inst.Resource("incoming-body", func(rep uint32) {
-		// Destructor
+		if b := getIncomingBodyFromRegistry(rep); b != nil {
+			b.Destroy()
+		}
+		unregisterIncomingBody(rep)
 	})
 
 	inst.Func("[method]incoming-body.stream", incomingBodyStream)
@@ -121,7 +134,10 @@ func instantiateTypes(linker *component.Linker) error {
 	// Outgoing body resource
 	// ==================
 	inst.Resource("outgoing-body", func(rep uint32) {
-		// Destructor
+		if b := getOutgoingBodyFromRegistry(rep); b != nil {
+			b.Destroy()
+		}
+		unregisterOutgoingBody(rep)
 	})
 
 	inst.Func("[method]outgoing-body.write", outgoingBodyWrite)
@@ -131,7 +147,10 @@ func instantiateTypes(linker *component.Linker) error {
 	// Future incoming response resource
 	// ==================
 	inst.Resource("future-incoming-response", func(rep uint32) {
-		// Destructor
+		if f := getFutureIncomingResponseFromRegistry(rep); f != nil {
+			f.Destroy()
+		}
+		unregisterFutureIncomingResponse(rep)
 	})
 
 	inst.Func("[method]future-incoming-response.get", futureIncomingResponseGet)
@@ -141,7 +160,7 @@ func instantiateTypes(linker *component.Linker) error {
 	// Future trailers resource
 	// ==================
 	inst.Resource("future-trailers", func(rep uint32) {
-		// Destructor
+		unregisterFutureTrailers(rep)
 	})
 
 	inst.Func("[method]future-trailers.get", futureTrailersGet)
@@ -151,7 +170,10 @@ func instantiateTypes(linker *component.Linker) error {
 	// Response outparam resource
 	// ==================
 	inst.Resource("response-outparam", func(rep uint32) {
-		// Destructor
+		if p := getResponseOutparamFromRegistry(rep); p != nil {
+			p.Destroy()
+		}
+		unregisterResponseOutparam(rep)
 	})
 
 	inst.Func("[static]response-outparam.set", responseOutparamSet)
@@ -160,7 +182,7 @@ func instantiateTypes(linker *component.Linker) error {
 	// Request options resource
 	// ==================
 	inst.Resource("request-options", func(rep uint32) {
-		// Destructor
+		unregisterRequestOptions(rep)
 	})
 
 	inst.Func("[constructor]request-options", requestOptionsConstructor)
@@ -183,23 +205,530 @@ func instantiateTypes(linker *component.Linker) error {
 // Helper functions
 // ====================
 
+// ===========================
+// Per-module u32 registries for HTTP resource types
+// ===========================
+
+// Fields registry
+var (
+	fieldsRegistryMu sync.Mutex
+	fieldsRegistry   []*Fields
+	fieldsFreelist   []uint32
+)
+
+func registerFields(f *Fields) uint32 {
+	fieldsRegistryMu.Lock()
+	defer fieldsRegistryMu.Unlock()
+	if n := len(fieldsFreelist); n > 0 {
+		id := fieldsFreelist[n-1]
+		fieldsFreelist = fieldsFreelist[:n-1]
+		fieldsRegistry[id] = f
+		return id
+	}
+	id := uint32(len(fieldsRegistry))
+	fieldsRegistry = append(fieldsRegistry, f)
+	return id
+}
+
+func getFieldsFromRegistry(id uint32) *Fields {
+	fieldsRegistryMu.Lock()
+	defer fieldsRegistryMu.Unlock()
+	if int(id) >= len(fieldsRegistry) {
+		return nil
+	}
+	return fieldsRegistry[id]
+}
+
+func unregisterFields(id uint32) {
+	fieldsRegistryMu.Lock()
+	defer fieldsRegistryMu.Unlock()
+	if int(id) < len(fieldsRegistry) {
+		fieldsRegistry[id] = nil
+		fieldsFreelist = append(fieldsFreelist, id)
+	}
+}
+
+// OutgoingRequest registry
+var (
+	outgoingRequestRegistryMu sync.Mutex
+	outgoingRequestRegistry   []*OutgoingRequest
+	outgoingRequestFreelist   []uint32
+)
+
+func registerOutgoingRequest(r *OutgoingRequest) uint32 {
+	outgoingRequestRegistryMu.Lock()
+	defer outgoingRequestRegistryMu.Unlock()
+	if n := len(outgoingRequestFreelist); n > 0 {
+		id := outgoingRequestFreelist[n-1]
+		outgoingRequestFreelist = outgoingRequestFreelist[:n-1]
+		outgoingRequestRegistry[id] = r
+		return id
+	}
+	id := uint32(len(outgoingRequestRegistry))
+	outgoingRequestRegistry = append(outgoingRequestRegistry, r)
+	return id
+}
+
+func getOutgoingRequestFromRegistry(id uint32) *OutgoingRequest {
+	outgoingRequestRegistryMu.Lock()
+	defer outgoingRequestRegistryMu.Unlock()
+	if int(id) >= len(outgoingRequestRegistry) {
+		return nil
+	}
+	return outgoingRequestRegistry[id]
+}
+
+func unregisterOutgoingRequest(id uint32) {
+	outgoingRequestRegistryMu.Lock()
+	defer outgoingRequestRegistryMu.Unlock()
+	if int(id) < len(outgoingRequestRegistry) {
+		outgoingRequestRegistry[id] = nil
+		outgoingRequestFreelist = append(outgoingRequestFreelist, id)
+	}
+}
+
+// IncomingResponse registry
+var (
+	incomingResponseRegistryMu sync.Mutex
+	incomingResponseRegistry   []*IncomingResponse
+	incomingResponseFreelist   []uint32
+)
+
+func registerIncomingResponse(r *IncomingResponse) uint32 {
+	incomingResponseRegistryMu.Lock()
+	defer incomingResponseRegistryMu.Unlock()
+	if n := len(incomingResponseFreelist); n > 0 {
+		id := incomingResponseFreelist[n-1]
+		incomingResponseFreelist = incomingResponseFreelist[:n-1]
+		incomingResponseRegistry[id] = r
+		return id
+	}
+	id := uint32(len(incomingResponseRegistry))
+	incomingResponseRegistry = append(incomingResponseRegistry, r)
+	return id
+}
+
+func getIncomingResponseFromRegistry(id uint32) *IncomingResponse {
+	incomingResponseRegistryMu.Lock()
+	defer incomingResponseRegistryMu.Unlock()
+	if int(id) >= len(incomingResponseRegistry) {
+		return nil
+	}
+	return incomingResponseRegistry[id]
+}
+
+func unregisterIncomingResponse(id uint32) {
+	incomingResponseRegistryMu.Lock()
+	defer incomingResponseRegistryMu.Unlock()
+	if int(id) < len(incomingResponseRegistry) {
+		incomingResponseRegistry[id] = nil
+		incomingResponseFreelist = append(incomingResponseFreelist, id)
+	}
+}
+
+// IncomingBody registry
+var (
+	incomingBodyRegistryMu sync.Mutex
+	incomingBodyRegistry   []*IncomingBody
+	incomingBodyFreelist   []uint32
+)
+
+func registerIncomingBody(b *IncomingBody) uint32 {
+	incomingBodyRegistryMu.Lock()
+	defer incomingBodyRegistryMu.Unlock()
+	if n := len(incomingBodyFreelist); n > 0 {
+		id := incomingBodyFreelist[n-1]
+		incomingBodyFreelist = incomingBodyFreelist[:n-1]
+		incomingBodyRegistry[id] = b
+		return id
+	}
+	id := uint32(len(incomingBodyRegistry))
+	incomingBodyRegistry = append(incomingBodyRegistry, b)
+	return id
+}
+
+func getIncomingBodyFromRegistry(id uint32) *IncomingBody {
+	incomingBodyRegistryMu.Lock()
+	defer incomingBodyRegistryMu.Unlock()
+	if int(id) >= len(incomingBodyRegistry) {
+		return nil
+	}
+	return incomingBodyRegistry[id]
+}
+
+func unregisterIncomingBody(id uint32) {
+	incomingBodyRegistryMu.Lock()
+	defer incomingBodyRegistryMu.Unlock()
+	if int(id) < len(incomingBodyRegistry) {
+		incomingBodyRegistry[id] = nil
+		incomingBodyFreelist = append(incomingBodyFreelist, id)
+	}
+}
+
+// OutgoingBody registry
+var (
+	outgoingBodyRegistryMu sync.Mutex
+	outgoingBodyRegistry   []*OutgoingBody
+	outgoingBodyFreelist   []uint32
+)
+
+func registerOutgoingBody(b *OutgoingBody) uint32 {
+	outgoingBodyRegistryMu.Lock()
+	defer outgoingBodyRegistryMu.Unlock()
+	if n := len(outgoingBodyFreelist); n > 0 {
+		id := outgoingBodyFreelist[n-1]
+		outgoingBodyFreelist = outgoingBodyFreelist[:n-1]
+		outgoingBodyRegistry[id] = b
+		return id
+	}
+	id := uint32(len(outgoingBodyRegistry))
+	outgoingBodyRegistry = append(outgoingBodyRegistry, b)
+	return id
+}
+
+func getOutgoingBodyFromRegistry(id uint32) *OutgoingBody {
+	outgoingBodyRegistryMu.Lock()
+	defer outgoingBodyRegistryMu.Unlock()
+	if int(id) >= len(outgoingBodyRegistry) {
+		return nil
+	}
+	return outgoingBodyRegistry[id]
+}
+
+func unregisterOutgoingBody(id uint32) {
+	outgoingBodyRegistryMu.Lock()
+	defer outgoingBodyRegistryMu.Unlock()
+	if int(id) < len(outgoingBodyRegistry) {
+		outgoingBodyRegistry[id] = nil
+		outgoingBodyFreelist = append(outgoingBodyFreelist, id)
+	}
+}
+
+// RequestOptions registry
+var (
+	requestOptionsRegistryMu sync.Mutex
+	requestOptionsRegistry   []*RequestOptions
+	requestOptionsFreelist   []uint32
+)
+
+func registerRequestOptions(o *RequestOptions) uint32 {
+	requestOptionsRegistryMu.Lock()
+	defer requestOptionsRegistryMu.Unlock()
+	if n := len(requestOptionsFreelist); n > 0 {
+		id := requestOptionsFreelist[n-1]
+		requestOptionsFreelist = requestOptionsFreelist[:n-1]
+		requestOptionsRegistry[id] = o
+		return id
+	}
+	id := uint32(len(requestOptionsRegistry))
+	requestOptionsRegistry = append(requestOptionsRegistry, o)
+	return id
+}
+
+func getRequestOptionsFromRegistry(id uint32) *RequestOptions {
+	requestOptionsRegistryMu.Lock()
+	defer requestOptionsRegistryMu.Unlock()
+	if int(id) >= len(requestOptionsRegistry) {
+		return nil
+	}
+	return requestOptionsRegistry[id]
+}
+
+func unregisterRequestOptions(id uint32) {
+	requestOptionsRegistryMu.Lock()
+	defer requestOptionsRegistryMu.Unlock()
+	if int(id) < len(requestOptionsRegistry) {
+		requestOptionsRegistry[id] = nil
+		requestOptionsFreelist = append(requestOptionsFreelist, id)
+	}
+}
+
+// IncomingRequest registry
+var (
+	incomingRequestRegistryMu sync.Mutex
+	incomingRequestRegistry   []*IncomingRequest
+	incomingRequestFreelist   []uint32
+)
+
+func registerIncomingRequest(r *IncomingRequest) uint32 {
+	incomingRequestRegistryMu.Lock()
+	defer incomingRequestRegistryMu.Unlock()
+	if n := len(incomingRequestFreelist); n > 0 {
+		id := incomingRequestFreelist[n-1]
+		incomingRequestFreelist = incomingRequestFreelist[:n-1]
+		incomingRequestRegistry[id] = r
+		return id
+	}
+	id := uint32(len(incomingRequestRegistry))
+	incomingRequestRegistry = append(incomingRequestRegistry, r)
+	return id
+}
+
+func getIncomingRequestFromRegistry(id uint32) *IncomingRequest {
+	incomingRequestRegistryMu.Lock()
+	defer incomingRequestRegistryMu.Unlock()
+	if int(id) >= len(incomingRequestRegistry) {
+		return nil
+	}
+	return incomingRequestRegistry[id]
+}
+
+func unregisterIncomingRequest(id uint32) {
+	incomingRequestRegistryMu.Lock()
+	defer incomingRequestRegistryMu.Unlock()
+	if int(id) < len(incomingRequestRegistry) {
+		incomingRequestRegistry[id] = nil
+		incomingRequestFreelist = append(incomingRequestFreelist, id)
+	}
+}
+
+// OutgoingResponse registry
+var (
+	outgoingResponseRegistryMu sync.Mutex
+	outgoingResponseRegistry   []*OutgoingResponse
+	outgoingResponseFreelist   []uint32
+)
+
+func registerOutgoingResponse(r *OutgoingResponse) uint32 {
+	outgoingResponseRegistryMu.Lock()
+	defer outgoingResponseRegistryMu.Unlock()
+	if n := len(outgoingResponseFreelist); n > 0 {
+		id := outgoingResponseFreelist[n-1]
+		outgoingResponseFreelist = outgoingResponseFreelist[:n-1]
+		outgoingResponseRegistry[id] = r
+		return id
+	}
+	id := uint32(len(outgoingResponseRegistry))
+	outgoingResponseRegistry = append(outgoingResponseRegistry, r)
+	return id
+}
+
+func getOutgoingResponseFromRegistry(id uint32) *OutgoingResponse {
+	outgoingResponseRegistryMu.Lock()
+	defer outgoingResponseRegistryMu.Unlock()
+	if int(id) >= len(outgoingResponseRegistry) {
+		return nil
+	}
+	return outgoingResponseRegistry[id]
+}
+
+func unregisterOutgoingResponse(id uint32) {
+	outgoingResponseRegistryMu.Lock()
+	defer outgoingResponseRegistryMu.Unlock()
+	if int(id) < len(outgoingResponseRegistry) {
+		outgoingResponseRegistry[id] = nil
+		outgoingResponseFreelist = append(outgoingResponseFreelist, id)
+	}
+}
+
+// FutureIncomingResponse registry
+var (
+	futureIncomingResponseRegistryMu sync.Mutex
+	futureIncomingResponseRegistry   []*FutureIncomingResponse
+	futureIncomingResponseFreelist   []uint32
+)
+
+func registerFutureIncomingResponse(f *FutureIncomingResponse) uint32 {
+	futureIncomingResponseRegistryMu.Lock()
+	defer futureIncomingResponseRegistryMu.Unlock()
+	if n := len(futureIncomingResponseFreelist); n > 0 {
+		id := futureIncomingResponseFreelist[n-1]
+		futureIncomingResponseFreelist = futureIncomingResponseFreelist[:n-1]
+		futureIncomingResponseRegistry[id] = f
+		return id
+	}
+	id := uint32(len(futureIncomingResponseRegistry))
+	futureIncomingResponseRegistry = append(futureIncomingResponseRegistry, f)
+	return id
+}
+
+func getFutureIncomingResponseFromRegistry(id uint32) *FutureIncomingResponse {
+	futureIncomingResponseRegistryMu.Lock()
+	defer futureIncomingResponseRegistryMu.Unlock()
+	if int(id) >= len(futureIncomingResponseRegistry) {
+		return nil
+	}
+	return futureIncomingResponseRegistry[id]
+}
+
+func unregisterFutureIncomingResponse(id uint32) {
+	futureIncomingResponseRegistryMu.Lock()
+	defer futureIncomingResponseRegistryMu.Unlock()
+	if int(id) < len(futureIncomingResponseRegistry) {
+		futureIncomingResponseRegistry[id] = nil
+		futureIncomingResponseFreelist = append(futureIncomingResponseFreelist, id)
+	}
+}
+
+// FutureTrailers registry
+var (
+	futureTrailersRegistryMu sync.Mutex
+	futureTrailersRegistry   []*FutureTrailers
+	futureTrailersFreelist   []uint32
+)
+
+func registerFutureTrailers(f *FutureTrailers) uint32 {
+	futureTrailersRegistryMu.Lock()
+	defer futureTrailersRegistryMu.Unlock()
+	if n := len(futureTrailersFreelist); n > 0 {
+		id := futureTrailersFreelist[n-1]
+		futureTrailersFreelist = futureTrailersFreelist[:n-1]
+		futureTrailersRegistry[id] = f
+		return id
+	}
+	id := uint32(len(futureTrailersRegistry))
+	futureTrailersRegistry = append(futureTrailersRegistry, f)
+	return id
+}
+
+func getFutureTrailersFromRegistry(id uint32) *FutureTrailers {
+	futureTrailersRegistryMu.Lock()
+	defer futureTrailersRegistryMu.Unlock()
+	if int(id) >= len(futureTrailersRegistry) {
+		return nil
+	}
+	return futureTrailersRegistry[id]
+}
+
+func unregisterFutureTrailers(id uint32) {
+	futureTrailersRegistryMu.Lock()
+	defer futureTrailersRegistryMu.Unlock()
+	if int(id) < len(futureTrailersRegistry) {
+		futureTrailersRegistry[id] = nil
+		futureTrailersFreelist = append(futureTrailersFreelist, id)
+	}
+}
+
+// ResponseOutparam registry
+var (
+	responseOutparamRegistryMu sync.Mutex
+	responseOutparamRegistry   []*ResponseOutparam
+	responseOutparamFreelist   []uint32
+)
+
+func registerResponseOutparam(p *ResponseOutparam) uint32 {
+	responseOutparamRegistryMu.Lock()
+	defer responseOutparamRegistryMu.Unlock()
+	if n := len(responseOutparamFreelist); n > 0 {
+		id := responseOutparamFreelist[n-1]
+		responseOutparamFreelist = responseOutparamFreelist[:n-1]
+		responseOutparamRegistry[id] = p
+		return id
+	}
+	id := uint32(len(responseOutparamRegistry))
+	responseOutparamRegistry = append(responseOutparamRegistry, p)
+	return id
+}
+
+func getResponseOutparamFromRegistry(id uint32) *ResponseOutparam {
+	responseOutparamRegistryMu.Lock()
+	defer responseOutparamRegistryMu.Unlock()
+	if int(id) >= len(responseOutparamRegistry) {
+		return nil
+	}
+	return responseOutparamRegistry[id]
+}
+
+func unregisterResponseOutparam(id uint32) {
+	responseOutparamRegistryMu.Lock()
+	defer responseOutparamRegistryMu.Unlock()
+	if int(id) < len(responseOutparamRegistry) {
+		responseOutparamRegistry[id] = nil
+		responseOutparamFreelist = append(responseOutparamFreelist, id)
+	}
+}
+
 // Host-managed resource type singletons. One *ResourceType per host
 // resource kind. Impl is nil because these resources are host-owned;
 // destruction flows through ResourceType.HostDestructor.
 var (
-	httpPollableResourceType               = &runtime.ResourceType{}
-	httpFieldsResourceType                 = &runtime.ResourceType{}
-	httpOutgoingRequestResourceType        = &runtime.ResourceType{}
-	httpIncomingResponseResourceType       = &runtime.ResourceType{}
-	httpIncomingBodyResourceType           = &runtime.ResourceType{}
-	httpOutgoingBodyResourceType           = &runtime.ResourceType{}
-	httpRequestOptionsResourceType         = &runtime.ResourceType{}
-	httpIncomingRequestResourceType        = &runtime.ResourceType{}
-	httpOutgoingResponseResourceType       = &runtime.ResourceType{}
-	httpFutureIncomingResponseResourceType = &runtime.ResourceType{}
-	httpFutureTrailersResourceType         = &runtime.ResourceType{}
-	httpInputStreamResourceType            = &runtime.ResourceType{}
-	httpOutputStreamResourceType           = &runtime.ResourceType{}
+	httpPollableResourceType = &runtime.ResourceType{
+		HostDestructor: func(rep uint32) error { io.UnregisterPollable(rep); return nil },
+	}
+	httpFieldsResourceType = &runtime.ResourceType{
+		HostDestructor: func(rep uint32) error {
+			if f := getFieldsFromRegistry(rep); f != nil {
+				f.Destroy()
+			}
+			unregisterFields(rep)
+			return nil
+		},
+	}
+	httpOutgoingRequestResourceType = &runtime.ResourceType{
+		HostDestructor: func(rep uint32) error {
+			if r := getOutgoingRequestFromRegistry(rep); r != nil {
+				r.Destroy()
+			}
+			unregisterOutgoingRequest(rep)
+			return nil
+		},
+	}
+	httpIncomingResponseResourceType = &runtime.ResourceType{
+		HostDestructor: func(rep uint32) error {
+			if r := getIncomingResponseFromRegistry(rep); r != nil {
+				r.Destroy()
+			}
+			unregisterIncomingResponse(rep)
+			return nil
+		},
+	}
+	httpIncomingBodyResourceType = &runtime.ResourceType{
+		HostDestructor: func(rep uint32) error {
+			if b := getIncomingBodyFromRegistry(rep); b != nil {
+				b.Destroy()
+			}
+			unregisterIncomingBody(rep)
+			return nil
+		},
+	}
+	httpOutgoingBodyResourceType = &runtime.ResourceType{
+		HostDestructor: func(rep uint32) error {
+			if b := getOutgoingBodyFromRegistry(rep); b != nil {
+				b.Destroy()
+			}
+			unregisterOutgoingBody(rep)
+			return nil
+		},
+	}
+	httpRequestOptionsResourceType = &runtime.ResourceType{
+		HostDestructor: func(rep uint32) error { unregisterRequestOptions(rep); return nil },
+	}
+	httpIncomingRequestResourceType = &runtime.ResourceType{
+		HostDestructor: func(rep uint32) error { unregisterIncomingRequest(rep); return nil },
+	}
+	httpOutgoingResponseResourceType = &runtime.ResourceType{
+		HostDestructor: func(rep uint32) error { unregisterOutgoingResponse(rep); return nil },
+	}
+	httpFutureIncomingResponseResourceType = &runtime.ResourceType{
+		HostDestructor: func(rep uint32) error {
+			if f := getFutureIncomingResponseFromRegistry(rep); f != nil {
+				f.Destroy()
+			}
+			unregisterFutureIncomingResponse(rep)
+			return nil
+		},
+	}
+	httpFutureTrailersResourceType = &runtime.ResourceType{
+		HostDestructor: func(rep uint32) error { unregisterFutureTrailers(rep); return nil },
+	}
+	httpInputStreamResourceType = &runtime.ResourceType{
+		HostDestructor: func(rep uint32) error {
+			if s := io.GetInputStream(rep); s != nil {
+				s.Destroy()
+			}
+			io.UnregisterInputStream(rep)
+			return nil
+		},
+	}
+	httpOutputStreamResourceType = &runtime.ResourceType{
+		HostDestructor: func(rep uint32) error {
+			if s := io.GetOutputStream(rep); s != nil {
+				s.Destroy()
+			}
+			io.UnregisterOutputStream(rep)
+			return nil
+		},
+	}
 )
 
 // getOrCreateTable returns the resource table from context.
@@ -221,8 +750,11 @@ func getFields(ctx context.Context, handle uint32) (*Fields, error) {
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
 	}
-	_ = resEntry // Task E4: resolve *Fields via per-module registry using resEntry.Rep
-	return nil, fmt.Errorf("handle %d: Fields registry not yet wired (Task E4)", handle)
+	f := getFieldsFromRegistry(resEntry.Rep)
+	if f == nil {
+		return nil, fmt.Errorf("handle %d: Fields not found in registry (rep=%d)", handle, resEntry.Rep)
+	}
+	return f, nil
 }
 
 // getIncomingResponse retrieves IncomingResponse from the resource table.
@@ -239,8 +771,11 @@ func getIncomingResponse(ctx context.Context, handle uint32) (*IncomingResponse,
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
 	}
-	_ = resEntry // Task E4: resolve *IncomingResponse via per-module registry using resEntry.Rep
-	return nil, fmt.Errorf("handle %d: IncomingResponse registry not yet wired (Task E4)", handle)
+	r := getIncomingResponseFromRegistry(resEntry.Rep)
+	if r == nil {
+		return nil, fmt.Errorf("handle %d: IncomingResponse not found in registry (rep=%d)", handle, resEntry.Rep)
+	}
+	return r, nil
 }
 
 // getIncomingBody retrieves IncomingBody from the resource table.
@@ -257,8 +792,11 @@ func getIncomingBody(ctx context.Context, handle uint32) (*IncomingBody, error) 
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
 	}
-	_ = resEntry // Task E4: resolve *IncomingBody via per-module registry using resEntry.Rep
-	return nil, fmt.Errorf("handle %d: IncomingBody registry not yet wired (Task E4)", handle)
+	b := getIncomingBodyFromRegistry(resEntry.Rep)
+	if b == nil {
+		return nil, fmt.Errorf("handle %d: IncomingBody not found in registry (rep=%d)", handle, resEntry.Rep)
+	}
+	return b, nil
 }
 
 // getOutgoingBody retrieves OutgoingBody from the resource table.
@@ -275,8 +813,11 @@ func getOutgoingBody(ctx context.Context, handle uint32) (*OutgoingBody, error) 
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
 	}
-	_ = resEntry // Task E4: resolve *OutgoingBody via per-module registry using resEntry.Rep
-	return nil, fmt.Errorf("handle %d: OutgoingBody registry not yet wired (Task E4)", handle)
+	b := getOutgoingBodyFromRegistry(resEntry.Rep)
+	if b == nil {
+		return nil, fmt.Errorf("handle %d: OutgoingBody not found in registry (rep=%d)", handle, resEntry.Rep)
+	}
+	return b, nil
 }
 
 // getRequestOptions retrieves RequestOptions from the resource table.
@@ -293,8 +834,11 @@ func getRequestOptions(ctx context.Context, handle uint32) (*RequestOptions, err
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
 	}
-	_ = resEntry // Task E4: resolve *RequestOptions via per-module registry using resEntry.Rep
-	return nil, fmt.Errorf("handle %d: RequestOptions registry not yet wired (Task E4)", handle)
+	o := getRequestOptionsFromRegistry(resEntry.Rep)
+	if o == nil {
+		return nil, fmt.Errorf("handle %d: RequestOptions not found in registry (rep=%d)", handle, resEntry.Rep)
+	}
+	return o, nil
 }
 
 // getOutgoingRequest retrieves OutgoingRequest from the resource table.
@@ -311,8 +855,11 @@ func getOutgoingRequest(ctx context.Context, handle uint32) (*OutgoingRequest, e
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
 	}
-	_ = resEntry // Task E4: resolve *OutgoingRequest via per-module registry using resEntry.Rep
-	return nil, fmt.Errorf("handle %d: OutgoingRequest registry not yet wired (Task E4)", handle)
+	r := getOutgoingRequestFromRegistry(resEntry.Rep)
+	if r == nil {
+		return nil, fmt.Errorf("handle %d: OutgoingRequest not found in registry (rep=%d)", handle, resEntry.Rep)
+	}
+	return r, nil
 }
 
 // getIncomingRequest retrieves IncomingRequest from the resource table.
@@ -329,8 +876,11 @@ func getIncomingRequest(ctx context.Context, handle uint32) (*IncomingRequest, e
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
 	}
-	_ = resEntry // Task E4: resolve *IncomingRequest via per-module registry using resEntry.Rep
-	return nil, fmt.Errorf("handle %d: IncomingRequest registry not yet wired (Task E4)", handle)
+	r := getIncomingRequestFromRegistry(resEntry.Rep)
+	if r == nil {
+		return nil, fmt.Errorf("handle %d: IncomingRequest not found in registry (rep=%d)", handle, resEntry.Rep)
+	}
+	return r, nil
 }
 
 // createPollableHandle creates a pollable handle in the resource table.
@@ -339,8 +889,10 @@ func createPollableHandle(ctx context.Context, pollable *io.Pollable) types.Val 
 	if table == nil {
 		return types.ValOwn(0)
 	}
-	handle, hErr := table.NewResourceHandle(uint32(0), true, httpPollableResourceType)
+	id := io.RegisterPollable(pollable)
+	handle, hErr := table.NewResourceHandle(id, true, httpPollableResourceType)
 	if hErr != nil {
+		io.UnregisterPollable(id)
 		return types.ValOwn(0)
 	}
 	return types.ValOwn(uint32(handle))
@@ -358,9 +910,10 @@ func fieldsConstructor(ctx context.Context, _ *types.TypeFunc, args []types.Val)
 		return []types.Val{types.ValOwn(0)}, nil
 	}
 	fields := NewFields()
-	_ = fields // Task E4: will wire via per-module registry
-	handle, err := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
+	id := registerFields(fields)
+	handle, err := table.NewResourceHandle(id, true, httpFieldsResourceType)
 	if err != nil {
+		unregisterFields(id)
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
 	return []types.Val{types.ValOwn(uint32(handle))}, nil
@@ -390,8 +943,10 @@ func fieldsFromList(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([
 		}
 	}
 
-	handle, err := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
+	id := registerFields(fields)
+	handle, err := table.NewResourceHandle(id, true, httpFieldsResourceType)
 	if err != nil {
+		unregisterFields(id)
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
 	result := types.ValOwn(uint32(handle))
@@ -530,9 +1085,10 @@ func fieldsClone(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]ty
 	}
 
 	clone := fields.Clone()
-	_ = clone // Task E4: will wire via per-module registry
-	handle, err := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
+	id := registerFields(clone)
+	handle, err := table.NewResourceHandle(id, true, httpFieldsResourceType)
 	if err != nil {
+		unregisterFields(id)
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
 	return []types.Val{types.ValOwn(uint32(handle))}, nil
@@ -552,13 +1108,19 @@ func outgoingRequestConstructor(ctx context.Context, _ *types.TypeFunc, args []t
 
 	// Get the headers handle and retrieve the Fields
 	headersHandle := runtime.Handle(args[0].Own())
-	_, _ = table.Remove(headersHandle)
-	// Task E4: resolve *Fields via per-module registry using headersEntry.Rep
+	headersEntry, _ := table.Remove(headersHandle)
 	headers := NewFields()
+	if headersEntry != nil {
+		if f := getFieldsFromRegistry(headersEntry.Rep); f != nil {
+			headers = f
+		}
+	}
 
-	_ = NewOutgoingRequest(headers) // req unused until Task E4 wires registries
-	handle, err := table.NewResourceHandle(uint32(0), true, httpOutgoingRequestResourceType)
+	req := NewOutgoingRequest(headers)
+	id := registerOutgoingRequest(req)
+	handle, err := table.NewResourceHandle(id, true, httpOutgoingRequestResourceType)
 	if err != nil {
+		unregisterOutgoingRequest(id)
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
 	return []types.Val{types.ValOwn(uint32(handle))}, nil
@@ -706,8 +1268,10 @@ func outgoingRequestHeaders(ctx context.Context, _ *types.TypeFunc, args []types
 	if headers == nil {
 		headers = NewFields()
 	}
-	handle, err := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
+	fid := registerFields(headers)
+	handle, err := table.NewResourceHandle(fid, true, httpFieldsResourceType)
 	if err != nil {
+		unregisterFields(fid)
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
 	return []types.Val{types.ValOwn(uint32(handle))}, nil
@@ -723,16 +1287,16 @@ func outgoingRequestBody(ctx context.Context, _ *types.TypeFunc, args []types.Va
 		return []types.Val{types.ValResultOk(&body)}, nil
 	}
 
-	body, err := req.Body()
-	_ = body // Task E4: will wire via per-module registry
-	if err != nil {
-		// Body already consumed
+	body, bodyErr := req.Body()
+	if bodyErr != nil {
 		errVal := types.ValVariant("body-already-consumed", nil)
 		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
-	handle, err := table.NewResourceHandle(uint32(0), true, httpOutgoingBodyResourceType)
+	bid := registerOutgoingBody(body)
+	handle, err := table.NewResourceHandle(bid, true, httpOutgoingBodyResourceType)
 	if err != nil {
+		unregisterOutgoingBody(bid)
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
 	result := types.ValOwn(uint32(handle))
@@ -874,8 +1438,10 @@ func incomingRequestHeaders(ctx context.Context, _ *types.TypeFunc, args []types
 	if headers == nil {
 		headers = NewFields()
 	}
-	handle, err := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
+	fid := registerFields(headers)
+	handle, err := table.NewResourceHandle(fid, true, httpFieldsResourceType)
 	if err != nil {
+		unregisterFields(fid)
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
 	return []types.Val{types.ValOwn(uint32(handle))}, nil
@@ -892,14 +1458,15 @@ func incomingRequestConsume(ctx context.Context, _ *types.TypeFunc, args []types
 	}
 
 	body, consumeErr := req.Consume()
-	_ = body // Task E4: will wire via per-module registry
 	if consumeErr != nil {
 		errVal := types.ValVariant("body-already-consumed", nil)
 		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
-	handle, err := table.NewResourceHandle(uint32(0), true, httpIncomingBodyResourceType)
+	bid := registerIncomingBody(body)
+	handle, err := table.NewResourceHandle(bid, true, httpIncomingBodyResourceType)
 	if err != nil {
+		unregisterIncomingBody(bid)
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
 	result := types.ValOwn(uint32(handle))
@@ -923,8 +1490,11 @@ func getOutgoingResponse(ctx context.Context, handle uint32) (*OutgoingResponse,
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
 	}
-	_ = resEntry // Task E4: resolve *OutgoingResponse via per-module registry using resEntry.Rep
-	return nil, fmt.Errorf("handle %d: OutgoingResponse registry not yet wired (Task E4)", handle)
+	r := getOutgoingResponseFromRegistry(resEntry.Rep)
+	if r == nil {
+		return nil, fmt.Errorf("handle %d: OutgoingResponse not found in registry (rep=%d)", handle, resEntry.Rep)
+	}
+	return r, nil
 }
 
 // outgoingResponseConstructor creates a new outgoing response.
@@ -936,13 +1506,19 @@ func outgoingResponseConstructor(ctx context.Context, _ *types.TypeFunc, args []
 	}
 
 	headersHandle := runtime.Handle(args[0].Own())
-	_, _ = table.Remove(headersHandle)
-	// Task E4: resolve *Fields via per-module registry using headersEntry.Rep
+	headersEntry, _ := table.Remove(headersHandle)
 	headers := NewFields()
+	if headersEntry != nil {
+		if f := getFieldsFromRegistry(headersEntry.Rep); f != nil {
+			headers = f
+		}
+	}
 
-	_ = NewOutgoingResponse(headers) // resp unused until Task E4 wires registries
-	handle, err := table.NewResourceHandle(uint32(0), true, httpOutgoingResponseResourceType)
+	resp := NewOutgoingResponse(headers)
+	id := registerOutgoingResponse(resp)
+	handle, err := table.NewResourceHandle(id, true, httpOutgoingResponseResourceType)
 	if err != nil {
+		unregisterOutgoingResponse(id)
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
 	return []types.Val{types.ValOwn(uint32(handle))}, nil
@@ -981,8 +1557,10 @@ func outgoingResponseHeaders(ctx context.Context, _ *types.TypeFunc, args []type
 	if headers == nil {
 		headers = NewFields()
 	}
-	handle, err := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
+	fid := registerFields(headers)
+	handle, err := table.NewResourceHandle(fid, true, httpFieldsResourceType)
 	if err != nil {
+		unregisterFields(fid)
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
 	return []types.Val{types.ValOwn(uint32(handle))}, nil
@@ -999,14 +1577,15 @@ func outgoingResponseBody(ctx context.Context, _ *types.TypeFunc, args []types.V
 	}
 
 	body, bodyErr := resp.Body()
-	_ = body // Task E4: will wire via per-module registry
 	if bodyErr != nil {
 		errVal := types.ValVariant("body-already-consumed", nil)
 		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
-	handle, err := table.NewResourceHandle(uint32(0), true, httpOutgoingBodyResourceType)
+	bid := registerOutgoingBody(body)
+	handle, err := table.NewResourceHandle(bid, true, httpOutgoingBodyResourceType)
 	if err != nil {
+		unregisterOutgoingBody(bid)
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
 	result := types.ValOwn(uint32(handle))
@@ -1040,8 +1619,10 @@ func incomingResponseHeaders(ctx context.Context, _ *types.TypeFunc, args []type
 	if headers == nil {
 		headers = NewFields()
 	}
-	handle, err := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
+	fid := registerFields(headers)
+	handle, err := table.NewResourceHandle(fid, true, httpFieldsResourceType)
 	if err != nil {
+		unregisterFields(fid)
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
 	return []types.Val{types.ValOwn(uint32(handle))}, nil
@@ -1057,15 +1638,16 @@ func incomingResponseConsume(ctx context.Context, _ *types.TypeFunc, args []type
 		return []types.Val{types.ValResultOk(&body)}, nil
 	}
 
-	body, err := resp.Consume()
-	_ = body // Task E4: will wire via per-module registry
-	if err != nil {
+	body, consumeErr := resp.Consume()
+	if consumeErr != nil {
 		errVal := types.ValVariant("body-already-consumed", nil)
 		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
-	handle, err := table.NewResourceHandle(uint32(0), true, httpIncomingBodyResourceType)
+	bid := registerIncomingBody(body)
+	handle, err := table.NewResourceHandle(bid, true, httpIncomingBodyResourceType)
 	if err != nil {
+		unregisterIncomingBody(bid)
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
 	result := types.ValOwn(uint32(handle))
@@ -1086,14 +1668,14 @@ func incomingBodyStream(ctx context.Context, _ *types.TypeFunc, args []types.Val
 		return []types.Val{types.ValResultOk(&stream)}, nil
 	}
 
-	stream, err := body.Stream()
-	_ = stream // Task E4: will wire via per-module registry
-	if err != nil {
+	stream, streamErr := body.Stream()
+	if streamErr != nil {
 		errVal := types.ValVariant("stream-already-consumed", nil)
 		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
-	handle, err := table.NewResourceHandle(uint32(0), true, httpInputStreamResourceType)
+	sid := io.RegisterInputStream(stream)
+	handle, err := table.NewResourceHandle(sid, true, httpInputStreamResourceType)
 	if err != nil {
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
@@ -1111,13 +1693,18 @@ func incomingBodyFinish(ctx context.Context, _ *types.TypeFunc, args []types.Val
 
 	// Consume the body handle
 	bodyHandle := runtime.Handle(args[0].Own())
-	_, _ = table.Remove(bodyHandle)
-	// Task E4: resolve *IncomingBody via per-module registry using bodyEntry.Rep and call Close()
+	bodyEntry, _ := table.Remove(bodyHandle)
+	if bodyEntry != nil {
+		if b := getIncomingBodyFromRegistry(bodyEntry.Rep); b != nil {
+			b.Close()
+		}
+		unregisterIncomingBody(bodyEntry.Rep)
+	}
 
 	// For simple cases (no trailer support), resolve immediately with no trailers
 	ft := NewFutureTrailersReady(nil, nil)
-	_ = ft // Task E4: will wire via per-module registry
-	handle, err := table.NewResourceHandle(uint32(0), true, httpFutureTrailersResourceType)
+	ftid := registerFutureTrailers(ft)
+	handle, err := table.NewResourceHandle(ftid, true, httpFutureTrailersResourceType)
 	if err != nil {
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
@@ -1138,14 +1725,14 @@ func outgoingBodyWrite(ctx context.Context, _ *types.TypeFunc, args []types.Val)
 		return []types.Val{types.ValResultOk(&stream)}, nil
 	}
 
-	stream, err := body.Write()
-	_ = stream // Task E4: will wire via per-module registry
-	if err != nil {
+	stream, streamErr := body.Write()
+	if streamErr != nil {
 		errVal := types.ValVariant("stream-already-consumed", nil)
 		return []types.Val{types.ValResultError(&errVal)}, nil
 	}
 
-	handle, err := table.NewResourceHandle(uint32(0), true, httpOutputStreamResourceType)
+	sid := io.RegisterOutputStream(stream)
+	handle, err := table.NewResourceHandle(sid, true, httpOutputStreamResourceType)
 	if err != nil {
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
@@ -1163,8 +1750,13 @@ func outgoingBodyFinish(ctx context.Context, _ *types.TypeFunc, args []types.Val
 
 	// Consume the body handle
 	bodyHandle := runtime.Handle(args[0].Own())
-	_, _ = table.Remove(bodyHandle)
-	// Task E4: resolve *OutgoingBody via per-module registry using bodyEntry.Rep and call Finish()
+	bodyEntry, _ := table.Remove(bodyHandle)
+	if bodyEntry != nil {
+		if b := getOutgoingBodyFromRegistry(bodyEntry.Rep); b != nil {
+			b.Finish()
+		}
+		unregisterOutgoingBody(bodyEntry.Rep)
+	}
 
 	// Consume optional trailers
 	trailersOpt := args[1].Option()
@@ -1190,7 +1782,6 @@ func futureIncomingResponseGet(ctx context.Context, _ *types.TypeFunc, args []ty
 	}
 
 	resp, errCode, ready := future.Get()
-	_ = resp // Task E4: will wire via per-module registry
 	if !ready {
 		return []types.Val{types.ValOption(nil)}, nil
 	}
@@ -1206,7 +1797,8 @@ func futureIncomingResponseGet(ctx context.Context, _ *types.TypeFunc, args []ty
 	}
 
 	// Success case: create handle for incoming response
-	respHandle, err := table.NewResourceHandle(uint32(0), true, httpIncomingResponseResourceType)
+	rid := registerIncomingResponse(resp)
+	respHandle, err := table.NewResourceHandle(rid, true, httpIncomingResponseResourceType)
 	if err != nil {
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
@@ -1242,8 +1834,11 @@ func getFutureIncomingResponse(ctx context.Context, handle uint32) (*FutureIncom
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
 	}
-	_ = resEntry // Task E4: resolve *FutureIncomingResponse via per-module registry using resEntry.Rep
-	return nil, fmt.Errorf("handle %d: FutureIncomingResponse registry not yet wired (Task E4)", handle)
+	f := getFutureIncomingResponseFromRegistry(resEntry.Rep)
+	if f == nil {
+		return nil, fmt.Errorf("handle %d: FutureIncomingResponse not found in registry (rep=%d)", handle, resEntry.Rep)
+	}
+	return f, nil
 }
 
 // ====================
@@ -1264,8 +1859,11 @@ func getFutureTrailers(ctx context.Context, handle uint32) (*FutureTrailers, err
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
 	}
-	_ = resEntry // Task E4: resolve *FutureTrailers via per-module registry using resEntry.Rep
-	return nil, fmt.Errorf("handle %d: FutureTrailers registry not yet wired (Task E4)", handle)
+	f := getFutureTrailersFromRegistry(resEntry.Rep)
+	if f == nil {
+		return nil, fmt.Errorf("handle %d: FutureTrailers not found in registry (rep=%d)", handle, resEntry.Rep)
+	}
+	return f, nil
 }
 
 // futureTrailersGet polls for the trailers.
@@ -1296,7 +1894,8 @@ func futureTrailersGet(ctx context.Context, _ *types.TypeFunc, args []types.Val)
 	// Ok case: option<trailers>
 	var trailersOpt types.Val
 	if ft.trailers != nil && table != nil {
-		handle, err := table.NewResourceHandle(uint32(0), true, httpFieldsResourceType)
+		fid := registerFields(ft.trailers)
+		handle, err := table.NewResourceHandle(fid, true, httpFieldsResourceType)
 		if err != nil {
 			return nil, fmt.Errorf("create resource handle: %w", err)
 		}
@@ -1373,12 +1972,16 @@ func responseOutparamSet(ctx context.Context, _ *types.TypeFunc, args []types.Va
 		// Success branch: lift the own<outgoing-response>. Per CanonicalABI.md
 		// lift_own, an invalid handle traps.
 		respHandle := runtime.Handle(okVal.Own())
-		_, err := table.Remove(respHandle)
+		respEntry, err := table.Remove(respHandle)
 		if err != nil {
 			return nil, fmt.Errorf("response-outparam.set: invalid outgoing-response handle %d: %w", respHandle, err)
 		}
-		// Task E4: resolve *OutgoingResponse via per-module registry using respEntry.Rep
-		deliver = ResponseResult{Response: nil}
+		var resp *OutgoingResponse
+		if respEntry != nil {
+			resp = getOutgoingResponseFromRegistry(respEntry.Rep)
+			unregisterOutgoingResponse(respEntry.Rep)
+		}
+		deliver = ResponseResult{Response: resp}
 	} else {
 		// Error branch: extract the error-code variant case name.
 		// Note: payload fields on variants like dns-error, tls-alert-received,
@@ -1390,13 +1993,20 @@ func responseOutparamSet(ctx context.Context, _ *types.TypeFunc, args []types.Va
 
 	// Lift the outparam own handle. Invalid handle traps per lift_own.
 	outparamHandle := runtime.Handle(args[0].Own())
-	_, err := table.Remove(outparamHandle)
+	outparamEntry, err := table.Remove(outparamHandle)
 	if err != nil {
 		return nil, fmt.Errorf("response-outparam.set: invalid response-outparam handle %d: %w", outparamHandle, err)
 	}
-	// Task E4: resolve *ResponseOutparam via per-module registry using outparamEntry.Rep
-	// and deliver the result through the outparam channel
-	_ = deliver
+	if outparamEntry != nil {
+		if outparam := getResponseOutparamFromRegistry(outparamEntry.Rep); outparam != nil {
+			outparam.mu.Lock()
+			if !outparam.closed {
+				outparam.result <- deliver
+			}
+			outparam.mu.Unlock()
+		}
+		unregisterResponseOutparam(outparamEntry.Rep)
+	}
 
 	return []types.Val{}, nil
 }
@@ -1414,8 +2024,8 @@ func requestOptionsConstructor(ctx context.Context, _ *types.TypeFunc, args []ty
 	}
 
 	opts := NewRequestOptions()
-	_ = opts // Task E4: will wire via per-module registry
-	handle, err := table.NewResourceHandle(uint32(0), true, httpRequestOptionsResourceType)
+	oid := registerRequestOptions(opts)
+	handle, err := table.NewResourceHandle(oid, true, httpRequestOptionsResourceType)
 	if err != nil {
 		return nil, fmt.Errorf("create resource handle: %w", err)
 	}
@@ -1547,6 +2157,17 @@ func httpErrorCode(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]
 	if !ok {
 		return []types.Val{types.ValOption(nil)}, nil
 	}
-	_ = resEntry // Task E4: resolve *io.Error via per-module registry using resEntry.Rep
+	ioErr := io.GetError(resEntry.Rep)
+	if ioErr == nil {
+		return []types.Val{types.ValOption(nil)}, nil
+	}
+	goErr := ioErr.Unwrap()
+	if goErr == nil {
+		return []types.Val{types.ValOption(nil)}, nil
+	}
+	if httpErr, ok := goErr.(*HTTPError); ok {
+		errVal := types.ValEnum(string(httpErr.Code))
+		return []types.Val{types.ValOption(&errVal)}, nil
+	}
 	return []types.Val{types.ValOption(nil)}, nil
 }

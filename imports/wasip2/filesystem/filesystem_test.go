@@ -375,7 +375,6 @@ func TestDescriptorSetTimesAt(t *testing.T) {
 }
 
 func TestDescriptorSetTimesAt_SetToNow(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	tmpDir := t.TempDir()
 	filePath := filepath.Join(tmpDir, "child.txt")
 	err := os.WriteFile(filePath, []byte("hello"), 0644)
@@ -391,8 +390,8 @@ func TestDescriptorSetTimesAt_SetToNow(t *testing.T) {
 
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
-	_ = NewDescriptor(dirFile, true, tmpDir, DescriptorFlagRead|DescriptorFlagWrite|DescriptorFlagMutateDirectory) // Task E4: will wire via per-module registry
-	handle, errH1 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
+	sid := registerDescriptor(NewDescriptor(dirFile, true, tmpDir, DescriptorFlagRead|DescriptorFlagWrite|DescriptorFlagMutateDirectory))
+	handle, errH1 := table.NewResourceHandle(sid, true, descriptorResourceType)
 	if errH1 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH1)
 	}
@@ -541,7 +540,6 @@ func TestDescriptorIsSameObject(t *testing.T) {
 }
 
 func TestDescriptorIsSameObject_SameFile(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "test.txt")
 	os.WriteFile(path, []byte("hello"), 0644)
@@ -556,13 +554,13 @@ func TestDescriptorIsSameObject_SameFile(t *testing.T) {
 
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
-	_ = NewDescriptor(f1, false, path, DescriptorFlagRead)  // Task E4: will wire via per-module registry
-	_ = NewDescriptor(f2, false, path, DescriptorFlagRead)  // Task E4: will wire via per-module registry
-	h1, errH2 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
+	sid1 := registerDescriptor(NewDescriptor(f1, false, path, DescriptorFlagRead))
+	sid2 := registerDescriptor(NewDescriptor(f2, false, path, DescriptorFlagRead))
+	h1, errH2 := table.NewResourceHandle(sid1, true, descriptorResourceType)
 	if errH2 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH2)
 	}
-	h2, errH3 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
+	h2, errH3 := table.NewResourceHandle(sid2, true, descriptorResourceType)
 	if errH3 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH3)
 	}
@@ -591,13 +589,13 @@ func TestDescriptorIsSameObject_DifferentFiles(t *testing.T) {
 
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
-	_ = NewDescriptor(f1, false, path1, DescriptorFlagRead) // Task E4: will wire via per-module registry
-	_ = NewDescriptor(f2, false, path2, DescriptorFlagRead) // Task E4: will wire via per-module registry
-	h1, errH4 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
+	sid1 := registerDescriptor(NewDescriptor(f1, false, path1, DescriptorFlagRead))
+	sid2 := registerDescriptor(NewDescriptor(f2, false, path2, DescriptorFlagRead))
+	h1, errH4 := table.NewResourceHandle(sid1, true, descriptorResourceType)
 	if errH4 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH4)
 	}
-	h2, errH5 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
+	h2, errH5 := table.NewResourceHandle(sid2, true, descriptorResourceType)
 	if errH5 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH5)
 	}
@@ -610,7 +608,6 @@ func TestDescriptorIsSameObject_DifferentFiles(t *testing.T) {
 }
 
 func TestDescriptorMetadataHash(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "test.txt")
 	os.WriteFile(path, []byte("hello"), 0644)
@@ -621,8 +618,8 @@ func TestDescriptorMetadataHash(t *testing.T) {
 
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
-	_ = NewDescriptor(f, false, path, DescriptorFlagRead) // Task E4: will wire via per-module registry
-	handle, errH6 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
+	sid := registerDescriptor(NewDescriptor(f, false, path, DescriptorFlagRead))
+	handle, errH6 := table.NewResourceHandle(sid, true, descriptorResourceType)
 	if errH6 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH6)
 	}
@@ -650,7 +647,6 @@ func TestDescriptorMetadataHash(t *testing.T) {
 }
 
 func TestDescriptorMetadataHash_DifferentFiles(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	tmpDir := t.TempDir()
 	path1 := filepath.Join(tmpDir, "file1.txt")
 	path2 := filepath.Join(tmpDir, "file2.txt")
@@ -664,11 +660,13 @@ func TestDescriptorMetadataHash_DifferentFiles(t *testing.T) {
 
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
-	h1, errH7 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
+	sid1 := registerDescriptor(NewDescriptor(f1, false, path1, DescriptorFlagRead))
+	sid2 := registerDescriptor(NewDescriptor(f2, false, path2, DescriptorFlagRead))
+	h1, errH7 := table.NewResourceHandle(sid1, true, descriptorResourceType)
 	if errH7 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH7)
 	}
-	h2, errH8 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
+	h2, errH8 := table.NewResourceHandle(sid2, true, descriptorResourceType)
 	if errH8 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH8)
 	}
@@ -698,7 +696,6 @@ func TestDescriptorMetadataHash_BadDescriptor(t *testing.T) {
 }
 
 func TestDescriptorMetadataHashAt(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	tmpDir := t.TempDir()
 	filePath := filepath.Join(tmpDir, "child.txt")
 	os.WriteFile(filePath, []byte("hello"), 0644)
@@ -708,8 +705,8 @@ func TestDescriptorMetadataHashAt(t *testing.T) {
 
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
-	_ = NewDescriptor(dirFile, true, tmpDir, DescriptorFlagRead) // Task E4: will wire via per-module registry
-	handle, errH9 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
+	sid := registerDescriptor(NewDescriptor(dirFile, true, tmpDir, DescriptorFlagRead))
+	handle, errH9 := table.NewResourceHandle(sid, true, descriptorResourceType)
 	if errH9 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH9)
 	}
@@ -738,14 +735,13 @@ func TestFilesystemErrorCode(t *testing.T) {
 }
 
 func TestFilesystemErrorCode_WithFSError(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create an io.Error that wraps a FilesystemError
 	fsErr := &FilesystemError{Code: ErrorCodeAccess}
-	_ = wasipIO.NewError(fsErr) // Task E4: will wire via per-module registry
-	handle, errH10 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
+	sid := wasipIO.RegisterError(wasipIO.NewError(fsErr))
+	handle, errH10 := table.NewResourceHandle(sid, true, descriptorResourceType)
 	if errH10 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH10)
 	}
@@ -764,8 +760,8 @@ func TestFilesystemErrorCode_NonFSError(t *testing.T) {
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create an io.Error that wraps a plain Go error (not a FilesystemError)
-	_ = wasipIO.NewError(errors.New("some random error")) // Task E4: will wire via per-module registry
-	handle, errH11 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
+	sid := wasipIO.RegisterError(wasipIO.NewError(errors.New("some random error")))
+	handle, errH11 := table.NewResourceHandle(sid, true, descriptorResourceType)
 	if errH11 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH11)
 	}
@@ -900,8 +896,8 @@ func createTestDirDescriptor(t *testing.T, ctx context.Context) (uint32, string)
 	file, err := os.Open(tmpDir)
 	require.NoError(t, err)
 
-	_ = NewDescriptor(file, true, tmpDir, DescriptorFlagRead|DescriptorFlagWrite|DescriptorFlagMutateDirectory) // Task E4: will wire via per-module registry
-	handle, errH12 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
+	sid := registerDescriptor(NewDescriptor(file, true, tmpDir, DescriptorFlagRead|DescriptorFlagWrite|DescriptorFlagMutateDirectory))
+	handle, errH12 := table.NewResourceHandle(sid, true, descriptorResourceType)
 	if errH12 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH12)
 	}
@@ -923,8 +919,8 @@ func createTestFileDescriptor(t *testing.T, ctx context.Context, content []byte)
 	}
 
 	path := tmpFile.Name()
-	_ = NewDescriptor(tmpFile, false, path, DescriptorFlagRead|DescriptorFlagWrite) // Task E4: will wire via per-module registry
-	handle, errH13 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
+	sid := registerDescriptor(NewDescriptor(tmpFile, false, path, DescriptorFlagRead|DescriptorFlagWrite))
+	handle, errH13 := table.NewResourceHandle(sid, true, descriptorResourceType)
 	if errH13 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH13)
 	}
@@ -932,7 +928,6 @@ func createTestFileDescriptor(t *testing.T, ctx context.Context, content []byte)
 }
 
 func TestDescriptorRead_HostFunction(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := createTestContext()
 	testContent := []byte("Hello, World!")
 	handle, path := createTestFileDescriptor(t, ctx, testContent)
@@ -967,7 +962,6 @@ func TestDescriptorRead_HostFunction(t *testing.T) {
 }
 
 func TestDescriptorWrite_HostFunction(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := createTestContext()
 	handle, path := createTestFileDescriptor(t, ctx, nil)
 	defer os.Remove(path)
@@ -1001,7 +995,6 @@ func TestDescriptorWrite_HostFunction(t *testing.T) {
 }
 
 func TestDescriptorStat_HostFunction(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := createTestContext()
 	handle, tmpDir := createTestDirDescriptor(t, ctx)
 
@@ -1027,7 +1020,6 @@ func TestDescriptorStat_HostFunction(t *testing.T) {
 }
 
 func TestDescriptorStatAt_HostFunction(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := createTestContext()
 	handle, tmpDir := createTestDirDescriptor(t, ctx)
 
@@ -1062,7 +1054,6 @@ func TestDescriptorStatAt_HostFunction(t *testing.T) {
 }
 
 func TestDescriptorGetType_HostFunction(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := createTestContext()
 	handle, _ := createTestDirDescriptor(t, ctx)
 
@@ -1081,7 +1072,6 @@ func TestDescriptorGetType_HostFunction(t *testing.T) {
 }
 
 func TestDescriptorOpenAt_HostFunction(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := createTestContext()
 	handle, tmpDir := createTestDirDescriptor(t, ctx)
 
@@ -1108,7 +1098,6 @@ func TestDescriptorOpenAt_HostFunction(t *testing.T) {
 }
 
 func TestDescriptorOpenAt_CreateFile(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := createTestContext()
 	handle, tmpDir := createTestDirDescriptor(t, ctx)
 
@@ -1132,7 +1121,6 @@ func TestDescriptorOpenAt_CreateFile(t *testing.T) {
 }
 
 func TestDescriptorReadDirectory_HostFunction(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := createTestContext()
 	handle, tmpDir := createTestDirDescriptor(t, ctx)
 
@@ -1168,7 +1156,6 @@ func TestDescriptorReadDirectory_HostFunction(t *testing.T) {
 }
 
 func TestDescriptorCreateDirectoryAt_HostFunction(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := createTestContext()
 	handle, tmpDir := createTestDirDescriptor(t, ctx)
 
@@ -1189,7 +1176,6 @@ func TestDescriptorCreateDirectoryAt_HostFunction(t *testing.T) {
 }
 
 func TestDescriptorUnlinkFileAt_HostFunction(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := createTestContext()
 	handle, tmpDir := createTestDirDescriptor(t, ctx)
 
@@ -1214,7 +1200,6 @@ func TestDescriptorUnlinkFileAt_HostFunction(t *testing.T) {
 }
 
 func TestDescriptorRemoveDirectoryAt_HostFunction(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := createTestContext()
 	handle, tmpDir := createTestDirDescriptor(t, ctx)
 
@@ -1239,7 +1224,6 @@ func TestDescriptorRemoveDirectoryAt_HostFunction(t *testing.T) {
 }
 
 func TestDescriptorRenameAt_HostFunction(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := createTestContext()
 	handle, tmpDir := createTestDirDescriptor(t, ctx)
 
@@ -1270,7 +1254,6 @@ func TestDescriptorRenameAt_HostFunction(t *testing.T) {
 }
 
 func TestDescriptorSync_HostFunction(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := createTestContext()
 	handle, path := createTestFileDescriptor(t, ctx, []byte("sync me"))
 	defer os.Remove(path)
@@ -1286,7 +1269,6 @@ func TestDescriptorSync_HostFunction(t *testing.T) {
 }
 
 func TestDescriptorGetFlags_HostFunction(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := createTestContext()
 	handle, path := createTestFileDescriptor(t, ctx, nil)
 	defer os.Remove(path)
@@ -1328,7 +1310,6 @@ func TestDescriptorRead_BadDescriptor(t *testing.T) {
 }
 
 func TestDescriptorOpenAt_NoEntry(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := createTestContext()
 	handle, _ := createTestDirDescriptor(t, ctx)
 
@@ -1350,7 +1331,6 @@ func TestDescriptorOpenAt_NoEntry(t *testing.T) {
 }
 
 func TestDescriptorStatAt_NoEntry(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := createTestContext()
 	handle, _ := createTestDirDescriptor(t, ctx)
 
@@ -1373,7 +1353,6 @@ func TestDescriptorStatAt_NoEntry(t *testing.T) {
 // ====================
 
 func TestDescriptorReadViaStream_HostFunction(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := createTestContext()
 	content := []byte("Hello, WASI!")
 	handle, path := createTestFileDescriptor(t, ctx, content)
@@ -1407,12 +1386,11 @@ func TestDescriptorReadViaStream_HostFunction(t *testing.T) {
 	require.NotNil(t, entry)
 
 	// The entry should contain an InputStream
-	isInputStream := false
+	isInputStream := wasipIO.GetInputStream(entry.Rep) != nil
 	require.True(t, isInputStream, "should return an InputStream")
 }
 
 func TestDescriptorReadViaStream_WithOffset(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := createTestContext()
 	content := []byte("Hello, WASI!")
 	handle, path := createTestFileDescriptor(t, ctx, content)
@@ -1433,7 +1411,6 @@ func TestDescriptorReadViaStream_WithOffset(t *testing.T) {
 	// Get the input stream handle
 	streamHandle := ok.Own()
 
-	// Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry
 	_ = streamHandle
 }
 
@@ -1454,7 +1431,6 @@ func TestDescriptorReadViaStream_BadDescriptor(t *testing.T) {
 }
 
 func TestDescriptorReadViaStream_IsDirectory(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := createTestContext()
 	handle, _ := createTestDirDescriptor(t, ctx)
 
@@ -1472,7 +1448,6 @@ func TestDescriptorReadViaStream_IsDirectory(t *testing.T) {
 }
 
 func TestDescriptorWriteViaStream_HostFunction(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := createTestContext()
 	handle, path := createTestFileDescriptor(t, ctx, nil)
 	defer os.Remove(path)
@@ -1495,12 +1470,10 @@ func TestDescriptorWriteViaStream_HostFunction(t *testing.T) {
 	streamHandle := ok.Own()
 
 	// Verify the stream can be used to write
-	// Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry
 	_ = streamHandle
 }
 
 func TestDescriptorWriteViaStream_WithOffset(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := createTestContext()
 	content := []byte("Hello World") // 11 chars, no trailing !
 	handle, path := createTestFileDescriptor(t, ctx, content)
@@ -1519,7 +1492,6 @@ func TestDescriptorWriteViaStream_WithOffset(t *testing.T) {
 	// Get the output stream handle
 	streamHandle := ok.Own()
 
-	// Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry
 	_ = streamHandle
 }
 
@@ -1540,7 +1512,6 @@ func TestDescriptorWriteViaStream_BadDescriptor(t *testing.T) {
 }
 
 func TestDescriptorWriteViaStream_IsDirectory(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := createTestContext()
 	handle, _ := createTestDirDescriptor(t, ctx)
 
@@ -1558,7 +1529,6 @@ func TestDescriptorWriteViaStream_IsDirectory(t *testing.T) {
 }
 
 func TestDescriptorAppendViaStream_HostFunction(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := createTestContext()
 	content := []byte("Hello")
 	handle, path := createTestFileDescriptor(t, ctx, content)
@@ -1580,7 +1550,6 @@ func TestDescriptorAppendViaStream_HostFunction(t *testing.T) {
 	// Get the output stream handle
 	streamHandle := ok.Own()
 
-	// Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry
 	_ = streamHandle
 }
 
@@ -1600,7 +1569,6 @@ func TestDescriptorAppendViaStream_BadDescriptor(t *testing.T) {
 }
 
 func TestDescriptorAppendViaStream_IsDirectory(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := createTestContext()
 	handle, _ := createTestDirDescriptor(t, ctx)
 
@@ -1621,7 +1589,6 @@ func TestDescriptorAppendViaStream_IsDirectory(t *testing.T) {
 // ====================
 
 func TestDescriptorSetSize_Truncate(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := createTestContext()
 	testContent := []byte("hello world")
 	handle, path := createTestFileDescriptor(t, ctx, testContent)
@@ -1644,7 +1611,6 @@ func TestDescriptorSetSize_Truncate(t *testing.T) {
 }
 
 func TestDescriptorSetSize_Extend(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := createTestContext()
 	testContent := []byte("hello")
 	handle, path := createTestFileDescriptor(t, ctx, testContent)
@@ -1665,7 +1631,6 @@ func TestDescriptorSetSize_Extend(t *testing.T) {
 }
 
 func TestDescriptorSetSize_NoWritePermission(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := createTestContext()
 	table := component.ResourceTableFromContext(ctx)
 	require.NotNil(t, table)
@@ -1678,8 +1643,8 @@ func TestDescriptorSetSize_NoWritePermission(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create descriptor with read-only flags
-	_ = NewDescriptor(tmpFile, false, tmpFile.Name(), DescriptorFlagRead) // Task E4: will wire via per-module registry
-	handle, errH14 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
+	sid := registerDescriptor(NewDescriptor(tmpFile, false, tmpFile.Name(), DescriptorFlagRead))
+	handle, errH14 := table.NewResourceHandle(sid, true, descriptorResourceType)
 	if errH14 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH14)
 	}
@@ -1695,7 +1660,6 @@ func TestDescriptorSetSize_NoWritePermission(t *testing.T) {
 }
 
 func TestDescriptorSetSize_IsDirectory(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := createTestContext()
 	handle, _ := createTestDirDescriptor(t, ctx)
 
@@ -1721,7 +1685,6 @@ func TestDescriptorSetSize_BadDescriptor(t *testing.T) {
 }
 
 func TestDescriptorSetTimes_SetToNow(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "test.txt")
 	err := os.WriteFile(path, []byte("hello"), 0644)
@@ -1737,8 +1700,8 @@ func TestDescriptorSetTimes_SetToNow(t *testing.T) {
 
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
-	_ = NewDescriptor(f, false, path, DescriptorFlagRead|DescriptorFlagWrite) // Task E4: will wire via per-module registry
-	handle, errH15 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
+	sid := registerDescriptor(NewDescriptor(f, false, path, DescriptorFlagRead|DescriptorFlagWrite))
+	handle, errH15 := table.NewResourceHandle(sid, true, descriptorResourceType)
 	if errH15 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH15)
 	}
@@ -1761,7 +1724,6 @@ func TestDescriptorSetTimes_SetToNow(t *testing.T) {
 }
 
 func TestDescriptorSetTimes_SetTimestamp(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "test.txt")
 	err := os.WriteFile(path, []byte("hello"), 0644)
@@ -1773,8 +1735,8 @@ func TestDescriptorSetTimes_SetTimestamp(t *testing.T) {
 
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
-	_ = NewDescriptor(f, false, path, DescriptorFlagRead|DescriptorFlagWrite) // Task E4: will wire via per-module registry
-	handle, errH16 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
+	sid := registerDescriptor(NewDescriptor(f, false, path, DescriptorFlagRead|DescriptorFlagWrite))
+	handle, errH16 := table.NewResourceHandle(sid, true, descriptorResourceType)
 	if errH16 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH16)
 	}
@@ -1800,7 +1762,6 @@ func TestDescriptorSetTimes_SetTimestamp(t *testing.T) {
 }
 
 func TestDescriptorSetTimes_NoWritePermission(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "test.txt")
 	err := os.WriteFile(path, []byte("hello"), 0644)
@@ -1812,8 +1773,8 @@ func TestDescriptorSetTimes_NoWritePermission(t *testing.T) {
 
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
-	_ = NewDescriptor(f, false, path, DescriptorFlagRead) // read-only; Task E4: will wire via per-module registry
-	handle, errH17 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
+	sid := registerDescriptor(NewDescriptor(f, false, path, DescriptorFlagRead))
+	handle, errH17 := table.NewResourceHandle(sid, true, descriptorResourceType)
 	if errH17 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH17)
 	}
@@ -1829,7 +1790,6 @@ func TestDescriptorSetTimes_NoWritePermission(t *testing.T) {
 }
 
 func TestDescriptorLinkAt_CreateHardLink(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := createTestContext()
 	handle, tmpDir := createTestDirDescriptor(t, ctx)
 
@@ -1877,7 +1837,6 @@ func TestDescriptorLinkAt_RejectSymlinkFollow(t *testing.T) {
 }
 
 func TestDescriptorLinkAt_NoMutateDirectory(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	ctx := createTestContext()
 	table := component.ResourceTableFromContext(ctx)
 
@@ -1888,8 +1847,8 @@ func TestDescriptorLinkAt_NoMutateDirectory(t *testing.T) {
 	// Create descriptor without MutateDirectory flag
 	file, err := os.Open(tmpDir)
 	require.NoError(t, err)
-	_ = NewDescriptor(file, true, tmpDir, DescriptorFlagRead|DescriptorFlagWrite) // Task E4: will wire via per-module registry
-	h, errH18 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
+	sid := registerDescriptor(NewDescriptor(file, true, tmpDir, DescriptorFlagRead|DescriptorFlagWrite))
+	h, errH18 := table.NewResourceHandle(sid, true, descriptorResourceType)
 	if errH18 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH18)
 	}
@@ -1913,7 +1872,6 @@ func TestDescriptorLinkAt_NoMutateDirectory(t *testing.T) {
 // ====================
 
 func TestDescriptorAdvise_WithRealFile(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "test.txt")
 	err := os.WriteFile(path, []byte("hello world test data"), 0644)
@@ -1925,8 +1883,8 @@ func TestDescriptorAdvise_WithRealFile(t *testing.T) {
 
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
-	_ = NewDescriptor(f, false, path, DescriptorFlagRead) // Task E4: will wire via per-module registry
-	handle, errH19 := table.NewResourceHandle(uint32(0), true, descriptorResourceType)
+	sid := registerDescriptor(NewDescriptor(f, false, path, DescriptorFlagRead))
+	handle, errH19 := table.NewResourceHandle(sid, true, descriptorResourceType)
 	if errH19 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH19)
 	}

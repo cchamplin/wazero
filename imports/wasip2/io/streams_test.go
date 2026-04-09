@@ -548,14 +548,13 @@ func TestInstantiateStreams_Duplicate(t *testing.T) {
 // Tests for host functions with ResourceTable
 
 func TestInputStreamRead_HostFunction(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create input stream and add to table
 	reader := bytes.NewReader([]byte("hello world"))
-	_ = NewInputStream(reader) // Task E4: will wire via per-module registry
-	handle, errH1 := table.NewResourceHandle(uint32(0), true, inputStreamResourceType)
+	sid := RegisterInputStream(NewInputStream(reader))
+	handle, errH1 := table.NewResourceHandle(sid, true, inputStreamResourceType)
 	if errH1 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH1)
 	}
@@ -585,7 +584,6 @@ func TestInputStreamRead_HostFunction(t *testing.T) {
 }
 
 func TestInputStreamRead_ClosedStream(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
@@ -593,7 +591,8 @@ func TestInputStreamRead_ClosedStream(t *testing.T) {
 	reader := bytes.NewReader([]byte("hello"))
 	stream := NewInputStream(reader)
 	stream.Close()
-	handle, errH2 := table.NewResourceHandle(uint32(0), true, inputStreamResourceType)
+	sid := RegisterInputStream(stream)
+	handle, errH2 := table.NewResourceHandle(sid, true, inputStreamResourceType)
 	if errH2 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH2)
 	}
@@ -612,13 +611,12 @@ func TestInputStreamRead_ClosedStream(t *testing.T) {
 }
 
 func TestInputStreamSkip_HostFunction(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	reader := bytes.NewReader([]byte("hello world"))
-	_ = NewInputStream(reader) // Task E4: will wire via per-module registry
-	handle, errH3 := table.NewResourceHandle(uint32(0), true, inputStreamResourceType)
+	sid := RegisterInputStream(NewInputStream(reader))
+	handle, errH3 := table.NewResourceHandle(sid, true, inputStreamResourceType)
 	if errH3 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH3)
 	}
@@ -638,13 +636,12 @@ func TestInputStreamSkip_HostFunction(t *testing.T) {
 }
 
 func TestInputStreamSubscribe_HostFunction(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	reader := bytes.NewReader([]byte("test"))
-	_ = NewInputStream(reader) // Task E4: will wire via per-module registry
-	handle, errH4 := table.NewResourceHandle(uint32(0), true, inputStreamResourceType)
+	sid := RegisterInputStream(NewInputStream(reader))
+	handle, errH4 := table.NewResourceHandle(sid, true, inputStreamResourceType)
 	if errH4 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH4)
 	}
@@ -663,13 +660,12 @@ func TestInputStreamSubscribe_HostFunction(t *testing.T) {
 }
 
 func TestOutputStreamCheckWrite_HostFunction(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	buf := &bytes.Buffer{}
-	_ = NewOutputStream(buf) // Task E4: will wire via per-module registry
-	handle, errH5 := table.NewResourceHandle(uint32(0), true, inputStreamResourceType)
+	sid := RegisterOutputStream(NewOutputStream(buf))
+	handle, errH5 := table.NewResourceHandle(sid, true, inputStreamResourceType)
 	if errH5 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH5)
 	}
@@ -688,13 +684,12 @@ func TestOutputStreamCheckWrite_HostFunction(t *testing.T) {
 }
 
 func TestOutputStreamWrite_HostFunction(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	buf := &bytes.Buffer{}
-	_ = NewOutputStream(buf) // Task E4: will wire via per-module registry
-	handle, errH6 := table.NewResourceHandle(uint32(0), true, inputStreamResourceType)
+	sid := RegisterOutputStream(NewOutputStream(buf))
+	handle, errH6 := table.NewResourceHandle(sid, true, inputStreamResourceType)
 	if errH6 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH6)
 	}
@@ -722,13 +717,12 @@ func TestOutputStreamWrite_HostFunction(t *testing.T) {
 }
 
 func TestOutputStreamFlush_HostFunction(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	buf := &flushableWriter{}
-	_ = NewOutputStream(buf) // Task E4: will wire via per-module registry
-	handle, errH7 := table.NewResourceHandle(uint32(0), true, inputStreamResourceType)
+	sid := RegisterOutputStream(NewOutputStream(buf))
+	handle, errH7 := table.NewResourceHandle(sid, true, inputStreamResourceType)
 	if errH7 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH7)
 	}
@@ -746,13 +740,12 @@ func TestOutputStreamFlush_HostFunction(t *testing.T) {
 }
 
 func TestOutputStreamWriteZeroes_HostFunction(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	buf := &bytes.Buffer{}
-	_ = NewOutputStream(buf) // Task E4: will wire via per-module registry
-	handle, errH8 := table.NewResourceHandle(uint32(0), true, inputStreamResourceType)
+	sid := RegisterOutputStream(NewOutputStream(buf))
+	handle, errH8 := table.NewResourceHandle(sid, true, inputStreamResourceType)
 	if errH8 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH8)
 	}
@@ -775,20 +768,19 @@ func TestOutputStreamWriteZeroes_HostFunction(t *testing.T) {
 }
 
 func TestOutputStreamSplice_HostFunction(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	srcReader := bytes.NewReader([]byte("source data"))
-	_ = NewInputStream(srcReader) // Task E4: will wire via per-module registry
-	srcHandle, errH9 := table.NewResourceHandle(uint32(0), true, inputStreamResourceType)
+	sid1 := RegisterInputStream(NewInputStream(srcReader))
+	srcHandle, errH9 := table.NewResourceHandle(sid1, true, inputStreamResourceType)
 	if errH9 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH9)
 	}
 
 	dstBuf := &bytes.Buffer{}
-	_ = NewOutputStream(dstBuf) // Task E4: will wire via per-module registry
-	dstHandle, errH10 := table.NewResourceHandle(uint32(0), true, inputStreamResourceType)
+	sid2 := RegisterOutputStream(NewOutputStream(dstBuf))
+	dstHandle, errH10 := table.NewResourceHandle(sid2, true, outputStreamResourceType)
 	if errH10 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH10)
 	}
@@ -810,13 +802,12 @@ func TestOutputStreamSplice_HostFunction(t *testing.T) {
 }
 
 func TestOutputStreamSubscribe_HostFunction(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	buf := &bytes.Buffer{}
-	_ = NewOutputStream(buf) // Task E4: will wire via per-module registry
-	handle, errH11 := table.NewResourceHandle(uint32(0), true, inputStreamResourceType)
+	sid := RegisterOutputStream(NewOutputStream(buf))
+	handle, errH11 := table.NewResourceHandle(sid, true, inputStreamResourceType)
 	if errH11 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH11)
 	}
@@ -860,14 +851,13 @@ func TestHostFunction_NoResourceTable(t *testing.T) {
 }
 
 func TestHostFunction_WrongResourceType(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — Rep is uint32, Go object lookup requires per-module registry")
 	table := runtime.NewTable()
 	ctx := component.WithResourceTable(context.Background(), table)
 
 	// Create an OutputStream but try to use it as InputStream
 	buf := &bytes.Buffer{}
-	_ = NewOutputStream(buf) // Task E4: will wire via per-module registry
-	handle, errH12 := table.NewResourceHandle(uint32(0), true, inputStreamResourceType)
+	sid := RegisterOutputStream(NewOutputStream(buf))
+	handle, errH12 := table.NewResourceHandle(sid, true, inputStreamResourceType)
 	if errH12 != nil {
 		t.Fatalf("NewResourceHandle failed: %v", errH12)
 	}
@@ -878,7 +868,7 @@ func TestHostFunction_WrongResourceType(t *testing.T) {
 	}
 	_, err := inputStreamRead(ctx, nil, args)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "not an InputStream")
+	require.Contains(t, err.Error(), "InputStream not found in registry")
 }
 
 func TestBytesToListU8(t *testing.T) {

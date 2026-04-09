@@ -13,24 +13,302 @@ import (
 	"sync"
 	"syscall"
 
+	wasipIO "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
-// Host-managed resource type singletons. One *ResourceType per host
-// resource kind. Impl is nil because these resources are host-owned;
-// destruction flows through ResourceType.HostDestructor.
+// Per-module u32 registries for socket resource types
+
 var (
-	networkResourceType              = &runtime.ResourceType{}
-	tcpSocketResourceType            = &runtime.ResourceType{}
-	tcpInputStreamResourceType       = &runtime.ResourceType{}
-	tcpOutputStreamResourceType      = &runtime.ResourceType{}
-	udpSocketResourceType            = &runtime.ResourceType{}
-	incomingDatagramStreamResourceType = &runtime.ResourceType{}
-	outgoingDatagramStreamResourceType = &runtime.ResourceType{}
-	resolveAddressStreamResourceType = &runtime.ResourceType{}
-	socketsPollableResourceType      = &runtime.ResourceType{}
+	networkRegistryMu sync.Mutex
+	networkRegistry   []*Network
+	networkFreelist   []uint32
+)
+
+func registerNetwork(n *Network) uint32 {
+	networkRegistryMu.Lock()
+	defer networkRegistryMu.Unlock()
+	if k := len(networkFreelist); k > 0 {
+		id := networkFreelist[k-1]
+		networkFreelist = networkFreelist[:k-1]
+		networkRegistry[id] = n
+		return id
+	}
+	id := uint32(len(networkRegistry))
+	networkRegistry = append(networkRegistry, n)
+	return id
+}
+
+func unregisterNetwork(id uint32) {
+	networkRegistryMu.Lock()
+	defer networkRegistryMu.Unlock()
+	if int(id) < len(networkRegistry) {
+		networkRegistry[id] = nil
+		networkFreelist = append(networkFreelist, id)
+	}
+}
+
+var (
+	tcpSocketRegistryMu sync.Mutex
+	tcpSocketRegistry   []*TcpSocket
+	tcpSocketFreelist   []uint32
+)
+
+func registerTcpSocket(s *TcpSocket) uint32 {
+	tcpSocketRegistryMu.Lock()
+	defer tcpSocketRegistryMu.Unlock()
+	if k := len(tcpSocketFreelist); k > 0 {
+		id := tcpSocketFreelist[k-1]
+		tcpSocketFreelist = tcpSocketFreelist[:k-1]
+		tcpSocketRegistry[id] = s
+		return id
+	}
+	id := uint32(len(tcpSocketRegistry))
+	tcpSocketRegistry = append(tcpSocketRegistry, s)
+	return id
+}
+
+func getTcpSocketFromRegistry(id uint32) *TcpSocket {
+	tcpSocketRegistryMu.Lock()
+	defer tcpSocketRegistryMu.Unlock()
+	if int(id) >= len(tcpSocketRegistry) {
+		return nil
+	}
+	return tcpSocketRegistry[id]
+}
+
+func unregisterTcpSocket(id uint32) {
+	tcpSocketRegistryMu.Lock()
+	defer tcpSocketRegistryMu.Unlock()
+	if int(id) < len(tcpSocketRegistry) {
+		tcpSocketRegistry[id] = nil
+		tcpSocketFreelist = append(tcpSocketFreelist, id)
+	}
+}
+
+var (
+	tcpInputStreamRegistryMu sync.Mutex
+	tcpInputStreamRegistry   []*TcpInputStream
+	tcpInputStreamFreelist   []uint32
+)
+
+func registerTcpInputStream(s *TcpInputStream) uint32 {
+	tcpInputStreamRegistryMu.Lock()
+	defer tcpInputStreamRegistryMu.Unlock()
+	if k := len(tcpInputStreamFreelist); k > 0 {
+		id := tcpInputStreamFreelist[k-1]
+		tcpInputStreamFreelist = tcpInputStreamFreelist[:k-1]
+		tcpInputStreamRegistry[id] = s
+		return id
+	}
+	id := uint32(len(tcpInputStreamRegistry))
+	tcpInputStreamRegistry = append(tcpInputStreamRegistry, s)
+	return id
+}
+
+func unregisterTcpInputStream(id uint32) {
+	tcpInputStreamRegistryMu.Lock()
+	defer tcpInputStreamRegistryMu.Unlock()
+	if int(id) < len(tcpInputStreamRegistry) {
+		tcpInputStreamRegistry[id] = nil
+		tcpInputStreamFreelist = append(tcpInputStreamFreelist, id)
+	}
+}
+
+var (
+	tcpOutputStreamRegistryMu sync.Mutex
+	tcpOutputStreamRegistry   []*TcpOutputStream
+	tcpOutputStreamFreelist   []uint32
+)
+
+func registerTcpOutputStream(s *TcpOutputStream) uint32 {
+	tcpOutputStreamRegistryMu.Lock()
+	defer tcpOutputStreamRegistryMu.Unlock()
+	if k := len(tcpOutputStreamFreelist); k > 0 {
+		id := tcpOutputStreamFreelist[k-1]
+		tcpOutputStreamFreelist = tcpOutputStreamFreelist[:k-1]
+		tcpOutputStreamRegistry[id] = s
+		return id
+	}
+	id := uint32(len(tcpOutputStreamRegistry))
+	tcpOutputStreamRegistry = append(tcpOutputStreamRegistry, s)
+	return id
+}
+
+func unregisterTcpOutputStream(id uint32) {
+	tcpOutputStreamRegistryMu.Lock()
+	defer tcpOutputStreamRegistryMu.Unlock()
+	if int(id) < len(tcpOutputStreamRegistry) {
+		tcpOutputStreamRegistry[id] = nil
+		tcpOutputStreamFreelist = append(tcpOutputStreamFreelist, id)
+	}
+}
+
+var (
+	udpSocketRegistryMu sync.Mutex
+	udpSocketRegistry   []*UdpSocket
+	udpSocketFreelist   []uint32
+)
+
+func registerUdpSocket(s *UdpSocket) uint32 {
+	udpSocketRegistryMu.Lock()
+	defer udpSocketRegistryMu.Unlock()
+	if k := len(udpSocketFreelist); k > 0 {
+		id := udpSocketFreelist[k-1]
+		udpSocketFreelist = udpSocketFreelist[:k-1]
+		udpSocketRegistry[id] = s
+		return id
+	}
+	id := uint32(len(udpSocketRegistry))
+	udpSocketRegistry = append(udpSocketRegistry, s)
+	return id
+}
+
+func getUdpSocketFromRegistry(id uint32) *UdpSocket {
+	udpSocketRegistryMu.Lock()
+	defer udpSocketRegistryMu.Unlock()
+	if int(id) >= len(udpSocketRegistry) {
+		return nil
+	}
+	return udpSocketRegistry[id]
+}
+
+func unregisterUdpSocket(id uint32) {
+	udpSocketRegistryMu.Lock()
+	defer udpSocketRegistryMu.Unlock()
+	if int(id) < len(udpSocketRegistry) {
+		udpSocketRegistry[id] = nil
+		udpSocketFreelist = append(udpSocketFreelist, id)
+	}
+}
+
+var (
+	incomingDatagramStreamRegistryMu sync.Mutex
+	incomingDatagramStreamRegistry   []*IncomingDatagramStream
+	incomingDatagramStreamFreelist   []uint32
+)
+
+func registerIncomingDatagramStream(s *IncomingDatagramStream) uint32 {
+	incomingDatagramStreamRegistryMu.Lock()
+	defer incomingDatagramStreamRegistryMu.Unlock()
+	if k := len(incomingDatagramStreamFreelist); k > 0 {
+		id := incomingDatagramStreamFreelist[k-1]
+		incomingDatagramStreamFreelist = incomingDatagramStreamFreelist[:k-1]
+		incomingDatagramStreamRegistry[id] = s
+		return id
+	}
+	id := uint32(len(incomingDatagramStreamRegistry))
+	incomingDatagramStreamRegistry = append(incomingDatagramStreamRegistry, s)
+	return id
+}
+
+func getIncomingDatagramStreamFromRegistry(id uint32) *IncomingDatagramStream {
+	incomingDatagramStreamRegistryMu.Lock()
+	defer incomingDatagramStreamRegistryMu.Unlock()
+	if int(id) >= len(incomingDatagramStreamRegistry) {
+		return nil
+	}
+	return incomingDatagramStreamRegistry[id]
+}
+
+func unregisterIncomingDatagramStream(id uint32) {
+	incomingDatagramStreamRegistryMu.Lock()
+	defer incomingDatagramStreamRegistryMu.Unlock()
+	if int(id) < len(incomingDatagramStreamRegistry) {
+		incomingDatagramStreamRegistry[id] = nil
+		incomingDatagramStreamFreelist = append(incomingDatagramStreamFreelist, id)
+	}
+}
+
+var (
+	outgoingDatagramStreamRegistryMu sync.Mutex
+	outgoingDatagramStreamRegistry   []*OutgoingDatagramStream
+	outgoingDatagramStreamFreelist   []uint32
+)
+
+func registerOutgoingDatagramStream(s *OutgoingDatagramStream) uint32 {
+	outgoingDatagramStreamRegistryMu.Lock()
+	defer outgoingDatagramStreamRegistryMu.Unlock()
+	if k := len(outgoingDatagramStreamFreelist); k > 0 {
+		id := outgoingDatagramStreamFreelist[k-1]
+		outgoingDatagramStreamFreelist = outgoingDatagramStreamFreelist[:k-1]
+		outgoingDatagramStreamRegistry[id] = s
+		return id
+	}
+	id := uint32(len(outgoingDatagramStreamRegistry))
+	outgoingDatagramStreamRegistry = append(outgoingDatagramStreamRegistry, s)
+	return id
+}
+
+func getOutgoingDatagramStreamFromRegistry(id uint32) *OutgoingDatagramStream {
+	outgoingDatagramStreamRegistryMu.Lock()
+	defer outgoingDatagramStreamRegistryMu.Unlock()
+	if int(id) >= len(outgoingDatagramStreamRegistry) {
+		return nil
+	}
+	return outgoingDatagramStreamRegistry[id]
+}
+
+func unregisterOutgoingDatagramStream(id uint32) {
+	outgoingDatagramStreamRegistryMu.Lock()
+	defer outgoingDatagramStreamRegistryMu.Unlock()
+	if int(id) < len(outgoingDatagramStreamRegistry) {
+		outgoingDatagramStreamRegistry[id] = nil
+		outgoingDatagramStreamFreelist = append(outgoingDatagramStreamFreelist, id)
+	}
+}
+
+var (
+	resolveAddressStreamRegistryMu sync.Mutex
+	resolveAddressStreamRegistry   []*ResolveAddressStream
+	resolveAddressStreamFreelist   []uint32
+)
+
+func registerResolveAddressStream(s *ResolveAddressStream) uint32 {
+	resolveAddressStreamRegistryMu.Lock()
+	defer resolveAddressStreamRegistryMu.Unlock()
+	if k := len(resolveAddressStreamFreelist); k > 0 {
+		id := resolveAddressStreamFreelist[k-1]
+		resolveAddressStreamFreelist = resolveAddressStreamFreelist[:k-1]
+		resolveAddressStreamRegistry[id] = s
+		return id
+	}
+	id := uint32(len(resolveAddressStreamRegistry))
+	resolveAddressStreamRegistry = append(resolveAddressStreamRegistry, s)
+	return id
+}
+
+func getResolveAddressStreamFromRegistry(id uint32) *ResolveAddressStream {
+	resolveAddressStreamRegistryMu.Lock()
+	defer resolveAddressStreamRegistryMu.Unlock()
+	if int(id) >= len(resolveAddressStreamRegistry) {
+		return nil
+	}
+	return resolveAddressStreamRegistry[id]
+}
+
+func unregisterResolveAddressStream(id uint32) {
+	resolveAddressStreamRegistryMu.Lock()
+	defer resolveAddressStreamRegistryMu.Unlock()
+	if int(id) < len(resolveAddressStreamRegistry) {
+		resolveAddressStreamRegistry[id] = nil
+		resolveAddressStreamFreelist = append(resolveAddressStreamFreelist, id)
+	}
+}
+
+// Host-managed resource type singletons.
+var (
+	networkResourceType                = &runtime.ResourceType{HostDestructor: func(rep uint32) error { unregisterNetwork(rep); return nil }}
+	tcpSocketResourceType              = &runtime.ResourceType{HostDestructor: func(rep uint32) error { if s := getTcpSocketFromRegistry(rep); s != nil { s.Close() }; unregisterTcpSocket(rep); return nil }}
+	tcpInputStreamResourceType         = &runtime.ResourceType{HostDestructor: func(rep uint32) error { unregisterTcpInputStream(rep); return nil }}
+	tcpOutputStreamResourceType        = &runtime.ResourceType{HostDestructor: func(rep uint32) error { unregisterTcpOutputStream(rep); return nil }}
+	udpSocketResourceType              = &runtime.ResourceType{HostDestructor: func(rep uint32) error { if s := getUdpSocketFromRegistry(rep); s != nil { s.Destroy() }; unregisterUdpSocket(rep); return nil }}
+	incomingDatagramStreamResourceType = &runtime.ResourceType{HostDestructor: func(rep uint32) error { unregisterIncomingDatagramStream(rep); return nil }}
+	outgoingDatagramStreamResourceType = &runtime.ResourceType{HostDestructor: func(rep uint32) error { unregisterOutgoingDatagramStream(rep); return nil }}
+	resolveAddressStreamResourceType   = &runtime.ResourceType{HostDestructor: func(rep uint32) error { if s := getResolveAddressStreamFromRegistry(rep); s != nil { s.Close() }; unregisterResolveAddressStream(rep); return nil }}
+	socketsPollableResourceType        = &runtime.ResourceType{HostDestructor: func(rep uint32) error { wasipIO.UnregisterPollable(rep); return nil }}
 )
 
 // IpAddressFamily represents the IP address family (IPv4 or IPv6).
@@ -792,8 +1070,11 @@ func getTcpSocket(ctx context.Context, handle uint32) (*TcpSocket, error) {
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
 	}
-	_ = resEntry // Task E4: resolve *TcpSocket via per-module registry using resEntry.Rep
-	return nil, fmt.Errorf("handle %d: TcpSocket registry not yet wired (Task E4)", handle)
+	s := getTcpSocketFromRegistry(resEntry.Rep)
+	if s == nil {
+		return nil, fmt.Errorf("handle %d: TcpSocket not found in registry (rep=%d)", handle, resEntry.Rep)
+	}
+	return s, nil
 }
 
 // getUdpSocket retrieves a UdpSocket from the ResourceTable using a borrow handle.
@@ -810,8 +1091,11 @@ func getUdpSocket(ctx context.Context, handle uint32) (*UdpSocket, error) {
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
 	}
-	_ = resEntry // Task E4: resolve *UdpSocket via per-module registry using resEntry.Rep
-	return nil, fmt.Errorf("handle %d: UdpSocket registry not yet wired (Task E4)", handle)
+	s := getUdpSocketFromRegistry(resEntry.Rep)
+	if s == nil {
+		return nil, fmt.Errorf("handle %d: UdpSocket not found in registry (rep=%d)", handle, resEntry.Rep)
+	}
+	return s, nil
 }
 
 // getIncomingDatagramStream retrieves an IncomingDatagramStream from the ResourceTable.
@@ -828,8 +1112,11 @@ func getIncomingDatagramStream(ctx context.Context, handle uint32) (*IncomingDat
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
 	}
-	_ = resEntry // Task E4: resolve *IncomingDatagramStream via per-module registry using resEntry.Rep
-	return nil, fmt.Errorf("handle %d: IncomingDatagramStream registry not yet wired (Task E4)", handle)
+	s := getIncomingDatagramStreamFromRegistry(resEntry.Rep)
+	if s == nil {
+		return nil, fmt.Errorf("handle %d: IncomingDatagramStream not found in registry (rep=%d)", handle, resEntry.Rep)
+	}
+	return s, nil
 }
 
 // getOutgoingDatagramStream retrieves an OutgoingDatagramStream from the ResourceTable.
@@ -846,8 +1133,11 @@ func getOutgoingDatagramStream(ctx context.Context, handle uint32) (*OutgoingDat
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
 	}
-	_ = resEntry // Task E4: resolve *OutgoingDatagramStream via per-module registry using resEntry.Rep
-	return nil, fmt.Errorf("handle %d: OutgoingDatagramStream registry not yet wired (Task E4)", handle)
+	s := getOutgoingDatagramStreamFromRegistry(resEntry.Rep)
+	if s == nil {
+		return nil, fmt.Errorf("handle %d: OutgoingDatagramStream not found in registry (rep=%d)", handle, resEntry.Rep)
+	}
+	return s, nil
 }
 
 // parseAddressFamily parses an address family enum value.

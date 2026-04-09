@@ -22,9 +22,50 @@ import (
 	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
+// Per-module u32 registry for KVStore test resources.
+var (
+	kvStoreRegistryMu sync.Mutex
+	kvStoreRegistry   []*KVStore
+	kvStoreFreelist   []uint32
+)
+
+func registerKVStore(kv *KVStore) uint32 {
+	kvStoreRegistryMu.Lock()
+	defer kvStoreRegistryMu.Unlock()
+	if n := len(kvStoreFreelist); n > 0 {
+		id := kvStoreFreelist[n-1]
+		kvStoreFreelist = kvStoreFreelist[:n-1]
+		kvStoreRegistry[id] = kv
+		return id
+	}
+	id := uint32(len(kvStoreRegistry))
+	kvStoreRegistry = append(kvStoreRegistry, kv)
+	return id
+}
+
+func getKVStoreFromRegistry(id uint32) *KVStore {
+	kvStoreRegistryMu.Lock()
+	defer kvStoreRegistryMu.Unlock()
+	if int(id) >= len(kvStoreRegistry) {
+		return nil
+	}
+	return kvStoreRegistry[id]
+}
+
+func unregisterKVStore(id uint32) {
+	kvStoreRegistryMu.Lock()
+	defer kvStoreRegistryMu.Unlock()
+	if int(id) < len(kvStoreRegistry) {
+		kvStoreRegistry[id] = nil
+		kvStoreFreelist = append(kvStoreFreelist, id)
+	}
+}
+
 // Host-managed resource type singletons for kv_store tests.
 var (
-	kvStoreResourceType = &runtime.ResourceType{}
+	kvStoreResourceType = &runtime.ResourceType{
+		HostDestructor: func(rep uint32) error { unregisterKVStore(rep); return nil },
+	}
 )
 
 // KVStore is a simple key-value store resource for testing.
@@ -83,11 +124,11 @@ func TestResourceLifecycle_Basic(t *testing.T) {
 
 	// Create a KV store resource
 	kvStore := NewKVStore(1)
-	_ = kvStore // Task E4: will wire via per-module registry
+	sid := registerKVStore(kvStore)
 	addEvent("constructor-called")
 
 	// Add to resource table
-	handle, err := table.NewResourceHandle(uint32(0), true, kvStoreResourceType) // own=true
+	handle, err := table.NewResourceHandle(sid, true, kvStoreResourceType) // own=true
 	if err != nil {
 		t.Fatalf("NewResourceHandle failed: %v", err)
 	}
@@ -102,7 +143,7 @@ func TestResourceLifecycle_Basic(t *testing.T) {
 	if !ok {
 		t.Fatalf("Entry is not ResourceHandleEntry: %T", rawEntry)
 	}
-	if false { // Task E4: entry.Rep != kvStore
+	if getKVStoreFromRegistry(entry.Rep) != kvStore {
 		t.Error("Entry.Rep does not match original resource")
 	}
 	if !entry.Own {
@@ -110,8 +151,7 @@ func TestResourceLifecycle_Basic(t *testing.T) {
 	}
 
 	// Use the resource
-	_ = entry // Task E4: resolve *KVStore via per-module registry
-	kv := NewKVStore(0)
+	kv := getKVStoreFromRegistry(entry.Rep)
 	kv.Set("key1", "value1")
 	val, ok2 := kv.Get("key1")
 	if !ok2 || val != "value1" {
@@ -125,7 +165,7 @@ func TestResourceLifecycle_Basic(t *testing.T) {
 	}
 	addEvent("destructor-called")
 
-	if false { // Task E4: removedEntry.Rep != kvStore
+	if false { // Removed entry is already cleaned up
 		t.Error("Removed entry Rep does not match")
 	}
 
@@ -217,8 +257,8 @@ func TestResourceLifecycle_BorrowSemantics(t *testing.T) {
 
 	// Create an owned resource
 	kvStore := NewKVStore(1)
-	_ = kvStore // Task E4: will wire via per-module registry
-	ownHandle, err := table.NewResourceHandle(uint32(0), true, kvStoreResourceType) // own=true
+	sid := registerKVStore(kvStore)
+	ownHandle, err := table.NewResourceHandle(sid, true, kvStoreResourceType) // own=true
 	if err != nil {
 		t.Fatalf("NewResourceHandle (own) failed: %v", err)
 	}
@@ -226,7 +266,7 @@ func TestResourceLifecycle_BorrowSemantics(t *testing.T) {
 	// Create a borrow of the same resource
 	// Note: In real component model, borrows are created differently,
 	// but for testing the table semantics we can create a non-owning entry
-	borrowHandle, err := table.NewResourceHandle(uint32(0), false, kvStoreResourceType) // own=false
+	borrowHandle, err := table.NewResourceHandle(sid, false, kvStoreResourceType) // own=false
 	if err != nil {
 		t.Fatalf("NewResourceHandle (borrow) failed: %v", err)
 	}
@@ -257,7 +297,7 @@ func TestResourceLifecycle_BorrowSemantics(t *testing.T) {
 	}
 
 	// Both should reference the same resource
-	if false { // Task E4: ownEntry.Rep != borrowEntry.Rep
+	if ownEntry.Rep != borrowEntry.Rep {
 		t.Error("Own and borrow should reference the same resource")
 	}
 
@@ -289,8 +329,8 @@ func TestResourceLifecycle_LendTracking(t *testing.T) {
 
 	// Create an owned resource
 	kvStore := NewKVStore(1)
-	_ = kvStore // Task E4: will wire via per-module registry
-	handle, herr := table.NewResourceHandle(uint32(0), true, kvStoreResourceType)
+	sid := registerKVStore(kvStore)
+	handle, herr := table.NewResourceHandle(sid, true, kvStoreResourceType)
 	if herr != nil {
 		t.Fatalf("NewResourceHandle failed: %v", herr)
 	}
@@ -554,8 +594,8 @@ func TestResourceLifecycle_ResourceConstructorCallback(t *testing.T) {
 
 		// Create a new resource
 		kvStore := NewKVStore(1)
-		_ = kvStore // Task E4: will wire via per-module registry
-		handle, hErr := rt.NewResourceHandle(uint32(0), true, kvStoreResourceType)
+		sid := registerKVStore(kvStore)
+		handle, hErr := rt.NewResourceHandle(sid, true, kvStoreResourceType)
 		if hErr != nil {
 			return nil, hErr
 		}
@@ -600,9 +640,7 @@ func TestResourceLifecycle_ResourceConstructorCallback(t *testing.T) {
 		t.Fatalf("entry is not ResourceHandleEntry: %T", rawEntry)
 	}
 
-	_ = entry // Task E4: resolve *KVStore via per-module registry
-	kv := NewKVStore(0)
-	_ = kv
+	kv := getKVStoreFromRegistry(entry.Rep)
 
 	// Use the resource
 	kv.Set("test", "value")
@@ -627,7 +665,6 @@ func TestResourceLifecycle_ResourceConstructorCallback(t *testing.T) {
 // TestResourceLifecycle_ResourceMethodCallback tests a host function
 // that acts as a resource method (takes borrow as first arg).
 func TestResourceLifecycle_ResourceMethodCallback(t *testing.T) {
-	t.Skip("Task E4: wasip2 registry migration — shared KVStore state requires per-module registry")
 	ctx := context.Background()
 
 	table := runtime.NewTable()
@@ -635,8 +672,8 @@ func TestResourceLifecycle_ResourceMethodCallback(t *testing.T) {
 
 	// Create a KV store resource
 	kvStore := NewKVStore(1)
-	_ = kvStore // Task E4: will wire via per-module registry
-	handle, herr := table.NewResourceHandle(uint32(0), true, kvStoreResourceType)
+	sid := registerKVStore(kvStore)
+	handle, herr := table.NewResourceHandle(sid, true, kvStoreResourceType)
 	if herr != nil {
 		t.Fatalf("NewResourceHandle failed: %v", herr)
 	}
@@ -663,8 +700,7 @@ func TestResourceLifecycle_ResourceMethodCallback(t *testing.T) {
 			return nil, nil
 		}
 
-		_ = resEntry // Task E4: resolve *KVStore via per-module registry
-			kv := NewKVStore(0)
+		kv := getKVStoreFromRegistry(resEntry.Rep)
 
 		key := args[1].StringVal()
 		value := args[2].StringVal()
@@ -687,8 +723,7 @@ func TestResourceLifecycle_ResourceMethodCallback(t *testing.T) {
 			return nil, nil
 		}
 
-		_ = resEntry // Task E4: resolve *KVStore via per-module registry
-			kv := NewKVStore(0)
+		kv := getKVStoreFromRegistry(resEntry.Rep)
 		key := args[1].StringVal()
 		value, found := kv.Get(key)
 

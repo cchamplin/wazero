@@ -21,7 +21,10 @@ func instantiateTcp(linker *component.Linker) error {
 
 	// tcp-socket resource
 	inst.Resource("tcp-socket", func(rep uint32) {
-		// Destructor - close socket
+		if s := getTcpSocketFromRegistry(rep); s != nil {
+			s.Close()
+		}
+		unregisterTcpSocket(rep)
 	})
 
 	// Connection establishment methods
@@ -82,17 +85,17 @@ func createTcpSocket(ctx context.Context, _ *types.TypeFunc, args []types.Val) (
 
 	// Create socket
 	sock := NewTcpSocket(family)
-	_ = sock // Task E4: will wire via per-module registry
+	sid := registerTcpSocket(sock)
 
 	// Store in resource table
 	table := component.ResourceTableFromContext(ctx)
 	if table == nil {
-		// No table available, return placeholder
+		unregisterTcpSocket(sid)
 		handle := types.ValOwn(0)
 		return []types.Val{types.ValResultOk(&handle)}, nil
 	}
 
-	handle, hErr := table.NewResourceHandle(uint32(0), true, tcpSocketResourceType)
+	handle, hErr := table.NewResourceHandle(sid, true, tcpSocketResourceType)
 	if hErr != nil {
 		handle := types.ValOwn(0)
 		return []types.Val{types.ValResultOk(&handle)}, nil
@@ -266,18 +269,20 @@ func tcpSocketFinishConnect(ctx context.Context, _ *types.TypeFunc, args []types
 
 	// Create TcpInputStream and TcpOutputStream wrappers
 	inStream := NewTcpInputStream(sock)
-	_ = inStream // Task E4: will wire via per-module registry
+	inSid := registerTcpInputStream(inStream)
 	outStream := NewTcpOutputStream(sock)
-	_ = outStream // Task E4: will wire via per-module registry
+	outSid := registerTcpOutputStream(outStream)
 
-	inHandle, hErr1 := table.NewResourceHandle(uint32(0), true, tcpInputStreamResourceType)
+	inHandle, hErr1 := table.NewResourceHandle(inSid, true, tcpInputStreamResourceType)
 	if hErr1 != nil {
+		unregisterTcpInputStream(inSid)
+		unregisterTcpOutputStream(outSid)
 		inputStream := types.ValOwn(0)
 		outputStream := types.ValOwn(1)
 		tuple := types.ValTuple([]types.Val{inputStream, outputStream})
 		return []types.Val{types.ValResultOk(&tuple)}, nil
 	}
-	outHandle, hErr2 := table.NewResourceHandle(uint32(0), true, tcpOutputStreamResourceType)
+	outHandle, hErr2 := table.NewResourceHandle(outSid, true, tcpOutputStreamResourceType)
 	if hErr2 != nil {
 		inputStream := types.ValOwn(uint32(inHandle))
 		outputStream := types.ValOwn(1)
@@ -386,23 +391,28 @@ func tcpSocketAccept(ctx context.Context, _ *types.TypeFunc, args []types.Val) (
 	}
 
 	// Create resources
-	sockHandle, err := table.NewResourceHandle(uint32(0), true, tcpSocketResourceType)
+	acceptedSid := registerTcpSocket(acceptedSock)
+	sockHandle, err := table.NewResourceHandle(acceptedSid, true, tcpSocketResourceType)
 	if err != nil {
+		unregisterTcpSocket(acceptedSid)
 		acceptedSock.Close()
 		return nil, fmt.Errorf("tcpSocketAccept: register socket handle: %w", err)
 	}
 	inStream := NewTcpInputStream(acceptedSock)
-	_ = inStream // Task E4: will wire via per-module registry
+	inSid := registerTcpInputStream(inStream)
 	outStream := NewTcpOutputStream(acceptedSock)
-	_ = outStream // Task E4: will wire via per-module registry
-	inHandle, err := table.NewResourceHandle(uint32(0), true, tcpInputStreamResourceType)
+	outSid := registerTcpOutputStream(outStream)
+	inHandle, err := table.NewResourceHandle(inSid, true, tcpInputStreamResourceType)
 	if err != nil {
+		unregisterTcpInputStream(inSid)
+		unregisterTcpOutputStream(outSid)
 		table.Remove(sockHandle)
 		acceptedSock.Close()
 		return nil, fmt.Errorf("tcpSocketAccept: register input stream handle: %w", err)
 	}
-	outHandle, err := table.NewResourceHandle(uint32(0), true, tcpOutputStreamResourceType)
+	outHandle, err := table.NewResourceHandle(outSid, true, tcpOutputStreamResourceType)
 	if err != nil {
+		unregisterTcpOutputStream(outSid)
 		table.Remove(inHandle)
 		table.Remove(sockHandle)
 		acceptedSock.Close()
@@ -731,8 +741,8 @@ func tcpSocketSubscribe(ctx context.Context, _ *types.TypeFunc, args []types.Val
 	// TCP socket subscribe creates a pollable that is always ready since
 	// Go's net package handles TCP operations synchronously.
 	pollable := wasipIO.NewReadyPollable()
-	_ = pollable // Task E4: will wire via per-module registry
-	pollHandle, hErr := table.NewResourceHandle(uint32(0), true, socketsPollableResourceType)
+	pid := wasipIO.RegisterPollable(pollable)
+	pollHandle, hErr := table.NewResourceHandle(pid, true, socketsPollableResourceType)
 	if hErr != nil {
 		return []types.Val{types.ValOwn(0)}, nil
 	}

@@ -9,20 +9,206 @@ import (
 	"context"
 	"fmt"
 	goio "io"
+	"sync"
 
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
+// Thread-safe registry for host-side InputStream objects keyed by uint32 ID.
+var (
+	inputStreamRegistryMu sync.Mutex
+	inputStreamRegistry   []*InputStream
+	inputStreamFreelist   []uint32
+)
+
+func RegisterInputStream(s *InputStream) uint32 {
+	inputStreamRegistryMu.Lock()
+	defer inputStreamRegistryMu.Unlock()
+	if n := len(inputStreamFreelist); n > 0 {
+		id := inputStreamFreelist[n-1]
+		inputStreamFreelist = inputStreamFreelist[:n-1]
+		inputStreamRegistry[id] = s
+		return id
+	}
+	id := uint32(len(inputStreamRegistry))
+	inputStreamRegistry = append(inputStreamRegistry, s)
+	return id
+}
+
+func GetInputStream(id uint32) *InputStream {
+	inputStreamRegistryMu.Lock()
+	defer inputStreamRegistryMu.Unlock()
+	if int(id) >= len(inputStreamRegistry) {
+		return nil
+	}
+	return inputStreamRegistry[id]
+}
+
+func UnregisterInputStream(id uint32) {
+	inputStreamRegistryMu.Lock()
+	defer inputStreamRegistryMu.Unlock()
+	if int(id) < len(inputStreamRegistry) {
+		inputStreamRegistry[id] = nil
+		inputStreamFreelist = append(inputStreamFreelist, id)
+	}
+}
+
+// Thread-safe registry for host-side OutputStream objects keyed by uint32 ID.
+var (
+	outputStreamRegistryMu sync.Mutex
+	outputStreamRegistry   []*OutputStream
+	outputStreamFreelist   []uint32
+)
+
+func RegisterOutputStream(s *OutputStream) uint32 {
+	outputStreamRegistryMu.Lock()
+	defer outputStreamRegistryMu.Unlock()
+	if n := len(outputStreamFreelist); n > 0 {
+		id := outputStreamFreelist[n-1]
+		outputStreamFreelist = outputStreamFreelist[:n-1]
+		outputStreamRegistry[id] = s
+		return id
+	}
+	id := uint32(len(outputStreamRegistry))
+	outputStreamRegistry = append(outputStreamRegistry, s)
+	return id
+}
+
+func GetOutputStream(id uint32) *OutputStream {
+	outputStreamRegistryMu.Lock()
+	defer outputStreamRegistryMu.Unlock()
+	if int(id) >= len(outputStreamRegistry) {
+		return nil
+	}
+	return outputStreamRegistry[id]
+}
+
+func UnregisterOutputStream(id uint32) {
+	outputStreamRegistryMu.Lock()
+	defer outputStreamRegistryMu.Unlock()
+	if int(id) < len(outputStreamRegistry) {
+		outputStreamRegistry[id] = nil
+		outputStreamFreelist = append(outputStreamFreelist, id)
+	}
+}
+
+// Thread-safe registry for host-side Pollable objects keyed by uint32 ID.
+var (
+	pollableRegistryMu sync.Mutex
+	pollableRegistry   []*Pollable
+	pollableFreelist   []uint32
+)
+
+func RegisterPollable(p *Pollable) uint32 {
+	pollableRegistryMu.Lock()
+	defer pollableRegistryMu.Unlock()
+	if n := len(pollableFreelist); n > 0 {
+		id := pollableFreelist[n-1]
+		pollableFreelist = pollableFreelist[:n-1]
+		pollableRegistry[id] = p
+		return id
+	}
+	id := uint32(len(pollableRegistry))
+	pollableRegistry = append(pollableRegistry, p)
+	return id
+}
+
+func GetPollable(id uint32) *Pollable {
+	pollableRegistryMu.Lock()
+	defer pollableRegistryMu.Unlock()
+	if int(id) >= len(pollableRegistry) {
+		return nil
+	}
+	return pollableRegistry[id]
+}
+
+func UnregisterPollable(id uint32) {
+	pollableRegistryMu.Lock()
+	defer pollableRegistryMu.Unlock()
+	if int(id) < len(pollableRegistry) {
+		pollableRegistry[id] = nil
+		pollableFreelist = append(pollableFreelist, id)
+	}
+}
+
+// Thread-safe registry for host-side Error objects keyed by uint32 ID.
+var (
+	errorRegistryMu sync.Mutex
+	errorRegistry   []*Error
+	errorFreelist   []uint32
+)
+
+func RegisterError(e *Error) uint32 {
+	errorRegistryMu.Lock()
+	defer errorRegistryMu.Unlock()
+	if n := len(errorFreelist); n > 0 {
+		id := errorFreelist[n-1]
+		errorFreelist = errorFreelist[:n-1]
+		errorRegistry[id] = e
+		return id
+	}
+	id := uint32(len(errorRegistry))
+	errorRegistry = append(errorRegistry, e)
+	return id
+}
+
+func GetError(id uint32) *Error {
+	errorRegistryMu.Lock()
+	defer errorRegistryMu.Unlock()
+	if int(id) >= len(errorRegistry) {
+		return nil
+	}
+	return errorRegistry[id]
+}
+
+func UnregisterError(id uint32) {
+	errorRegistryMu.Lock()
+	defer errorRegistryMu.Unlock()
+	if int(id) < len(errorRegistry) {
+		errorRegistry[id] = nil
+		errorFreelist = append(errorFreelist, id)
+	}
+}
+
 // Host-managed resource type singletons. One *ResourceType per host
 // resource kind. Impl is nil because these resources are host-owned;
 // destruction flows through ResourceType.HostDestructor.
 var (
-	inputStreamResourceType  = &runtime.ResourceType{}
-	outputStreamResourceType = &runtime.ResourceType{}
-	pollableResourceType     = &runtime.ResourceType{}
-	errorResourceType        = &runtime.ResourceType{}
+	inputStreamResourceType = &runtime.ResourceType{
+		HostDestructor: func(rep uint32) error {
+			if s := GetInputStream(rep); s != nil {
+				s.Destroy()
+			}
+			UnregisterInputStream(rep)
+			return nil
+		},
+	}
+	outputStreamResourceType = &runtime.ResourceType{
+		HostDestructor: func(rep uint32) error {
+			if s := GetOutputStream(rep); s != nil {
+				s.Destroy()
+			}
+			UnregisterOutputStream(rep)
+			return nil
+		},
+	}
+	pollableResourceType = &runtime.ResourceType{
+		HostDestructor: func(rep uint32) error {
+			UnregisterPollable(rep)
+			return nil
+		},
+	}
+	errorResourceType = &runtime.ResourceType{
+		HostDestructor: func(rep uint32) error {
+			if e := GetError(rep); e != nil {
+				e.Destroy()
+			}
+			UnregisterError(rep)
+			return nil
+		},
+	}
 )
 
 // StreamError represents the stream-error variant type.
@@ -327,9 +513,10 @@ func streamErrorToResultVal(ctx context.Context, err *StreamError) types.Val {
 	// and include its handle in the variant payload
 	table := component.ResourceTableFromContext(ctx)
 	if table != nil && err.Error() != nil {
-		// Create an Error resource in the table
-		handle, hErr := table.NewResourceHandle(uint32(0), true, errorResourceType) // Task E4: wire error via per-module registry
+		id := RegisterError(err.Error())
+		handle, hErr := table.NewResourceHandle(id, true, errorResourceType)
 		if hErr != nil {
+			UnregisterError(id)
 			closedVariant := types.ValVariant("closed", nil)
 			return types.ValResultError(&closedVariant)
 		}
@@ -337,7 +524,6 @@ func streamErrorToResultVal(ctx context.Context, err *StreamError) types.Val {
 		errVariant := types.ValVariant("last-operation-failed", &handleVal)
 		return types.ValResultError(&errVariant)
 	}
-	// No table or no error, return closed
 	closedVariant := types.ValVariant("closed", nil)
 	return types.ValResultError(&closedVariant)
 }
@@ -356,8 +542,11 @@ func getInputStream(ctx context.Context, handle uint32) (*InputStream, error) {
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
 	}
-	_ = resEntry // Task E4: resolve *InputStream via per-module registry using resEntry.Rep
-	return nil, fmt.Errorf("handle %d: InputStream registry not yet wired (Task E4)", handle)
+	s := GetInputStream(resEntry.Rep)
+	if s == nil {
+		return nil, fmt.Errorf("handle %d: InputStream not found in registry (rep=%d)", handle, resEntry.Rep)
+	}
+	return s, nil
 }
 
 // getOutputStream retrieves an OutputStream from the ResourceTable using a borrow handle.
@@ -374,19 +563,23 @@ func getOutputStream(ctx context.Context, handle uint32) (*OutputStream, error) 
 	if !ok {
 		return nil, fmt.Errorf("handle %d is not a resource handle", handle)
 	}
-	_ = resEntry // Task E4: resolve *OutputStream via per-module registry using resEntry.Rep
-	return nil, fmt.Errorf("handle %d: OutputStream registry not yet wired (Task E4)", handle)
+	s := GetOutputStream(resEntry.Rep)
+	if s == nil {
+		return nil, fmt.Errorf("handle %d: OutputStream not found in registry (rep=%d)", handle, resEntry.Rep)
+	}
+	return s, nil
 }
 
 // createPollableHandle creates a new Pollable resource in the table and returns its handle.
 func createPollableHandle(ctx context.Context, pollable *Pollable) types.Val {
 	table := component.ResourceTableFromContext(ctx)
 	if table == nil {
-		// No table, return placeholder handle 0
 		return types.ValOwn(0)
 	}
-	handle, err := table.NewResourceHandle(uint32(0), true, pollableResourceType) // Task E4: wire pollable via per-module registry
+	id := RegisterPollable(pollable)
+	handle, err := table.NewResourceHandle(id, true, pollableResourceType)
 	if err != nil {
+		UnregisterPollable(id)
 		return types.ValOwn(0)
 	}
 	return types.ValOwn(uint32(handle))
@@ -396,7 +589,12 @@ func instantiateStreams(linker *component.Linker) error {
 	inst := linker.DefineInstance("wasi:io/streams@0.2.0")
 
 	// input-stream resource
-	inst.Resource("input-stream", func(rep uint32) {})
+	inst.Resource("input-stream", func(rep uint32) {
+		if s := GetInputStream(rep); s != nil {
+			s.Destroy()
+		}
+		UnregisterInputStream(rep)
+	})
 	inst.Func("[method]input-stream.read", inputStreamRead)
 	inst.Func("[method]input-stream.blocking-read", inputStreamBlockingRead)
 	inst.Func("[method]input-stream.skip", inputStreamSkip)
@@ -404,7 +602,12 @@ func instantiateStreams(linker *component.Linker) error {
 	inst.Func("[method]input-stream.subscribe", inputStreamSubscribe)
 
 	// output-stream resource
-	inst.Resource("output-stream", func(rep uint32) {})
+	inst.Resource("output-stream", func(rep uint32) {
+		if s := GetOutputStream(rep); s != nil {
+			s.Destroy()
+		}
+		UnregisterOutputStream(rep)
+	})
 	inst.Func("[method]output-stream.check-write", outputStreamCheckWrite)
 	inst.Func("[method]output-stream.write", outputStreamWrite)
 	inst.Func("[method]output-stream.blocking-write-and-flush", outputStreamBlockingWriteAndFlush)
