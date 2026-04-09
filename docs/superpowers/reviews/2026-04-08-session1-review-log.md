@@ -1183,3 +1183,70 @@ git status --porcelain                                       ✅ only .env/.envr
 
 ✅ Complete. Proceeding to Task C20 (Checkpoint C verification).
 
+---
+
+## Task C20 — Checkpoint C verification
+
+**Base commit:** `28e6e5dc`
+**Corrective commit:** `f18d8ab8` ("component: Task C20 — delete TestMayLeave_ConcurrentAccess (Checkpoint C corrective)")
+**Files changed:** `internal/component/conformance/may_leave_test.go` only (+9/-38).
+
+**Corrective:** Deleted `TestMayLeave_ConcurrentAccess` — pre-existing test that asserted thread-safety on `may_leave`, which is spec-single-threaded per `definitions.py:256-273`. Test raced under `-race`. Per the design doc's "spec over preservation" hard constraint, deleted rather than retrofitting a mutex. Tombstone comment block left with spec citation + rationale.
+
+### Checkpoint C exit criteria (all pass)
+
+| # | Command | Result |
+|---|---|---|
+| 1 | `go build ./internal/component/... ./imports/wasip2/...` | ✅ clean |
+| 2 | Conformance targeted (`-run 'Primitives\|Composites\|...\|MayLeave'`) | ✅ ok 0.015s |
+| 3 | Component targeted (`-run 'Linker\|Instantiate'`) | ✅ ok 0.004s |
+| 4 | ABI full (`./internal/component/abi/ -count=1`) | ✅ ok 0.003s |
+| 5 | Full package (`./internal/component/... -count=1`) | ✅ all 9 sub-packages green |
+| 6 | Race detector (`-race ./internal/component/conformance/ -count=1`) | ✅ ok 2.984s |
+| 7 | End-to-end (`-run TestInstantiateAndCallLiftedFunc`) | ✅ ok 0.003s |
+| 8 | `go vet ./internal/component/... ./imports/wasip2/...` | ✅ clean |
+| 9 | V4 grep (11 scope files) | ✅ 11/11 PASS |
+| 10 | Working tree (`git status --porcelain`) | ✅ only .env/.envrc |
+
+### Checkpoint-level spec-compliance reviewer
+
+**Verdict:** ✅ CHECKPOINT C PASS.
+
+All 8 exit-criteria commands green. V4 grep 11/11 PASS. Zero regressions. Zero `t.Skip` / `TestXxxDeferredToSession1` in scope files. Zero production code modified (13 files: 10 test files + helpers_test.go + 2 docs = no prod). C20 corrective spec-checked against `definitions.py:256-273` — single-threaded invariant confirmed; deletion is correct resolution. Review log contains all 11 sub-task entries with dual-reviewer verdicts and commit hashes. No findings.
+
+### Checkpoint-level code quality reviewer
+
+**Verdict:** APPROVE.
+
+**Strengths:**
+1. Clean build/vet/test/race pipeline (C20 corrective eliminated the only race issue; tombstone comment exemplary).
+2. Test counts match task claims exactly (188 `func Test` signatures across 11 files: C9=34, C10=8, C11/C12=audit-only unchanged, C13=51, C14=18, C15=16, C16=18, C17=15, C18=12, C19=1, C20=-1).
+3. `helpers_test.go` is surgically scoped (only `session1SkipReason` const added; pre-existing helpers untouched).
+
+**Minor (non-blocking):** `linker_api_test.go` uses raw `t.Error`/`t.Errorf` (19 calls) while every other checkpoint file uses `require.*`. Pre-existing style carried forward from C10; tracked for future cleanup.
+
+No CRITICAL or IMPORTANT. Ready for Checkpoint D.
+
+### Checkpoint C Summary
+
+**Commits:** 20 (11 task commits + 5 review-log commits + 1 C20 corrective + 3 batch entries)
+- `33c622ef`..`226d92f6` C9: 34 linker_test.go tests (4 commits)
+- `43c6ca53` C10: 8 linker_api_test.go tests
+- `29abc0d7` C11: primitives_test.go audit + 13 canonical spec_test_* subtests
+- `7ba764db` C12: may_leave_test.go citation audit (9 tests)
+- `a5aa9ddb`..`94ef8641` C13-C18: 130 conformance test restorations (6 commits)
+- `f1bd2012` C19: 1 value_import_test.go test
+- `f18d8ab8` C20: TestMayLeave_ConcurrentAccess deletion (corrective)
+
+**Tests restored in Checkpoint C:** 172 tests (34+8+13 new subtests+0+130+1-1 deleted = 185 net test functions across 11 files).
+
+**Key tracked items for follow-up:**
+- `lower.go:37-40` NaN canonicalization divergence from `definitions.py:1877-1878` (LOW, for Session 2).
+- 6 LOW citation imprecisions in C13-C18 batch (non-blocking).
+- ~15 Minor code-quality items across C9-C19 (deferred to cleanup pass).
+- Flags ABI multi-i32 divergence from literal spec documented in 3 locations.
+
+### Task status
+
+✅ Checkpoint C complete and closed. Ready to proceed to Checkpoint D.
+
