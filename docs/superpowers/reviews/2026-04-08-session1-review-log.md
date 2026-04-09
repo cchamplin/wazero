@@ -1009,3 +1009,123 @@ git diff --stat 46f1f549..7ba764db                                 ✅ 1 file: m
 
 ✅ Complete. Proceeding to Task C13.
 
+---
+
+## Tasks C13-C18 — Restore 6 conformance test files (batched)
+
+**Batching rationale:** The plan explicitly says for C14-C18 "Follow the same pattern as Task C13". All 6 files are single `TestXxxDeferredToSession1` stubs, all pre-Session-0 bodies come from commit `98b3bbc3`, and all 6 require the same set of API adaptations (`ValType` named constants, `ComponentTypesBuilder`, `.ABI(ct)` accessor, `HostFunc` dynamic-host signature, `wazerotest.NewMemory`). A single implementer session preserved context across related decisions. Commits are per-file (6 commits) so reviewers can inspect each independently.
+
+**Base commit:** `338350fd`
+**Task commits (6, one per file):**
+| # | Task | File | Tests | Commit |
+|---|---|---|---|---|
+| 1 | C17 | `conformance/linker_test.go` | 15 | `a5aa9ddb` |
+| 2 | C18 | `conformance/post_return_test.go` | 12 | `703f8b1d` |
+| 3 | C14 | `conformance/strings_test.go` | 18 | `e7a4eae1` |
+| 4 | C15 | `conformance/flat_abi_test.go` | 16 | `a7dc26e0` |
+| 5 | C16 | `conformance/abi_edge_cases_test.go` | 18 | `221b891f` |
+| 6 | C13 | `conformance/composites_test.go` | 51 | `94ef8641` |
+
+**Total restored:** 130 tests across 6 files.
+
+**Canonical sources per file:**
+- C13 composites → `run_tests.py::test_heap` + `definitions.py:1087-1151` (alignment_record + elem_size_record) + wasmtime `tests/all/component_model/func.rs` tuple tests
+- C14 strings → `definitions.py:1250-1276` (string encodings) + `:1437-1483` (store_string / store_string_copy) + wasmtime string tests
+- C15 flat_abi → `definitions.py:1665-1675` (MAX_FLAT_PARAMS/MAX_FLAT_RESULTS + flatten_functype) + `run_tests.py::test_flatten`
+- C16 abi_edge_cases → `run_tests.py:399-438` (test_roundtrips)
+- C17 linker → `Wasmtime parallel: runtime/component/linker.rs:27-60` (semver doc) + "No counterpart (justified)"
+- C18 post_return → `definitions.py:688-713` (Task.return_/cancel traps) + `:1999-2002` (post_return dispatch) + `CanonicalABI.md:3286-3297`
+
+**Notable adaptations applied:**
+1. `InstanceBuilder.FuncNoType` deleted from the API — `TestImport_FuncNoType` (C17) dropped; replaced by `TestImport_DynamicHostFunc` preserving the dynamic-echo intent via current `DefineInstance().Func()`.
+2. `TypeRecord.FieldOffsets()` / `TypeTuple.ElementOffsets()` methods deleted — 4 sub-tests in composites_test.go dropped (lines 205, 251, 307, 484); offsets indirectly verified by round-trip success. Each drop documented in-line with the deleted accessor named.
+3. `runtime.NewResourceTable` → `runtime.NewTable()` (C18).
+4. `types.String{}` struct literal → `types.String_` named constant (C14).
+5. Local `mockMemory` → `wazerotest.NewMemory` (C14/C16). Out-of-bounds tests use offsets > `PageSize` (wazerotest rounds to page size).
+6. `ValType.ABI(ct)` returning `CanonicalABIInfo` replaces direct methods like `.FlattenCount()`, `.DiscriminantSize()`, `.PayloadOffset()`, `.ElementSize()`.
+7. Scalar struct literals → named ValType constants (`types.U8_`, `types.S32_`, etc.).
+8. Composite types built via `ComponentTypesBuilder.Intern*`.
+9. `HostFunc` signature now `(ctx, fnType *types.TypeFunc, args []types.Val)`.
+
+**Helpers added:**
+- `internal/component/conformance/helpers_test.go` (new file) — holds the `session1SkipReason` const (moved from composites_test.go so the 24 other stub files still compile after C13 restoration).
+- `compositeListCtx(t, ct, startPtr, memBytes)` in composites_test.go (deduplicates ~300 lines of shared-memory + bump-pointer-realloc setup across list/record/variant heap round-trips).
+- `flattenCount(ct, v)` in flat_abi_test.go (readability wrapper for `int(v.ABI(ct).FlattenCount)`, used 30+ times).
+- `newStringLowerContext(startPtr, enc)` + `newStringLiftContextFrom(lc, enc)` in strings_test.go (split into two helpers because lift must observe the same memory the lower wrote).
+
+**Documented spec divergences:**
+1. **Flags ABI multi-i32 encoding for n>32 flags**: wazero implements wasmtime's `FlagsSize::Size4Plus(n)` (producing `ceil(n/32)` i32s) per `internal/component/abi/flatten.go:147-158`. Literal spec (`definitions.py:1717`) always returns `['i32']`. Documented at flat_abi_test.go:295-299, composites_test.go:2803-2808, composites_test.go:2707-2710.
+
+### Spec-compliance reviewer
+
+**Verdict:** ✅ PROCEED. All 6 files SPEC COMPLIANT.
+
+**Checklist (per file):** 15/15 pass. V4 grep PASS for all 6 files. All 130 tests pass including `-race`. No production code modified (`git diff --stat 338350fd..94ef8641 -- ':!internal/component/conformance/'` empty). Build + vet clean.
+
+**6 citation spot-checks (one per file), all opened and verified:**
+- C13: `definitions.py:1087-1091 alignment_record` + `:1145-1151 elem_size_record` ✓
+- C14: `definitions.py:1272 trap_if(ptr+byte_length > len(memory))` ✓
+- C15: `definitions.py:1665-1667 MAX_FLAT_PARAMS=16, MAX_FLAT_RESULTS=1` + `:1673-1675` param/result count traps ✓
+- C16: `run_tests.py:399-438 test_roundtrips fixtures` ✓
+- C17: `wasmtime linker.rs:27-60` semver struct doc comment ✓
+- C18: `definitions.py:688-690 Task.return_ trap_if(num_borrows > 0)` + `:571, :581, :593, :697, :713, :736, :740-742, :1650, :2164, :1999-2002` all exact ✓
+
+**Dropped tests validation:** All 4 drops (TestImport_FuncNoType + 4 composites sub-tests using FieldOffsets/ElementOffsets) legitimate per grep verification that the APIs truly don't exist. Note: initial report said "3 sub-tests" but composites_test.go has 4 drop comments — miscount in task description, not in code.
+
+**Flags divergence claim:** VERIFIED accurate. `definitions.py:1717` literal `['i32']`; `wasmtime environ/types.rs:761 FlagsSize::Size4Plus(n)`; wazero `flatten.go:147-158` `numI32s := (n+31)/32`. Divergence pinned in test expectations correctly.
+
+**6 LOW-severity findings** (all citation imprecisions, non-blocking):
+1. strings_test.go:537/550 cites `:1706-1708` for string flatten; correct line is `:1712`. Off-by-4.
+2. strings_test.go:550 cites `:1820-1830 lower_flat_string`; those lines are actually `lift_flat_list`/`lift_flat_record`. Content correct; symbol off.
+3. linker_test.go:27-60 citation says "doc comment on `LinkerInstance::get / NameMap::get`" but lines 27-60 are the `struct Linker<T>` struct-level doc. Content accurate; attributed symbol off.
+4. post_return_test.go:196-197 says `h.borrow_scope.num_borrows += 1` is "inside lift_borrow" but line 1650 is `lower_borrow`. Content correct; function attribution off.
+5. Task description miscounts dropped sub-tests (3 vs actual 4).
+6. Pre-existing race in may_leave_test.go:213 (`TestMayLeave_ConcurrentAccess`) present at base `338350fd` — NOT introduced by C13-C18. Tracked for Checkpoint C verification.
+
+### Code quality reviewer (superpowers:code-reviewer)
+
+**Verdict:** APPROVE. No CRITICAL or IMPORTANT findings.
+
+**Strengths:**
+1. Commit hygiene exemplary — single-file commits with explicit "Adapts pre-Session-0 body to current ABI/API:" change list, citation summary, plan link.
+2. `session1SkipReason` relocation to `helpers_test.go` was the correct call (avoids orphaning 24 still-deferred stub files).
+3. Helper additions minimal and justified (`compositeListCtx` saves ~300 lines; `flattenCount` used 30+ times; two-helper split for strings correctly models lift-observes-lower memory).
+4. Citation format uniform across all 6 files.
+5. Dropped-test justifications inline at the correct function with the deleted accessor named.
+6. Flags divergence documented at all 3 sites with consistent "Divergence (2)" numbered tag.
+7. Loop-variable safety structurally OK (Go 1.24 default per-iteration scoping).
+8. `TestFlagsSizeThresholds` + `TestFlagsVeryLarge` together pin the exact size table.
+9. Test-table builders constructed correctly (intern-before-Finish pattern).
+10. Pre-existing race in may_leave_test.go:213 correctly identified as not introduced.
+
+**Minor findings (non-blocking, no corrective required):**
+- M1: `TestStringsLatin1UTF16Compression` sub-test names collide under Go's harness (`latin1_compression#01`, `#02`...) on failure. Trivial fix: incorporate fixture index.
+- M2: `TestCompositeTupleWrongLength` error-message assertions are over-precise (`"tuple has 1 elements, expected 2"`). The grammar bug "1 elements" hints at an eventual production fix that would silently break the test. Suggest loosening to multi-Contains.
+- M3: `TestABI_InvalidAlignment` asserts `require.NotNil(lifted)` but `LiftHeap` returns a struct value, making the assertion a tautology. Drop it or assert `Kind != 0`.
+- M4: `srcEnc, dstEnc := srcEnc, dstEnc` rebinding in `TestStringsCrossEncodingConversion` is a Go 1.21 loop-capture workaround, harmless under Go 1.24. Dead line.
+- M5: `string(rune('a' + i))` field-name generator in abi_edge_cases_test.go:36/:92 is safe for i<26 but fragile if MaxFlatParams raises past 25. Swap to `fmt.Sprintf("f%d", i)`.
+
+### Correctives
+
+None. No CRITICAL or IMPORTANT findings from either reviewer. LOW + Minor findings tracked here for a future cleanup pass; do not block Task C19.
+
+**Pre-existing concern tracked for Checkpoint C verification:**
+`TestMayLeave_ConcurrentAccess` (`may_leave_test.go:213`) has a data race under `-race`. The test exercises concurrent `SetMayLeave`/`MayLeave`/`ValidateMayLeave` access, which violates the spec's single-threaded-per-component-instance model (`definitions.py:256-273`). The test was present at base commit `338350fd` (pre-existing). Options for C20: delete the test (testing a non-invariant), add sync.Mutex, or mark skip-under-race.
+
+### Verification at task close
+
+```
+go test ./internal/component/conformance/ -count=1                          ✅ ok (0.467s)
+go test -race ./internal/component/conformance/ -count=1 -run '<restored>'  ✅ ok (1.201s)
+go build ./internal/component/...                                           ✅ clean
+go vet ./internal/component/...                                             ✅ clean
+git status --porcelain                                                      ✅ only .env/.envrc
+V4 grep (6 files)                                                           ✅ PASS all
+git diff --stat 338350fd..94ef8641 -- ':!internal/component/conformance/'   ✅ empty (no prod code)
+grep -rn 'TestXxxDeferredToSession1' (restored files)                       ✅ 0 hits
+```
+
+### Task status
+
+✅ All 6 tasks (C13-C18) complete. Proceeding to Task C19.
+
