@@ -10,8 +10,18 @@ import (
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
-// TestPrimitivesIntegers tests all integer type Val constructors, accessors, and roundtrips.
-// Ported from wasmtime func.rs integers tests.
+// TestPrimitivesIntegers round-trips every int ABI type (s8..u64) through
+// LowerFlat + LiftFlat, verifying Val constructors, accessors, and the
+// flat ABI path for numeric types. Also exercises the canonical-abi
+// narrowing/sign-extension contract by feeding raw core values directly
+// into LiftFlat and comparing to the spec-specified narrowed result.
+//
+// Canonical test: run_tests.py:185-196 test_pairs invocations for U8Type,
+// S8Type, U16Type, S16Type, U32Type, S32Type, U64Type, S64Type.
+// Spec: definitions.py:1706-1708 (flatten_type numeric mapping) and
+// definitions.py:1797-1808 (lift_flat_unsigned / lift_flat_signed —
+// assert 0 <= i < (1<<core_width); result is i % (1<<t_width) with sign
+// fold at t_width-1).
 func TestPrimitivesIntegers(t *testing.T) {
 	t.Run("s8", func(t *testing.T) {
 		tests := []struct {
@@ -232,11 +242,199 @@ func TestPrimitivesIntegers(t *testing.T) {
 			})
 		}
 	})
+
+	// spec_test_pairs feeds raw core values directly into LiftFlat and
+	// asserts the narrowed/sign-folded result. Mirrors the canonical-abi
+	// test_pairs invocations; see definitions.py:1797-1808
+	// lift_flat_unsigned / lift_flat_signed.
+
+	// Added from run_tests.py:185 test_pairs U8Type invocations.
+	t.Run("spec_test_pairs_u8", func(t *testing.T) {
+		cases := []struct {
+			core   uint64
+			expect uint8
+		}{
+			{127, 127},
+			{128, 128},
+			{255, 255},
+			{256, 0},
+			{4294967295, 255}, // (1<<32)-1
+			{4294967168, 128}, // (1<<32)-128
+			{4294967167, 127}, // (1<<32)-129
+		}
+		for _, c := range cases {
+			iter := abi.NewFlatIter([]uint64{c.core})
+			lifted, err := abi.LiftFlat(nil, types.U8, iter)
+			require.NoError(t, err)
+			require.Equal(t, c.expect, lifted.U8(),
+				"lift U8 from core 0x%X expected %d", c.core, c.expect)
+		}
+	})
+
+	// Added from run_tests.py:187 test_pairs S8Type invocations.
+	t.Run("spec_test_pairs_s8", func(t *testing.T) {
+		cases := []struct {
+			core   uint64
+			expect int8
+		}{
+			{127, 127},
+			{128, -128},
+			{255, -1},
+			{256, 0},
+			{4294967295, -1},   // (1<<32)-1
+			{4294967168, -128}, // (1<<32)-128
+			{4294967167, 127},  // (1<<32)-129
+		}
+		for _, c := range cases {
+			iter := abi.NewFlatIter([]uint64{c.core})
+			lifted, err := abi.LiftFlat(nil, types.S8, iter)
+			require.NoError(t, err)
+			require.Equal(t, c.expect, lifted.S8(),
+				"lift S8 from core 0x%X expected %d", c.core, c.expect)
+		}
+	})
+
+	// Added from run_tests.py:189 test_pairs U16Type invocations.
+	t.Run("spec_test_pairs_u16", func(t *testing.T) {
+		cases := []struct {
+			core   uint64
+			expect uint16
+		}{
+			{32767, 32767},
+			{32768, 32768},
+			{65535, 65535},
+			{65536, 0},
+			{4294967295, 65535}, // (1<<32)-1
+			{4294934528, 32768}, // (1<<32)-32768
+			{4294934527, 32767}, // (1<<32)-32769
+		}
+		for _, c := range cases {
+			iter := abi.NewFlatIter([]uint64{c.core})
+			lifted, err := abi.LiftFlat(nil, types.U16, iter)
+			require.NoError(t, err)
+			require.Equal(t, c.expect, lifted.U16(),
+				"lift U16 from core 0x%X expected %d", c.core, c.expect)
+		}
+	})
+
+	// Added from run_tests.py:191 test_pairs S16Type invocations.
+	t.Run("spec_test_pairs_s16", func(t *testing.T) {
+		cases := []struct {
+			core   uint64
+			expect int16
+		}{
+			{32767, 32767},
+			{32768, -32768},
+			{65535, -1},
+			{65536, 0},
+			{4294967295, -1},     // (1<<32)-1
+			{4294934528, -32768}, // (1<<32)-32768
+			{4294934527, 32767},  // (1<<32)-32769
+		}
+		for _, c := range cases {
+			iter := abi.NewFlatIter([]uint64{c.core})
+			lifted, err := abi.LiftFlat(nil, types.S16, iter)
+			require.NoError(t, err)
+			require.Equal(t, c.expect, lifted.S16(),
+				"lift S16 from core 0x%X expected %d", c.core, c.expect)
+		}
+	})
+
+	// Added from run_tests.py:193 test_pairs U32Type invocations.
+	t.Run("spec_test_pairs_u32", func(t *testing.T) {
+		cases := []struct {
+			core   uint64
+			expect uint32
+		}{
+			{(1 << 31) - 1, (1 << 31) - 1},
+			{1 << 31, 1 << 31},
+			{(1 << 32) - 1, (1 << 32) - 1},
+		}
+		for _, c := range cases {
+			iter := abi.NewFlatIter([]uint64{c.core})
+			lifted, err := abi.LiftFlat(nil, types.U32, iter)
+			require.NoError(t, err)
+			require.Equal(t, c.expect, lifted.U32(),
+				"lift U32 from core 0x%X expected %d", c.core, c.expect)
+		}
+	})
+
+	// Added from run_tests.py:194 test_pairs S32Type invocations.
+	t.Run("spec_test_pairs_s32", func(t *testing.T) {
+		cases := []struct {
+			core   uint64
+			expect int32
+		}{
+			{(1 << 31) - 1, (1 << 31) - 1},
+			{1 << 31, -(1 << 31)},
+			{(1 << 32) - 1, -1},
+		}
+		for _, c := range cases {
+			iter := abi.NewFlatIter([]uint64{c.core})
+			lifted, err := abi.LiftFlat(nil, types.S32, iter)
+			require.NoError(t, err)
+			require.Equal(t, c.expect, lifted.S32(),
+				"lift S32 from core 0x%X expected %d", c.core, c.expect)
+		}
+	})
+
+	// Added from run_tests.py:195 test_pairs U64Type invocations.
+	t.Run("spec_test_pairs_u64", func(t *testing.T) {
+		cases := []struct {
+			core   uint64
+			expect uint64
+		}{
+			{(1 << 63) - 1, (1 << 63) - 1},
+			{1 << 63, 1 << 63},
+			{^uint64(0), ^uint64(0)}, // (1<<64)-1
+		}
+		for _, c := range cases {
+			iter := abi.NewFlatIter([]uint64{c.core})
+			lifted, err := abi.LiftFlat(nil, types.U64, iter)
+			require.NoError(t, err)
+			require.Equal(t, c.expect, lifted.U64(),
+				"lift U64 from core 0x%X expected 0x%X", c.core, c.expect)
+		}
+	})
+
+	// Added from run_tests.py:196 test_pairs S64Type invocations.
+	t.Run("spec_test_pairs_s64", func(t *testing.T) {
+		cases := []struct {
+			core   uint64
+			expect int64
+		}{
+			{(1 << 63) - 1, (1 << 63) - 1},
+			{1 << 63, math.MinInt64}, // -(1<<63)
+			{^uint64(0), -1},         // (1<<64)-1
+		}
+		for _, c := range cases {
+			iter := abi.NewFlatIter([]uint64{c.core})
+			lifted, err := abi.LiftFlat(nil, types.S64, iter)
+			require.NoError(t, err)
+			require.Equal(t, c.expect, lifted.S64(),
+				"lift S64 from core 0x%X expected %d", c.core, c.expect)
+		}
+	})
 }
 
-// TestPrimitivesFloats tests float32 and float64 Val constructors, accessors, and roundtrips.
-// Ported from wasmtime func.rs floats tests.
-// Includes special handling for NaN canonicalization.
+// TestPrimitivesFloats round-trips f32 and f64 through LowerFlat + LiftFlat
+// and verifies NaN canonicalization for the flat lift path. wazero
+// implements the DETERMINISTIC_PROFILE branch of the spec
+// (definitions.py:1209 "DETERMINISTIC_PROFILE = False # or True" — wazero
+// hard-codes the deterministic mapping in
+// internal/component/abi/context.go:33-47 canonicalizeNaN32/64), so any
+// NaN on the lift path collapses to the CANONICAL_FLOAT32_NAN /
+// CANONICAL_FLOAT64_NAN bit pattern.
+//
+// Canonical test: run_tests.py:197-198 test_pairs for F32Type/F64Type and
+// run_tests.py:231-244 test_nan32 / test_nan64 invocations (canonical NaN,
+// quiet/signalling NaNs, negative NaN, +Inf, and a normal finite value).
+// Spec: definitions.py:1210-1211 (CANONICAL_FLOAT32_NAN=0x7fc00000 /
+// CANONICAL_FLOAT64_NAN=0x7ff8000000000000), definitions.py:1213-1223
+// (canonicalize_nan32/64), definitions.py:1783-1784 (lift_flat F32Type /
+// F64Type call canonicalize_nan*), and definitions.py:1395-1411
+// (maybe_scramble_nan* — lower path canonicalization under the
+// deterministic profile).
 func TestPrimitivesFloats(t *testing.T) {
 	t.Run("f32", func(t *testing.T) {
 		t.Run("normal_values", func(t *testing.T) {
@@ -431,10 +629,84 @@ func TestPrimitivesFloats(t *testing.T) {
 			}
 		})
 	})
+
+	// spec_test_nan32 / spec_test_nan64 feed raw i32/i64 bit patterns
+	// directly into LiftFlat and assert that wazero's DETERMINISTIC_PROFILE
+	// implementation collapses every NaN to CANONICAL_FLOAT32_NAN /
+	// CANONICAL_FLOAT64_NAN and leaves non-NaN values (Inf, finite)
+	// bit-identical. See internal/component/abi/context.go:25-47 for the
+	// wazero constants (CanonicalFloat32NaN=0x7fc00000,
+	// CanonicalFloat64NaN=0x7ff8000000000000) matching
+	// definitions.py:1210-1211.
+
+	// Added from run_tests.py:231-237 test_nan32 invocations.
+	t.Run("spec_test_nan32", func(t *testing.T) {
+		const canonicalNaN32 uint32 = 0x7fc00000
+		cases := []struct {
+			inbits  uint32
+			outbits uint32
+			name    string
+		}{
+			{0x7fc00000, canonicalNaN32, "canonical_quiet_nan"},
+			{0x7fc00001, canonicalNaN32, "quiet_nan_with_payload"},
+			{0x7fe00000, canonicalNaN32, "alt_quiet_nan"},
+			{0x7fffffff, canonicalNaN32, "all_ones_nan"},
+			{0xffffffff, canonicalNaN32, "neg_all_ones_nan"},
+			{0x7f800000, 0x7f800000, "positive_infinity_preserved"},
+			{0x3fc00000, 0x3fc00000, "one_point_five_preserved"},
+		}
+		for _, c := range cases {
+			t.Run(c.name, func(t *testing.T) {
+				iter := abi.NewFlatIter([]uint64{uint64(c.inbits)})
+				lifted, err := abi.LiftFlat(nil, types.F32, iter)
+				require.NoError(t, err)
+				gotBits := math.Float32bits(lifted.F32())
+				require.Equal(t, c.outbits, gotBits,
+					"lift F32 from 0x%08X: expected bits 0x%08X, got 0x%08X",
+					c.inbits, c.outbits, gotBits)
+			})
+		}
+	})
+
+	// Added from run_tests.py:238-244 test_nan64 invocations.
+	t.Run("spec_test_nan64", func(t *testing.T) {
+		const canonicalNaN64 uint64 = 0x7ff8000000000000
+		cases := []struct {
+			inbits  uint64
+			outbits uint64
+			name    string
+		}{
+			{0x7ff8000000000000, canonicalNaN64, "canonical_quiet_nan"},
+			{0x7ff8000000000001, canonicalNaN64, "quiet_nan_with_payload"},
+			{0x7ffc000000000000, canonicalNaN64, "alt_quiet_nan"},
+			{0x7fffffffffffffff, canonicalNaN64, "all_ones_nan"},
+			{0xffffffffffffffff, canonicalNaN64, "neg_all_ones_nan"},
+			{0x7ff0000000000000, 0x7ff0000000000000, "positive_infinity_preserved"},
+			{0x3ff0000000000000, 0x3ff0000000000000, "one_point_zero_preserved"},
+		}
+		for _, c := range cases {
+			t.Run(c.name, func(t *testing.T) {
+				iter := abi.NewFlatIter([]uint64{c.inbits})
+				lifted, err := abi.LiftFlat(nil, types.F64, iter)
+				require.NoError(t, err)
+				gotBits := math.Float64bits(lifted.F64())
+				require.Equal(t, c.outbits, gotBits,
+					"lift F64 from 0x%016X: expected bits 0x%016X, got 0x%016X",
+					c.inbits, c.outbits, gotBits)
+			})
+		}
+	})
 }
 
-// TestPrimitivesBools tests bool Val constructor, accessor, and roundtrip.
-// Ported from wasmtime func.rs bools tests.
+// TestPrimitivesBools exercises ValBool round-trips and verifies that any
+// non-zero i32 core value lifts to True — i.e., wazero's LiftFlat BoolType
+// path matches convert_int_to_bool.
+//
+// Canonical test: run_tests.py:184 test_pairs(BoolType(),
+// [(0,False),(1,True),(2,True),(4294967295,True)]).
+// Spec: definitions.py:1205-1207 convert_int_to_bool (asserts non-negative,
+// returns bool(i)) and definitions.py:1774 (lift_flat BoolType dispatch
+// through convert_int_to_bool(vi.next('i32'))).
 func TestPrimitivesBools(t *testing.T) {
 	t.Run("true", func(t *testing.T) {
 		val := types.ValBool(true)
@@ -477,10 +749,44 @@ func TestPrimitivesBools(t *testing.T) {
 			require.True(t, lifted.Bool(), "expected true for value %d", nzv)
 		}
 	})
+
+	// Added from run_tests.py:184 test_pairs BoolType cases. Pins the
+	// four explicit pairs (0,False),(1,True),(2,True),(4294967295,True)
+	// on the direct LiftFlat-from-core path. Overlaps with
+	// lift_nonzero_as_true above but anchors the exact canonical pairs.
+	t.Run("spec_test_pairs_bool", func(t *testing.T) {
+		cases := []struct {
+			core   uint64
+			expect bool
+		}{
+			{0, false},
+			{1, true},
+			{2, true},
+			{4294967295, true},
+		}
+		for _, c := range cases {
+			iter := abi.NewFlatIter([]uint64{c.core})
+			lifted, err := abi.LiftFlat(nil, types.Bool, iter)
+			require.NoError(t, err)
+			require.Equal(t, c.expect, lifted.Bool(),
+				"lift Bool from core 0x%X expected %v", c.core, c.expect)
+		}
+	})
 }
 
-// TestPrimitivesChars tests char (Unicode scalar value) Val constructor, accessor, and roundtrip.
-// Ported from wasmtime func.rs chars tests.
+// TestPrimitivesChars exercises the char type (Unicode scalar value) on
+// both the LowerFlat and LiftFlat paths, including the surrogate
+// rejection (U+D800..U+DFFF), the above-U+10FFFF rejection, and the
+// 0xFFFFFFFF invalid-core-value rejection.
+//
+// Canonical test: run_tests.py:199-200 test_pairs(CharType(), ...) — two
+// invocations covering (0,'\x00'), (65,'A'), (0xD7FF,'\uD7FF'),
+// (0xD800,None), (0xDFFF,None), (0xE000,'\uE000'),
+// (0x10FFFF,'\U0010FFFF'), (0x110000,None), (0xFFFFFFFF,None).
+// Spec: definitions.py:1237-1241 convert_i32_to_char (asserts i>=0,
+// traps when i>=0x110000 or 0xD800<=i<=0xDFFF, returns chr(i)) and
+// definitions.py:1785 (lift_flat CharType dispatch through
+// convert_i32_to_char(cx, vi.next('i32'))).
 func TestPrimitivesChars(t *testing.T) {
 	t.Run("valid_unicode_scalars", func(t *testing.T) {
 		tests := []struct {
@@ -613,10 +919,74 @@ func TestPrimitivesChars(t *testing.T) {
 			}
 		}
 	})
+
+	// Added from run_tests.py:199-200 test_pairs CharType invocations.
+	// Anchors each (core_u32, expected_scalar_or_trap) pair on the
+	// direct LiftFlat path. The valid cases (0, 65, 0xD7FF, 0xE000,
+	// 0x10FFFF) and some of the reject cases (surrogates, 0x110000)
+	// overlap with boundary_values / surrogate_rejection /
+	// invalid_char_above_max_unicode above; this sub-test adds the
+	// canonical (0xFFFFFFFF, None) case missing elsewhere and pins the
+	// full spec pair list in one place.
+	t.Run("spec_test_pairs_char", func(t *testing.T) {
+		validCases := []struct {
+			core   uint32
+			expect rune
+			name   string
+		}{
+			{0, '\x00', "null"},
+			{65, 'A', "ascii_A"},
+			{0xD7FF, '\uD7FF', "last_before_surrogates"},
+			{0xE000, '\uE000', "first_after_surrogates"},
+			{0x10FFFF, '\U0010FFFF', "max_unicode"},
+		}
+		for _, c := range validCases {
+			t.Run(c.name, func(t *testing.T) {
+				iter := abi.NewFlatIter([]uint64{uint64(c.core)})
+				lifted, err := abi.LiftFlat(nil, types.Char, iter)
+				require.NoError(t, err)
+				require.Equal(t, c.expect, lifted.Char(),
+					"lift Char from 0x%X", c.core)
+			})
+		}
+
+		invalidCases := []struct {
+			core uint32
+			name string
+		}{
+			{0xD800, "first_surrogate"},
+			{0xDFFF, "last_surrogate"},
+			{0x110000, "just_above_max"},
+			{0xFFFFFFFF, "all_ones"},
+		}
+		for _, c := range invalidCases {
+			t.Run(c.name, func(t *testing.T) {
+				iter := abi.NewFlatIter([]uint64{uint64(c.core)})
+				_, err := abi.LiftFlat(nil, types.Char, iter)
+				require.Error(t, err,
+					"LiftFlat should reject 0x%X", c.core)
+				require.Contains(t, err.Error(),
+					"not a valid Unicode scalar value")
+			})
+		}
+	})
 }
 
-// TestPrimitivesTypeProperties tests that primitive types have correct
-// size, alignment, and flatten count properties.
+// TestPrimitivesTypeProperties verifies that wazero's ValType.ABI helper
+// reports the canonical size, alignment and flatten count for each
+// primitive type, i.e. the numeric invariants of the spec formulas.
+//
+// No counterpart (justified): wazero-specific accessor test exercising
+// the internal ABI.Size32 / ABI.Align32 / ABI.FlattenCount helper.
+// run_tests.py does not exercise elem_size / alignment directly — those
+// are static spec formulas. The reference for expected values is
+// definitions.py:1706-1711 (flatten_type — BoolType/U8/S8/U16/S16/U32/S32
+// → i32; S64/U64 → i64; F32 → f32; F64 → f64; CharType → i32) and
+// definitions.py:1706-1711 cross-referenced with the per-type
+// elem_size / alignment formulas (see ValType.ABI implementation in
+// internal/component/types/types.go). Verify via:
+//   grep -n 'def flatten_type\|class U8Type\|class S8Type\|class CharType' \
+//     debug-vendored/component-model/design/mvp/canonical-abi/definitions.py
 func TestPrimitivesTypeProperties(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -649,8 +1019,19 @@ func TestPrimitivesTypeProperties(t *testing.T) {
 	}
 }
 
-// TestPrimitivesSignExtension tests that signed integer types properly
-// handle sign extension during lift/lower operations.
+// TestPrimitivesSignExtension exercises the negative / minimum value
+// cases of the signed integer round-trip path (s8/s16/s32/s64 at -1 and
+// their type-min), asserting that LowerFlat stores the correct two's
+// complement bit pattern (e.g. s64 -1 → 0xFFFFFFFFFFFFFFFF) and that
+// LiftFlat recovers the original negative value.
+//
+// Canonical test: run_tests.py:187-192,194,196 — test_pairs S8Type,
+// S16Type, S32Type, S64Type cases cover the negative / wrap-around
+// values exercised here. This test narrows in on the s*_min / -1 pairs
+// and additionally pins the s64 lowered bit pattern.
+// Spec: definitions.py:1802-1808 lift_flat_signed (mod + sign fold) and
+// definitions.py:1891-1894 lower_flat_signed (negative values add
+// 1<<core_bits to wrap into unsigned core representation).
 func TestPrimitivesSignExtension(t *testing.T) {
 	t.Run("s8_sign_extension", func(t *testing.T) {
 		// -1 as s8 is 0xFF, which should sign-extend properly
@@ -736,8 +1117,18 @@ func TestPrimitivesSignExtension(t *testing.T) {
 	})
 }
 
-// TestPrimitivesAllTypesRoundtrip is a comprehensive table-driven test
-// that verifies roundtrip behavior for all primitive types.
+// TestPrimitivesAllTypesRoundtrip is a comprehensive smoke-test that
+// round-trips one or two representative values per primitive type
+// through LowerFlat + LiftFlat in a single table. It does not add new
+// spec coverage beyond the per-type tests above; its purpose is to
+// cover the dispatch wiring of every TypeKind branch in a single pass.
+//
+// No counterpart (justified): wazero-specific smoke test that
+// aggregates per-type round-trips so a new primitive TypeKind cannot be
+// added without at least one dispatch entry. The individual spec cases
+// it drives are already cited on the per-type tests above
+// (TestPrimitivesIntegers, TestPrimitivesFloats, TestPrimitivesBools,
+// TestPrimitivesChars); see run_tests.py:184-200 test_pairs.
 func TestPrimitivesAllTypesRoundtrip(t *testing.T) {
 	type testCase struct {
 		name string
