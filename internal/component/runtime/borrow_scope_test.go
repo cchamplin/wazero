@@ -36,6 +36,55 @@ func TestBorrowScope_TrackLenders(t *testing.T) {
 	require.Equal(t, uint32(0), e2.NumLends)
 }
 
+// TestBorrowScopeReleaseBorrow asserts the scope's release operation is
+// the symmetric inverse of AddLender: it decrements NumLends on the
+// handle's entry and removes the handle from the lender set.
+//
+// Spec: definitions.py:2163-2164 canon_resource_drop borrow branch.
+// Spec: definitions.py:738-742 deliver_resolve (scope closure).
+func TestBorrowScopeReleaseBorrow(t *testing.T) {
+	tbl := NewTable()
+	rt := &ResourceType{}
+	h, err := tbl.NewResourceHandle(uint32(1), true, rt)
+	require.NoError(t, err)
+
+	scope := NewBorrowScope(tbl)
+	// AddLender internally calls IncrementLends.
+	require.NoError(t, scope.AddLender(h))
+
+	if !scope.HasOutstandingBorrows() {
+		t.Fatalf("HasOutstandingBorrows = false, want true")
+	}
+
+	require.NoError(t, scope.ReleaseBorrow(h))
+
+	if scope.HasOutstandingBorrows() {
+		t.Fatalf("HasOutstandingBorrows after release = true, want false")
+	}
+
+	entry, err := tbl.GetResourceHandle(h)
+	require.NoError(t, err)
+	if entry.NumLends != 0 {
+		t.Fatalf("entry.NumLends = %d, want 0", entry.NumLends)
+	}
+}
+
+// TestBorrowScopeReleaseBorrowNotFound verifies ReleaseBorrow returns an
+// error when the handle is not in the lender set.
+func TestBorrowScopeReleaseBorrowNotFound(t *testing.T) {
+	tbl := NewTable()
+	rt := &ResourceType{}
+	h, err := tbl.NewResourceHandle(uint32(1), true, rt)
+	require.NoError(t, err)
+
+	scope := NewBorrowScope(tbl)
+	// Never added — should fail.
+	err = scope.ReleaseBorrow(h)
+	if err == nil {
+		t.Fatalf("ReleaseBorrow on handle not in scope should return error")
+	}
+}
+
 func TestBorrowScope_SameLenderMultipleTimes(t *testing.T) {
 	table := NewTable()
 	h, err := table.NewResourceHandle(uint32(3), true, nil)

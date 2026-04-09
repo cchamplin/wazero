@@ -234,6 +234,31 @@ func (i *Instance) ResourceDrop(resourceIdx types.ResourceIdx, handleIdx uint32)
 	return fmt.Errorf("Instance.ResourceDrop: body rebuild in progress (Session 1 Checkpoint E Task E5)")
 }
 
+// invokeLocalDestructor invokes a resource destructor on the defining
+// instance. For host-declared resources, rt.HostDestructor is a Go closure.
+// For guest-declared resources, rt.Dtor is a core function index that
+// requires the core function index space for resolution.
+//
+// Spec: definitions.py:2151-2153
+//
+//	if inst is rt.impl:
+//	  if rt.dtor:
+//	    rt.dtor(h.rep)
+func invokeLocalDestructor(inst *Instance, rt *runtime.ResourceType, rep uint32) error {
+	if rt.HostDestructor != nil {
+		return rt.HostDestructor(rep)
+	}
+	if rt.Dtor != nil {
+		return fmt.Errorf(
+			"invokeLocalDestructor: guest destructor at core function index %d: "+
+				"guest destructors require core function index space resolution (Session 2 wiring)",
+			*rt.Dtor,
+		)
+	}
+	// No destructor declared — nothing to do.
+	return nil
+}
+
 // Runtime returns the embedded *runtime.ComponentInstance.
 func (i *Instance) Runtime() *runtime.ComponentInstance { return i.rt }
 
