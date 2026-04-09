@@ -1388,3 +1388,32 @@ None. Both reviewers approved with only Minor findings. M1-M3 tracked for follow
 
 ✅ Complete. Proceeding to Task D5-D12 (test restorations).
 
+---
+
+## Tasks D5-D12 — Restore Checkpoint D test files (batched)
+
+**Base commit:** `df88d65d`
+**Task commits (7):** `6b9d6c1f` (D5), `c90b08ee` (D6), `58b2b28c` (D8), `a7c8b130` (D9), `9dac0a70` (D10), `f6a7291e` (D11), `972515f3` (D12)
+**Corrective commit:** `1b13284c` (I2: assert Instantiate error in type-check test)
+**D7 excluded:** start_function_test.go was already restored by D4.
+
+**Tests restored:** 60 total across 7 files. D5=8, D6=19, D8=8, D9=13, D10=2(+1 skip), D11=10, D12=0(audit).
+
+**D10 remaining skip:** `TestNestedInstantiation_RecordReturn` — retptr lowering not implemented in `buildCanonLiftFunc` (flat result count > MAX_FLAT_RESULTS). Skip is conditional (fires at runtime error, not at test top), with precise citation and explanation. The SimpleExport test passes end-to-end.
+
+### Spec-compliance reviewer
+
+**Verdict:** ✅ PASS. All 7 files pass. V4 grep PASS for all 7. No DeferredToSession1 stubs remaining. D10 skip properly documented with citation. All 9 sub-packages green. Build + vet clean. No production code modified.
+
+### Code quality reviewer
+
+**Verdict:** PASS with 2 IMPORTANT (1 addressed in corrective `1b13284c`):
+- **I1:** Citation ordering in nesting_depth_test.go (Spec: before Wasmtime:) — pre-existing inconsistency across codebase; not a regression. Tracked but not corrected (convention not settled).
+- **I2:** `TestComponentLinker_TypeCheckingIntegration` swallowed error → corrected to `require.NoError(t, err)`.
+- M3: TestPostReturnCalledAfterMainFunction tests its own closure, not production post-return. Name is misleading but behavior matches current API (struct fields removed).
+- M4: TestNested_TwoLevelInstantiation instantiates independently, not nested. Name inaccurate.
+
+### Task status
+
+✅ Complete. Proceeding to Task D13 (Checkpoint D verification).
+
