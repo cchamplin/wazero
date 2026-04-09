@@ -313,11 +313,11 @@ func (l *ComponentLinker) resolveExportTypeAlias(parent *Instance, _ *Component,
 	return td
 }
 
-// wireNestedComponentExports wires a nested instance (or synthesized inline
-// instance) into the parent's exportedInstances map under the given export
-// name. For a real nested instance the child is stored directly so callers
-// can drill into its exports. For an inline instance (nil in instanceSpace)
-// a synthetic Instance is created from the InstanceDef and stored instead.
+// wireNestedComponentExports stores a real nested child instance in the
+// parent's exportedInstances map under the given export name. Callers
+// drill into the child's exports via GetExportedInstance(name) →
+// ExportedFunction(subname). Currently infallible; error return reserved
+// for future validation (e.g., export-type conformance checking).
 //
 // Spec: Component-model instance exports — an instance export is a namespace
 // of sub-exports accessible by drilling through the exported instance.
@@ -352,14 +352,25 @@ func (l *ComponentLinker) wireInlineInstanceExports(
 	exportName string,
 ) error {
 	// Create a synthetic Instance to hold the inline instance's exports.
+	// The empty &Component{} is intentional — synthetic instances exist
+	// solely to hold exports and have no meaningful component metadata.
 	synth := newInstance(&Component{}, l.nextInstanceID(), parent)
 	for name, def := range instDef.Exports {
-		if fd, ok := def.(*FuncDef); ok {
+		switch d := def.(type) {
+		case *FuncDef:
 			synth.exports[name] = &ExportedFunc{
 				name:     name,
-				funcType: fd.Type,
-				impl:     fd.Callback,
+				funcType: d.Type,
+				impl:     d.Callback,
 			}
+		// Non-FuncDef exports (InstanceDef, TypeDefDef, ImportedValueDef,
+		// ComponentDef) are not converted to ExportedFuncs because they
+		// don't have callable semantics at runtime. If downstream code
+		// needs to access non-function inline exports, this path should
+		// be extended to store them in the appropriate index space on the
+		// synthetic instance.
+		default:
+			// Silently skip non-callable exports.
 		}
 	}
 	parent.AddExportedInstance(exportName, synth)
