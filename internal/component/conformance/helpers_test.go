@@ -10,6 +10,12 @@ import (
 	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
+// session1SkipReason is the shared skip message for Session 1 deferred
+// tests. Defined here (in the test-only helpers file) so any of the
+// remaining conformance test files that still call t.Skip can reference
+// it without depending on a particular restored test file.
+const session1SkipReason = "session 1 work: see docs/plans/2026-04-07-canonical-abi-unification-session0-followup.md"
+
 // newBuilder returns a fresh ComponentTypesBuilder. Test helper to
 // keep call sites short.
 func newBuilder() *types.ComponentTypesBuilder {

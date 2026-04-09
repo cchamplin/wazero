@@ -13,10 +13,6 @@ package conformance
 
 import "testing"
 
-// session1SkipReason is the shared skip message for Session 1 deferred
-// tests. Defined once here and referenced from the other deferred files.
-const session1SkipReason = "session 1 work: see docs/plans/2026-04-07-canonical-abi-unification-session0-followup.md"
-
 // TestCompositesDeferredToSession1 stands in for the full composite
 // conformance suite. Session 1 will restore per-type tests against the
 // builder API.
