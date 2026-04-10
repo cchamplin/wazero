@@ -17,7 +17,7 @@ Every agent — orchestrator, worker, reviewer — must understand and follow th
 
 1. **The canonical-ABI spec and wasmtime are the authorities.** Every behavioral decision must be verified against the vendored spec files and wasmtime source. No guessing from training data.
 
-2. **Only async is deferred.** Stream, future, error-context, subtask — these are the ONLY features that may remain unimplemented. Everything else is in scope and must work. If a test exercises a non-async feature and fails, it must be fixed.
+2. **Only async is deferred.** Stream, future, error-context, subtask, and any other features that are explicitly part of the component model async proposal — these are the ONLY features that may remain unimplemented. Everything else is in scope and must work. If a test exercises a non-async feature and fails, it must be fixed. When uncertain whether a feature is async, read the spec — if it involves `Task`, `Subtask`, `Stream`, `Future`, `ErrorContext`, `Waitable`, `WaitableSet`, async lifting/lowering, or thread/callback machinery, it is async. Everything else is sync and must be implemented.
 
 3. **No known failures, no known defects.** Do not insert TODOs. Do not add skip logic. Do not add hardcoded error-string matching to bypass failures. Do not stub or mock. Do not add "known limitation" comments. Do not defer work to a future session. Fix it or explain why it's async.
 
@@ -92,7 +92,7 @@ The spectest runner at `internal/component/spectest/` parses `.wast` files (via 
    - Run `wasm-tools json-from-wast internal/component/spectest/testdata/wasmtime/simple.wast` to see the actual JSON structure
    - Ensure EVERY command type in the JSON output has a handler
 
-**The runner must handle ALL of these command types:**
+**The runner must handle ALL command types that `wasm-tools json-from-wast` can emit.** The following are known command types, but this list may not be exhaustive — if the runner encounters an unknown command type during execution, it must be implemented, not skipped:
 
 | Command | Purpose | Current State |
 |---------|---------|---------------|
@@ -107,12 +107,15 @@ The spectest runner at `internal/component/spectest/` parses `.wast` files (via 
 | `register` | Register current instance under a name for imports | Partially implemented |
 | `invoke` | Call a function on current instance (no assertion) | Implemented |
 
-**State tracking requirements:**
+Any command type not listed here that appears in the `.wast` JSON output must also be implemented. Run `wasm-tools json-from-wast` on each `.wast` file and check for command types not in this table. Wasmtime's `wast.rs` runner is the definitive reference for what commands exist and how they behave.
+
+**State tracking requirements (minimum — study wasmtime's wast.rs for the complete set):**
 - The runner must maintain a "current instance" that persists across commands
 - `module` commands set the current instance
 - `register` commands register the current instance under a name AND wire it into the ComponentLinker so future components can import it
 - `assert_return`/`assert_trap`/`invoke` commands operate on the current instance
 - If a `module` command fails, subsequent assert commands that depend on it should report "prior module failed" (not "no current instance")
+- Any additional state management patterns found in wasmtime's wast.rs must also be implemented — do not assume this list is complete
 
 ### Priority 1 Verification
 
@@ -136,11 +139,12 @@ These fail at CompileComponent — the component binary can't even be parsed.
 5. Implement the missing decoding, following the spec and wasmtime's patterns
 6. Verify the decoding matches the spec exactly
 
-**Known decoder gaps (from failure analysis):**
+**Known decoder gaps (from initial failure analysis — this list is NOT exhaustive):**
 - Core sort `0x11` — core module sort in export/alias sections
 - Sort prefix `0x636f7265` — the ASCII "core" prefix for two-level sort encoding
 - Core type opcodes `0x03`, `0x04` — missing core type variants in module type decoding
-- Other errors will be revealed as earlier fixes unblock more tests
+
+Additional decoder gaps will be revealed as earlier fixes unblock more tests. Every `decode component:` error in the test output represents a decoder gap that must be fixed. Do not maintain a static list — dynamically discover and fix all decoder errors encountered during the remediation loop.
 
 ---
 
@@ -155,23 +159,36 @@ Components parse but can't instantiate.
 4. Read wasmtime's instantiator: `debug-vendored/wasmtime/crates/wasmtime/src/runtime/component/instance.rs`
 5. Fix the pipeline code
 
-**Known pipeline gaps:**
+**Known pipeline gaps (from initial failure analysis — this list is NOT exhaustive):**
 - Nested component instantiation — nested components with core modules need full compilation
 - Module re-instantiation — the runtime must support multiple instances of the same compiled module
 - Import resolution for registered instances — `register` command must wire into the linker
+
+Additional pipeline gaps will be revealed as decoder fixes unblock more tests. Every `Instantiate` or `resolve imports` error represents a pipeline gap that must be fixed. Process all instantiation errors dynamically, not just the ones listed here.
 
 ---
 
 ## Priority 4 — ABI/Runtime Correctness
 
-Components instantiate but function calls fail or produce wrong results.
+Components instantiate but function calls fail or produce wrong results. This is a broad category — any failure that isn't a runner bug, decoder gap, or pipeline issue falls here. Examples include but are not limited to:
 
-**For each ABI error:**
+- String encoding and transcoding errors
+- Post-return semantics violations
+- Type and validation mismatches
+- Incorrect lift/lower behavior for any value type
+- Resource handle lifecycle errors
+- Reentrance/may_leave guard violations
+- Incorrect flat ABI encoding/decoding
+
+**For each ABI/runtime error:**
 1. Read the exact error and expected-vs-actual values
-2. Trace to the failing lift/lower code in `internal/component/abi/`
-3. Read `definitions.py` for the specific lift/lower operation
-4. Fix the ABI code
-5. Verify with the spec's reference implementation
+2. Trace to the failing code — it may be in `internal/component/abi/`, `internal/component/instance.go`, `internal/component/component_linker.go`, `internal/component/runtime/`, or `internal/component/types/`
+3. Read `definitions.py` for the specific operation
+4. Read wasmtime's implementation of the same operation
+5. Fix the code at source
+6. Verify with the spec's reference implementation
+
+Do not assume the error categories listed above are exhaustive. Any non-async test failure that reaches this priority level must be investigated and fixed regardless of its category.
 
 ---
 
