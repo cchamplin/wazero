@@ -101,6 +101,16 @@ func NewComponentLinker(rt WazeroRuntime) *ComponentLinker {
 	}
 }
 
+// definitionKey builds the map key for a definition. When namespace is
+// empty the key is just the name (root-level import); otherwise
+// it is "namespace/name".
+func definitionKey(namespace, name string) string {
+	if namespace == "" {
+		return name
+	}
+	return namespace + "/" + name
+}
+
 // SetRelaxedSemverMatching enables or disables relaxed semver matching.
 func (l *ComponentLinker) SetRelaxedSemverMatching(relaxed bool) {
 	l.relaxedSemver = relaxed
@@ -161,7 +171,7 @@ func (l *ComponentLinker) DefineFunc(namespace, name string, fn HostFunc) error 
 	if fn == nil {
 		return fmt.Errorf("DefineFunc: nil HostFunc for %q.%q", namespace, name)
 	}
-	key := namespace + "/" + name
+	key := definitionKey(namespace, name)
 	if _, exists := l.definitions[key]; exists {
 		return fmt.Errorf("definition already exists: %s", key)
 	}
@@ -174,7 +184,7 @@ func (l *ComponentLinker) DefineFunc(namespace, name string, fn HostFunc) error 
 
 // DefineResource adds a resource type definition.
 func (l *ComponentLinker) DefineResource(namespace, name string, destructor func(rep uint32)) error {
-	key := namespace + "/" + name
+	key := definitionKey(namespace, name)
 	if _, exists := l.definitions[key]; exists {
 		return fmt.Errorf("definition already exists: %s", key)
 	}
@@ -184,7 +194,7 @@ func (l *ComponentLinker) DefineResource(namespace, name string, destructor func
 
 // DefineValue adds a value definition for value imports.
 func (l *ComponentLinker) DefineValue(namespace, name string, value types.Val) error {
-	key := namespace + "/" + name
+	key := definitionKey(namespace, name)
 	if _, exists := l.definitions[key]; exists {
 		return fmt.Errorf("definition already exists: %s", key)
 	}
@@ -198,6 +208,8 @@ type ComponentInstanceBuilder struct {
 	namespace      string
 	exports        map[string]Definition
 	skipValidation bool
+	parent         *ComponentInstanceBuilder // non-nil for nested instance builders
+	childName      string                    // export name in parent (only set when parent != nil)
 }
 
 // DefineInstance starts building an instance definition.
@@ -222,6 +234,20 @@ func (b *ComponentInstanceBuilder) Resource(name string, destructor func(rep uin
 	return b
 }
 
+// Instance adds a nested instance export. The returned builder shares the
+// same parent; callers chain methods on it and then call Build on the
+// outermost builder to finalize everything.
+func (b *ComponentInstanceBuilder) Instance(name string) *ComponentInstanceBuilder {
+	child := &ComponentInstanceBuilder{
+		linker:    b.linker,
+		namespace: b.namespace + "/" + name,
+		exports:   make(map[string]Definition),
+		parent:    b,
+		childName: name,
+	}
+	return child
+}
+
 // SkipValidation disables validation for this instance definition.
 // Use this when providing a partial implementation of a WASI interface.
 func (b *ComponentInstanceBuilder) SkipValidation() *ComponentInstanceBuilder {
@@ -229,8 +255,17 @@ func (b *ComponentInstanceBuilder) SkipValidation() *ComponentInstanceBuilder {
 	return b
 }
 
-// Build finalizes the instance definition.
+// Build finalizes the instance definition. For nested instance builders
+// (created via Instance()), Build inserts the nested InstanceDef into
+// the parent's exports map and returns the parent builder for continued
+// chaining. For top-level builders, Build registers the definition on
+// the linker.
 func (b *ComponentInstanceBuilder) Build() error {
+	if b.parent != nil {
+		// Nested builder: insert into parent's exports map.
+		b.parent.exports[b.childName] = &InstanceDef{Exports: b.exports, SkipValidation: b.skipValidation}
+		return nil
+	}
 	if _, exists := b.linker.definitions[b.namespace]; exists {
 		return fmt.Errorf("definition already exists: %s", b.namespace)
 	}
@@ -598,6 +633,11 @@ func (l *ComponentLinker) wireExports(
 			// They participate in nested instantiation via the component
 			// index space. No runtime wiring needed.
 
+		case ExportKindModule, ExportKindCoreInstance, ExportKindTag:
+			// Core-sort exports (module, core instance, tag) participate
+			// in nested instantiation and aliasing but do not need
+			// runtime wiring for function calls.
+
 		default:
 			return fmt.Errorf("export %q: export kind %v not yet wired", exp.Name, exp.Kind)
 		}
@@ -955,13 +995,68 @@ func (l *ComponentLinker) populateValueImports(inst *Instance, c *Component, res
 }
 
 // alignInstanceImports ensures inst.instanceSpace has a slot for every
-// instance import. The slot is populated by a later wiring step.
+// instance import. The slot is populated by populateInstanceImports.
 func (l *ComponentLinker) alignInstanceImports(inst *Instance, c *Component) {
 	for i := range c.Imports {
 		if c.Imports[i].ExternDesc.Kind != ImportExternDescInstance {
 			continue
 		}
 		inst.instanceSpace = append(inst.instanceSpace, nil)
+	}
+}
+
+// populateInstanceImports fills inst.instanceSpace slots (created by
+// alignInstanceImports) with synthetic Instance objects built from the
+// resolved InstanceDef imports. This bridges the gap between import
+// resolution (step 4) and nested instantiation (step 9), which reads
+// parent.instanceSpace via resolveFromParentScope.
+//
+// instanceToImport maps instance-space index → import name.
+// resolvedImports maps import name → Definition (an *InstanceDef for instances).
+func (l *ComponentLinker) populateInstanceImports(
+	inst *Instance,
+	resolvedImports map[string]Definition,
+	instanceToImport map[uint32]string,
+) {
+	for idx, importName := range instanceToImport {
+		def, ok := resolvedImports[importName]
+		if !ok {
+			continue
+		}
+		instDef, ok := def.(*InstanceDef)
+		if !ok {
+			continue
+		}
+		// Create a synthetic Instance to hold the imported instance's exports.
+		// This mirrors wireInlineInstanceExports in nested_component.go.
+		synth := newInstance(&Component{}, l.nextInstanceID(), inst)
+		for name, d := range instDef.Exports {
+			switch fd := d.(type) {
+			case *FuncDef:
+				synth.exports[name] = &ExportedFunc{
+					name:     name,
+					funcType: fd.Type,
+					impl:     fd.Callback,
+				}
+			case *InstanceDef:
+				// Nested instance export: create a child synthetic instance
+				// and register it as an exported instance.
+				child := newInstance(&Component{}, l.nextInstanceID(), synth)
+				for childName, childDef := range fd.Exports {
+					if cfd, ok := childDef.(*FuncDef); ok {
+						child.exports[childName] = &ExportedFunc{
+							name:     childName,
+							funcType: cfd.Type,
+							impl:     cfd.Callback,
+						}
+					}
+				}
+				synth.AddExportedInstance(name, child)
+			}
+		}
+		if idx < uint32(len(inst.instanceSpace)) {
+			inst.instanceSpace[idx] = synth
+		}
 	}
 }
 

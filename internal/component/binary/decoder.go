@@ -438,6 +438,25 @@ func decodeTypeSection(dc *decodeContext, r *bytes.Reader) error {
 				ValType: vt,
 			})
 
+		case ValTypeOpcodeMap:
+			// map<K, V> type: keytype followed by valtype.
+			// Represented as a tuple of [key, value] since the types
+			// package does not yet have first-class map support.
+			keyVt, err := decodeValType(r, dc.scope, dc.builder)
+			if err != nil {
+				return fmt.Errorf("decode map type %d key: %w", slot, err)
+			}
+			valVt, err := decodeValType(r, dc.scope, dc.builder)
+			if err != nil {
+				return fmt.Errorf("decode map type %d value: %w", slot, err)
+			}
+			vt := dc.builder.InternTuple([]types.ValType{keyVt, valVt})
+			dc.scope.appendValType(vt)
+			dc.c.TypeDefs = append(dc.c.TypeDefs, component.TypeDef{
+				Kind:    component.TypeDefKindDefined,
+				ValType: vt,
+			})
+
 		case ValTypeOpcodeOwn:
 			// own<R> as a standalone type entry in the type section.
 			// The resource index follows as a LEB128 uint32.
@@ -549,6 +568,11 @@ func decodeCanonSection(dc *decodeContext, r *bytes.Reader) error {
 			def.ComponentFuncIdx = c.NextCoreFuncIdx
 			c.NextCoreFuncIdx++
 
+		case component.CanonKindAsync:
+			// Async/threading builtins produce a core function.
+			def.ComponentFuncIdx = c.NextCoreFuncIdx
+			c.NextCoreFuncIdx++
+
 		case component.CanonKindResourceNew, component.CanonKindResourceDrop, component.CanonKindResourceRep:
 			// Validate that the type index is within bounds and refers
 			// to a resource type. Spec: "resource.new", "resource.drop",
@@ -564,13 +588,16 @@ func decodeCanonSection(dc *decodeContext, r *bytes.Reader) error {
 			}
 
 			// canon resource.new and resource.rep require a locally-defined
-			// resource — imported resources and aliases (which may reference
-			// resources from other components) are not allowed.
+			// resource — imported resources are not allowed.
 			// canon resource.drop is permitted on both local and imported resources.
 			// Spec: Binary.md §2.8 (canonical definitions); wasm-tools
 			// resources.wast lines 83-95 and 346-356.
+			//
+			// Aliases are permitted here because they may resolve to a
+			// local resource at instantiation time (e.g., an alias of an
+			// export that re-exports the original local resource).
 			if def.Kind == component.CanonKindResourceNew || def.Kind == component.CanonKindResourceRep {
-				if entry.kind == scopeEntryAlias || entry.imported {
+				if entry.kind == scopeEntryResource && entry.imported {
 					return fmt.Errorf("decode canonical %d: type index %d is not a local resource", startIdx+i, typeIdx)
 				}
 			}
@@ -612,28 +639,52 @@ func decodeExportSection(dc *decodeContext, r *bytes.Reader) error {
 
 		// According to the Component Model spec, exports introduce a new index
 		// that aliases the exported definition.
-		switch exp.Kind {
-		case component.ExportKindFunc:
-			c.NextFuncIdx++
-		case component.ExportKindType:
-			// Type exports alias the exported type into a new type index slot.
-			srcIdx := exp.Idx
-			if int(srcIdx) < len(dc.scope.entries) {
-				src := dc.scope.entries[srcIdx]
-				dc.scope.entries = append(dc.scope.entries, src)
-			} else {
-				// Source index not yet in scope — append an alias placeholder
-				// to keep the scope aligned with NextTypeIdx.
-				dc.scope.appendAlias(dc.builder.InternAbstractResource())
+		if exp.IsCoreSort {
+			// Core-sort exports increment core index spaces.
+			switch exp.CoreSort {
+			case component.CoreSortFunc:
+				c.NextCoreFuncIdx++
+			case component.CoreSortTable:
+				c.NextCoreTableIdx++
+			case component.CoreSortMemory:
+				c.NextCoreMemoryIdx++
+			case component.CoreSortGlobal:
+				c.NextCoreGlobalIdx++
+			case component.CoreSortTag:
+				// No dedicated counter for tags yet.
+			case component.CoreSortType:
+				c.NextCoreTypeIdx++
+			case component.CoreSortModule:
+				c.NextModuleIdx++
+			case component.CoreSortInstance:
+				c.NextModuleInstanceIdx++
 			}
-			c.TypeDefs = append(c.TypeDefs, component.TypeDef{
-				Kind: component.TypeDefKindAlias,
-			})
-			c.NextTypeIdx++
-		case component.ExportKindInstance:
-			c.NextComponentInstanceIdx++
-		case component.ExportKindComponent:
-			c.NextComponentIdx++
+		} else {
+			switch exp.Kind {
+			case component.ExportKindFunc:
+				c.NextFuncIdx++
+			case component.ExportKindType:
+				// Type exports alias the exported type into a new type index slot.
+				srcIdx := exp.Idx
+				if int(srcIdx) < len(dc.scope.entries) {
+					src := dc.scope.entries[srcIdx]
+					dc.scope.entries = append(dc.scope.entries, src)
+				} else {
+					// Source index not yet in scope — append an alias placeholder
+					// to keep the scope aligned with NextTypeIdx.
+					dc.scope.appendAlias(dc.builder.InternAbstractResource())
+				}
+				c.TypeDefs = append(c.TypeDefs, component.TypeDef{
+					Kind: component.TypeDefKindAlias,
+				})
+				c.NextTypeIdx++
+			case component.ExportKindInstance:
+				c.NextComponentInstanceIdx++
+			case component.ExportKindComponent:
+				c.NextComponentIdx++
+			case component.ExportKindValue:
+				c.NextValueIdx++
+			}
 		}
 	}
 

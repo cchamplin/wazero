@@ -117,6 +117,8 @@ func TestDecodeCoreModuleType_OuterAlias(t *testing.T) {
 		0x01, // 1 declaration
 		// Outer alias declaration
 		0x02, // alias
+		0x10, // core sort: type
+		0x01, // alias target: outer
 		0x01, // outer count
 		0x00, // index
 	})

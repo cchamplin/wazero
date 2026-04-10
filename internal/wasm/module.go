@@ -999,6 +999,10 @@ const (
 	// See https://www.w3.org/TR/2022/WD-wasm-core-2-20220419/binary/modules.html#data-count-section
 	// See https://www.w3.org/TR/2022/WD-wasm-core-2-20220419/appendix/changes.html#bulk-memory-and-table-instructions
 	SectionIDDataCount
+
+	// SectionIDTag is defined by the exception handling proposal.
+	// It must come after the Memory section and before the Global section.
+	SectionIDTag SectionID = 0x0D
 )
 
 // SectionIDName returns the canonical name of a module section.
@@ -1031,6 +1035,8 @@ func SectionIDName(sectionID SectionID) string {
 		return "data"
 	case SectionIDDataCount:
 		return "data_count"
+	case SectionIDTag:
+		return "tag"
 	}
 	return "unknown"
 }
@@ -1076,6 +1082,8 @@ const (
 	ExternTypeMemoryName = api.ExternTypeMemoryName
 	ExternTypeGlobal     = api.ExternTypeGlobal
 	ExternTypeGlobalName = api.ExternTypeGlobalName
+	ExternTypeTag        = api.ExternTypeTag
+	ExternTypeTagName    = api.ExternTypeTagName
 )
 
 // ExternTypeName is an alias of api.ExternTypeName defined to simplify imports.

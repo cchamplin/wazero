@@ -16,6 +16,7 @@ func TestDecodeCanonicalOptions(t *testing.T) {
 		name     string
 		input    []byte // includes LEB128 count prefix
 		expected component.CanonicalOptions
+		wantErr  bool
 	}{
 		{
 			name:  "empty options defaults to utf8",
@@ -41,20 +42,9 @@ func TestDecodeCanonicalOptions(t *testing.T) {
 			},
 		},
 		{
-			name:  "core-type option with index 3",
-			input: []byte{0x01, 0x08, 0x03}, // count = 1, core-type, index = 3
-			expected: component.CanonicalOptions{
-				StringEncoding: types.StringEncodingUTF8,
-				CoreTypeIdx:    ptrUint32(3),
-			},
-		},
-		{
-			name:  "gc option",
-			input: []byte{0x01, 0x09}, // count = 1, gc
-			expected: component.CanonicalOptions{
-				StringEncoding: types.StringEncodingUTF8,
-				GC:             true,
-			},
+			name:    "unknown option 0x08 (not in spec)",
+			input:   []byte{0x01, 0x08, 0x03},
+			wantErr: true,
 		},
 		{
 			name:  "multiple options async memory realloc",
@@ -73,6 +63,12 @@ func TestDecodeCanonicalOptions(t *testing.T) {
 			r := bytes.NewReader(tt.input)
 			var got component.CanonicalOptions
 			err := decodeCanonicalOptions(r, &got)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error but got nil")
+				}
+				return
+			}
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -83,14 +79,8 @@ func TestDecodeCanonicalOptions(t *testing.T) {
 			if got.Async != tt.expected.Async {
 				t.Errorf("Async: got %v, want %v", got.Async, tt.expected.Async)
 			}
-			if got.GC != tt.expected.GC {
-				t.Errorf("GC: got %v, want %v", got.GC, tt.expected.GC)
-			}
 			if !ptrEqual(got.CallbackIdx, tt.expected.CallbackIdx) {
 				t.Errorf("CallbackIdx: got %v, want %v", ptrVal(got.CallbackIdx), ptrVal(tt.expected.CallbackIdx))
-			}
-			if !ptrEqual(got.CoreTypeIdx, tt.expected.CoreTypeIdx) {
-				t.Errorf("CoreTypeIdx: got %v, want %v", ptrVal(got.CoreTypeIdx), ptrVal(tt.expected.CoreTypeIdx))
 			}
 			if !ptrEqual(got.MemoryIdx, tt.expected.MemoryIdx) {
 				t.Errorf("MemoryIdx: got %v, want %v", ptrVal(got.MemoryIdx), ptrVal(tt.expected.MemoryIdx))

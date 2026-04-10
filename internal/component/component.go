@@ -141,6 +141,13 @@ type Component struct {
 	// NextModuleIdx tracks the next core module index during parsing.
 	// This is incremented by core module definitions and alias outer module operations.
 	NextModuleIdx uint32
+
+	// CompiledCoreModules holds pre-compiled core modules for this component.
+	// For the root component these live in CompiledComponent.compiledModules;
+	// for nested components they are populated by CompileComponent's recursive
+	// compilation pass so that instantiateNestedComponent can instantiate
+	// core modules without a full CompiledComponent wrapper.
+	CompiledCoreModules []CompiledModuleCloser
 }
 
 // TypeDef is one entry per slot in the component's type index space,
@@ -390,9 +397,11 @@ const (
 	CanonKindResourceNew
 	CanonKindResourceDrop
 	CanonKindResourceRep
+	CanonKindAsync // Async/threading builtins (all produce core func)
 )
 
 // CanonicalOptions holds optional parameters for canonical operations.
+// Per Binary.md:346-354, canonopt codes are 0x00-0x07.
 type CanonicalOptions struct {
 	StringEncoding types.StringEncoding
 	MemoryIdx      *uint32 // nil if not specified
@@ -400,16 +409,16 @@ type CanonicalOptions struct {
 	PostReturnIdx  *uint32 // nil if not specified
 	Async          bool    // true if async option specified (gated)
 	CallbackIdx    *uint32 // callback function index (gated)
-	CoreTypeIdx    *uint32 // core type index for lowering
-	GC             bool    // use GC version of canonical ABI
 }
 
 // Export represents a component export.
 type Export struct {
-	Name    string
-	Kind    ExportKind
-	Idx     uint32  // Index into the appropriate index space
-	TypeIdx *uint32 // Optional type annotation
+	Name       string
+	Kind       ExportKind
+	IsCoreSort bool     // True when the export uses a core sort (sort prefix 0x00)
+	CoreSort   CoreSort // For core-sort exports, the specific core sort
+	Idx        uint32   // Index into the appropriate index space
+	TypeIdx    *uint32  // Optional type annotation
 }
 
 // ExportKind identifies what kind of item is being exported.
@@ -424,6 +433,9 @@ const (
 	ExportKindTable
 	ExportKindMemory
 	ExportKindGlobal
+	ExportKindTag
+	ExportKindModule
+	ExportKindCoreInstance
 )
 
 // Sort identifies the kind of component-level item.
@@ -465,6 +477,7 @@ const (
 	CoreSortTable    CoreSort = 0x01
 	CoreSortMemory   CoreSort = 0x02
 	CoreSortGlobal   CoreSort = 0x03
+	CoreSortTag      CoreSort = 0x04
 	CoreSortType     CoreSort = 0x10
 	CoreSortModule   CoreSort = 0x11
 	CoreSortInstance CoreSort = 0x12
@@ -480,6 +493,8 @@ func (s CoreSort) String() string {
 		return "memory"
 	case CoreSortGlobal:
 		return "global"
+	case CoreSortTag:
+		return "tag"
 	case CoreSortType:
 		return "type"
 	case CoreSortModule:
@@ -664,16 +679,18 @@ func (k ComponentInstanceExprKind) String() string {
 // Format: n:<name> si:<sortidx>
 // sortidx ::= sort:<sort> idx:<u32>
 type ComponentInstantiateArg struct {
-	Name string // Argument name
-	Sort Sort   // What kind of item
-	Idx  uint32 // Index of the item
+	Name     string   // Argument name
+	Sort     Sort     // What kind of item
+	CoreSort CoreSort // For SortCoreSort: the nested core sort
+	Idx      uint32   // Index of the item
 }
 
 // ComponentInlineExport is an inline export for a component instance.
 type ComponentInlineExport struct {
-	Name string
-	Sort Sort
-	Idx  uint32
+	Name     string
+	Sort     Sort
+	CoreSort CoreSort // For SortCoreSort: the nested core sort
+	Idx      uint32
 }
 
 // ParsedComponentInstance represents a component instance definition (section ID 5).

@@ -34,11 +34,12 @@ func TestDecodeComponentInstance_Instantiate(t *testing.T) {
 func TestDecodeComponentInstance_Inline(t *testing.T) {
 	// 0x01 = inline exports
 	data := []byte{
-		0x01,                     // inline
-		0x01,                     // 1 export
-		0x04, 't', 'e', 's', 't', // name "test"
-		0x01,                     // sort: func
-		0x05,                     // index 5
+		0x01,                           // inline
+		0x01,                           // 1 export
+		0x00,                           // export name discriminator: simple
+		0x04, 't', 'e', 's', 't',      // name "test"
+		0x01,                           // sort: func
+		0x05,                           // index 5
 	}
 
 	ci, err := decodeComponentInstance(bytes.NewReader(data))

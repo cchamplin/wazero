@@ -91,12 +91,13 @@ const (
 // Async type opcodes
 // See: https://github.com/WebAssembly/component-model/blob/main/design/mvp/Binary.md
 const (
-	ValTypeOpcodeFuture        byte = 0x65 // future<T> type
-	ValTypeOpcodeStream        byte = 0x66 // stream<T, E> type
-	ValTypeOpcodeFixedSizeList byte = 0x67 // list<T, N> fixed-size list type
+	ValTypeOpcodeMap            byte = 0x63 // map<K, V> type (component_model_map proposal)
+	ValTypeOpcodeFuture         byte = 0x65 // future<T> type
+	ValTypeOpcodeStream         byte = 0x66 // stream<T, E> type
+	ValTypeOpcodeFixedSizeList  byte = 0x67 // list<T, N> fixed-size list type
 )
 
 // IsCompositeTypeOpcode returns true if the opcode is a composite type.
 func IsCompositeTypeOpcode(opcode byte) bool {
-	return opcode >= 0x6a && opcode <= 0x72
+	return (opcode >= 0x6a && opcode <= 0x72) || opcode == ValTypeOpcodeMap
 }
