@@ -158,23 +158,19 @@ if opts.post_return is not None:
 
 3. **Borrow scope lifecycle:** Each `Call` creates a `runtime.CallContext` with a `BorrowScope`, passes it to `LowerContext`. `PostReturn` verifies all borrows are dropped (spec `deliver_resolve` at `:738-742`), then invokes the post-return core function.
 
-### 1C. `may_enter` Check at `canon_lift` Entry
+### 1C. Reentrance Check at `canon_lift` Entry
 
-**Problem:** The spec requires a `may_enter` check at `canon_lift` entry that is not implemented.
+**Problem:** The spec requires a reentrance check at `canon_lift` entry that is not fully wired.
 
-**Spec requirement** (`definitions.py:1979`):
-```python
-def canon_lift(opts, inst, ft, core_wasm_func, caller, ...):
-    trap_if(not inst.may_enter)
-```
+**Spec requirement:** Read `definitions.py` lines 1978-2002 (canon_lift). The spec's reentrance check at canon_lift entry uses `call_might_be_recursive` (defined at `definitions.py:290-299`), which is a structural check on the instance ancestry graph — NOT a boolean `may_enter` flag. Verify by searching `definitions.py` for the actual mechanism before implementing.
 
-The `may_enter` flag prevents reentrant calls into a component instance that is currently executing a synchronous export. It is set to `false` during the body of a synchronous `canon_lift` call and restored to `true` afterward (spec lines 1980-1981 for sync path).
+The `CallMightBeRecursive` method already exists on `Instance` at `instance.go:457` and implements the reflexive-ancestor walk from `definitions.py:290-299`.
 
 **Changes:**
 
-1. Add `MayEnter bool` field to `runtime.ComponentInstance` (initialized to `true`).
-2. In `buildCanonLiftFunc`: at entry, `trap_if(!inst.rt.MayEnter)`. For synchronous calls, set `inst.rt.MayEnter = false` before invoking the core function. The restore sequence is: (a) set `MayEnter = true` before calling post-return (spec line 1997), (b) then run post-return with `may_leave=false`. This intermediate restore is important — the post-return function itself may trigger reentrant calls that need `may_enter` to be true.
-3. Add `IsMayEnter()` accessor on `runtime.ComponentInstance` for consistency with `IsMayLeave()`.
+1. In `buildCanonLiftFunc`: at entry, check for reentrance using the spec's actual mechanism. The caller instance is retrieved from context (`GetCallerInstance(ctx)`).
+2. If the spec uses `call_might_be_recursive`, wire `inst.CallMightBeRecursive(caller)` at canon_lift entry.
+3. If the spec has a `may_enter` boolean (verify by reading the file), add it. Do not add it based on assumption.
 
 ### 1D. ExportedFunc.Call Handle + List Wiring
 

@@ -4,7 +4,7 @@
 
 **Goal:** Complete the wazero component model and WASI P2 implementation — cross-instance resources, post-return protocol, full multi-module Instantiate pipeline, spectest runner, public API parity with wasmtime C API, and zero unaddressed test skips.
 
-**Architecture:** Four layers, bottom-up: Foundation (cross-instance resources, post-return, may_enter, handle+list wiring) → Pipeline (multi-module Instantiate, wireExports, canon closures) → Tests (spectest runner, unskip all, real .wasm integration) → Public API (type introspection, resource surface, InstancePre, post-return exposure).
+**Architecture:** Four layers, bottom-up: Foundation (cross-instance resources, post-return, reentrance at canon_lift, handle+list wiring) → Pipeline (multi-module Instantiate, wireExports, canon closures) → Tests (spectest runner, unskip all, real .wasm integration) → Public API (type introspection, resource surface, InstancePre, post-return exposure).
 
 **Tech Stack:** Go, WebAssembly Component Model, Canonical ABI (definitions.py), wasmtime C API as public surface reference.
 
@@ -28,6 +28,14 @@
    - Verify each result individually
 
 5. **No guessing from training data.** For any function signature, field name, or type, verify by reading the actual file before referencing it. Code moves. Names change.
+
+6. **Verify function signatures before calling.** The plan provides pseudocode patterns, but actual signatures may differ. Key examples:
+   - `abi.LiftParams` third param is `flat []uint64` (not an iterator)
+   - `abi.LowerResults` has extra `stack []uint64` and `needsRetptr bool` params beyond what the plan shows
+   - `HostModuleExport` function field is named `Func` (type `api.GoModuleFunc`), not `GoFunc`
+   - `canonResourceInfo` fields are lowercase (unexported) — accessed via same-package access
+   - Canon resource constants have a `Kind` infix: `CanonKindResourceNew`, `CanonKindResourceRep`, `CanonKindResourceDrop`
+   Always `grep -rn` for the actual definition before using any function or field.
 
 ---
 
@@ -191,7 +199,8 @@ Modify `internal/component/runtime/component_instance.go`:
 Modify `internal/component/component_linker.go` in the `Instantiate` method:
 - After creating the instance (Step 1 of the 14-step pipeline), create a `ResourceStore` and set it on the instance
 - In `bindResourceTypes`, after minting each `*ResourceType`, also call `store.Register(inst.rt.ID, resourceIdx, rt)`
-- In `processNestedInstances`, pass the same store to nested instances
+- After creating the instance, also call `store.RegisterInstance(inst.rt.ID, inst)` so cross-instance lookups can resolve the wrapper `*Instance`
+- In `processNestedInstances`, pass the same store to nested instances and call `store.RegisterInstance` for each nested instance
 
 - [ ] **Step 8: Run full component test suite**
 
@@ -282,23 +291,43 @@ Expected: FAIL (current code returns error instead of invoking destructor)
 
 - [ ] **Step 6: Implement cross-instance destructor invocation**
 
-Modify `internal/component/instance.go` in `ResourceDrop`:
+**IMPORTANT:** The spec (definitions.py:2154-2160) requires cross-instance destructor invocation to go through a full `canon_lift`/`canon_lower` call, NOT a direct function call. This ensures `may_leave`, reentrance checks, and borrow scope cleanup are enforced on the callee instance. Read the spec lines carefully:
 
-Replace the error at the cross-instance destructor path with:
+```python
+# Spec: definitions.py:2154-2160
+callee_opts = CanonicalOptions(async_ = False)
+ft = FuncType([U32Type()], [])
+callee = partial(canon_lift, callee_opts, rt.impl, ft, rt.dtor)
+[] = canon_lower(caller_opts, ft, callee, thread, [h.rep])
+```
+
+Modify `internal/component/instance.go` in `ResourceDrop`. The cross-instance destructor path must:
+1. Resolve the defining instance from the ResourceStore
+2. Construct a `types.TypeFunc` for the destructor signature: `([u32], [])`
+3. Build a canon_lift closure targeting `rt.Impl` with the destructor core function
+4. Invoke it via the canon_lower path from the calling instance
+5. This reuses `buildCanonLiftFunc` and `buildCanonLowerFunc` from the pipeline (Tasks 7/9)
+
+Since Tasks 7/9 haven't landed yet, the initial implementation can use the `HostDestructor` closure as a temporary bridge (which the linker sets at instantiation time), but it MUST be replaced with the full canon_lift/canon_lower path once the pipeline is complete. Add a TODO with the spec citation:
+
 ```go
 // Cross-instance: invoke destructor on the defining instance.
-// Spec: definitions.py:2154-2160
+// Spec: definitions.py:2154-2160 requires canon_lift/canon_lower path.
+// For host-declared resources, HostDestructor is a Go closure that
+// already enforces host-side semantics. For guest-declared resources,
+// this MUST go through canon_lift/canon_lower once the pipeline lands.
 if rt.HostDestructor != nil {
 	if err := rt.HostDestructor(resEntry.Rep); err != nil {
 		return fmt.Errorf("resource.drop: cross-instance destructor: %w", err)
 	}
 } else if rt.Dtor != nil {
-	// Guest destructor — HostDestructor should have been set at
-	// instantiation time as a closure capturing the core function.
-	// If we reach here, the linker didn't wire it.
-	return fmt.Errorf("resource.drop: guest destructor at core function index %d not wired (HostDestructor is nil)", *rt.Dtor)
+	// TODO(session2-pipeline): replace with canon_lift/canon_lower invocation
+	// per spec definitions.py:2154-2160. Requires buildCanonLiftFunc (Task 7).
+	return fmt.Errorf("resource.drop: guest cross-instance destructor requires canon_lift/canon_lower pipeline (spec definitions.py:2154-2160)")
 }
 ```
+
+The TODO is resolved in Task 10 when the full pipeline is wired.
 
 - [ ] **Step 7: Implement reentrance check for cross-instance no-destructor path**
 
@@ -332,20 +361,35 @@ Modify `internal/component/component_linker.go` in `bindResourceTypes`:
 After minting each `*ResourceType`, if the resource declaration has a destructor core function index (`rt.Dtor != nil`), create a closure that will invoke it once core modules are instantiated:
 
 ```go
-// The closure captures a pointer to the core function that will be
-// resolved after core module instantiation (Step 12). We use a mutable
-// reference so the closure picks up the resolved function.
-var coreFunc api.Function
+// The closure captures a mutable pointer to the core function that will be
+// resolved after core module instantiation (Task 9's memory capture step).
+type dtorRef struct {
+	fn api.Function
+}
+ref := &dtorRef{}
 rt.HostDestructor = func(rep uint32) error {
-	if coreFunc == nil {
+	if ref.fn == nil {
 		return fmt.Errorf("guest destructor not yet resolved (core modules not instantiated)")
 	}
-	_, err := coreFunc.Call(context.Background(), uint64(rep))
+	_, err := ref.fn.Call(context.Background(), uint64(rep))
 	return err
 }
-// Store coreFunc pointer for post-instantiation back-patching.
-// (Add to a list that instantiateCoreModules resolves in Step 12.)
+// Add ref to a list of pending destructor resolutions.
+// Task 9 (post-instantiation memory capture) resolves these by scanning
+// core module exports and matching the destructor core function index
+// from rt.Dtor to the exported function.
+pendingDtors = append(pendingDtors, pendingDtor{rt: rt, ref: ref, coreFuncIdx: *rt.Dtor})
 ```
+
+The `pendingDtors` list must be processed in Task 9's post-instantiation step. Add a `pendingDtor` struct:
+```go
+type pendingDtor struct {
+	rt           *runtime.ResourceType
+	ref          *dtorRef
+	coreFuncIdx  uint32
+}
+```
+In `instantiateCoreModules`, after each core module is instantiated, resolve pending destructors by matching `coreFuncIdx` to the core function index space.
 
 - [ ] **Step 9: Run tests**
 
@@ -420,18 +464,29 @@ func TestLowerBorrowSameInstanceReturnsRep(t *testing.T) {
 
 Note: the exact test setup depends on how `LowerContext` and the types bag are constructed. Read the existing lower_test.go tests for the pattern.
 
-- [ ] **Step 3: Implement the optimization**
+- [ ] **Step 3: Implement the optimization and verify borrow_scope handling**
 
 In `lowerBorrowHandleFlat` (and `lowerBorrowHandleHeap` if it exists), add the same-instance check at the top:
 
 ```go
 // Spec: definitions.py:1645-1647
 // If the calling instance IS the defining instance, return rep directly.
+// No borrow handle is allocated, no borrow_scope tracking needed.
 if ctx.Instance == rt.Impl {
     return []uint64{uint64(rep)}, nil  // for flat path
 }
-// Otherwise, allocate a borrow handle as before.
+
+// Spec: definitions.py:1648-1650
+// Non-same-instance: allocate a borrow handle WITH borrow_scope.
+// h = ResourceHandle(t.rt, rep, own=False, borrow_scope=cx.borrow_scope)
+// h.borrow_scope.num_borrows += 1
+// The borrow_scope comes from the LowerContext's CallContext.
 ```
+
+Also verify that the NON-same-instance path in the existing code correctly:
+1. Creates the handle with `own=false` and sets `BorrowScope` from the context
+2. Increments `BorrowScope.NumBorrows` (or equivalent)
+If either is missing, fix it. Read `runtime/borrow_scope.go` for the increment API.
 
 - [ ] **Step 4: Run tests**
 
@@ -450,96 +505,63 @@ return rep directly without allocating a borrow handle."
 
 ---
 
-### Task 4: may_enter Check at canon_lift Entry
+### Task 4: Reentrance Check at canon_lift Entry
 
-**Purpose:** Enforce the `may_enter` flag that prevents reentrant calls into a component instance during synchronous execution.
+**Purpose:** Enforce the reentrance guard at `canon_lift` entry that prevents recursive calls into a component instance.
 
 **Files:**
-- Modify: `internal/component/runtime/component_instance.go` (add MayEnter field)
 - Modify: `internal/component/component_linker.go` (buildCanonLiftFunc)
 - Test: `internal/component/conformance/reentrance_test.go`
 
-**Spec reference:** `definitions.py:1978-2002` (canon_lift). Read lines 1979-1981 specifically:
-```python
-def canon_lift(opts, inst, ft, core_wasm_func, caller, ...):
-    trap_if(not inst.may_enter)
-    # for sync: inst.may_enter = False
-    # ... invoke core function ...
-    # inst.may_enter = True  (before post-return, per line 1997)
-```
+**Spec reference:** `definitions.py:1978-2002` (canon_lift). **CRITICAL: Read the actual vendored spec file before implementing.** The spec uses `call_might_be_recursive(caller, inst)` at the canon_lift entry point, which is a structural check on the instance ancestry graph (see `definitions.py:290-299`). This is NOT a boolean `may_enter` flag — it is a check that walks the caller's and callee's ancestor chains for overlap.
 
-- [ ] **Step 1: Add MayEnter to ComponentInstance**
+**Before starting:** Read `definitions.py` lines 1978-2002 in full. Search for `may_enter` in the file — if it does not appear, do NOT add a `MayEnter` field. Use whatever mechanism the spec actually uses. The `CallMightBeRecursive` method already exists on `Instance` at `instance.go:457` and implements the reflexive-ancestor walk from `definitions.py:290-299`.
 
-Read `internal/component/runtime/component_instance.go`. Add:
+- [ ] **Step 1: Read the spec and verify the reentrance mechanism**
 
-```go
-// MayEnter tracks whether this instance can be entered via canon.lift.
-// Set to false during synchronous canon.lift execution, restored before
-// post-return. Spec: definitions.py:1979-1981, :1997.
-MayEnter bool
-```
+Read `debug-vendored/component-model/design/mvp/canonical-abi/definitions.py` lines 1978-2002. Identify EXACTLY what check is performed at canon_lift entry. Search for `may_enter` — if it exists, use it. If it doesn't, use whatever the spec actually says.
 
-Initialize to `true` in `NewComponentInstance`.
+Also read lines 290-299 (`call_might_be_recursive`) to understand the structural check.
 
-Add accessor: `func (c *ComponentInstance) IsMayEnter() bool { return c.MayEnter }`
+- [ ] **Step 2: Read the existing CallMightBeRecursive implementation**
 
-- [ ] **Step 2: Write failing test**
+Read `internal/component/instance.go` at `CallMightBeRecursive` (line 457). Verify it matches the spec's `call_might_be_recursive` function.
+
+- [ ] **Step 3: Write failing test**
 
 Add to `internal/component/conformance/reentrance_test.go`:
 
 ```go
-func TestMayEnterBlocksReentrantLift(t *testing.T) {
-	// Spec: definitions.py:1979 — trap_if(not inst.may_enter)
+func TestCanonLiftReentranceCheck(t *testing.T) {
+	// Spec: definitions.py canon_lift entry — the spec's reentrance
+	// check prevents recursive calls into the same component instance.
+	// Verify the check uses the mechanism from the actual spec.
 	inst := component.NewInstance(&component.Component{}, 1, nil)
 
-	// Simulate: instance is in the middle of a synchronous canon.lift
-	inst.Runtime().MayEnter = false
+	// A call from an instance to itself should be detected as recursive
+	require.True(t, inst.CallMightBeRecursive(inst))
 
-	// A second canon.lift should trap
-	err := inst.ValidateMayEnter()
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "may_enter")
-}
-```
-
-- [ ] **Step 3: Add ValidateMayEnter to Instance**
-
-In `internal/component/instance.go`:
-
-```go
-// ValidateMayEnter traps if the instance cannot currently be entered.
-// Spec: definitions.py:1979.
-func (i *Instance) ValidateMayEnter() error {
-	if i == nil || i.rt == nil {
-		return nil
-	}
-	if !i.rt.IsMayEnter() {
-		return errors.New("component instance cannot be entered (may_enter=false)")
-	}
-	return nil
+	// A call from nil caller (host) should not be recursive
+	require.False(t, inst.CallMightBeRecursive(nil))
 }
 ```
 
 - [ ] **Step 4: Wire into buildCanonLiftFunc**
 
-In `internal/component/component_linker.go`, in `buildCanonLiftFunc`, add the may_enter check at the top of the closure and the toggling around the core function call:
+In `internal/component/component_linker.go`, in `buildCanonLiftFunc`, add the reentrance check at the top of the closure. The exact check depends on what the spec says — use the spec, not this plan, as the authority:
 
 ```go
-// At entry:
-if err := inst.ValidateMayEnter(); err != nil {
-    return nil, err
+// At entry: check for reentrance per spec canon_lift entry.
+// The caller is retrieved from context (set by the calling instance).
+caller := GetCallerInstance(ctx)
+if inst.CallMightBeRecursive(caller) {
+    return nil, errReentrance
 }
-// For synchronous calls:
-inst.Runtime().MayEnter = false
-defer func() { inst.Runtime().MayEnter = true }()
-// Note: MayEnter is restored to true BEFORE post-return (spec line 1997).
-// The defer runs after the core function but the post-return handling
-// must explicitly set MayEnter = true before calling post-return.
 ```
 
 - [ ] **Step 5: Run tests**
 
-Run: `go test ./internal/component/conformance/ -run TestMayEnter -v`
+Run: `go test ./internal/component/conformance/ -run TestCanonLift -v`
 Expected: PASS
 
 Run: `go test ./internal/component/... -count=1 2>&1 | tail -10`
@@ -548,11 +570,10 @@ Expected: no new failures
 - [ ] **Step 6: Commit**
 
 ```bash
-git add internal/component/runtime/component_instance.go internal/component/instance.go internal/component/component_linker.go internal/component/conformance/reentrance_test.go
-git commit -m "component: add may_enter check at canon_lift entry
+git commit -m "component: add reentrance check at canon_lift entry
 
-Spec: definitions.py:1979-1981, :1997. Prevents reentrant calls
-into a component instance during synchronous export execution."
+Spec: definitions.py canon_lift entry + call_might_be_recursive at :290-299.
+Uses structural ancestor-chain walk, not a boolean flag."
 ```
 
 ---
@@ -646,7 +667,17 @@ func (f *ExportedFunc) CallAndPostReturn(ctx context.Context, params ...types.Va
 }
 ```
 
-- [ ] **Step 7: Write tests**
+- [ ] **Step 7: Update ComponentFuncWrapper in linker_api.go**
+
+**CRITICAL:** The public API's `ComponentFuncWrapper` (at `internal/component/linker_api.go`, search for `ComponentFuncWrapper`) delegates to `ExportedFunc.Call`. After adding the post-return panic guard, the wrapper MUST call `PostReturn` after each `Call`, or the public API breaks for repeated calls. Find the wrapper's `Call` method and update it to call `CallAndPostReturn` instead of `Call`:
+
+```bash
+grep -rn "ComponentFuncWrapper" internal/component/ --include="*.go"
+```
+
+Read the file, understand the wrapper, and update it.
+
+- [ ] **Step 8: Write tests**
 
 Add tests verifying:
 1. Call + PostReturn works in sequence
@@ -654,7 +685,7 @@ Add tests verifying:
 3. CallAndPostReturn works
 4. PostReturn with no pending post-return is a no-op
 
-- [ ] **Step 8: Run tests and commit**
+- [ ] **Step 9: Run tests and commit**
 
 Run: `go test ./internal/component/... -count=1 2>&1 | tail -10`
 
@@ -759,8 +790,9 @@ The canon.lower closure must:
 5. If spilled: read from memory via the retptr
 6. Invoke the component function from the func index space
 7. Lower results via `abi.LowerResults`
-8. Handle `may_leave` toggling: `inst.MayLeave = false` before realloc, restore after
-9. Return flat core results
+8. At entry: `trap_if(not inst.may_leave)` per spec canon_lower line 2065
+9. The `may_leave` toggle (false→true around realloc) happens INSIDE `lower_flat_values` (spec lines 1954-1973), NOT at the top level of canon_lower. If `abi.LowerParams`/`abi.LowerResults` already handle this internally, do NOT duplicate the toggle. Read the abi/ code to verify.
+10. Return flat core results
 
 Follow the spec line by line. Every branch in the spec's `canon_lower` must have a corresponding code path.
 
@@ -773,7 +805,7 @@ if cli, ok := canonLowers[coreFuncIdx]; ok {
 	fn := l.buildCanonLowerFunc(inst, c, cli)
 	exports = append(exports, HostModuleExport{
 		Name:   exportName,
-		GoFunc: fn,
+		Func: fn, // NOTE: verify field name — was "Func" (type api.GoModuleFunc) at compiled.go:31 as of discovery
 	})
 	continue
 }
@@ -808,21 +840,25 @@ func (l *ComponentLinker) buildCanonResourceFunc(
 	c *Component,
 	cri canonResourceInfo,
 ) api.GoModuleFunction {
-	switch cri.Kind {
-	case CanonResourceNew:
+	// NOTE: verify actual constant names by reading internal/component/component.go.
+	// As of discovery, the constants are CanonKindResourceNew, CanonKindResourceRep,
+	// CanonKindResourceDrop (with "Kind" infix). Field access is cri.kind (lowercase,
+	// same-package). Verify before using.
+	switch cri.kind {
+	case CanonKindResourceNew:
 		// Spec: definitions.py:2134-2138
 		// Core signature: (i32 rep) -> i32 handle
-		return /* closure that calls inst.ResourceNew(cri.ResourceIdx, rep) */
+		return /* closure that calls inst.ResourceNew(cri.typeIdx, rep) */
 
-	case CanonResourceRep:
+	case CanonKindResourceRep:
 		// Spec: definitions.py:2169-2173
 		// Core signature: (i32 handle) -> i32 rep
-		return /* closure that calls inst.ResourceRep(cri.ResourceIdx, handle) */
+		return /* closure that calls inst.ResourceRep(cri.typeIdx, handle) */
 
-	case CanonResourceDrop:
+	case CanonKindResourceDrop:
 		// Spec: definitions.py:2142-2165
 		// Core signature: (i32 handle) -> void
-		return /* closure that calls inst.ResourceDrop(cri.ResourceIdx, handle) */
+		return /* closure that calls inst.ResourceDrop(cri.typeIdx, handle) */
 	}
 }
 ```
@@ -1310,6 +1346,8 @@ Methods on a `ValTypeInfo` wrapper: `Kind()`, `ListElement()`, `RecordFields()`,
 
 Each method reads from the `ComponentTypes` bag using the type index.
 
+**Naming note:** Task 20's `ComponentFunc.Type()` returns `FuncTypeInfo`. Use `FuncTypeInfo` consistently — do not use bare `FuncType` since that's already an alias for `types.TypeFunc` in `api/component/component.go`.
+
 - [ ] **Step 4: Write tests**
 
 - [ ] **Step 5: Commit**
@@ -1362,11 +1400,28 @@ func (r ResourceType) Equal(other ResourceType) bool {
 }
 ```
 
-- [ ] **Step 2: Add resource operations**
+- [ ] **Step 2: Add ResourceHandle public type**
+
+Per the design spec 4B, add a `ResourceHandle` type that covers wasmtime's `resource_any_t` use case:
+
+```go
+// ResourceHandle represents an opaque resource handle (guest or host).
+type ResourceHandle struct {
+	rt    ResourceType
+	owned bool
+	rep   uint32
+}
+
+func (h ResourceHandle) Type() ResourceType { return h.rt }
+func (h ResourceHandle) Owned() bool        { return h.owned }
+func (h ResourceHandle) Rep() uint32        { return h.rep }
+```
+
+- [ ] **Step 3: Add resource operations**
 
 Expose `ResourceNew`, `ResourceRep`, `ResourceDrop` on the public Instance type, and `GetResource` for resolving exported resource types.
 
-- [ ] **Step 3: Test and commit**
+- [ ] **Step 4: Test and commit**
 
 ---
 
@@ -1430,17 +1485,23 @@ go test ./examples/component-... -v
 
 - [ ] **Step 1: Factor out import resolution from Instantiate**
 
-Read `ComponentLinker.Instantiate` and identify the import-resolution + type-checking steps (Steps 1-4 in the 14-step pipeline). Extract these into a helper:
+Read `ComponentLinker.Instantiate` and identify the import-resolution + type-checking steps (Steps 3-4 in the 14-step pipeline). The existing code already uses `resolvedImports` as a local `map[string]Definition` — do NOT create a new struct type. Instead, extract into a helper that returns the same types the existing code uses:
 
 ```go
-type resolvedImports struct {
-	imports         map[string]Definition
-	instanceImports map[uint32]string
-	typeChecker     *TypeChecker
-}
-
-func (l *ComponentLinker) resolveImports(c *Component) (*resolvedImports, error) {
-	// Steps 1-4 from Instantiate
+func (l *ComponentLinker) resolveImports(c *Component) (
+	resolvedImports map[string]Definition,
+	instanceToImport map[uint32]string,
+	tc *TypeChecker,
+	err error,
+) {
+	// Extract Steps 3-4 from Instantiate
+	tc = NewTypeChecker(c)
+	resolvedImports = make(map[string]Definition)
+	instanceToImport = make(map[uint32]string)
+	if err = l.resolveAndCheckImports(c, tc, resolvedImports, instanceToImport); err != nil {
+		return nil, nil, nil, err
+	}
+	return
 }
 ```
 
@@ -1544,7 +1605,23 @@ if !found && l.trapUnknownImports {
 }
 ```
 
-- [ ] **Step 4: Test and commit**
+- [ ] **Step 4: Write test for DefineUnknownImportsAsTraps**
+
+```go
+func TestDefineUnknownImportsAsTraps(t *testing.T) {
+	linker := NewComponentLinker(nil)
+	linker.DefineUnknownImportsAsTraps()
+
+	// Compile a component that imports a function we haven't defined
+	// The instantiation should succeed (unknown import stubbed with trap)
+	// but calling the stubbed function should return an error
+	// containing "trap: import ... not defined"
+}
+```
+
+The exact test depends on having a compiled component with an unsatisfied import. Use one of the existing test components or create a minimal WAT fixture.
+
+- [ ] **Step 5: Commit**
 
 ---
 
