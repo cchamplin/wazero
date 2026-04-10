@@ -1311,13 +1311,51 @@ go test ./internal/component/spectest/ -v -count=1
 
 ### Task 15: Unskip All Tests — Exhaustive Process
 
-**Purpose:** Find and address every remaining `t.Skip` in the component test suite.
+**Purpose:** Find and address every remaining `t.Skip` in the component test suite, AND fix all known implementation defects reported during review.
 
-**Files:** All test files under `internal/component/`
+**Files:** All test files under `internal/component/`, plus production code fixes listed below.
 
-**CRITICAL: This task uses a process, not a target count.**
+**CRITICAL: This task uses a process, not a target count. There are NO acceptable "known defects" in the final state. Everything sync must work correctly — no TODOs, no temporary bridges, no hardcoded workarounds.**
 
-- [ ] **Step 1: Find ALL remaining skips**
+- [ ] **Step 1: Fix safeCall panic wrapper in spectest runner**
+
+The `safeCall` function at `internal/component/spectest/resources_test.go` (around line 418) catches ALL panics including implementation bugs. Replace it with a trap-aware recovery that only catches wazero runtime traps (the wazero engine converts wasm traps to panics with specific error types). Implementation panics (nil dereferences, type assertion failures, etc.) must propagate and crash the test so bugs are visible.
+
+Read `internal/wasmruntime/` to find the trap error types. If wazero uses `sys.ExitError` or similar, only recover those. Everything else should propagate.
+
+- [ ] **Step 2: Eliminate spectest skip list infrastructure**
+
+The spectest runner has 4 hardcoded skip lists that mask failures. After Layers 1-2, many entries should now work. Process EACH list entry-by-entry:
+
+**`isValidationNotYetImplemented`** (around line 839): Contains ~30 validation error strings that cause assert_invalid tests to skip. For EACH entry:
+1. Find a .wast test that triggers this validation
+2. Remove the entry from the list
+3. Run the test
+4. If wazero now catches it: the entry stays removed
+5. If wazero doesn't catch it: implement the validation in the decoder/type-checker, THEN remove the entry
+6. Only re-add the entry if it requires async infrastructure (with a spec citation)
+
+**`isInstantiationPipelineLimitation`** (around line 923): Contains ~15 error patterns for pipeline gaps. Same process — test each entry, remove if fixed, fix if not.
+
+**`isKnownUnsupportedFeature`** (around line 815): Same process.
+
+**`isDecoderLimitation`** (around line 954): Same process.
+
+The goal is to EMPTY all four lists (or reduce to only async-related entries with spec citations). Do not leave entries "just in case."
+
+- [ ] **Step 3: Fix stale Call without PostReturn in test code**
+
+Search ALL test files for `.Call(` invocations that don't have a corresponding `PostReturn` or that should use `CallAndPostReturn`:
+
+```bash
+grep -rn "\.Call(" internal/component/wasip2test/ --include="*_test.go" | grep -v "CallAndPostReturn\|CompileComponent\|CompileModule"
+```
+
+For each result: determine if it's in a test that will be unskipped. If so, update to use `CallAndPostReturn()` or add explicit `PostReturn()` calls. Key known locations:
+- `wasip2test/linking_test.go` lines 153, 298, 555 (inside host function closures)
+- `wasip2test/composition_test.go` (check for similar pattern)
+
+- [ ] **Step 4: Find ALL remaining t.Skip calls**
 
 ```bash
 grep -rn "t\.Skip" internal/component/ --include="*_test.go" | grep -v "testcomponents/" | sort
@@ -1325,7 +1363,7 @@ grep -rn "t\.Skip" internal/component/ --include="*_test.go" | grep -v "testcomp
 
 Save this list. It is the work queue.
 
-- [ ] **Step 2: For EACH skip in the list, follow this process**
+- [ ] **Step 5: For EACH skip in the list, follow this process**
 
 For each line in the grep output:
 
@@ -1347,7 +1385,7 @@ For each line in the grep output:
    t.Skip("async: stream/future/error-context types not implemented (spec definitions.py TypeKindStream/TypeKindFuture/TypeKindErrorContext — deferred, no session scheduled)")
    ```
 
-- [ ] **Step 3: Verify zero unaddressed skips remain**
+- [ ] **Step 6: Verify zero unaddressed skips remain**
 
 After processing every entry:
 
@@ -1355,9 +1393,9 @@ After processing every entry:
 grep -rn "t\.Skip" internal/component/ --include="*_test.go" | grep -v "testcomponents/" | grep -v "async\|stream\|future\|subtask\|error.context"
 ```
 
-This should return ZERO results. If any remain, go back to Step 2 for those entries.
+This should return ZERO results. If any remain, go back to Step 5 for those entries.
 
-- [ ] **Step 4: Count and report final state**
+- [ ] **Step 7: Count and report final state**
 
 ```bash
 echo "Total remaining skips:"
@@ -1366,7 +1404,7 @@ echo "Of which async deferrals:"
 grep -rn "t\.Skip" internal/component/ --include="*_test.go" | grep -v "testcomponents/" | grep -c "async\|stream\|future\|subtask\|error.context"
 ```
 
-- [ ] **Step 5: Run full test suite**
+- [ ] **Step 8: Run full test suite**
 
 ```bash
 go test ./internal/component/... -count=1 -v 2>&1 | grep -E "PASS|FAIL|SKIP" | sort | uniq -c | sort -rn | head -20
@@ -1374,7 +1412,126 @@ go test ./internal/component/... -count=1 -v 2>&1 | grep -E "PASS|FAIL|SKIP" | s
 
 Expected: ZERO failures. Every SKIP has an async spec citation.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 9: Commit**
+
+---
+
+### Task 15a: Fix Remaining Implementation Defects
+
+**Purpose:** Fix implementation defects found during code review that were not addressed in Tasks 1-14. There must be NO known defects, NO TODOs, NO temporary bridges in the final state.
+
+**Files:**
+- Modify: `internal/component/component_linker.go`
+- Modify: `internal/component/instance.go`
+- Regenerate: `internal/component/testdata/echo_record.wasm`
+
+**CRITICAL: Every fix must be verified against the spec or wasmtime. No guessing.**
+
+- [ ] **Step 1: Fix hardcoded "cabi_realloc" in createCanonLowerFunc**
+
+At `component_linker.go:1460`, realloc is resolved by the hardcoded name `"cabi_realloc"` instead of by index through the function space. The spec resolves realloc via the `opts.realloc` index (a core function index from CanonicalOptions).
+
+Compare with the CORRECT pattern at `component_linker.go:659-662` where `buildCanonLiftFunc` uses `resolveCoreFuncViaSpace(inst, *canon.Options.ReallocIdx, funcSpace)`.
+
+The challenge: `createCanonLowerFunc` runs inside a `GoModuleFunc` closure where `funcSpace` is not available. The fix requires the back-patching pattern from Task 9 — capture a mutable reference at closure creation time, resolve after core modules are instantiated.
+
+Read the spec at `definitions.py:2064-2130` (canon_lower) to confirm realloc resolution semantics. Read wasmtime's equivalent in `func.rs` or `func/options.rs` to see how they resolve it.
+
+Implement the fix. The realloc must be resolved by index, not by name.
+
+- [ ] **Step 2: Implement cross-instance guest destructor via canon_lift/canon_lower**
+
+At `instance.go:437-439`, there is a TODO and error return:
+```go
+// TODO(session2-pipeline): replace with canon_lift/canon_lower invocation
+return fmt.Errorf("resource.drop: guest cross-instance destructor requires canon_lift/canon_lower pipeline")
+```
+
+The spec at `definitions.py:2154-2160` requires:
+```python
+callee_opts = CanonicalOptions(async_ = False)
+callee = partial(canon_lift, callee_opts, rt.impl, ft, rt.dtor)
+[] = canon_lower(caller_opts, ft, callee, thread, [h.rep])
+```
+
+The pipeline is now working (Tasks 7-11 done). Implement the full canon_lift/canon_lower path for guest cross-instance destructors. This involves:
+1. Constructing a TypeFunc for the destructor: `([u32], [])`
+2. Building a canon_lift closure targeting `rt.Impl` with the resolved destructor function
+3. Invoking it via the canon_lower path from the calling instance
+4. Enforcing may_leave, reentrance, and borrow scope checks on both sides
+
+Read `createCanonLowerFunc` and `buildCanonLiftFunc` to understand the existing closure patterns. The destructor invocation should reuse these.
+
+Remove the TODO and error return entirely. No TODOs in final state.
+
+- [ ] **Step 3: Thread caller context through destructor and realloc closures**
+
+At `component_linker.go:1093`, the guest destructor closure uses `context.Background()`:
+```go
+_, err := ref.fn.Call(context.Background(), uint64(rep))
+```
+
+At `component_linker.go:1225`, realloc also uses `context.Background()`:
+```go
+res, err := realloc.Call(context.Background(), ...)
+```
+
+Both should use the caller's context. The `GoModuleFunc` closure receives `goCtx context.Context` as its first parameter — thread it through. For the destructor closure, the `HostDestructor` field signature is `func(rep uint32) error` which doesn't accept a context. Either:
+- Change the signature to `func(ctx context.Context, rep uint32) error` and update all callers, OR
+- Have the destructor closure capture the context from a per-call mutable reference
+
+Read wasmtime's approach — check if destructors receive a store/context parameter.
+
+- [ ] **Step 4: Validate and fix test fixtures**
+
+Run `wasm-tools validate` on all `.wasm` test fixtures:
+
+```bash
+for f in internal/component/testdata/*.wasm; do
+    printf "%-40s " "$(basename $f)"
+    wasm-tools validate "$f" 2>&1 && echo "VALID" || true
+done
+```
+
+Known invalid: `echo_record.wasm` fails with "func not valid to be used as export". Read the generator at `internal/component/testdata/gen/gen_echo_record.go`, fix it, and regenerate the `.wasm` file. Validate again.
+
+Also validate wasip2test fixtures:
+```bash
+for f in internal/component/wasip2test/*.wasm; do
+    printf "%-40s " "$(basename $f)"
+    wasm-tools validate "$f" 2>&1 && echo "VALID" || true
+done
+```
+
+Fix any that fail validation.
+
+- [ ] **Step 5: Verify CallContext covers Subtask sync-path in canon_lower**
+
+The spec creates `subtask = Subtask()` at `definitions.py:2069` for canon_lower. After the CallContext/BorrowScope unification (Task 3), `CallContext` should serve this role. Verify that `createCanonLowerFunc` uses `CallContext` as the `borrow_scope` in the `LiftLowerContext`. Specifically check:
+- `createCanonLowerFunc` creates a `CallContext` (not just a bare BorrowScope)
+- The `LiftContext` in the closure has its `CallContext` field set
+- `lift_borrow` (in `abi/lift.go`) uses `ctx.CallContext.AddLender(h)` to track lenders
+
+If any of these are missing, fix them.
+
+- [ ] **Step 6: Run full test suite**
+
+```bash
+go test ./internal/component/... -count=1 2>&1 | tail -20
+```
+
+- [ ] **Step 7: Commit**
+
+```bash
+git commit -m "component: fix remaining implementation defects from code review
+
+- Fix hardcoded cabi_realloc → index-based resolution via funcSpace
+- Implement cross-instance guest destructor via canon_lift/canon_lower
+  (spec definitions.py:2154-2160, removes TODO)
+- Thread caller context through destructor and realloc closures
+- Fix invalid echo_record.wasm test fixture
+- Verify CallContext covers Subtask sync-path in canon_lower"
+```
 
 ---
 
@@ -1424,6 +1581,16 @@ go test ./internal/component/conformance/ -v -count=1
 ```bash
 go test ./internal/component/wasip2test/ -v -count=1 2>&1 | tail -30
 ```
+
+- [ ] **Step 4a: Verify buildCanonLiftFunc is exercised end-to-end**
+
+At least one passing test must exercise the full path: compile real .wasm → instantiate → call exported function via `buildCanonLiftFunc` closure → verify results. The wasip2test components should do this. Verify:
+
+```bash
+go test ./internal/component/wasip2test/ -v -count=1 2>&1 | grep -c "PASS"
+```
+
+If zero wasip2test tests pass through the full instantiation + call path, add a minimal integration test that compiles a real component (e.g., add_s32.wasm), instantiates it, calls an exported function, and verifies the result goes through `buildCanonLiftFunc`.
 
 - [ ] **Step 5: Run the ENTIRE test suite**
 
