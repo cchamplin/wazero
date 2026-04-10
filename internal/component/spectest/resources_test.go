@@ -36,9 +36,11 @@ const resourcesWastPath = "testdata/wasmtime/resources.wast"
 // runnerState tracks stateful context across commands in a wast test suite.
 // The spec test runner maintains the "current instance" (the most recently
 // instantiated component) and a registry of named instances (populated by
-// register commands).
+// register commands). A shared ComponentLinker persists across all commands
+// so that register'd exports are available to future component imports.
 type runnerState struct {
 	rt           wazero.Runtime
+	linker       api.ComponentLinker             // shared across all commands
 	currentInst  api.Component                  // most recently instantiated component
 	currentName  string                         // name of current module (from "name" field), if any
 	registry     map[string]api.Component       // named instances from register commands
@@ -51,8 +53,11 @@ type runnerState struct {
 
 // newRunnerState creates a fresh runner state for a test suite.
 func newRunnerState(rt wazero.Runtime) *runnerState {
+	linker := rt.NewComponentLinker()
+	linker.DefineUnknownImportsAsTraps()
 	return &runnerState{
 		rt:           rt,
+		linker:       linker,
 		registry:     make(map[string]api.Component),
 		compiledDefs: make(map[string]api.CompiledComponent),
 	}
@@ -168,7 +173,7 @@ func runWastSuite(t *testing.T, wastPath string) {
 			// Register current instance under a name for later import/reference
 			stats.register++
 			t.Run(formatTestName("register", cmd.Line, i), func(t *testing.T) {
-				runRegisterTest(t, rs, &cmd)
+				runRegisterTest(t, ctx, rs, &cmd)
 			})
 
 		case "module_instance":
@@ -182,7 +187,7 @@ func runWastSuite(t *testing.T, wastPath string) {
 			// Compile+instantiate, expect link error
 			stats.assertUnlinkable++
 			t.Run(formatTestName("assert_unlinkable", cmd.Line, i), func(t *testing.T) {
-				runAssertUnlinkableTest(t, ctx, rs.rt, suite, &cmd)
+				runAssertUnlinkableTest(t, ctx, rs, suite, &cmd)
 			})
 
 		case "assert_malformed":
@@ -196,7 +201,7 @@ func runWastSuite(t *testing.T, wastPath string) {
 			// Compile+instantiate, expect instantiation error
 			stats.assertUninstantiable++
 			t.Run(formatTestName("assert_uninstantiable", cmd.Line, i), func(t *testing.T) {
-				runAssertUninstantiableTest(t, ctx, rs.rt, suite, &cmd)
+				runAssertUninstantiableTest(t, ctx, rs, suite, &cmd)
 			})
 
 		default:
@@ -269,8 +274,9 @@ func runModuleInstantiateTest(t *testing.T, ctx context.Context, rs *runnerState
 		return
 	}
 
-	// Instantiate the component
-	instance, err := rs.rt.InstantiateComponent(ctx, compiled)
+	// Instantiate the component using the shared linker so registered
+	// imports are available.
+	instance, err := rs.linker.Instantiate(ctx, compiled)
 	if err != nil {
 		compiled.Close(ctx)
 		rs.failedModule = true
@@ -427,7 +433,9 @@ func runAssertTrapTest(t *testing.T, ctx context.Context, rs *runnerState, cmd *
 }
 
 // runRegisterTest registers the current instance under a name for later reference.
-func runRegisterTest(t *testing.T, rs *runnerState, cmd *Command) {
+// It also wires the instance's exports into the shared ComponentLinker so that
+// future components can import from this namespace.
+func runRegisterTest(t *testing.T, ctx context.Context, rs *runnerState, cmd *Command) {
 	if rs.failedModule {
 		t.Errorf("cannot register: prior module failed: %s", rs.failReason)
 		return
@@ -441,7 +449,26 @@ func runRegisterTest(t *testing.T, rs *runnerState, cmd *Command) {
 		return
 	}
 	rs.registry[cmd.As] = rs.currentInst
-	t.Logf("registered current instance as %q at line %d", cmd.As, cmd.Line)
+
+	// Wire exported functions into the shared linker so future components
+	// can import from this namespace.
+	exported := rs.currentInst.ExportedFunctions()
+	if len(exported) > 0 {
+		builder := rs.linker.DefineInstance(cmd.As)
+		for name, fn := range exported {
+			// Capture fn in closure for deferred invocation
+			capturedFn := fn
+			builder.Func(name, func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+				return capturedFn.CallAndPostReturn(ctx, args...)
+			})
+		}
+		builder.SkipValidation()
+		if err := builder.Build(); err != nil {
+			t.Logf("register at line %d: warning: failed to define instance %q on linker: %v", cmd.Line, cmd.As, err)
+		}
+	}
+
+	t.Logf("registered current instance as %q at line %d (exported %d functions)", cmd.As, cmd.Line, len(exported))
 }
 
 // runModuleInstanceTest instantiates a previously compiled module_definition
@@ -472,7 +499,7 @@ func runModuleInstanceTest(t *testing.T, ctx context.Context, rs *runnerState, c
 		return
 	}
 
-	instance, err := rs.rt.InstantiateComponent(ctx, compiled)
+	instance, err := rs.linker.Instantiate(ctx, compiled)
 	if err != nil {
 		rs.failedModule = true
 		rs.failReason = fmt.Sprintf("instantiation failed: %v", err)
@@ -496,7 +523,7 @@ func runModuleInstanceTest(t *testing.T, ctx context.Context, rs *runnerState, c
 // expecting a link error. If compilation itself fails, the assertion passes
 // (the component cannot be linked). If both compile and instantiate succeed,
 // the test fails.
-func runAssertUnlinkableTest(t *testing.T, ctx context.Context, rt wazero.Runtime, suite *WastTestSuite, cmd *Command) {
+func runAssertUnlinkableTest(t *testing.T, ctx context.Context, rs *runnerState, suite *WastTestSuite, cmd *Command) {
 	if cmd.Filename == "" {
 		t.Errorf("no wasm file for assert_unlinkable at line %d", cmd.Line)
 		return
@@ -507,7 +534,7 @@ func runAssertUnlinkableTest(t *testing.T, ctx context.Context, rt wazero.Runtim
 		t.Fatalf("GetWasmBytes(%s): %v", cmd.Filename, err)
 	}
 
-	compiled, err := rt.CompileComponent(ctx, wasmBytes)
+	compiled, err := rs.rt.CompileComponent(ctx, wasmBytes)
 	if err != nil {
 		// Compilation failed — the component can't be linked. Assertion satisfied.
 		t.Logf("assert_unlinkable at line %d: compilation failed (acceptable): %v", cmd.Line, err)
@@ -515,7 +542,7 @@ func runAssertUnlinkableTest(t *testing.T, ctx context.Context, rt wazero.Runtim
 	}
 
 	// Compilation succeeded — try to instantiate; expect failure.
-	instance, err := rt.InstantiateComponent(ctx, compiled)
+	instance, err := rs.linker.Instantiate(ctx, compiled)
 	compiled.Close(ctx)
 	if err != nil {
 		// Instantiation failed as expected.
@@ -578,7 +605,7 @@ func runAssertMalformedTest(t *testing.T, ctx context.Context, rt wazero.Runtime
 // runAssertUninstantiableTest compiles and instantiates a component, expecting
 // the instantiation to fail (e.g., a trap during the start function).
 // If compilation fails, that's also acceptable. If both succeed, the test fails.
-func runAssertUninstantiableTest(t *testing.T, ctx context.Context, rt wazero.Runtime, suite *WastTestSuite, cmd *Command) {
+func runAssertUninstantiableTest(t *testing.T, ctx context.Context, rs *runnerState, suite *WastTestSuite, cmd *Command) {
 	if cmd.Filename == "" {
 		t.Errorf("no wasm file for assert_uninstantiable at line %d", cmd.Line)
 		return
@@ -589,7 +616,7 @@ func runAssertUninstantiableTest(t *testing.T, ctx context.Context, rt wazero.Ru
 		t.Fatalf("GetWasmBytes(%s): %v", cmd.Filename, err)
 	}
 
-	compiled, err := rt.CompileComponent(ctx, wasmBytes)
+	compiled, err := rs.rt.CompileComponent(ctx, wasmBytes)
 	if err != nil {
 		// Compilation failed — the component can't be instantiated. Assertion satisfied.
 		t.Logf("assert_uninstantiable at line %d: compilation failed (acceptable): %v", cmd.Line, err)
@@ -597,7 +624,7 @@ func runAssertUninstantiableTest(t *testing.T, ctx context.Context, rt wazero.Ru
 	}
 
 	// Compilation succeeded — try to instantiate; expect failure.
-	instance, err := rt.InstantiateComponent(ctx, compiled)
+	instance, err := rs.linker.Instantiate(ctx, compiled)
 	compiled.Close(ctx)
 	if err != nil {
 		// Instantiation failed as expected.

@@ -595,6 +595,11 @@ func (l *ComponentLinker) wireExports(
 			// They participate in nested instantiation via the component
 			// index space. No runtime wiring needed.
 
+		case ExportKindModule, ExportKindCoreInstance, ExportKindTag:
+			// Core-sort exports (module, core instance, tag) participate
+			// in nested instantiation and aliasing but do not need
+			// runtime wiring for function calls.
+
 		default:
 			return fmt.Errorf("export %q: export kind %v not yet wired", exp.Name, exp.Kind)
 		}
@@ -951,13 +956,68 @@ func (l *ComponentLinker) populateValueImports(inst *Instance, c *Component, res
 }
 
 // alignInstanceImports ensures inst.instanceSpace has a slot for every
-// instance import. The slot is populated by a later wiring step.
+// instance import. The slot is populated by populateInstanceImports.
 func (l *ComponentLinker) alignInstanceImports(inst *Instance, c *Component) {
 	for i := range c.Imports {
 		if c.Imports[i].ExternDesc.Kind != ImportExternDescInstance {
 			continue
 		}
 		inst.instanceSpace = append(inst.instanceSpace, nil)
+	}
+}
+
+// populateInstanceImports fills inst.instanceSpace slots (created by
+// alignInstanceImports) with synthetic Instance objects built from the
+// resolved InstanceDef imports. This bridges the gap between import
+// resolution (step 4) and nested instantiation (step 9), which reads
+// parent.instanceSpace via resolveFromParentScope.
+//
+// instanceToImport maps instance-space index → import name.
+// resolvedImports maps import name → Definition (an *InstanceDef for instances).
+func (l *ComponentLinker) populateInstanceImports(
+	inst *Instance,
+	resolvedImports map[string]Definition,
+	instanceToImport map[uint32]string,
+) {
+	for idx, importName := range instanceToImport {
+		def, ok := resolvedImports[importName]
+		if !ok {
+			continue
+		}
+		instDef, ok := def.(*InstanceDef)
+		if !ok {
+			continue
+		}
+		// Create a synthetic Instance to hold the imported instance's exports.
+		// This mirrors wireInlineInstanceExports in nested_component.go.
+		synth := newInstance(&Component{}, l.nextInstanceID(), inst)
+		for name, d := range instDef.Exports {
+			switch fd := d.(type) {
+			case *FuncDef:
+				synth.exports[name] = &ExportedFunc{
+					name:     name,
+					funcType: fd.Type,
+					impl:     fd.Callback,
+				}
+			case *InstanceDef:
+				// Nested instance export: create a child synthetic instance
+				// and register it as an exported instance.
+				child := newInstance(&Component{}, l.nextInstanceID(), synth)
+				for childName, childDef := range fd.Exports {
+					if cfd, ok := childDef.(*FuncDef); ok {
+						child.exports[childName] = &ExportedFunc{
+							name:     childName,
+							funcType: cfd.Type,
+							impl:     cfd.Callback,
+						}
+					}
+				}
+				synth.AddExportedInstance(name, child)
+			}
+		}
+		if idx < uint32(len(inst.instanceSpace)) {
+			inst.instanceSpace[idx] = synth
+		}
 	}
 }
 
