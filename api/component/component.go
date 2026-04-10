@@ -127,9 +127,117 @@ type ResourceTable = runtime.Table
 // NewResourceTable creates an empty resource table.
 var NewResourceTable = runtime.NewTable
 
+// Handle is a 64-bit resource handle: upper 32 bits = generation, lower 32 = index.
+// Generation counting prevents use-after-free when slots are reused.
+type Handle = runtime.Handle
+
+// MakeHandle constructs a handle from an index and generation.
+var MakeHandle = runtime.MakeHandle
+
 // WithResourceTable returns a new context with the given ResourceTable stored.
 // The table can later be retrieved using ResourceTableFromContext on the
 // internal side, or passed to component functions via the context.
 func WithResourceTable(ctx context.Context, table *ResourceTable) context.Context {
 	return internalcomponent.WithResourceTable(ctx, table)
+}
+
+// ResourceType identifies a resource type with pointer identity.
+// Two ResourceTypes are equal iff they refer to the same underlying
+// resource declaration from the same component instantiation.
+//
+// Spec: definitions.py:351-361.
+type ResourceType struct {
+	inner *runtime.ResourceType
+}
+
+// Equal reports whether r and other refer to the same underlying resource
+// type declaration from the same component instantiation. Equality is
+// pointer identity per the spec's `is` check (definitions.py:1345).
+func (r ResourceType) Equal(other ResourceType) bool {
+	return r.inner == other.inner
+}
+
+// Inner returns the underlying internal *runtime.ResourceType.
+// This is intended for use by internal packages that need the raw pointer.
+func (r ResourceType) Inner() *runtime.ResourceType {
+	return r.inner
+}
+
+// NewResourceType wraps an internal *runtime.ResourceType for public use.
+func NewResourceType(rt *runtime.ResourceType) ResourceType {
+	return ResourceType{inner: rt}
+}
+
+// ResourceHandle is a read-only public view of a resource handle entry.
+// It wraps an internal ResourceHandleEntry without duplicating fields.
+type ResourceHandle struct {
+	inner *runtime.ResourceHandleEntry
+}
+
+// Type returns the ResourceType that this handle belongs to.
+func (h ResourceHandle) Type() ResourceType {
+	return ResourceType{inner: h.inner.RT}
+}
+
+// Owned reports whether this is an owning handle (true) or a borrow (false).
+func (h ResourceHandle) Owned() bool {
+	return h.inner.Own
+}
+
+// Rep returns the underlying representation value (uint32) for this handle.
+func (h ResourceHandle) Rep() uint32 {
+	return h.inner.Rep
+}
+
+// NumLends returns the number of active borrows from this handle.
+func (h ResourceHandle) NumLends() uint32 {
+	return h.inner.NumLends
+}
+
+// NewResourceHandle wraps an internal *runtime.ResourceHandleEntry for public use.
+func NewResourceHandle(entry *runtime.ResourceHandleEntry) ResourceHandle {
+	return ResourceHandle{inner: entry}
+}
+
+// ResourceNew creates a new owning resource handle in the given table for the
+// specified resource type and representation value. It returns the Handle
+// that can be used to retrieve, lend, or drop the resource.
+//
+// This mirrors canon resource.new (CanonicalABI.md:3604-3609).
+func ResourceNew(table *ResourceTable, rt ResourceType, rep uint32) (Handle, error) {
+	return table.NewResourceHandle(rep, true, rt.inner)
+}
+
+// ResourceRep retrieves the representation value (uint32) for the given
+// handle. Returns an error if the handle is invalid.
+//
+// This mirrors canon resource.rep (CanonicalABI.md:3610-3615).
+func ResourceRep(table *ResourceTable, h Handle) (uint32, error) {
+	return table.Rep(h)
+}
+
+// ResourceDrop removes a resource handle from the table and returns the
+// entry. For owned handles with active borrows, this returns an error.
+//
+// The caller is responsible for invoking the destructor (if any) on owned
+// handles and for decrementing borrow counts on borrowed handles.
+//
+// This mirrors canon resource.drop (CanonicalABI.md:3634-3646).
+func ResourceDrop(table *ResourceTable, h Handle) (ResourceHandle, error) {
+	entry, err := table.Remove(h)
+	if err != nil {
+		return ResourceHandle{}, err
+	}
+	return ResourceHandle{inner: entry}, nil
+}
+
+// ResourceGet retrieves the resource handle entry for the given handle
+// without removing it from the table. Returns an error if the handle is
+// invalid or does not refer to a resource entry.
+func ResourceGet(table *ResourceTable, h Handle) (ResourceHandle, error) {
+	entry, err := table.GetResourceHandle(h)
+	if err != nil {
+		return ResourceHandle{}, err
+	}
+	return ResourceHandle{inner: entry}, nil
 }
