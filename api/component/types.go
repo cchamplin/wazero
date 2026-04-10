@@ -212,7 +212,7 @@ func (v ValTypeInfo) VariantCases() []Case {
 // TypeKindEnum.
 func (v ValTypeInfo) EnumCases() []string {
 	enum := &v.types.Enums[v.inner.Index]
-	return enum.Names
+	return append([]string(nil), enum.Names...)
 }
 
 // OptionSome returns the "some" element type of an option type. Panics if
@@ -248,5 +248,5 @@ func (v ValTypeInfo) ResultErr() *ValTypeInfo {
 // TypeKindFlags.
 func (v ValTypeInfo) FlagsNames() []string {
 	flags := &v.types.Flags[v.inner.Index]
-	return flags.Names
+	return append([]string(nil), flags.Names...)
 }
