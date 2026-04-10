@@ -199,6 +199,11 @@ type ComponentFuncWrapper struct {
 }
 
 // Call invokes the function with the given arguments.
+//
+// Uses CallAndPostReturn so the public api.ComponentFunc interface
+// provides single-shot semantics. Callers that need the two-phase
+// protocol should use ExportedFunc.Call + ExportedFunc.PostReturn
+// directly.
 func (f *ComponentFuncWrapper) Call(ctx context.Context, params ...any) ([]any, error) {
 	// Convert params to Val
 	vals := make([]types.Val, len(params))
@@ -206,7 +211,7 @@ func (f *ComponentFuncWrapper) Call(ctx context.Context, params ...any) ([]any, 
 		vals[i] = anyToVal(p)
 	}
 
-	results, err := f.fn.Call(ctx, vals...)
+	results, err := f.fn.CallAndPostReturn(ctx, vals...)
 	if err != nil {
 		return nil, err
 	}

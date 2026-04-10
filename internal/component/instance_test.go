@@ -14,7 +14,9 @@
 package component
 
 import (
+	"context"
 	"encoding/binary"
+	"fmt"
 	"math"
 	"testing"
 
@@ -1130,4 +1132,284 @@ func TestInstanceCallMightBeRecursiveUsesReentranceTracker(t *testing.T) {
 	a.EnterCall()
 	defer a.ExitCall()
 	require.True(t, a.CallMightBeRecursive(a))
+}
+
+// --- Task 5: Two-phase post-return protocol tests ---------------------------
+//
+// These test the ExportedFunc.Call / PostReturn / CallAndPostReturn surface
+// matching the spec's two-phase canon_lift protocol (definitions.py:1999-2002)
+// and the wasmtime C API (func_call + func_post_return).
+
+// TestExportedFunc_TwoPhase_BasicProtocol asserts that for a canon.lift
+// export with a post-return function, Call returns results without running
+// post-return, and PostReturn completes the cleanup.
+//
+// Spec: definitions.py:1999-2002 — post_return invocation after results
+// are available.
+func TestExportedFunc_TwoPhase_BasicProtocol(t *testing.T) {
+	postReturnCalled := false
+	prRef := &postReturnState{}
+	ef := &ExportedFunc{
+		name:     "test-func",
+		funcType: &types.TypeFunc{},
+		prRef:    prRef,
+		impl: func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+			// Simulate what buildCanonLiftFunc does: set the post-return
+			// closure on the shared ref and mark needsPostReturn.
+			prRef.needsPostReturn = true
+			prRef.fn = func(ctx context.Context) error {
+				postReturnCalled = true
+				return nil
+			}
+			return []types.Val{types.ValU32(42)}, nil
+		},
+	}
+
+	ctx := context.Background()
+
+	// Phase 1: Call returns results.
+	results, err := ef.Call(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+	require.Equal(t, uint32(42), results[0].U32())
+
+	// Post-return has NOT been called yet.
+	require.False(t, postReturnCalled)
+	require.True(t, ef.NeedsPostReturn())
+
+	// Phase 2: PostReturn runs the deferred cleanup.
+	err = ef.PostReturn(ctx)
+	require.NoError(t, err)
+	require.True(t, postReturnCalled)
+	require.False(t, ef.NeedsPostReturn())
+}
+
+// TestExportedFunc_CallAndPostReturn asserts that CallAndPostReturn is
+// equivalent to Call + PostReturn in sequence.
+//
+// Spec: convenience API matching wasmtime's combined call path.
+func TestExportedFunc_CallAndPostReturn(t *testing.T) {
+	postReturnCalled := false
+	prRef := &postReturnState{}
+	ef := &ExportedFunc{
+		name:     "test-func",
+		funcType: &types.TypeFunc{},
+		prRef:    prRef,
+		impl: func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+			prRef.needsPostReturn = true
+			prRef.fn = func(ctx context.Context) error {
+				postReturnCalled = true
+				return nil
+			}
+			return []types.Val{types.ValS32(7)}, nil
+		},
+	}
+
+	ctx := context.Background()
+	results, err := ef.CallAndPostReturn(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+	require.Equal(t, int32(7), results[0].S32())
+	require.True(t, postReturnCalled)
+	require.False(t, ef.NeedsPostReturn())
+}
+
+// TestExportedFunc_TwoPhase_PanicOnReentry asserts that calling Call
+// while PostReturn is pending panics.
+//
+// Spec: definitions.py:1999-2002 — cannot re-enter until post-return
+// completes.
+func TestExportedFunc_TwoPhase_PanicOnReentry(t *testing.T) {
+	prRef := &postReturnState{}
+	ef := &ExportedFunc{
+		name:     "test-func",
+		funcType: &types.TypeFunc{},
+		prRef:    prRef,
+		impl: func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+			prRef.needsPostReturn = true
+			prRef.fn = func(ctx context.Context) error { return nil }
+			return nil, nil
+		},
+	}
+
+	ctx := context.Background()
+
+	// First call succeeds.
+	_, err := ef.Call(ctx)
+	require.NoError(t, err)
+
+	// Second call without PostReturn panics.
+	defer func() {
+		r := recover()
+		require.NotNil(t, r)
+		msg, ok := r.(string)
+		require.True(t, ok)
+		require.Contains(t, msg, "PostReturn must be called before calling again")
+	}()
+	_, _ = ef.Call(ctx)
+	t.Fatal("should have panicked")
+}
+
+// TestExportedFunc_PostReturn_NilReceiver asserts that PostReturn on a
+// nil ExportedFunc returns an error rather than panicking.
+func TestExportedFunc_PostReturn_NilReceiver(t *testing.T) {
+	var ef *ExportedFunc
+	err := ef.PostReturn(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "nil receiver")
+}
+
+// TestExportedFunc_PostReturn_NoPrRef asserts that PostReturn is a no-op
+// for non-canon.lift exports (prRef is nil).
+func TestExportedFunc_PostReturn_NoPrRef(t *testing.T) {
+	ef := &ExportedFunc{
+		name:     "imported-func",
+		funcType: &types.TypeFunc{},
+		impl: func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+			return nil, nil
+		},
+	}
+
+	ctx := context.Background()
+
+	// Call succeeds.
+	_, err := ef.Call(ctx)
+	require.NoError(t, err)
+
+	// PostReturn is a no-op (prRef is nil).
+	err = ef.PostReturn(ctx)
+	require.NoError(t, err)
+	require.False(t, ef.NeedsPostReturn())
+}
+
+// TestExportedFunc_PostReturn_Idempotent asserts that calling PostReturn
+// twice is safe — the second call is a no-op.
+func TestExportedFunc_PostReturn_Idempotent(t *testing.T) {
+	callCount := 0
+	prRef := &postReturnState{}
+	ef := &ExportedFunc{
+		name:     "test-func",
+		funcType: &types.TypeFunc{},
+		prRef:    prRef,
+		impl: func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+			prRef.needsPostReturn = true
+			prRef.fn = func(ctx context.Context) error {
+				callCount++
+				return nil
+			}
+			return nil, nil
+		},
+	}
+
+	ctx := context.Background()
+	_, err := ef.Call(ctx)
+	require.NoError(t, err)
+
+	// First PostReturn runs the closure.
+	err = ef.PostReturn(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 1, callCount)
+
+	// Second PostReturn is a no-op.
+	err = ef.PostReturn(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 1, callCount)
+}
+
+// TestExportedFunc_NeedsPostReturn_NilReceiver asserts NeedsPostReturn
+// returns false for nil receiver.
+func TestExportedFunc_NeedsPostReturn_NilReceiver(t *testing.T) {
+	var ef *ExportedFunc
+	require.False(t, ef.NeedsPostReturn())
+}
+
+// TestExportedFunc_TwoPhase_MultipleCallCycles asserts that Call /
+// PostReturn can be invoked multiple times in sequence.
+func TestExportedFunc_TwoPhase_MultipleCallCycles(t *testing.T) {
+	callCount := 0
+	postReturnCount := 0
+	prRef := &postReturnState{}
+	ef := &ExportedFunc{
+		name:     "test-func",
+		funcType: &types.TypeFunc{},
+		prRef:    prRef,
+		impl: func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+			callCount++
+			prRef.needsPostReturn = true
+			prRef.fn = func(ctx context.Context) error {
+				postReturnCount++
+				return nil
+			}
+			return []types.Val{types.ValU32(uint32(callCount))}, nil
+		},
+	}
+
+	ctx := context.Background()
+
+	for i := 1; i <= 3; i++ {
+		results, err := ef.Call(ctx)
+		require.NoError(t, err)
+		require.Equal(t, uint32(i), results[0].U32())
+
+		err = ef.PostReturn(ctx)
+		require.NoError(t, err)
+	}
+
+	require.Equal(t, 3, callCount)
+	require.Equal(t, 3, postReturnCount)
+}
+
+// TestExportedFunc_CallAndPostReturn_CallError asserts that when Call
+// fails, CallAndPostReturn still runs PostReturn for cleanup.
+func TestExportedFunc_CallAndPostReturn_CallError(t *testing.T) {
+	postReturnCalled := false
+	prRef := &postReturnState{}
+	ef := &ExportedFunc{
+		name:     "test-func",
+		funcType: &types.TypeFunc{},
+		prRef:    prRef,
+		impl: func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+			// Simulate: set needsPostReturn then error.
+			prRef.needsPostReturn = true
+			prRef.fn = func(ctx context.Context) error {
+				postReturnCalled = true
+				return nil
+			}
+			return nil, fmt.Errorf("core call failed")
+		},
+	}
+
+	ctx := context.Background()
+	_, err := ef.CallAndPostReturn(ctx)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "core call failed")
+	// PostReturn should have been called for cleanup.
+	require.True(t, postReturnCalled)
+	require.False(t, ef.NeedsPostReturn())
+}
+
+// TestExportedFunc_CallAndPostReturn_PostReturnError asserts that when
+// PostReturn fails, the error is returned along with the results.
+func TestExportedFunc_CallAndPostReturn_PostReturnError(t *testing.T) {
+	prRef := &postReturnState{}
+	ef := &ExportedFunc{
+		name:     "test-func",
+		funcType: &types.TypeFunc{},
+		prRef:    prRef,
+		impl: func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+			prRef.needsPostReturn = true
+			prRef.fn = func(ctx context.Context) error {
+				return fmt.Errorf("post-return failed")
+			}
+			return []types.Val{types.ValU32(99)}, nil
+		},
+	}
+
+	ctx := context.Background()
+	results, err := ef.CallAndPostReturn(ctx)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "post-return failed")
+	// Results are still returned even when post-return fails.
+	require.Equal(t, 1, len(results))
+	require.Equal(t, uint32(99), results[0].U32())
 }

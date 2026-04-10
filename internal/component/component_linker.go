@@ -670,13 +670,14 @@ func (l *ComponentLinker) wireExportedFunc(
 				return nil, fmt.Errorf("canon.lift type idx %d did not resolve to a func type", canon.TypeIdx)
 			}
 			ft := td.FuncType(c)
-			impl := l.buildCanonLiftFunc(inst, canon, coreFn, ft, memory, realloc, postReturn)
+			impl, prRef := l.buildCanonLiftFunc(inst, canon, coreFn, ft, memory, realloc, postReturn)
 			return &ExportedFunc{
 				name:      exp.Name,
 				funcType:  ft,
 				component: c,
 				instance:  inst,
 				impl:      impl,
+				prRef:     prRef,
 			}, nil
 		}
 	}
@@ -1214,6 +1215,10 @@ func unpackTupleElems(bag *types.ComponentTypes, v types.ValType) []types.ValTyp
 // component function. Mirrors spec canon_lift at definitions.py:1978-2040
 // for synchronous calls.
 //
+// The returned HostFunc implements the first phase (Call): lower params,
+// invoke the core function, lift results. The post-return phase is
+// deferred to ExportedFunc.PostReturn via the shared *postReturnState.
+//
 // Spec step mapping:
 //   :1979       trap_if(call_might_be_recursive) — via
 //               inst.rt.Reentrance.CallMightBeRecursive. The structural
@@ -1230,11 +1235,14 @@ func unpackTupleElems(bag *types.ComponentTypes, v types.ValType) []types.ValTyp
 //               may_leave around the aggregate (lower.go:729).
 //   :1995       callee core-function invocation.
 //   :1997       lift_flat_values on the core results — abi.LiftResults.
-//   :2000-2002  post_return with may_leave toggled off for the duration.
-//   :738-742    deliver_resolve — close the borrow scope.
+//   :2000-2002  post_return with may_leave toggled off for the duration
+//               — DEFERRED to PostReturn via postReturnState.
+//   :738-742    deliver_resolve — close the borrow scope — DEFERRED to
+//               PostReturn (callCtx.Release moved there).
 //
 // Wasmtime parallel: runtime/component/func.rs Func::call / call_raw
-// (lines 232-706).
+// (lines 232-706). The two-phase split mirrors wasmtime's
+// func_call + func_post_return C API.
 func (l *ComponentLinker) buildCanonLiftFunc(
 	inst *Instance,
 	canon *CanonicalDef,
@@ -1243,12 +1251,14 @@ func (l *ComponentLinker) buildCanonLiftFunc(
 	memory api.Memory,
 	realloc api.Function,
 	postReturn api.Function,
-) HostFunc {
+) (HostFunc, *postReturnState) {
 	opts := buildAbiOptions(canon)
 	paramElems := unpackTupleElems(inst.component.Types, funcType.Params)
 	resultElems := unpackTupleElems(inst.component.Types, funcType.Results)
 
-	return func(goCtx context.Context, fnType *types.TypeFunc, args []types.Val) (results []types.Val, retErr error) {
+	prRef := &postReturnState{}
+
+	hostFunc := func(goCtx context.Context, fnType *types.TypeFunc, args []types.Val) (results []types.Val, retErr error) {
 		_ = fnType // captured via funcType at construction time
 		// Check 1: needs_post_return guard (wasmtime may_enter)
 		// Wasmtime: concurrent_disabled.rs:159-169
@@ -1260,16 +1270,11 @@ func (l *ComponentLinker) buildCanonLiftFunc(
 			return nil, errReentrance
 		}
 		inst.rt.Reentrance.EnterInstance(inst.rt.ID)
-		defer inst.rt.Reentrance.LeaveInstance(inst.rt.ID)
 
 		callCtx := runtime.NewCallContext(inst.rt.Table)
-		// C8-b review item 1: always release call context on exit,
-		// including error paths. :738-742 deliver_resolve.
-		defer func() {
-			if rerr := callCtx.Release(); rerr != nil && retErr == nil {
-				retErr = fmt.Errorf("canon.lift: release call context: %w", rerr)
-			}
-		}()
+		// NOTE: callCtx.Release() is NOT deferred here — it is moved
+		// to the post-return closure so the borrow scope survives until
+		// PostReturn is called. On error paths we release immediately.
 
 		lowerCtx := &abi.LowerContext{
 			Memory:      memory,
@@ -1286,6 +1291,8 @@ func (l *ComponentLinker) buildCanonLiftFunc(
 		flatArgs, err := abi.LowerParams(lowerCtx, paramElems, args, abi.MaxFlatParams)
 		inst.rt.MayLeave = prevMayLeave
 		if err != nil {
+			inst.rt.Reentrance.LeaveInstance(inst.rt.ID)
+			_ = callCtx.Release()
 			return nil, fmt.Errorf("canon.lift: lower params: %w", err)
 		}
 
@@ -1293,7 +1300,7 @@ func (l *ComponentLinker) buildCanonLiftFunc(
 		// Wasmtime: func.rs:970 — set_needs_post_return(true) is placed
 		// after lowering params and before entering wasm, so that the
 		// may_enter guard blocks re-entry during the entire execution
-		// window (core call → lift → post-return).
+		// window (core call -> lift -> post-return).
 		inst.rt.NeedsPostReturn = true
 
 		// :1995 callee invocation.
@@ -1302,6 +1309,8 @@ func (l *ComponentLinker) buildCanonLiftFunc(
 			flatResults, err = coreFunc.Call(goCtx, flatArgs...)
 			if err != nil {
 				inst.rt.NeedsPostReturn = false
+				inst.rt.Reentrance.LeaveInstance(inst.rt.ID)
+				_ = callCtx.Release()
 				return nil, fmt.Errorf("canon.lift: core call: %w", err)
 			}
 		}
@@ -1317,27 +1326,48 @@ func (l *ComponentLinker) buildCanonLiftFunc(
 		liftedResults, err := abi.LiftResults(liftCtx, resultElems, flatResults, abi.MaxFlatResults)
 		if err != nil {
 			inst.rt.NeedsPostReturn = false
+			inst.rt.Reentrance.LeaveInstance(inst.rt.ID)
+			_ = callCtx.Release()
 			return nil, fmt.Errorf("canon.lift: lift results: %w", err)
 		}
 		results = liftedResults
 
-		// :2000-2002 post_return with may_leave toggled off.
-		if postReturn != nil {
-			inst.rt.MayLeave = false
-			_, perr := postReturn.Call(goCtx, flatResults...)
-			inst.rt.MayLeave = prevMayLeave
-			if perr != nil {
-				inst.rt.NeedsPostReturn = false
-				return nil, fmt.Errorf("canon.lift: post_return: %w", perr)
+		// Store the post-return closure on the shared ref. PostReturn
+		// will invoke this, then release the call context and reentrance.
+		//
+		// The closure captures: flatResults, postReturn (core func),
+		// inst, callCtx, prevMayLeave for the deferred cleanup.
+		prRef.needsPostReturn = true
+		prRef.fn = func(ctx context.Context) error {
+			var postReturnErr error
+
+			// :2000-2002 post_return with may_leave toggled off.
+			if postReturn != nil {
+				inst.rt.MayLeave = false
+				_, perr := postReturn.Call(ctx, flatResults...)
+				inst.rt.MayLeave = prevMayLeave
+				if perr != nil {
+					postReturnErr = fmt.Errorf("canon.lift: post_return: %w", perr)
+				}
 			}
+
+			// Post-return complete (or absent); instance is re-enterable.
+			inst.rt.NeedsPostReturn = false
+
+			// :738-742 deliver_resolve — close the borrow scope.
+			inst.rt.Reentrance.LeaveInstance(inst.rt.ID)
+			if rerr := callCtx.Release(); rerr != nil {
+				if postReturnErr == nil {
+					postReturnErr = fmt.Errorf("canon.lift: release call context: %w", rerr)
+				}
+			}
+			return postReturnErr
 		}
 
-		// Post-return complete (or absent); instance is re-enterable.
-		inst.rt.NeedsPostReturn = false
-
-		// :738-742 deliver_resolve is handled by the deferred borrow release.
 		return results, nil
 	}
+
+	return hostFunc, prRef
 }
 
 // createCanonLowerFunc produces an api.GoModuleFunc implementing a

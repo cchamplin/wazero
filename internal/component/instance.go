@@ -152,6 +152,19 @@ func (i *Instance) ExportedFunction(name string) *ExportedFunc {
 	return i.exports[name]
 }
 
+// postReturnState is a shared mutable reference between the HostFunc
+// closure built by buildCanonLiftFunc and the ExportedFunc that wraps
+// it. The closure writes the post-return function after each Call;
+// ExportedFunc.PostReturn reads and invokes it.
+//
+// This indirection exists because buildCanonLiftFunc creates the
+// closure before the ExportedFunc is constructed by wireExportedFunc,
+// so the closure cannot capture the ExportedFunc pointer directly.
+type postReturnState struct {
+	fn              func(ctx context.Context) error
+	needsPostReturn bool
+}
+
 // ExportedFunc represents an exported component function.
 //
 // C8-b Option A: the wrapper carries a HostFunc closure (`impl`) built
@@ -163,12 +176,23 @@ func (i *Instance) ExportedFunction(name string) *ExportedFunc {
 // The legacy linker-time fields (coreFunc, canonical, memory,
 // reallocFunc, postReturnFunc) were removed: every call-site that
 // touched them has been migrated to the closure.
+//
+// Two-phase post-return protocol (Task 5):
+// For canon.lift exports, Call returns results without running the
+// post-return function. The caller must invoke PostReturn before
+// calling again. CallAndPostReturn is the convenience single-shot API.
+// For imported-function re-exports, prRef is nil and PostReturn is a
+// no-op.
 type ExportedFunc struct {
 	name      string
 	funcType  *types.TypeFunc
 	component *Component
 	instance  *Instance
 	impl      HostFunc
+
+	// prRef is the shared post-return state written by the HostFunc
+	// closure and read by PostReturn. Nil for non-canon.lift exports.
+	prRef *postReturnState
 }
 
 // Name returns the export name of this function.
@@ -177,6 +201,14 @@ func (f *ExportedFunc) Name() string {
 }
 
 // Call invokes the exported function with the given arguments.
+//
+// For canon.lift exports (prRef != nil), Call returns the lifted
+// results WITHOUT running the post-return function. The caller MUST
+// invoke PostReturn before calling again; calling Call while a
+// post-return is pending panics per spec definitions.py:1999-2002.
+//
+// For imported-function re-exports (prRef == nil), Call behaves as
+// a single-shot invocation with no post-return phase.
 //
 // C8-b: delegates to the per-export HostFunc closure populated by
 // wireExports. For canon.lift exports this is the closure built by
@@ -190,7 +222,67 @@ func (f *ExportedFunc) Call(ctx context.Context, params ...types.Val) ([]types.V
 	if f.impl == nil {
 		return nil, fmt.Errorf("ExportedFunc.Call: %q has no impl (wireExports did not populate it)", f.name)
 	}
+	// Spec: definitions.py:1999-2002 — cannot re-enter while post-return
+	// is pending. This is a programming error (not a runtime trap) so we
+	// panic rather than returning an error.
+	if f.prRef != nil && f.prRef.needsPostReturn {
+		panic("ExportedFunc.Call: PostReturn must be called before calling again (spec: definitions.py:1999-2002)")
+	}
 	return f.impl(ctx, f.funcType, params)
+}
+
+// PostReturn runs the deferred post-return phase for a prior Call.
+//
+// For canon.lift exports this invokes the core post-return function
+// (if declared) and releases the borrow scope / call context. For
+// non-canon.lift exports (prRef == nil) this is a no-op.
+//
+// Spec: definitions.py:2000-2002 — post_return invocation.
+// Wasmtime C API: wasmtime_component_func_post_return.
+func (f *ExportedFunc) PostReturn(ctx context.Context) error {
+	if f == nil {
+		return fmt.Errorf("ExportedFunc.PostReturn: nil receiver")
+	}
+	if f.prRef == nil || !f.prRef.needsPostReturn {
+		return nil // no post-return needed
+	}
+	f.prRef.needsPostReturn = false
+	if f.prRef.fn != nil {
+		err := f.prRef.fn(ctx)
+		f.prRef.fn = nil
+		return err
+	}
+	return nil
+}
+
+// CallAndPostReturn is a convenience method that calls Call and then
+// PostReturn in sequence. This is the single-shot API for callers
+// that do not need to inspect results before post-return cleanup.
+//
+// This is the recommended default for most callers. The two-phase
+// protocol (Call + PostReturn) is for advanced use cases where the
+// caller needs to read results from linear memory before cleanup.
+func (f *ExportedFunc) CallAndPostReturn(ctx context.Context, params ...types.Val) ([]types.Val, error) {
+	results, err := f.Call(ctx, params...)
+	if err != nil {
+		// On call error, still attempt PostReturn to clean up any
+		// partial state (the impl may have set needsPostReturn before
+		// the error occurred).
+		_ = f.PostReturn(ctx)
+		return nil, err
+	}
+	if postErr := f.PostReturn(ctx); postErr != nil {
+		return results, postErr
+	}
+	return results, nil
+}
+
+// NeedsPostReturn reports whether a PostReturn call is pending.
+func (f *ExportedFunc) NeedsPostReturn() bool {
+	if f == nil || f.prRef == nil {
+		return false
+	}
+	return f.prRef.needsPostReturn
 }
 
 // Type returns the function's type.
