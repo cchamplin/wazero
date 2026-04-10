@@ -714,6 +714,18 @@ func lowerBorrowHandleFlat(ctx *LowerContext, typ types.ValType, val types.Val) 
 // retptr branches compute alignment(tuple_type) and
 // elem_size(tuple_type) on the TupleType(ts) synthesized from the
 // param/result type list.
+// ResultsTupleLayout computes the byte layout of a tuple of result types.
+// This is used by canon.lift to allocate the retptr buffer when the
+// flattened result width exceeds MaxFlatResults. The layout algorithm is
+// identical to paramsTupleLayout — it computes (size, align, offsets)
+// for a tuple of the given element types.
+//
+// Spec: definitions.py:1947-1949 retptr path — the tuple layout is the
+// same for both params and results.
+func ResultsTupleLayout(ct *types.ComponentTypes, elems []types.ValType) (size, align uint32, offsets []uint32) {
+	return paramsTupleLayout(ct, elems)
+}
+
 func paramsTupleLayout(ct *types.ComponentTypes, elems []types.ValType) (size, align uint32, offsets []uint32) {
 	size, align = 0, 1
 	offsets = make([]uint32, len(elems))
