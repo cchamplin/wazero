@@ -79,8 +79,7 @@ func TestCalculatorPlugins(t *testing.T) {
 			testCtx := wasip2.WithConfig(ctx, wasiConfig)
 			testCtx = component.WithResourceTable(testCtx, resourceTable)
 
-			// ComponentLinker.Instantiate does not yet support complex component pipelines
-			t.Skip("ComponentLinker.Instantiate does not yet support complex component pipelines")
+
 
 			// Instantiate the component
 			instance, err := linker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
@@ -93,7 +92,7 @@ func TestCalculatorPlugins(t *testing.T) {
 			if nameFunc == nil {
 				t.Fatal("get-plugin-name function not found")
 			}
-			nameResult, err := nameFunc.Call(testCtx)
+			nameResult, err := nameFunc.CallAndPostReturn(testCtx)
 			if err != nil {
 				t.Fatalf("get-plugin-name: %v", err)
 			}
@@ -107,7 +106,7 @@ func TestCalculatorPlugins(t *testing.T) {
 				t.Fatal("evaluate function not found")
 			}
 			start := time.Now()
-			evalResult, err := evalFunc.Call(testCtx,
+			evalResult, err := evalFunc.CallAndPostReturn(testCtx,
 				types.ValS32(28),
 				types.ValS32(3),
 			)
@@ -121,7 +120,7 @@ func TestCalculatorPlugins(t *testing.T) {
 
 			// Call again with incremented first argument
 			start = time.Now()
-			evalResult, err = evalFunc.Call(testCtx,
+			evalResult, err = evalFunc.CallAndPostReturn(testCtx,
 				types.ValS32(29),
 				types.ValS32(3),
 			)

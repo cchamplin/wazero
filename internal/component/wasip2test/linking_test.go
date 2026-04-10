@@ -119,9 +119,6 @@ func TestComponentLinking_ProviderConsumer(t *testing.T) {
 	// Create a linker for the provider (no imports needed)
 	providerLinker := component.NewComponentLinker(providerRT)
 
-	// ComponentLinker.Instantiate does not yet support complex component pipelines
-	t.Skip("ComponentLinker.Instantiate does not yet support complex component pipelines")
-
 	// Instantiate the provider component
 	providerInstance, err := providerLinker.Instantiate(testCtx, compiledProvider.(*component.CompiledComponent))
 	if err != nil {
@@ -134,8 +131,9 @@ func TestComponentLinking_ProviderConsumer(t *testing.T) {
 		t.Fatal("provider 'add' function not found")
 	}
 
-	// Verify the provider's add function works directly
-	providerResult, err := providerAddFunc.Call(testCtx, types.ValS32(10), types.ValS32(5))
+	// Verify the provider's add function works directly (use CallAndPostReturn
+	// so the instance is ready for subsequent calls).
+	providerResult, err := providerAddFunc.CallAndPostReturn(testCtx, types.ValS32(10), types.ValS32(5))
 	if err != nil {
 		t.Fatalf("provider add(10, 5): %v", err)
 	}
@@ -150,7 +148,7 @@ func TestComponentLinking_ProviderConsumer(t *testing.T) {
 	err = linker.DefineInstance("math").
 		Func("add", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 			// Forward the call to the provider's add function
-			return providerAddFunc.Call(ctx, args...)
+			return providerAddFunc.CallAndPostReturn(ctx, args...)
 		}).
 		SkipValidation().
 		Build()
@@ -163,8 +161,7 @@ func TestComponentLinking_ProviderConsumer(t *testing.T) {
 	consumerLinker.MergeFrom(linker)
 
 	// Instantiate the consumer component
-	// ComponentLinker.Instantiate does not yet support complex component pipelines
-	t.Skip("ComponentLinker.Instantiate does not yet support complex component pipelines")
+
 
 	consumerInstance, err := consumerLinker.Instantiate(testCtx, compiledConsumer.(*component.CompiledComponent))
 	if err != nil {
@@ -178,7 +175,7 @@ func TestComponentLinking_ProviderConsumer(t *testing.T) {
 	}
 
 	// Test double-add(3, 4) = add(3,4) + add(3,4) = 7 + 7 = 14
-	result, err := doubleAddFunc.Call(testCtx, types.ValS32(3), types.ValS32(4))
+	result, err := doubleAddFunc.CallAndPostReturn(testCtx, types.ValS32(3), types.ValS32(4))
 	if err != nil {
 		t.Fatalf("double-add(3, 4): %v", err)
 	}
@@ -279,8 +276,7 @@ func TestComponentLinking_MultipleValues(t *testing.T) {
 	testCtx := component.WithResourceTable(ctx, resourceTable)
 
 	providerLinker := component.NewComponentLinker(providerRT)
-	// ComponentLinker.Instantiate does not yet support complex component pipelines
-	t.Skip("ComponentLinker.Instantiate does not yet support complex component pipelines")
+
 
 	providerInstance, err := providerLinker.Instantiate(testCtx, compiledProvider.(*component.CompiledComponent))
 	if err != nil {
@@ -295,7 +291,7 @@ func TestComponentLinking_MultipleValues(t *testing.T) {
 	linker := component.NewLinker()
 	err = linker.DefineInstance("math").
 		Func("add", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
-			return providerAddFunc.Call(ctx, args...)
+			return providerAddFunc.CallAndPostReturn(ctx, args...)
 		}).
 		SkipValidation().
 		Build()
@@ -306,8 +302,7 @@ func TestComponentLinking_MultipleValues(t *testing.T) {
 	consumerLinker := component.NewComponentLinker(consumerRT)
 	consumerLinker.MergeFrom(linker)
 
-	// ComponentLinker.Instantiate does not yet support complex component pipelines
-	t.Skip("ComponentLinker.Instantiate does not yet support complex component pipelines")
+
 
 	consumerInstance, err := consumerLinker.Instantiate(testCtx, compiledConsumer.(*component.CompiledComponent))
 	if err != nil {
@@ -334,7 +329,7 @@ func TestComponentLinking_MultipleValues(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		result, err := doubleAddFunc.Call(testCtx, types.ValS32(tc.a), types.ValS32(tc.b))
+		result, err := doubleAddFunc.CallAndPostReturn(testCtx, types.ValS32(tc.a), types.ValS32(tc.b))
 		if err != nil {
 			t.Fatalf("double-add(%d, %d): %v", tc.a, tc.b, err)
 		}
@@ -398,8 +393,7 @@ func TestComponentLinking_ExportDiscovery(t *testing.T) {
 	testCtx := component.WithResourceTable(ctx, resourceTable)
 
 	providerLinker := component.NewComponentLinker(rt)
-	// ComponentLinker.Instantiate does not yet support complex component pipelines
-	t.Skip("ComponentLinker.Instantiate does not yet support complex component pipelines")
+
 
 	providerInstance, err := providerLinker.Instantiate(testCtx, compiledProvider.(*component.CompiledComponent))
 	if err != nil {
@@ -417,9 +411,10 @@ func TestComponentLinking_ExportDiscovery(t *testing.T) {
 		t.Error("'sub' function should be discoverable")
 	}
 
-	// Verify they work
+	// Verify they work (use CallAndPostReturn to complete the post-return
+	// protocol so the next call can enter the instance).
 	if addFunc != nil {
-		result, err := addFunc.Call(testCtx, types.ValS32(10), types.ValS32(3))
+		result, err := addFunc.CallAndPostReturn(testCtx, types.ValS32(10), types.ValS32(3))
 		if err != nil {
 			t.Fatalf("add(10, 3): %v", err)
 		}
@@ -429,7 +424,7 @@ func TestComponentLinking_ExportDiscovery(t *testing.T) {
 	}
 
 	if subFunc != nil {
-		result, err := subFunc.Call(testCtx, types.ValS32(10), types.ValS32(3))
+		result, err := subFunc.CallAndPostReturn(testCtx, types.ValS32(10), types.ValS32(3))
 		if err != nil {
 			t.Fatalf("sub(10, 3): %v", err)
 		}
@@ -533,8 +528,7 @@ func TestComponentLinking_ProviderCallCount(t *testing.T) {
 	testCtx := component.WithResourceTable(ctx, resourceTable)
 
 	providerLinker := component.NewComponentLinker(providerRT)
-	// ComponentLinker.Instantiate does not yet support complex component pipelines
-	t.Skip("ComponentLinker.Instantiate does not yet support complex component pipelines")
+
 
 	providerInstance, err := providerLinker.Instantiate(testCtx, compiledProvider.(*component.CompiledComponent))
 	if err != nil {
@@ -552,7 +546,7 @@ func TestComponentLinking_ProviderCallCount(t *testing.T) {
 	err = linker.DefineInstance("math").
 		Func("add", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 			callCount++
-			return providerAddFunc.Call(ctx, args...)
+			return providerAddFunc.CallAndPostReturn(ctx, args...)
 		}).
 		SkipValidation().
 		Build()
@@ -563,8 +557,7 @@ func TestComponentLinking_ProviderCallCount(t *testing.T) {
 	consumerLinker := component.NewComponentLinker(consumerRT)
 	consumerLinker.MergeFrom(linker)
 
-	// ComponentLinker.Instantiate does not yet support complex component pipelines
-	t.Skip("ComponentLinker.Instantiate does not yet support complex component pipelines")
+
 
 	consumerInstance, err := consumerLinker.Instantiate(testCtx, compiledConsumer.(*component.CompiledComponent))
 	if err != nil {
@@ -580,7 +573,7 @@ func TestComponentLinking_ProviderCallCount(t *testing.T) {
 	callCount = 0
 
 	// Call double-add which should call add twice
-	_, err = doubleAddFunc.Call(testCtx, types.ValS32(3), types.ValS32(4))
+	_, err = doubleAddFunc.CallAndPostReturn(testCtx, types.ValS32(3), types.ValS32(4))
 	if err != nil {
 		t.Fatalf("double-add(3, 4): %v", err)
 	}

@@ -24,6 +24,8 @@ import (
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/internal/component/types"
+	"github.com/tetratelabs/wazero/internal/wasmruntime"
+	"github.com/tetratelabs/wazero/sys"
 )
 
 // resourcesWastPath is the path to the resources.wast test file
@@ -415,13 +417,34 @@ func runRegisterTest(t *testing.T, rs *runnerState, cmd *Command) {
 	t.Logf("registered current instance as %q at line %d", cmd.As, cmd.Line)
 }
 
-// safeCall wraps a component function call with panic recovery so that panics
-// in the ABI layer (e.g., type assertion failures for unimplemented value kinds)
-// are converted to errors instead of crashing the entire test binary.
+// safeCall wraps a component function call with panic recovery that only
+// catches wazero runtime traps (wasmruntime.Error) and exit errors
+// (sys.ExitError). Implementation panics (nil pointer dereferences, type
+// assertion failures, index out of bounds, etc.) re-panic so bugs surface
+// immediately as test crashes.
 func safeCall(ctx context.Context, fn api.ComponentFunc, args []any) (results []any, err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			err = fmt.Errorf("panic during call: %v", r)
+			// wazero runtime traps are panicked as *wasmruntime.Error.
+			if _, ok := r.(*wasmruntime.Error); ok {
+				err = fmt.Errorf("wasm trap: %v", r)
+				return
+			}
+			// sys.ExitError is panicked on module close / proc_exit.
+			if _, ok := r.(*sys.ExitError); ok {
+				err = fmt.Errorf("exit error: %v", r)
+				return
+			}
+			// Errors wrapping a trap (e.g., fmt.Errorf wrapping a
+			// wasmruntime.Error) are also expected runtime behaviour.
+			if e, ok := r.(error); ok {
+				if strings.Contains(e.Error(), "wasm error:") {
+					err = e
+					return
+				}
+			}
+			// Everything else is an implementation bug — re-panic.
+			panic(r)
 		}
 	}()
 	return fn.Call(ctx, args...)
@@ -503,6 +526,17 @@ func convertValueToAny(v Value) any {
 			}
 		}
 		return types.ValTuple(vals)
+	case "list":
+		// List values are JSON arrays of nested Value objects.
+		var nested []Value
+		if err := json.Unmarshal([]byte(v.Value), &nested); err != nil {
+			return []any{} // empty list on parse failure
+		}
+		items := make([]any, len(nested))
+		for i, nv := range nested {
+			items[i] = convertValueToAny(nv)
+		}
+		return items
 	default:
 		// Return the raw string for unsupported types
 		return v.Value
@@ -677,6 +711,25 @@ func valuesMatch(actual any, expected Value) bool {
 			}
 		}
 		return true
+	case "list":
+		// valToAny converts ValKindList to []any.
+		actSlice, ok := actual.([]any)
+		if !ok {
+			return false
+		}
+		var nested []Value
+		if err := json.Unmarshal([]byte(expected.Value), &nested); err != nil {
+			return false
+		}
+		if len(actSlice) != len(nested) {
+			return false
+		}
+		for i, nv := range nested {
+			if !valuesMatch(actSlice[i], nv) {
+				return false
+			}
+		}
+		return true
 	default:
 		// For unsupported types, log and return false
 		return false
@@ -811,65 +864,84 @@ func containsErrorText(errStr, expected string) bool {
 	return strings.Contains(errLower, expectedLower)
 }
 
-// isKnownUnsupportedFeature checks if the error indicates a feature not yet implemented
+// isKnownUnsupportedFeature checks if the error indicates a feature not yet
+// implemented in the wazero component model pipeline. wazero's own error
+// messages use "not implemented", "not supported", and "unsupported" for
+// features that have no implementation yet. These are genuine gaps, not
+// masked bugs.
 func isKnownUnsupportedFeature(err error) bool {
-	errStr := err.Error()
+	errLower := strings.ToLower(err.Error())
 
-	// List of known unsupported feature indicators
+	// These indicators come from wazero's own compile/instantiate code paths.
+	// Each matches a class of genuinely unimplemented features:
 	unsupportedIndicators := []string{
-		"not implemented",
-		"not supported",
-		"unsupported",
-		"TODO",
-		"unknown section",
-		"unexpected section",
+		"not implemented", // explicit stubs in the codebase
+		"not supported",   // features rejected at compile time
+		"unsupported",     // decoder/pipeline unsupported opcodes, sorts, etc.
 	}
 
-	errLower := strings.ToLower(errStr)
 	for _, indicator := range unsupportedIndicators {
-		if strings.Contains(errLower, strings.ToLower(indicator)) {
+		if strings.Contains(errLower, indicator) {
 			return true
 		}
 	}
 	return false
 }
 
-// isValidationNotYetImplemented checks if a validation is not yet implemented
-// These are validations that wasm-tools checks but wazero doesn't yet
+// isValidationNotYetImplemented checks if a validation is not yet implemented.
+// These are validations that wasm-tools (and the spec) require but wazero's
+// component decoder does not yet enforce. Each entry represents a specific
+// validation gap — the component compiles successfully when it should be
+// rejected.
+//
+// Already implemented (removed from this list):
+//   - "not a resource type"
+//   - "type index out of bounds"
+//   - "resources can only be represented by"
+//   - "function result cannot contain a borrow type"
 func isValidationNotYetImplemented(expectedError string) bool {
-	// List of validation messages that wazero does not yet implement.
-	// The decoder now handles: "not a resource type", "type index out of
-	// bounds", "resources can only be represented by", and "function result
-	// cannot contain a borrow type".
 	notYetImplemented := []string{
-		"not a local resource",
-		"resources can only be defined within a concrete component",
-		"wrong signature for a destructor",
-		"resource types are not the same",
-		"func not valid to be used as import",
-		"func not valid to be used as export",
-		"resource used in function does not have a name",
-		"function does not match expected resource name",
-		"should return",
-		"should have",
-		"should take",
-		"static resource name is not known",
-		"import name",
-		"not in kebab case",
-		"failed to find",
-		"expected resource",
-		"expected defined type",
-		"expected component",
-		"missing import",
-		"refers to resources not defined",
-		"type mismatch",
-		"function index out of bounds", // destructor function index validation (requires post-decode pass)
-		"is not a func",               // import/export kind validation
-		"does not match expected resource name",
-		"root-level component imports are not supported",
-		"exporting a component from the root component is not supported",
-		"is a reexport of an imported function which is not implemented",
-		"type nesting is too deep",
+		// Resource ownership/locality checks (spec: canonical-abi.md resource validation)
+		"not a local resource",                    // resource locality check not implemented
+		"resources can only be defined within a concrete component", // resource definition scope check
+		"resource types are not the same",         // cross-component resource type identity check
+		"refers to resources not defined",         // resource reference scope validation
+		"static resource name is not known",       // static method resource name validation
+
+		// Destructor/constructor/method signature validation (spec: canonical-abi.md)
+		"wrong signature for a destructor",        // destructor arity/type check
+		"function does not match expected resource name", // method resource name consistency
+		"does not match expected resource name",   // method resource name consistency (variant wording)
+		"should return",                           // constructor return type validation
+		"should have",                             // method argument count validation
+		"should take",                             // method first-argument type validation
+
+		// Import/export kind validation (spec: component-model AST validation)
+		"func not valid to be used as import",     // import type-kind check
+		"func not valid to be used as export",     // export type-kind check
+		"is not a func",                           // kind mismatch in import/export reference
+
+		// Naming convention validation (spec: component-model names)
+		"resource used in function does not have a name", // resource naming requirement
+		"import name",                             // import name format validation
+		"not in kebab case",                       // kebab-case naming convention
+		"failed to find",                          // name parsing (e.g., missing '.' separator)
+
+		// Type system validation (spec: component-model type checking)
+		"expected resource",                       // expected resource type, got defined type
+		"expected defined type",                   // expected defined type, got resource
+		"expected component",                      // expected component, got instance
+		"type mismatch",                           // import/export type mismatch
+		"type nesting is too deep",                // recursion depth limit
+
+		// Instantiation validation (spec: component-model instantiation)
+		"missing import",                          // required import not provided
+		"function index out of bounds",            // destructor function index (requires post-decode pass)
+
+		// Root-level restrictions (spec: component-model root restrictions)
+		"root-level component imports are not supported", // root component import restriction
+		"exporting a component from the root component is not supported", // root component export restriction
+		"is a reexport of an imported function which is not implemented", // import reexport validation
 	}
 
 	expectedLower := strings.ToLower(expectedError)
@@ -918,61 +990,90 @@ func isKnownErrorDifference(expected, actual string) bool {
 }
 
 // isInstantiationPipelineLimitation checks if the error is a known limitation
-// in the instantiation pipeline (core module wiring, nested instances, etc.)
-// These are legitimate pipeline gaps that will be fixed in later tasks.
+// in the component instantiation pipeline. These are genuine gaps in the
+// multi-module wiring, nested component instantiation, and core module
+// lifecycle management.
 func isInstantiationPipelineLimitation(err error) bool {
-	errStr := err.Error()
-	errLower := strings.ToLower(errStr)
+	errLower := strings.ToLower(err.Error())
 
 	pipelineLimitations := []string{
-		"a module name must not be empty",
-		"core function index",
-		"not found in instance",
-		"inline export",
-		"register host module",
-		"nested:",
-		"wire exports:",
-		"core modules:",
-		"resolve core func",
-		"no compiled module",
-		"runtime does not implement",
-		"out of range",
-		"import not found",
-		"requires compiledcomponent",
+		// Core module lifecycle: wazero's core wasm engine requires unique module names
+		// but the component model re-instantiates the same module multiple times.
+		"a module name must not be empty",       // empty module name in host module registration
+		"has already been instantiated",         // duplicate module instantiation
+
+		// Core function/instance resolution gaps
+		"core function index",                   // core func index lookup failure
+		"not found in instance",                 // export not found in core instance
+		"resolve core func",                     // canon lift/lower core func resolution
+		"no compiled module",                    // missing compiled module for instantiation
+
+		// Inline export wiring (Task C8-c partial)
+		"inline export",                         // inline export resolution in nested instances
+
+		// Host module registration
+		"register host module",                  // host module registration edge cases
+
+		// Nested component instantiation
+		"nested:",                               // nested component pipeline errors
+
+		// Wire exports phase
+		"wire exports:",                         // export wiring phase errors
+
+		// Core module instantiation phase
+		"core modules:",                         // core module instantiation phase errors
+
+		// Index validation during instantiation
+		"out of range",                          // component/module index out of range
+
+		// Import resolution
+		"import not found",                      // unresolved component import
+
+		// Runtime interface requirements
+		"runtime does not implement",            // missing runtime interface method
+		"requires compiledcomponent",            // nested instantiation needs CompiledComponent
 	}
 
 	for _, limitation := range pipelineLimitations {
-		if strings.Contains(errLower, strings.ToLower(limitation)) {
+		if strings.Contains(errLower, limitation) {
 			return true
 		}
 	}
 	return false
 }
 
-// isDecoderLimitation checks if the error is due to decoder limitations
-// (features not yet implemented in the component binary decoder)
+// isDecoderLimitation checks if the error is due to decoder limitations.
+// The component binary decoder (internal/component/binary/) does not yet
+// handle all component-model constructs. These errors occur during
+// CompileComponent when the binary contains opcodes or structures the
+// decoder doesn't recognize.
 func isDecoderLimitation(err error) bool {
-	errStr := err.Error()
-	errLower := strings.ToLower(errStr)
+	errLower := strings.ToLower(err.Error())
 
-	// List of decoder limitation indicators
 	decoderLimitations := []string{
-		"unknown section",
-		"unknown instance kind",
-		"unknown component declaration kind",
-		"unknown import name prefix",
-		"unsupported type opcode",
-		"unsupported core type opcode",
-		"unsupported resource rep type",
-		"decode type bound index",
-		"eof",
-		"unexpected eof",
-		"decoding externdesc",
-		"decoding import",
-		"unknown core sort",
-		"unknown instance declaration kind",
-		"unknown sort in export alias",
-		"invalid section order",
+		// Unknown/unrecognized binary constructs
+		"unknown section",                // unrecognized component section ID
+		"unknown instance kind",          // instance kind byte not handled (e.g., 0x03)
+		"unknown component declaration kind", // component-level declaration not decoded
+		"unknown import name prefix",     // import name encoding not recognized
+		"unknown core sort",              // core sort byte not handled (e.g., 0x11 = core module)
+		"unknown instance declaration kind", // instance-level declaration not decoded
+		"unknown sort in export alias",   // alias sort byte not handled
+
+		// Unsupported type opcodes
+		"unsupported type opcode",        // component type opcode not decoded
+		"unsupported core type opcode",   // core type opcode not decoded (e.g., 0x02, 0x04)
+		"unsupported resource rep type",  // resource representation type not handled
+
+		// Structural/ordering errors in binary
+		"invalid section order",          // section ordering validation
+		"unexpected eof",                 // truncated binary during decode
+		"eof",                            // premature end of section data
+
+		// Specific decode phase failures
+		"decode type bound index",        // type bound index resolution
+		"decoding externdesc",            // external description decoding
+		"decoding import",                // import section decoding
 	}
 
 	for _, limitation := range decoderLimitations {

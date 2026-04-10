@@ -1882,9 +1882,11 @@ func TestListEmpty(t *testing.T) {
 		flat, err := abi.LowerFlat(ctx, listType, val)
 		require.NoError(t, err)
 		require.Equal(t, 2, len(flat))
+		// Per canonical ABI spec: realloc is always called, even for empty
+		// lists. The realloc returns 0 here, which is valid.
 		require.Equal(t, uint64(0), flat[0])
 		require.Equal(t, uint64(0), flat[1])
-		require.False(t, reallocCalled)
+		require.True(t, reallocCalled)
 	})
 
 	t.Run("lift_flat_empty", func(t *testing.T) {

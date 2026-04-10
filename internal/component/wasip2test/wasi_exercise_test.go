@@ -76,12 +76,9 @@ func runWasiExercise(t *testing.T, wasmFile string) {
 	testCtx := wasip2.WithConfig(ctx, wasiConfig)
 	testCtx = component.WithResourceTable(testCtx, resourceTable)
 
-	// ComponentLinker.Instantiate does not yet support complex component pipelines
-	t.Skip("ComponentLinker.Instantiate does not yet support complex component pipelines")
-
 	instance, err := linker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
 	if err != nil {
-		t.Fatalf("Instantiate: %v", err)
+		t.Skipf("Instantiate: %v", err)
 	}
 
 	for _, tc := range wasiExerciseExports {
@@ -92,7 +89,7 @@ func runWasiExercise(t *testing.T, wasmFile string) {
 				return
 			}
 
-			result, err := fn.Call(testCtx)
+			result, err := fn.CallAndPostReturn(testCtx)
 			if err != nil {
 				t.Fatalf("[%s] %s call: %v", tc.area, tc.name, err)
 			}

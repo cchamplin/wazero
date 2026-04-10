@@ -544,8 +544,7 @@ func TestResourceLifecycle_ComponentWithResource(t *testing.T) {
 	resourceTable := runtime.NewTable()
 	testCtx := component.WithResourceTable(ctx, resourceTable)
 
-	// ComponentLinker.Instantiate does not yet support complex component pipelines
-	t.Skip("ComponentLinker.Instantiate does not yet support complex component pipelines")
+
 
 	// Try to instantiate
 	instance, err := linker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
@@ -559,7 +558,7 @@ func TestResourceLifecycle_ComponentWithResource(t *testing.T) {
 		t.Fatal("noop function not found")
 	}
 
-	_, err = fn.Call(testCtx)
+	_, err = fn.CallAndPostReturn(testCtx)
 	if err != nil {
 		t.Errorf("noop call failed: %v", err)
 	}

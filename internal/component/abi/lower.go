@@ -230,19 +230,20 @@ func LowerFlat(ctx *LowerContext, typ types.ValType, val types.Val) ([]uint64, e
 		elements := val.List()
 		length := uint32(len(elements))
 
-		if length == 0 {
-			return []uint64{0, 0}, nil
-		}
-
 		if ctx == nil || ctx.Realloc == nil {
-			return nil, fmt.Errorf("lower list: realloc function required for non-empty list")
+			return nil, fmt.Errorf("lower list: realloc function required")
 		}
 
 		elemABI := list.Element.ABI(ctx.Types)
 		elemSize := elemABI.Size32
 		elemAlign := elemABI.Align32
+		if elemAlign == 0 {
+			elemAlign = 1
+		}
 		totalSize := length * elemSize
 
+		// Per canonical ABI: realloc is always called, even for empty lists.
+		// The returned pointer must be aligned and within memory bounds.
 		ptr, err := ctx.Realloc(0, 0, elemAlign, totalSize)
 		if err != nil {
 			return nil, fmt.Errorf("lower list: realloc failed: %w", err)

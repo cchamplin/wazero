@@ -1217,7 +1217,11 @@ func buildAbiOptions(canon *CanonicalDef) abi.Options {
 // closure shape abi.LowerContext.Realloc expects. Returns nil when
 // realloc is nil (the caller then traps if the lower path needs realloc
 // — see abi/lower.go LowerParams retptr path).
-func reallocAdapter(realloc api.Function) func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+//
+// The memory parameter is used to validate realloc return values per the
+// canonical ABI spec (definitions.py): the returned pointer must be aligned
+// and ptr+size must not exceed memory length.
+func reallocAdapter(realloc api.Function, memory api.Memory) func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
 	if realloc == nil {
 		return nil
 	}
@@ -1230,7 +1234,20 @@ func reallocAdapter(realloc api.Function) func(oldPtr, oldSize, align, newSize u
 		if len(res) == 0 {
 			return 0, fmt.Errorf("realloc returned no result")
 		}
-		return uint32(res[0]), nil
+		ptr := uint32(res[0])
+		// Spec: definitions.py — trap_if(ptr != align_to(ptr, alignment))
+		if alignv > 0 && ptr%alignv != 0 {
+			return 0, fmt.Errorf("realloc return: misaligned pointer %d (alignment %d)", ptr, alignv)
+		}
+		// Spec: definitions.py — trap_if(ptr + byte_length > len(cx.opts.memory))
+		if memory != nil {
+			memSize := uint32(memory.Size())
+			end := uint64(ptr) + uint64(newSize)
+			if end > uint64(memSize) {
+				return 0, fmt.Errorf("realloc return: beyond end of memory (ptr=%d, size=%d, memsize=%d)", ptr, newSize, memSize)
+			}
+		}
+		return ptr, nil
 	}
 }
 
@@ -1318,7 +1335,7 @@ func (l *ComponentLinker) buildCanonLiftFunc(
 		lowerCtx := &abi.LowerContext{
 			Memory:      memory,
 			Opts:        &opts,
-			Realloc:     reallocAdapter(realloc),
+			Realloc:     reallocAdapter(realloc, memory),
 			Types:       inst.component.Types,
 			Instance:    inst.rt,
 			CallContext: callCtx,
@@ -1522,7 +1539,7 @@ func (l *ComponentLinker) createCanonLowerFunc(
 		lowerCtx := &abi.LowerContext{
 			Memory:      memory,
 			Opts:        &opts,
-			Realloc:     reallocAdapter(realloc),
+			Realloc:     reallocAdapter(realloc, memory),
 			Types:       c.Types,
 			Instance:    inst.rt,
 			CallContext: callCtx,

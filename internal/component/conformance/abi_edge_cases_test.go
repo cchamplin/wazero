@@ -183,13 +183,17 @@ func TestABI_ZeroLengthList(t *testing.T) {
 	}
 
 	t.Run("lower_empty_list", func(t *testing.T) {
+		reallocCalled = false
 		emptyList := types.ValList([]types.Val{})
 		flat, err := abi.LowerFlat(lowerCtx, listType, emptyList)
 		require.NoError(t, err)
 		require.Equal(t, 2, len(flat))
+		// Per canonical ABI spec: realloc is always called, even for empty
+		// lists. The returned pointer (0 here) must be aligned and within
+		// memory bounds.
 		require.Equal(t, uint64(0), flat[0])
 		require.Equal(t, uint64(0), flat[1])
-		require.False(t, reallocCalled)
+		require.True(t, reallocCalled)
 	})
 
 	t.Run("lift_empty_list", func(t *testing.T) {

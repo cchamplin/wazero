@@ -109,8 +109,7 @@ func TestComponentConvert(t *testing.T) {
 	resourceTable := runtime.NewTable()
 	testCtx := component.WithResourceTable(ctx, resourceTable)
 
-	// ComponentLinker.Instantiate does not yet support complex component pipelines
-	t.Skip("ComponentLinker.Instantiate does not yet support complex component pipelines")
+
 
 	instance, err := componentLinker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
 	if err != nil {
@@ -123,7 +122,7 @@ func TestComponentConvert(t *testing.T) {
 		t.Fatal("convert-celsius-to-fahrenheit function not found")
 	}
 
-	result, err := fn.Call(testCtx, types.ValS32(100))
+	result, err := fn.CallAndPostReturn(testCtx, types.ValS32(100))
 	if err != nil {
 		t.Fatalf("Call: %v", err)
 	}
@@ -209,8 +208,7 @@ func TestComponentConvert_NegativeTemperature(t *testing.T) {
 	resourceTable := runtime.NewTable()
 	testCtx := component.WithResourceTable(ctx, resourceTable)
 
-	// ComponentLinker.Instantiate does not yet support complex component pipelines
-	t.Skip("ComponentLinker.Instantiate does not yet support complex component pipelines")
+
 
 	instance, err := componentLinker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
 	if err != nil {
@@ -224,7 +222,7 @@ func TestComponentConvert_NegativeTemperature(t *testing.T) {
 
 	// Test -40C = -40F (the crossover point)
 	// Formula: -40 * 9 / 5 + 32 = -360 / 5 + 32 = -72 + 32 = -40
-	result, err := fn.Call(testCtx, types.ValS32(-40))
+	result, err := fn.CallAndPostReturn(testCtx, types.ValS32(-40))
 	if err != nil {
 		t.Fatalf("Call: %v", err)
 	}
@@ -308,8 +306,7 @@ func TestComponentConvert_Zero(t *testing.T) {
 	resourceTable := runtime.NewTable()
 	testCtx := component.WithResourceTable(ctx, resourceTable)
 
-	// ComponentLinker.Instantiate does not yet support complex component pipelines
-	t.Skip("ComponentLinker.Instantiate does not yet support complex component pipelines")
+
 
 	instance, err := componentLinker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
 	if err != nil {
@@ -323,7 +320,7 @@ func TestComponentConvert_Zero(t *testing.T) {
 
 	// Test 0C = 32F (freezing point of water)
 	// Formula: 0 * 9 / 5 + 32 = 0 + 32 = 32
-	result, err := fn.Call(testCtx, types.ValS32(0))
+	result, err := fn.CallAndPostReturn(testCtx, types.ValS32(0))
 	if err != nil {
 		t.Fatalf("Call: %v", err)
 	}
@@ -417,8 +414,7 @@ func TestComponentConvert_HostFunctionCalled(t *testing.T) {
 	resourceTable := runtime.NewTable()
 	testCtx := component.WithResourceTable(ctx, resourceTable)
 
-	// ComponentLinker.Instantiate does not yet support complex component pipelines
-	t.Skip("ComponentLinker.Instantiate does not yet support complex component pipelines")
+
 
 	instance, err := componentLinker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
 	if err != nil {
@@ -433,7 +429,7 @@ func TestComponentConvert_HostFunctionCalled(t *testing.T) {
 	// Reset counter before call
 	multiplyCallCount = 0
 
-	result, err := fn.Call(testCtx, types.ValS32(100))
+	result, err := fn.CallAndPostReturn(testCtx, types.ValS32(100))
 	if err != nil {
 		t.Fatalf("Call: %v", err)
 	}
@@ -528,8 +524,7 @@ func TestComponentConvert_MultipleConversions(t *testing.T) {
 	resourceTable := runtime.NewTable()
 	testCtx := component.WithResourceTable(ctx, resourceTable)
 
-	// ComponentLinker.Instantiate does not yet support complex component pipelines
-	t.Skip("ComponentLinker.Instantiate does not yet support complex component pipelines")
+
 
 	instance, err := componentLinker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
 	if err != nil {
@@ -554,7 +549,7 @@ func TestComponentConvert_MultipleConversions(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		result, err := fn.Call(testCtx, types.ValS32(tc.celsius))
+		result, err := fn.CallAndPostReturn(testCtx, types.ValS32(tc.celsius))
 		if err != nil {
 			t.Fatalf("Call(%d): %v", tc.celsius, err)
 		}

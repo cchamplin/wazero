@@ -442,7 +442,7 @@ func TestServiceMiddlewareComposition_FullComposition(t *testing.T) {
 	t.Logf("Created request handle: %d", requestHandle)
 
 	// Call the middleware's execute function
-	result, err := middlewareHandlerExecute.Call(testCtx, types.ValOwn(uint32(requestHandle)))
+	result, err := middlewareHandlerExecute.CallAndPostReturn(testCtx, types.ValOwn(uint32(requestHandle)))
 	if err != nil {
 		t.Skipf("middleware execute call failed: %v", err)
 	}
@@ -878,7 +878,7 @@ func defineHandlerInterface(linker *component.ComponentLinker, serviceExecute *c
 	err := basicLinker.DefineInstance("example:service/handler@0.1.0").
 		Func("execute", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 			// Forward the call to the service's execute function
-			return serviceExecute.Call(ctx, args...)
+			return serviceExecute.CallAndPostReturn(ctx, args...)
 		}).
 		SkipValidation().
 		Build()

@@ -899,8 +899,9 @@ func TestExportedFunc_Call_ListWithRealloc(t *testing.T) {
 	require.Equal(t, int32(30), elems[2].S32())
 }
 
-func TestExportedFunc_Call_ListWithoutRealloc(t *testing.T) {
-	// Lists with zero elements don't need realloc (ptr=0, len=0).
+func TestExportedFunc_Call_EmptyListNeedsRealloc(t *testing.T) {
+	// Per canonical ABI spec: realloc is always called, even for empty lists.
+	// The returned pointer must be aligned and within memory bounds.
 	b := types.NewComponentTypesBuilder()
 	listT := b.InternList(types.U32)
 	ct := b.Finish()
@@ -910,16 +911,18 @@ func TestExportedFunc_Call_ListWithoutRealloc(t *testing.T) {
 	inst := runtime.NewComponentInstance(0, nil)
 
 	ef := &ExportedFunc{
-		name:     "empty-list-no-realloc",
+		name:     "empty-list-with-realloc",
 		funcType: &types.TypeFunc{},
 		impl: func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 			callCtx := runtime.NewCallContext(inst.Table)
-			// No realloc provided — works for empty lists.
 			lowerCtx := &abi.LowerContext{
 				Memory:      mem,
 				Types:       ct,
 				Instance:    inst,
 				CallContext: callCtx,
+				Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+					return 0, nil // return valid aligned pointer
+				},
 			}
 			flat, err := abi.LowerParams(lowerCtx, paramTypes, args, abi.MaxFlatParams)
 			if err != nil {
