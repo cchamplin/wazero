@@ -11,7 +11,10 @@ import (
 	"context"
 	"testing"
 
+	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/component/types"
+	"github.com/tetratelabs/wazero/internal/internalapi"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -263,4 +266,157 @@ func TestComponentLinker_TypeCheckingIntegration(t *testing.T) {
 	// DefineFunc doesn't provide type info on FuncDef, so the type checker
 	// trusts the host and Instantiate should succeed without error.
 	require.NoError(t, err)
+}
+
+// --- Mock types for resolvePendingDtors tests ---
+
+// dtorMockFunction is a minimal api.Function stub for destructor resolution tests.
+type dtorMockFunction struct {
+	internalapi.WazeroOnlyType
+	name string
+}
+
+func (f *dtorMockFunction) Definition() api.FunctionDefinition { return nil }
+func (f *dtorMockFunction) Call(context.Context, ...uint64) ([]uint64, error) {
+	return nil, nil
+}
+func (f *dtorMockFunction) CallWithStack(context.Context, []uint64) error { return nil }
+
+// dtorMockModule is a minimal api.Module stub that returns a mock function
+// for a single export name.
+type dtorMockModule struct {
+	internalapi.WazeroOnlyType
+	exportName string
+	fn         api.Function
+}
+
+func (m *dtorMockModule) String() string                       { return "dtorMock" }
+func (m *dtorMockModule) Name() string                         { return "dtorMock" }
+func (m *dtorMockModule) Memory() api.Memory                   { return nil }
+func (m *dtorMockModule) ExportedFunction(name string) api.Function {
+	if name == m.exportName {
+		return m.fn
+	}
+	return nil
+}
+func (m *dtorMockModule) ExportedFunctionDefinitions() map[string]api.FunctionDefinition {
+	return nil
+}
+func (m *dtorMockModule) ExportedMemory(string) api.Memory { return nil }
+func (m *dtorMockModule) ExportedMemoryDefinitions() map[string]api.MemoryDefinition {
+	return nil
+}
+func (m *dtorMockModule) ExportedGlobal(string) api.Global { return nil }
+func (m *dtorMockModule) CloseWithExitCode(_ context.Context, _ uint32) error {
+	return nil
+}
+func (m *dtorMockModule) IsClosed() bool               { return false }
+func (m *dtorMockModule) Close(context.Context) error   { return nil }
+
+// Spec: definitions.py:351-361 ResourceType {dtor, dtor_async, dtor_callback}.
+// Wasmtime parallel: runtime/component/instance.rs post-instantiation
+// resource wiring (destructor resolution after core module instantiation).
+//
+// This test verifies that resolvePendingDtors correctly back-patches the
+// dtorRef.fn pointer after core modules have been instantiated, enabling
+// the HostDestructor closure captured in bindResourceTypes to invoke the
+// actual core destructor function.
+func TestResolvePendingDtors(t *testing.T) {
+	t.Run("resolves destructor from core instance", func(t *testing.T) {
+		linker := NewComponentLinker(nil)
+		inst := NewInstance(nil, 1, nil)
+
+		// Set up a mock core instance at index 0 with a "dtor" export.
+		mockFn := &dtorMockFunction{name: "dtor"}
+		mockMod := &dtorMockModule{exportName: "dtor", fn: mockFn}
+		inst.coreInstances = []api.Module{mockMod}
+
+		// Set up funcSpace: core func index 0 -> (instanceIdx=0, exportName="dtor").
+		funcSpace := NewCoreFuncIndexSpace()
+		funcSpace.AddAlias(0, 0, "dtor")
+
+		// Set up a pending destructor referencing core func index 0.
+		ref := &dtorRef{}
+		rt := &runtime.ResourceType{}
+		linker.pendingDtors = []pendingDtor{
+			{rt: rt, ref: ref, coreFuncIdx: 0},
+		}
+
+		// Before resolution, ref.fn should be nil.
+		require.Nil(t, ref.fn)
+
+		// Resolve.
+		linker.resolvePendingDtors(inst, funcSpace)
+
+		// After resolution, ref.fn should point to our mock function.
+		require.NotNil(t, ref.fn)
+		require.Equal(t, mockFn, ref.fn)
+
+		// pendingDtors should be cleared.
+		require.Equal(t, 0, len(linker.pendingDtors))
+	})
+
+	t.Run("skips already resolved dtors", func(t *testing.T) {
+		linker := NewComponentLinker(nil)
+		inst := NewInstance(nil, 1, nil)
+
+		existingFn := &dtorMockFunction{name: "existing"}
+		ref := &dtorRef{fn: existingFn}
+		rt := &runtime.ResourceType{}
+		linker.pendingDtors = []pendingDtor{
+			{rt: rt, ref: ref, coreFuncIdx: 0},
+		}
+
+		funcSpace := NewCoreFuncIndexSpace()
+
+		linker.resolvePendingDtors(inst, funcSpace)
+
+		// The already-resolved fn should not be changed.
+		require.Equal(t, existingFn, ref.fn)
+	})
+
+	t.Run("leaves unresolvable dtors with nil fn", func(t *testing.T) {
+		linker := NewComponentLinker(nil)
+		inst := NewInstance(nil, 1, nil)
+		inst.coreInstances = []api.Module{} // no core instances
+
+		funcSpace := NewCoreFuncIndexSpace()
+		// Core func index 99 doesn't resolve to anything.
+
+		ref := &dtorRef{}
+		rt := &runtime.ResourceType{}
+		linker.pendingDtors = []pendingDtor{
+			{rt: rt, ref: ref, coreFuncIdx: 99},
+		}
+
+		linker.resolvePendingDtors(inst, funcSpace)
+
+		// fn should remain nil since the core function couldn't be resolved.
+		require.Nil(t, ref.fn)
+
+		// pendingDtors should still be cleared.
+		require.Equal(t, 0, len(linker.pendingDtors))
+	})
+
+	t.Run("clears pendingDtors after resolution", func(t *testing.T) {
+		linker := NewComponentLinker(nil)
+		inst := NewInstance(nil, 1, nil)
+
+		funcSpace := NewCoreFuncIndexSpace()
+
+		// Add multiple pending dtors.
+		for i := 0; i < 5; i++ {
+			linker.pendingDtors = append(linker.pendingDtors, pendingDtor{
+				rt:          &runtime.ResourceType{},
+				ref:         &dtorRef{},
+				coreFuncIdx: uint32(i),
+			})
+		}
+		require.Equal(t, 5, len(linker.pendingDtors))
+
+		linker.resolvePendingDtors(inst, funcSpace)
+
+		// All should be cleared regardless of resolution success.
+		require.Equal(t, 0, len(linker.pendingDtors))
+	})
 }

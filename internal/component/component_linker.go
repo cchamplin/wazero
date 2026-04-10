@@ -210,8 +210,6 @@ func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledCom
 	funcSpace := NewCoreFuncIndexSpace()
 	memSpace := NewCoreMemoryIndexSpace()
 	l.buildCoreIndexSpaces(c, funcSpace, memSpace)
-	_ = funcSpace
-	_ = memSpace
 
 	// Step 4 — Resolve and type-check imports.
 	tc := NewTypeChecker(c)
@@ -254,6 +252,12 @@ func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledCom
 		canonLowers, canonResources, funcAliases); err != nil {
 		return nil, fmt.Errorf("Instantiate: core modules: %w", err)
 	}
+
+	// Step 12.5 — Resolve pending guest destructors.
+	// After core modules are instantiated, back-patch the lazy dtorRef.fn
+	// pointers so guest resource destructors can invoke the actual core
+	// functions. Spec: definitions.py:351-361 ResourceType.dtor.
+	l.resolvePendingDtors(inst, funcSpace)
 
 	// Step 13 — Execute start function.
 	if err := l.executeStartFunction(ctx, inst, c); err != nil {
@@ -1098,6 +1102,37 @@ func (l *ComponentLinker) bindResourceTypes(inst *Instance, c *Component) error 
 		}
 	}
 	return nil
+}
+
+// resolvePendingDtors back-patches lazy destructor references after core
+// modules have been instantiated. Each pendingDtor holds a dtorRef whose fn
+// field was nil at bindResourceTypes time because the core module had not yet
+// been instantiated. Now that core modules are live, we resolve the core
+// function index through the funcSpace and store the resulting api.Function
+// in the dtorRef so the HostDestructor closure can invoke it.
+//
+// Spec: definitions.py:351-361 ResourceType {dtor, dtor_async, dtor_callback}.
+// Wasmtime parallel: runtime/component/instance.rs post-instantiation
+// resource wiring.
+func (l *ComponentLinker) resolvePendingDtors(inst *Instance, funcSpace *CoreFuncIndexSpace) {
+	for i := range l.pendingDtors {
+		pd := &l.pendingDtors[i]
+		if pd.ref.fn != nil {
+			continue // already resolved
+		}
+		fn, err := resolveCoreFuncViaSpace(inst, pd.coreFuncIdx, funcSpace)
+		if err != nil {
+			// Core function not resolved — the guest destructor will
+			// return "not yet resolved" error when called. This is
+			// acceptable for resources whose defining module wasn't
+			// instantiated in this component.
+			continue
+		}
+		pd.ref.fn = fn
+	}
+	// Clear the list to prevent accumulation across multiple Instantiate
+	// calls on the same linker.
+	l.pendingDtors = l.pendingDtors[:0]
 }
 
 // buildCoreIndexSpaces walks c.Aliases and populates the runtime view of
