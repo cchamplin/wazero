@@ -72,6 +72,11 @@ const (
 	scopeEntryResource                       // resource declaration
 	// Session 2: scopeEntryInstance, scopeEntryComponent
 	scopeEntryOther // function / instance / component type — not addressable as a ValType
+	scopeEntryAlias // unresolved type alias (export or outer) — may resolve to any kind;
+	// own<>/borrow<> are allowed to reference these slots because the actual
+	// kind can only be determined after cross-component resolution (Session 2).
+	// An abstract resource placeholder is interned at append time so that
+	// own<>/borrow<> handle construction succeeds.
 )
 
 // scopeEntry is one entry in a typeScope, tagged by kind.
@@ -118,6 +123,18 @@ func (s *typeScope) appendOther() {
 	})
 }
 
+// appendAlias records a scope slot for an unresolved type alias
+// (export alias or outer alias). The actual kind of the aliased type
+// is not known at decode time and requires cross-component resolution.
+// An abstract resource placeholder is provided so that own<>/borrow<>
+// handle construction can proceed.
+func (s *typeScope) appendAlias(placeholder types.ResourceTableIdx) {
+	s.entries = append(s.entries, scopeEntry{
+		kind:     scopeEntryAlias,
+		resource: placeholder,
+	})
+}
+
 // decodeValType reads a valtype from the reader.
 //
 // The grammar has three forms:
@@ -153,7 +170,7 @@ func decodeValType(
 			return types.ValType{}, fmt.Errorf("own<> type index %d out of range", resIdx)
 		}
 		entry := scope.entries[resIdx]
-		if entry.kind != scopeEntryResource {
+		if entry.kind != scopeEntryResource && entry.kind != scopeEntryAlias {
 			return types.ValType{}, fmt.Errorf("own<> references type index %d which is not a resource declaration", resIdx)
 		}
 		return b.InternOwnHandle(entry.resource), nil
@@ -169,7 +186,7 @@ func decodeValType(
 			return types.ValType{}, fmt.Errorf("borrow<> type index %d out of range", resIdx)
 		}
 		entry := scope.entries[resIdx]
-		if entry.kind != scopeEntryResource {
+		if entry.kind != scopeEntryResource && entry.kind != scopeEntryAlias {
 			return types.ValType{}, fmt.Errorf("borrow<> references type index %d which is not a resource declaration", resIdx)
 		}
 		return b.InternBorrowHandle(entry.resource), nil
@@ -659,6 +676,15 @@ func decodeFuncType(
 		}
 	default:
 		return 0, fmt.Errorf("invalid result tag: 0x%02x", resultTag)
+	}
+
+	// Spec validation: function results cannot contain a borrow type.
+	// This applies to direct borrow<> values and to borrow<> nested
+	// within lists, options, records, tuples, variants, results, etc.
+	for i, rt := range resultTypes {
+		if b.ContainsBorrow(rt) {
+			return 0, fmt.Errorf("function result %d cannot contain a `borrow` type", i)
+		}
 	}
 
 	// The builder represents both params and results as tuple ValTypes.

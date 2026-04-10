@@ -247,9 +247,11 @@ func isKnownUnsupportedFeature(err error) bool {
 // isValidationNotYetImplemented checks if a validation is not yet implemented
 // These are validations that wasm-tools checks but wazero doesn't yet
 func isValidationNotYetImplemented(expectedError string) bool {
-	// List of validation messages that wazero might not yet implement
+	// List of validation messages that wazero does not yet implement.
+	// The decoder now handles: "not a resource type", "type index out of
+	// bounds", "resources can only be represented by", and "function result
+	// cannot contain a borrow type".
 	notYetImplemented := []string{
-		"resources can only be represented by",
 		"not a local resource",
 		"resources can only be defined within a concrete component",
 		"wrong signature for a destructor",
@@ -257,7 +259,6 @@ func isValidationNotYetImplemented(expectedError string) bool {
 		"func not valid to be used as import",
 		"func not valid to be used as export",
 		"resource used in function does not have a name",
-		"function result cannot contain a `borrow` type",
 		"function does not match expected resource name",
 		"should return",
 		"should have",
@@ -272,10 +273,9 @@ func isValidationNotYetImplemented(expectedError string) bool {
 		"missing import",
 		"refers to resources not defined",
 		"type mismatch",
-		"not a resource type",          // canonical resource type validation
-		"type index out of bounds",     // type index validation
-		"function index out of bounds", // function index validation
-		"is not a func",                // import/export kind validation
+		"function index out of bounds", // destructor function index validation (requires post-decode pass)
+		"is not a func",               // import/export kind validation
+		"does not match expected resource name",
 	}
 
 	expectedLower := strings.ToLower(expectedError)

@@ -147,6 +147,14 @@ func decodeImport(dc *decodeContext, r *bytes.Reader) (component.Import, error) 
 
 // decodeImportSection parses the import section (section ID 10).
 // Multiple import sections may exist; imports are accumulated.
+//
+// Each import introduces a new entry into its corresponding index
+// space. Type imports additionally register scope entries so that
+// later type-section entries (own<>, borrow<>, type-index references)
+// can resolve against them.
+//
+// Spec: Binary.md §2.5 – each import "introduces a new index that
+// aliases the imported definition" into the relevant index space.
 func decodeImportSection(dc *decodeContext, r *bytes.Reader) error {
 	count, _, err := leb128.DecodeUint32(r)
 	if err != nil {
@@ -160,6 +168,46 @@ func decodeImportSection(dc *decodeContext, r *bytes.Reader) error {
 			return fmt.Errorf("decoding import %d: %w", startIdx+i, err)
 		}
 		dc.c.Imports = append(dc.c.Imports, imp)
+
+		// Update index spaces and scope based on the import kind.
+		switch imp.ExternDesc.Kind {
+		case component.ImportExternDescType:
+			switch imp.ExternDesc.TypeBoundKind {
+			case component.TypeBoundSubResource:
+				// (sub resource) introduces a fresh abstract resource
+				// into the type index space and scope.
+				rtIdx := dc.builder.InternAbstractResource()
+				dc.scope.appendResource(rtIdx)
+				dc.c.TypeDefs = append(dc.c.TypeDefs, component.TypeDef{
+					Kind:     component.TypeDefKindResource,
+					Resource: rtIdx,
+				})
+			case component.TypeBoundEq:
+				// (eq i) aliases the existing type at index i.
+				idx := *imp.ExternDesc.TypeBoundIdx
+				if int(idx) >= len(dc.scope.entries) {
+					return fmt.Errorf("decoding import %d: typebound eq index %d out of range", startIdx+i, idx)
+				}
+				src := dc.scope.entries[idx]
+				dc.scope.entries = append(dc.scope.entries, src)
+				dc.c.TypeDefs = append(dc.c.TypeDefs, component.TypeDef{
+					Kind: component.TypeDefKindAlias,
+				})
+			}
+			dc.c.NextTypeIdx++
+
+		case component.ImportExternDescFunc:
+			dc.c.NextFuncIdx++
+
+		case component.ImportExternDescComponent:
+			dc.c.NextComponentIdx++
+
+		case component.ImportExternDescInstance:
+			dc.c.NextComponentInstanceIdx++
+
+		case component.ImportExternDescValue:
+			dc.c.NextValueIdx++
+		}
 	}
 
 	return nil

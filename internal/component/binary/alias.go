@@ -88,7 +88,11 @@ func decodeAlias(r *bytes.Reader) (component.Alias, error) {
 // Multiple alias sections may exist; aliases are accumulated.
 // For core export aliases, the Idx field is assigned based on the current
 // index in the appropriate core index space (func, memory, etc.).
-func decodeAliasSection(c *component.Component, r *bytes.Reader) error {
+//
+// Type aliases (both export and outer) additionally register scope
+// entries so that later own<>/borrow<> references resolve correctly.
+func decodeAliasSection(dc *decodeContext, r *bytes.Reader) error {
+	c := dc.c
 	count, _, err := leb128.DecodeUint32(r)
 	if err != nil {
 		return fmt.Errorf("reading alias count: %w", err)
@@ -156,6 +160,13 @@ func decodeAliasSection(c *component.Component, r *bytes.Reader) error {
 						ExportName:  alias.ExportName,
 					},
 				})
+				// Register a scope entry so that own<>/borrow<> references
+				// to this alias slot resolve correctly. Since we don't know
+				// the aliased type's kind at decode time (it requires
+				// cross-instance resolution), we use scopeEntryAlias with a
+				// placeholder abstract resource. If the target turns out not
+				// to be a resource, full validation catches it at link time.
+				dc.scope.appendAlias(dc.builder.InternAbstractResource())
 			case component.SortComponent:
 				alias.Idx = c.NextComponentIdx
 				c.NextComponentIdx++
@@ -183,6 +194,10 @@ func decodeAliasSection(c *component.Component, r *bytes.Reader) error {
 						OuterIndex: alias.OuterIndex,
 					},
 				})
+				// Register a scope entry for outer type aliases.
+				// Use scopeEntryAlias with a placeholder since we can't
+				// resolve the outer scope's type kind at decode time.
+				dc.scope.appendAlias(dc.builder.InternAbstractResource())
 			case component.SortComponent:
 				alias.Idx = c.NextComponentIdx
 				c.NextComponentIdx++

@@ -73,10 +73,10 @@ func TestDecodeAliasSection(t *testing.T) {
 		0x03, 0x02, 0x01, 0x02,
 	}
 
-	c := &component.Component{}
-	err := decodeAliasSection(c, bytes.NewReader(data))
+	dc := newDecodeContext()
+	err := decodeAliasSection(dc, bytes.NewReader(data))
 	require.NoError(t, err)
-	require.Equal(t, 2, len(c.Aliases))
-	require.Equal(t, component.AliasKindExport, c.Aliases[0].Kind)
-	require.Equal(t, component.AliasKindOuter, c.Aliases[1].Kind)
+	require.Equal(t, 2, len(dc.c.Aliases))
+	require.Equal(t, component.AliasKindExport, dc.c.Aliases[0].Kind)
+	require.Equal(t, component.AliasKindOuter, dc.c.Aliases[1].Kind)
 }

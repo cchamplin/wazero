@@ -132,11 +132,11 @@ func TestIndexSpaceTracking_AliasSection(t *testing.T) {
 			0x03, 'f', 'o', 'o', // name: "foo"
 		}
 
-		c := &component.Component{}
-		err := decodeAliasSection(c, bytes.NewReader(aliasSection))
+		dc := newDecodeContext()
+		err := decodeAliasSection(dc, bytes.NewReader(aliasSection))
 		require.NoError(t, err)
-		require.Equal(t, uint32(1), c.NextCoreFuncIdx, "NextCoreFuncIdx should be incremented")
-		require.Equal(t, uint32(0), c.Aliases[0].Idx, "Alias should have Idx 0")
+		require.Equal(t, uint32(1), dc.c.NextCoreFuncIdx, "NextCoreFuncIdx should be incremented")
+		require.Equal(t, uint32(0), dc.c.Aliases[0].Idx, "Alias should have Idx 0")
 	})
 
 	t.Run("core export memory alias increments NextCoreMemoryIdx", func(t *testing.T) {
@@ -149,11 +149,11 @@ func TestIndexSpaceTracking_AliasSection(t *testing.T) {
 			0x03, 'm', 'e', 'm', // name: "mem"
 		}
 
-		c := &component.Component{}
-		err := decodeAliasSection(c, bytes.NewReader(aliasSection))
+		dc := newDecodeContext()
+		err := decodeAliasSection(dc, bytes.NewReader(aliasSection))
 		require.NoError(t, err)
-		require.Equal(t, uint32(1), c.NextCoreMemoryIdx, "NextCoreMemoryIdx should be incremented")
-		require.Equal(t, uint32(0), c.Aliases[0].Idx, "Alias should have Idx 0")
+		require.Equal(t, uint32(1), dc.c.NextCoreMemoryIdx, "NextCoreMemoryIdx should be incremented")
+		require.Equal(t, uint32(0), dc.c.Aliases[0].Idx, "Alias should have Idx 0")
 	})
 
 	t.Run("component export func alias increments NextFuncIdx", func(t *testing.T) {
@@ -165,11 +165,11 @@ func TestIndexSpaceTracking_AliasSection(t *testing.T) {
 			0x04, 't', 'e', 's', 't', // name: "test"
 		}
 
-		c := &component.Component{}
-		err := decodeAliasSection(c, bytes.NewReader(aliasSection))
+		dc := newDecodeContext()
+		err := decodeAliasSection(dc, bytes.NewReader(aliasSection))
 		require.NoError(t, err)
-		require.Equal(t, uint32(1), c.NextFuncIdx, "NextFuncIdx should be incremented")
-		require.Equal(t, uint32(0), c.Aliases[0].Idx, "Alias should have Idx 0")
+		require.Equal(t, uint32(1), dc.c.NextFuncIdx, "NextFuncIdx should be incremented")
+		require.Equal(t, uint32(0), dc.c.Aliases[0].Idx, "Alias should have Idx 0")
 	})
 
 	t.Run("outer type alias increments NextTypeIdx", func(t *testing.T) {
@@ -181,11 +181,11 @@ func TestIndexSpaceTracking_AliasSection(t *testing.T) {
 			0x05, // outer index
 		}
 
-		c := &component.Component{}
-		err := decodeAliasSection(c, bytes.NewReader(aliasSection))
+		dc := newDecodeContext()
+		err := decodeAliasSection(dc, bytes.NewReader(aliasSection))
 		require.NoError(t, err)
-		require.Equal(t, uint32(1), c.NextTypeIdx, "NextTypeIdx should be incremented")
-		require.Equal(t, uint32(0), c.Aliases[0].Idx, "Alias should have Idx 0")
+		require.Equal(t, uint32(1), dc.c.NextTypeIdx, "NextTypeIdx should be incremented")
+		require.Equal(t, uint32(0), dc.c.Aliases[0].Idx, "Alias should have Idx 0")
 	})
 
 	t.Run("multiple aliases increment correct counters", func(t *testing.T) {
@@ -210,16 +210,16 @@ func TestIndexSpaceTracking_AliasSection(t *testing.T) {
 			0x00, // outer index
 		}
 
-		c := &component.Component{}
-		err := decodeAliasSection(c, bytes.NewReader(aliasSection))
+		dc := newDecodeContext()
+		err := decodeAliasSection(dc, bytes.NewReader(aliasSection))
 		require.NoError(t, err)
-		require.Equal(t, 3, len(c.Aliases))
-		require.Equal(t, uint32(2), c.NextCoreFuncIdx, "NextCoreFuncIdx should be 2 after two core func aliases")
-		require.Equal(t, uint32(1), c.NextTypeIdx, "NextTypeIdx should be 1 after one type alias")
+		require.Equal(t, 3, len(dc.c.Aliases))
+		require.Equal(t, uint32(2), dc.c.NextCoreFuncIdx, "NextCoreFuncIdx should be 2 after two core func aliases")
+		require.Equal(t, uint32(1), dc.c.NextTypeIdx, "NextTypeIdx should be 1 after one type alias")
 		// Verify index assignments
-		require.Equal(t, uint32(0), c.Aliases[0].Idx, "First core func alias should have Idx 0")
-		require.Equal(t, uint32(1), c.Aliases[1].Idx, "Second core func alias should have Idx 1")
-		require.Equal(t, uint32(0), c.Aliases[2].Idx, "Type alias should have Idx 0")
+		require.Equal(t, uint32(0), dc.c.Aliases[0].Idx, "First core func alias should have Idx 0")
+		require.Equal(t, uint32(1), dc.c.Aliases[1].Idx, "Second core func alias should have Idx 1")
+		require.Equal(t, uint32(0), dc.c.Aliases[2].Idx, "Type alias should have Idx 0")
 	})
 }
 
@@ -236,13 +236,11 @@ func TestIndexSpaceTracking_CanonSection(t *testing.T) {
 			0x00, // typeidx = 0
 		}
 
-		c := &component.Component{
-			FuncIdxToCanonical: make(map[uint32]uint32),
-		}
-		err := decodeCanonSection(c, bytes.NewReader(canonSection))
+		dc := newDecodeContext()
+		err := decodeCanonSection(dc, bytes.NewReader(canonSection))
 		require.NoError(t, err)
-		require.Equal(t, uint32(1), c.NextFuncIdx, "NextFuncIdx should be 1 after canon lift")
-		require.Equal(t, uint32(0), c.Canonicals[0].ComponentFuncIdx, "ComponentFuncIdx should be 0")
+		require.Equal(t, uint32(1), dc.c.NextFuncIdx, "NextFuncIdx should be 1 after canon lift")
+		require.Equal(t, uint32(0), dc.c.Canonicals[0].ComponentFuncIdx, "ComponentFuncIdx should be 0")
 	})
 
 	t.Run("canon lower increments NextCoreFuncIdx", func(t *testing.T) {
@@ -255,12 +253,10 @@ func TestIndexSpaceTracking_CanonSection(t *testing.T) {
 			0x00, // opts count = 0
 		}
 
-		c := &component.Component{
-			FuncIdxToCanonical: make(map[uint32]uint32),
-		}
-		err := decodeCanonSection(c, bytes.NewReader(canonSection))
+		dc := newDecodeContext()
+		err := decodeCanonSection(dc, bytes.NewReader(canonSection))
 		require.NoError(t, err)
-		require.Equal(t, uint32(1), c.NextCoreFuncIdx, "NextCoreFuncIdx should be 1 after canon lower")
+		require.Equal(t, uint32(1), dc.c.NextCoreFuncIdx, "NextCoreFuncIdx should be 1 after canon lower")
 	})
 
 	t.Run("multiple canon operations increment correctly", func(t *testing.T) {
@@ -280,14 +276,12 @@ func TestIndexSpaceTracking_CanonSection(t *testing.T) {
 			0x01, // typeidx = 1
 		}
 
-		c := &component.Component{
-			FuncIdxToCanonical: make(map[uint32]uint32),
-		}
-		err := decodeCanonSection(c, bytes.NewReader(canonSection))
+		dc := newDecodeContext()
+		err := decodeCanonSection(dc, bytes.NewReader(canonSection))
 		require.NoError(t, err)
-		require.Equal(t, uint32(2), c.NextFuncIdx, "NextFuncIdx should be 2 after two canon lifts")
-		require.Equal(t, uint32(0), c.Canonicals[0].ComponentFuncIdx, "First canon lift should have ComponentFuncIdx 0")
-		require.Equal(t, uint32(1), c.Canonicals[1].ComponentFuncIdx, "Second canon lift should have ComponentFuncIdx 1")
+		require.Equal(t, uint32(2), dc.c.NextFuncIdx, "NextFuncIdx should be 2 after two canon lifts")
+		require.Equal(t, uint32(0), dc.c.Canonicals[0].ComponentFuncIdx, "First canon lift should have ComponentFuncIdx 0")
+		require.Equal(t, uint32(1), dc.c.Canonicals[1].ComponentFuncIdx, "Second canon lift should have ComponentFuncIdx 1")
 	})
 }
 
@@ -304,10 +298,10 @@ func TestIndexSpaceTracking_ExportSection(t *testing.T) {
 			0x00, // no externdesc
 		}
 
-		c := &component.Component{}
-		err := decodeExportSection(c, bytes.NewReader(exportSection))
+		dc := newDecodeContext()
+		err := decodeExportSection(dc, bytes.NewReader(exportSection))
 		require.NoError(t, err)
-		require.Equal(t, uint32(1), c.NextFuncIdx, "NextFuncIdx should be 1 after function export")
+		require.Equal(t, uint32(1), dc.c.NextFuncIdx, "NextFuncIdx should be 1 after function export")
 	})
 
 	t.Run("type export does not increment NextFuncIdx", func(t *testing.T) {
@@ -315,15 +309,16 @@ func TestIndexSpaceTracking_ExportSection(t *testing.T) {
 			0x01,                     // 1 export
 			0x00,                     // simple name
 			0x04, 'm', 'y', '-', 't', // name "my-t"
-			0x05, // sort = type
+			0x03, // sort = type
 			0x00, // index = 0
 			0x00, // no externdesc
 		}
 
-		c := &component.Component{}
-		err := decodeExportSection(c, bytes.NewReader(exportSection))
+		dc := newDecodeContext()
+		err := decodeExportSection(dc, bytes.NewReader(exportSection))
 		require.NoError(t, err)
-		require.Equal(t, uint32(0), c.NextFuncIdx, "NextFuncIdx should still be 0 after type export")
+		require.Equal(t, uint32(0), dc.c.NextFuncIdx, "NextFuncIdx should still be 0 after type export")
+		require.Equal(t, uint32(1), dc.c.NextTypeIdx, "NextTypeIdx should be 1 after type export")
 	})
 }
 

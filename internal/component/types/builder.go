@@ -510,6 +510,71 @@ func (b *ComponentTypesBuilder) InternFunc(async bool, paramNames []string, para
 	return FuncTypeIdx(idx)
 }
 
+// --- Validation helpers ---
+
+// ContainsBorrow reports whether the given ValType transitively contains
+// a borrow<> handle type. This is used during function type decoding to
+// enforce the spec rule that function results cannot contain borrows.
+//
+// Spec: "function results cannot contain a borrow type" — applies to
+// direct borrow<> values and to borrow<> nested within lists, options,
+// records, tuples, variants, results, and fixed-length lists.
+func (b *ComponentTypesBuilder) ContainsBorrow(vt ValType) bool {
+	switch vt.Kind {
+	case TypeKindBorrow:
+		return true
+	case TypeKindOwn:
+		return false
+	case TypeKindList:
+		if int(vt.Index) < len(b.ct.Lists) {
+			return b.ContainsBorrow(b.ct.Lists[vt.Index].Element)
+		}
+	case TypeKindFixedList:
+		if int(vt.Index) < len(b.ct.FixedLists) {
+			return b.ContainsBorrow(b.ct.FixedLists[vt.Index].Element)
+		}
+	case TypeKindOption:
+		if int(vt.Index) < len(b.ct.Options) {
+			return b.ContainsBorrow(b.ct.Options[vt.Index].Element)
+		}
+	case TypeKindResult:
+		if int(vt.Index) < len(b.ct.Results) {
+			r := b.ct.Results[vt.Index]
+			if r.HasOK && b.ContainsBorrow(r.OK) {
+				return true
+			}
+			if r.HasErr && b.ContainsBorrow(r.Err) {
+				return true
+			}
+		}
+	case TypeKindRecord:
+		if int(vt.Index) < len(b.ct.Records) {
+			for _, f := range b.ct.Records[vt.Index].Fields {
+				if b.ContainsBorrow(f.Type) {
+					return true
+				}
+			}
+		}
+	case TypeKindTuple:
+		if int(vt.Index) < len(b.ct.Tuples) {
+			for _, t := range b.ct.Tuples[vt.Index].Types {
+				if b.ContainsBorrow(t) {
+					return true
+				}
+			}
+		}
+	case TypeKindVariant:
+		if int(vt.Index) < len(b.ct.Variants) {
+			for _, c := range b.ct.Variants[vt.Index].Cases {
+				if c.HasPayload && b.ContainsBorrow(c.Payload) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 // --- Finish ---
 
 // Finish freezes the builder and returns the immutable *ComponentTypes.

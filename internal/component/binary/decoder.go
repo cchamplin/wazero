@@ -138,15 +138,15 @@ func decodeComponentInto(dc *decodeContext, binary []byte) error {
 				return fmt.Errorf("section %s: %w", sectionID, err)
 			}
 		case SectionIDCanon:
-			if err := decodeCanonSection(c, bytes.NewReader(sectionContent)); err != nil {
+			if err := decodeCanonSection(dc, bytes.NewReader(sectionContent)); err != nil {
 				return fmt.Errorf("section %s: %w", sectionID, err)
 			}
 		case SectionIDExport:
-			if err := decodeExportSection(c, bytes.NewReader(sectionContent)); err != nil {
+			if err := decodeExportSection(dc, bytes.NewReader(sectionContent)); err != nil {
 				return fmt.Errorf("section %s: %w", sectionID, err)
 			}
 		case SectionIDAlias:
-			if err := decodeAliasSection(c, bytes.NewReader(sectionContent)); err != nil {
+			if err := decodeAliasSection(dc, bytes.NewReader(sectionContent)); err != nil {
 				return fmt.Errorf("section %s: %w", sectionID, err)
 			}
 		case SectionIDImport:
@@ -438,6 +438,48 @@ func decodeTypeSection(dc *decodeContext, r *bytes.Reader) error {
 				ValType: vt,
 			})
 
+		case ValTypeOpcodeOwn:
+			// own<R> as a standalone type entry in the type section.
+			// The resource index follows as a LEB128 uint32.
+			resIdx, _, err := leb128.DecodeUint32(r)
+			if err != nil {
+				return fmt.Errorf("decode own type %d: read resource index: %w", slot, err)
+			}
+			if int(resIdx) >= len(dc.scope.entries) {
+				return fmt.Errorf("decode own type %d: type index %d out of range", slot, resIdx)
+			}
+			entry := dc.scope.entries[resIdx]
+			if entry.kind != scopeEntryResource && entry.kind != scopeEntryAlias {
+				return fmt.Errorf("decode own type %d: type index %d is not a resource type", slot, resIdx)
+			}
+			vt := dc.builder.InternOwnHandle(entry.resource)
+			dc.scope.appendValType(vt)
+			dc.c.TypeDefs = append(dc.c.TypeDefs, component.TypeDef{
+				Kind:    component.TypeDefKindDefined,
+				ValType: vt,
+			})
+
+		case ValTypeOpcodeBorrow:
+			// borrow<R> as a standalone type entry in the type section.
+			// The resource index follows as a LEB128 uint32.
+			resIdx, _, err := leb128.DecodeUint32(r)
+			if err != nil {
+				return fmt.Errorf("decode borrow type %d: read resource index: %w", slot, err)
+			}
+			if int(resIdx) >= len(dc.scope.entries) {
+				return fmt.Errorf("decode borrow type %d: type index %d out of range", slot, resIdx)
+			}
+			entry := dc.scope.entries[resIdx]
+			if entry.kind != scopeEntryResource && entry.kind != scopeEntryAlias {
+				return fmt.Errorf("decode borrow type %d: type index %d is not a resource type", slot, resIdx)
+			}
+			vt := dc.builder.InternBorrowHandle(entry.resource)
+			dc.scope.appendValType(vt)
+			dc.c.TypeDefs = append(dc.c.TypeDefs, component.TypeDef{
+				Kind:    component.TypeDefKindDefined,
+				ValType: vt,
+			})
+
 		default:
 			// Primitive value types can appear as bare type-section
 			// entries (a defvaltype equal to a primitive). Re-read as a
@@ -479,7 +521,8 @@ func decodeTypeSection(dc *decodeContext, r *bytes.Reader) error {
 // Multiple canon sections may exist; entries are accumulated.
 // Each canon lift operation consumes one entry from the component function index space.
 // Canon lower and resource operations consume entries from the core function index space.
-func decodeCanonSection(c *component.Component, r *bytes.Reader) error {
+func decodeCanonSection(dc *decodeContext, r *bytes.Reader) error {
+	c := dc.c
 	count, _, err := leb128.DecodeUint32(r)
 	if err != nil {
 		return fmt.Errorf("read canon count: %w", err)
@@ -507,6 +550,19 @@ func decodeCanonSection(c *component.Component, r *bytes.Reader) error {
 			c.NextCoreFuncIdx++
 
 		case component.CanonKindResourceNew, component.CanonKindResourceDrop, component.CanonKindResourceRep:
+			// Validate that the type index is within bounds and refers
+			// to a resource type. Spec: "resource.new", "resource.drop",
+			// and "resource.rep" each require a typeidx that resolves to
+			// a resource declaration.
+			typeIdx := def.TypeIdx
+			if int(typeIdx) >= len(dc.scope.entries) {
+				return fmt.Errorf("decode canonical %d: type index %d out of bounds", startIdx+i, typeIdx)
+			}
+			entry := dc.scope.entries[typeIdx]
+			if entry.kind != scopeEntryResource && entry.kind != scopeEntryAlias {
+				return fmt.Errorf("decode canonical %d: type index %d is not a resource type", startIdx+i, typeIdx)
+			}
+
 			// Resource operations (new, drop, rep) produce core functions.
 			// Store the assigned core function index, then increment.
 			def.ComponentFuncIdx = c.NextCoreFuncIdx
@@ -521,9 +577,14 @@ func decodeCanonSection(c *component.Component, r *bytes.Reader) error {
 
 // decodeExportSection parses the export section (section ID 11).
 // Multiple export sections may exist; exports are accumulated.
-// According to the Component Model spec, exports introduce a new index that
-// aliases the exported definition. Function exports increment the function index space.
-func decodeExportSection(c *component.Component, r *bytes.Reader) error {
+//
+// According to the Component Model spec, exports introduce a new index
+// that aliases the exported definition. Each export kind increments
+// its corresponding index space, and type exports additionally
+// register scope entries so that later own<>/borrow<> references
+// resolve correctly.
+func decodeExportSection(dc *decodeContext, r *bytes.Reader) error {
+	c := dc.c
 	count, _, err := leb128.DecodeUint32(r)
 	if err != nil {
 		return fmt.Errorf("read export count: %w", err)
@@ -538,10 +599,29 @@ func decodeExportSection(c *component.Component, r *bytes.Reader) error {
 		c.Exports = append(c.Exports, exp)
 
 		// According to the Component Model spec, exports introduce a new index
-		// that aliases the exported definition. For function exports, this
-		// increments the component function index space.
-		if exp.Kind == component.ExportKindFunc {
+		// that aliases the exported definition.
+		switch exp.Kind {
+		case component.ExportKindFunc:
 			c.NextFuncIdx++
+		case component.ExportKindType:
+			// Type exports alias the exported type into a new type index slot.
+			srcIdx := exp.Idx
+			if int(srcIdx) < len(dc.scope.entries) {
+				src := dc.scope.entries[srcIdx]
+				dc.scope.entries = append(dc.scope.entries, src)
+			} else {
+				// Source index not yet in scope — append an alias placeholder
+				// to keep the scope aligned with NextTypeIdx.
+				dc.scope.appendAlias(dc.builder.InternAbstractResource())
+			}
+			c.TypeDefs = append(c.TypeDefs, component.TypeDef{
+				Kind: component.TypeDefKindAlias,
+			})
+			c.NextTypeIdx++
+		case component.ExportKindInstance:
+			c.NextComponentInstanceIdx++
+		case component.ExportKindComponent:
+			c.NextComponentIdx++
 		}
 	}
 
