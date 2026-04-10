@@ -713,6 +713,198 @@ func TestRestrictionsWast(t *testing.T) {
 	runWastSuite(t, "testdata/wasmtime/restrictions.wast")
 }
 
+// --- Wasmtime tests (new files from submodule update) ---
+
+func TestBigStringsWast(t *testing.T) {
+	runWastSuite(t, "testdata/wasmtime/big-strings.wast")
+}
+
+func TestErrorContextTrapInPostReturnWast(t *testing.T) {
+	runWastSuite(t, "testdata/wasmtime/error-context-trap-in-post-return.wast")
+}
+
+func TestMapTypesWast(t *testing.T) {
+	runWastSuite(t, "testdata/wasmtime/map-types.wast")
+}
+
+func TestStringTranscodeInvalidWast(t *testing.T) {
+	runWastSuite(t, "testdata/wasmtime/string-transcode-invalid.wast")
+}
+
+func TestStringsWasmtimeWast(t *testing.T) {
+	runWastSuite(t, "testdata/wasmtime/strings.wast")
+}
+
+// --- Component-model spec tests: wasmtime subset (differ from wasmtime repo) ---
+
+func TestSpecWasmtimeFusedWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/wasmtime/fused.wast")
+}
+
+func TestSpecWasmtimeModulesWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/wasmtime/modules.wast")
+}
+
+func TestSpecWasmtimeResourcesWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/wasmtime/resources.wast")
+}
+
+func TestSpecWasmtimeStringsWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/wasmtime/strings.wast")
+}
+
+func TestSpecWasmtimeTypesWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/wasmtime/types.wast")
+}
+
+// --- Component-model spec tests: values ---
+
+func TestSpecValuesStringsWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/values/strings.wast")
+}
+
+func TestSpecValuesTrapInPostReturnWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/values/trap-in-post-return.wast")
+}
+
+// --- Component-model spec tests: names ---
+
+func TestSpecNamesKebabWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/names/kebab.wast")
+}
+
+// --- Component-model spec tests: resources ---
+
+func TestSpecResourcesMultipleResourcesWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/resources/multiple-resources.wast")
+}
+
+// --- Component-model spec tests: wasm-tools ---
+
+func TestSpecWasmToolsAdaptWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/wasm-tools/adapt.wast")
+}
+
+func TestSpecWasmToolsAliasWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/wasm-tools/alias.wast")
+}
+
+func TestSpecWasmToolsBigWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/wasm-tools/big.wast")
+}
+
+func TestSpecWasmToolsDefinedtypesWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/wasm-tools/definedtypes.wast")
+}
+
+func TestSpecWasmToolsEmptyWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/wasm-tools/empty.wast")
+}
+
+func TestSpecWasmToolsExampleWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/wasm-tools/example.wast")
+}
+
+func TestSpecWasmToolsExportAscriptionWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/wasm-tools/export-ascription.wast")
+}
+
+func TestSpecWasmToolsExportIntroducesAliasWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/wasm-tools/export-introduces-alias.wast")
+}
+
+func TestSpecWasmToolsExportWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/wasm-tools/export.wast")
+}
+
+func TestSpecWasmToolsFuncWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/wasm-tools/func.wast")
+}
+
+func TestSpecWasmToolsImportWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/wasm-tools/import.wast")
+}
+
+func TestSpecWasmToolsImportsExportsWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/wasm-tools/imports-exports.wast")
+}
+
+func TestSpecWasmToolsInlineExportsWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/wasm-tools/inline-exports.wast")
+}
+
+func TestSpecWasmToolsInstanceTypeWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/wasm-tools/instance-type.wast")
+}
+
+func TestSpecWasmToolsInstantiateWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/wasm-tools/instantiate.wast")
+}
+
+func TestSpecWasmToolsInvalidWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/wasm-tools/invalid.wast")
+}
+
+func TestSpecWasmToolsLinkWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/wasm-tools/link.wast")
+}
+
+func TestSpecWasmToolsLotsOfAliasesWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/wasm-tools/lots-of-aliases.wast")
+}
+
+func TestSpecWasmToolsLowerWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/wasm-tools/lower.wast")
+}
+
+func TestSpecWasmToolsMemory64Wast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/wasm-tools/memory64.wast")
+}
+
+func TestSpecWasmToolsModuleLinkWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/wasm-tools/module-link.wast")
+}
+
+func TestSpecWasmToolsMoreFlagsWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/wasm-tools/more-flags.wast")
+}
+
+func TestSpecWasmToolsNamingWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/wasm-tools/naming.wast")
+}
+
+func TestSpecWasmToolsNestedModulesWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/wasm-tools/nested-modules.wast")
+}
+
+func TestSpecWasmToolsResourcesWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/wasm-tools/resources.wast")
+}
+
+func TestSpecWasmToolsTagsWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/wasm-tools/tags.wast")
+}
+
+func TestSpecWasmToolsTypeExportRestrictionsWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/wasm-tools/type-export-restrictions.wast")
+}
+
+func TestSpecWasmToolsTypesWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/wasm-tools/types.wast")
+}
+
+func TestSpecWasmToolsVeryNestedWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/wasm-tools/very-nested.wast")
+}
+
+func TestSpecWasmToolsVirtualizeWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/wasm-tools/virtualize.wast")
+}
+
+func TestSpecWasmToolsWrongOrderWast(t *testing.T) {
+	runWastSuite(t, "testdata/spec/wasm-tools/wrong-order.wast")
+}
+
 // runAssertInvalidTest tests that an invalid component fails to compile
 func runAssertInvalidTest(t *testing.T, ctx context.Context, rt wazero.Runtime, suite *WastTestSuite, cmd *Command) {
 	if cmd.Filename == "" {
