@@ -81,7 +81,7 @@ func TestPublicAPIAddS32(t *testing.T) {
 		t.Fatal("expected 'add' function export")
 	}
 
-	results, err := addFunc.Call(ctx, int32(2), int32(3))
+	results, err := addFunc.CallAndPostReturn(ctx, types.ValS32(2), types.ValS32(3))
 	if err != nil {
 		t.Fatalf("Call: %v", err)
 	}
@@ -89,10 +89,7 @@ func TestPublicAPIAddS32(t *testing.T) {
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
-	got, ok := results[0].(int32)
-	if !ok {
-		t.Fatalf("expected int32, got %T", results[0])
-	}
+	got := results[0].S32()
 	if got != 5 {
 		t.Errorf("expected 5, got %d", got)
 	}
@@ -182,7 +179,7 @@ func TestPublicAPIComponentLinkerInstantiate(t *testing.T) {
 		t.Fatal("expected 'add' function export")
 	}
 
-	results, err := addFunc.Call(ctx, int32(10), int32(20))
+	results, err := addFunc.CallAndPostReturn(ctx, types.ValS32(10), types.ValS32(20))
 	if err != nil {
 		t.Fatalf("Call: %v", err)
 	}
@@ -190,10 +187,7 @@ func TestPublicAPIComponentLinkerInstantiate(t *testing.T) {
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
-	got, ok := results[0].(int32)
-	if !ok {
-		t.Fatalf("expected int32, got %T", results[0])
-	}
+	got := results[0].S32()
 	if got != 30 {
 		t.Errorf("expected 30, got %d", got)
 	}

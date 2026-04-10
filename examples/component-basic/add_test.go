@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/tetratelabs/wazero"
+	"github.com/tetratelabs/wazero/api/component"
 )
 
 // addWasm is a component that exports: add(a: s32, b: s32) -> s32
@@ -50,14 +51,14 @@ func TestComponentBasic(t *testing.T) {
 		t.Fatal("exported function 'add' not found")
 	}
 
-	// Call add(2, 3) - pass Go primitives directly
-	results, err := addFunc.Call(ctx, int32(2), int32(3))
+	// Call add(2, 3) using Val constructors
+	results, err := addFunc.CallAndPostReturn(ctx, component.ValS32(2), component.ValS32(3))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// Results are returned as Go native types
-	got := results[0].(int32)
+	// Results are returned as Val values — use accessor methods
+	got := results[0].S32()
 	if got != 5 {
 		t.Errorf("add(2, 3) = %d, want 5", got)
 	}

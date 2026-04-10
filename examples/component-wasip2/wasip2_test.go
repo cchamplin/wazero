@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/tetratelabs/wazero"
+	"github.com/tetratelabs/wazero/api/component"
 	"github.com/tetratelabs/wazero/imports/wasip2"
 )
 
@@ -71,11 +72,11 @@ func TestWASIP2Plugin(t *testing.T) {
 	if nameFunc == nil {
 		t.Fatal("exported function 'get-plugin-name' not found")
 	}
-	nameResult, err := nameFunc.Call(ctx)
+	nameResult, err := nameFunc.CallAndPostReturn(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	name := nameResult[0].(string)
+	name := nameResult[0].StringVal()
 	t.Logf("plugin name: %s", name)
 	if name != "add" {
 		t.Errorf("name = %q, want %q", name, "add")
@@ -86,11 +87,11 @@ func TestWASIP2Plugin(t *testing.T) {
 	if evalFunc == nil {
 		t.Fatal("exported function 'evaluate' not found")
 	}
-	evalResult, err := evalFunc.Call(ctx, int32(28), int32(3))
+	evalResult, err := evalFunc.CallAndPostReturn(ctx, component.ValS32(28), component.ValS32(3))
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := evalResult[0].(int32)
+	got := evalResult[0].S32()
 	t.Logf("evaluate(28, 3) = %d", got)
 	if got != 31 {
 		t.Errorf("evaluate(28, 3) = %d, want 31", got)

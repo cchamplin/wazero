@@ -423,7 +423,7 @@ func runRegisterTest(t *testing.T, rs *runnerState, cmd *Command) {
 // (sys.ExitError). Implementation panics (nil pointer dereferences, type
 // assertion failures, index out of bounds, etc.) re-panic so bugs surface
 // immediately as test crashes.
-func safeCall(ctx context.Context, fn api.ComponentFunc, args []any) (results []any, err error) {
+func safeCall(ctx context.Context, fn api.ComponentFunc, args []types.Val) (results []types.Val, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			// wazero runtime traps are panicked as *wasmruntime.Error.
@@ -449,142 +449,98 @@ func safeCall(ctx context.Context, fn api.ComponentFunc, args []any) (results []
 			panic(r)
 		}
 	}()
-	return fn.Call(ctx, args...)
+	return fn.CallAndPostReturn(ctx, args...)
 }
 
 // --- Value conversion ---
 
-// convertArgs converts JSON Value objects from the wast JSON to Go values
-// suitable for passing to api.ComponentFunc.Call. The public Call API
-// accepts any-typed parameters and converts them internally.
-func convertArgs(vals []Value) []any {
-	args := make([]any, len(vals))
+// convertArgs converts JSON Value objects from the wast JSON to types.Val
+// values suitable for passing to api.ComponentFunc.Call.
+func convertArgs(vals []Value) []types.Val {
+	args := make([]types.Val, len(vals))
 	for i, v := range vals {
-		args[i] = convertValueToAny(v)
+		args[i] = convertValueToVal(v)
 	}
 	return args
 }
 
-// convertValueToAny converts a single JSON Value to its Go native type.
+// convertValueToVal converts a single JSON Value to its types.Val representation.
 // The wast JSON format stores all values as strings; we parse them into
-// the appropriate Go type based on the "type" field.
-func convertValueToAny(v Value) any {
+// the appropriate Val type based on the "type" field.
+func convertValueToVal(v Value) types.Val {
 	switch v.Type {
 	case "i32", "s32":
 		n, _ := strconv.ParseInt(v.Value, 10, 32)
-		return int32(n)
+		return types.ValS32(int32(n))
 	case "u32":
 		n, _ := strconv.ParseUint(v.Value, 10, 32)
-		return uint32(n)
+		return types.ValU32(uint32(n))
 	case "i64", "s64":
 		n, _ := strconv.ParseInt(v.Value, 10, 64)
-		return int64(n)
+		return types.ValS64(n)
 	case "u64":
 		n, _ := strconv.ParseUint(v.Value, 10, 64)
-		return uint64(n)
+		return types.ValU64(n)
 	case "f32":
 		n, _ := strconv.ParseUint(v.Value, 10, 32)
-		return math.Float32frombits(uint32(n))
+		return types.ValF32(math.Float32frombits(uint32(n)))
 	case "f64":
 		n, _ := strconv.ParseUint(v.Value, 10, 64)
-		return math.Float64frombits(n)
+		return types.ValF64(math.Float64frombits(n))
 	case "s8":
 		n, _ := strconv.ParseInt(v.Value, 10, 8)
-		return int8(n)
+		return types.ValS8(int8(n))
 	case "u8":
 		n, _ := strconv.ParseUint(v.Value, 10, 8)
-		return uint8(n)
+		return types.ValU8(uint8(n))
 	case "s16":
 		n, _ := strconv.ParseInt(v.Value, 10, 16)
-		return int16(n)
+		return types.ValS16(int16(n))
 	case "u16":
 		n, _ := strconv.ParseUint(v.Value, 10, 16)
-		return uint16(n)
+		return types.ValU16(uint16(n))
 	case "bool":
-		return v.Value == "1" || v.Value == "true"
+		return types.ValBool(v.Value == "1" || v.Value == "true")
 	case "string":
-		return v.Value
+		return types.ValString(v.Value)
 	case "char":
 		n, _ := strconv.ParseInt(v.Value, 10, 32)
-		return rune(n)
+		return types.ValChar(rune(n))
 	case "enum":
-		// Enum values are case name strings. Must be types.ValEnum so that
-		// anyToVal preserves the enum kind rather than treating it as a string.
 		return types.ValEnum(v.Value)
 	case "tuple":
 		// Tuple values are JSON arrays of nested Value objects.
 		var nested []Value
 		if err := json.Unmarshal([]byte(v.Value), &nested); err != nil {
-			return v.Value // fallback to raw string
+			return types.ValString(v.Value) // fallback
 		}
 		vals := make([]types.Val, len(nested))
 		for i, nv := range nested {
-			anyVal := convertValueToAny(nv)
-			if av, ok := anyVal.(types.Val); ok {
-				vals[i] = av
-			} else {
-				// Wrap primitive Go values via the same path the runtime uses
-				vals[i] = primitiveToVal(anyVal)
-			}
+			vals[i] = convertValueToVal(nv)
 		}
 		return types.ValTuple(vals)
 	case "list":
 		// List values are JSON arrays of nested Value objects.
 		var nested []Value
 		if err := json.Unmarshal([]byte(v.Value), &nested); err != nil {
-			return []any{} // empty list on parse failure
+			return types.ValList([]types.Val{}) // empty list on parse failure
 		}
-		items := make([]any, len(nested))
+		items := make([]types.Val, len(nested))
 		for i, nv := range nested {
-			items[i] = convertValueToAny(nv)
+			items[i] = convertValueToVal(nv)
 		}
-		return items
+		return types.ValList(items)
 	default:
 		// Return the raw string for unsupported types
-		return v.Value
-	}
-}
-
-// primitiveToVal converts a Go primitive to the corresponding types.Val.
-// This mirrors the anyToVal logic in linker_api.go for the types that
-// convertValueToAny produces.
-func primitiveToVal(v any) types.Val {
-	switch a := v.(type) {
-	case bool:
-		return types.ValBool(a)
-	case int8:
-		return types.ValS8(a)
-	case uint8:
-		return types.ValU8(a)
-	case int16:
-		return types.ValS16(a)
-	case uint16:
-		return types.ValU16(a)
-	case int32:
-		return types.ValS32(a)
-	case uint32:
-		return types.ValU32(a)
-	case int64:
-		return types.ValS64(a)
-	case uint64:
-		return types.ValU64(a)
-	case float32:
-		return types.ValF32(a)
-	case float64:
-		return types.ValF64(a)
-	case string:
-		return types.ValString(a)
-	default:
-		return types.ValString(fmt.Sprintf("%v", v))
+		return types.ValString(v.Value)
 	}
 }
 
 // --- Result comparison ---
 
 // compareResults compares actual call results with expected values from the
-// wast JSON. Results from api.ComponentFunc.Call are Go native types
-// (int32, string, etc.) produced by valToAny.
-func compareResults(t *testing.T, line int, actual []any, expected []Value) {
+// wast JSON. Results from api.ComponentFunc.Call are types.Val values.
+func compareResults(t *testing.T, line int, actual []types.Val, expected []Value) {
 	t.Helper()
 	if len(actual) != len(expected) {
 		t.Errorf("assert_return at line %d: result count mismatch: got %d, expected %d",
@@ -594,57 +550,57 @@ func compareResults(t *testing.T, line int, actual []any, expected []Value) {
 	for i, exp := range expected {
 		act := actual[i]
 		if !valuesMatch(act, exp) {
-			t.Errorf("assert_return at line %d: result[%d] mismatch: got %v (%T), expected %s %s",
-				line, i, act, act, exp.Type, exp.Value)
+			t.Errorf("assert_return at line %d: result[%d] mismatch: got %v (kind=%d), expected %s %s",
+				line, i, act, act.Kind(), exp.Type, exp.Value)
 		}
 	}
 }
 
-// valuesMatch compares a Go native value (from Call results) with an
-// expected JSON Value. Returns true if they match.
-func valuesMatch(actual any, expected Value) bool {
+// valuesMatch compares a types.Val (from Call results) with an expected
+// JSON Value. Returns true if they match.
+func valuesMatch(actual types.Val, expected Value) bool {
 	switch expected.Type {
 	case "i32", "s32":
 		exp, _ := strconv.ParseInt(expected.Value, 10, 32)
-		switch a := actual.(type) {
-		case int32:
-			return a == int32(exp)
-		case uint32:
-			return int32(a) == int32(exp)
+		switch actual.Kind() {
+		case types.ValKindS32:
+			return actual.S32() == int32(exp)
+		case types.ValKindU32:
+			return int32(actual.U32()) == int32(exp)
 		}
 		return false
 	case "u32":
 		exp, _ := strconv.ParseUint(expected.Value, 10, 32)
-		switch a := actual.(type) {
-		case uint32:
-			return a == uint32(exp)
-		case int32:
-			return uint32(a) == uint32(exp)
+		switch actual.Kind() {
+		case types.ValKindU32:
+			return actual.U32() == uint32(exp)
+		case types.ValKindS32:
+			return uint32(actual.S32()) == uint32(exp)
 		}
 		return false
 	case "i64", "s64":
 		exp, _ := strconv.ParseInt(expected.Value, 10, 64)
-		switch a := actual.(type) {
-		case int64:
-			return a == exp
-		case uint64:
-			return int64(a) == exp
+		switch actual.Kind() {
+		case types.ValKindS64:
+			return actual.S64() == exp
+		case types.ValKindU64:
+			return int64(actual.U64()) == exp
 		}
 		return false
 	case "u64":
 		exp, _ := strconv.ParseUint(expected.Value, 10, 64)
-		switch a := actual.(type) {
-		case uint64:
-			return a == exp
-		case int64:
-			return uint64(a) == exp
+		switch actual.Kind() {
+		case types.ValKindU64:
+			return actual.U64() == exp
+		case types.ValKindS64:
+			return uint64(actual.S64()) == exp
 		}
 		return false
 	case "f32":
 		exp, _ := strconv.ParseUint(expected.Value, 10, 32)
 		expF := math.Float32frombits(uint32(exp))
-		switch a := actual.(type) {
-		case float32:
+		if actual.Kind() == types.ValKindF32 {
+			a := actual.F32()
 			if math.IsNaN(float64(expF)) && math.IsNaN(float64(a)) {
 				return true
 			}
@@ -654,8 +610,8 @@ func valuesMatch(actual any, expected Value) bool {
 	case "f64":
 		exp, _ := strconv.ParseUint(expected.Value, 10, 64)
 		expF := math.Float64frombits(exp)
-		switch a := actual.(type) {
-		case float64:
+		if actual.Kind() == types.ValKindF64 {
+			a := actual.F64()
 			if math.IsNaN(expF) && math.IsNaN(a) {
 				return true
 			}
@@ -664,42 +620,31 @@ func valuesMatch(actual any, expected Value) bool {
 		return false
 	case "s8":
 		exp, _ := strconv.ParseInt(expected.Value, 10, 8)
-		a, ok := actual.(int8)
-		return ok && a == int8(exp)
+		return actual.Kind() == types.ValKindS8 && actual.S8() == int8(exp)
 	case "u8":
 		exp, _ := strconv.ParseUint(expected.Value, 10, 8)
-		a, ok := actual.(uint8)
-		return ok && a == uint8(exp)
+		return actual.Kind() == types.ValKindU8 && actual.U8() == uint8(exp)
 	case "s16":
 		exp, _ := strconv.ParseInt(expected.Value, 10, 16)
-		a, ok := actual.(int16)
-		return ok && a == int16(exp)
+		return actual.Kind() == types.ValKindS16 && actual.S16() == int16(exp)
 	case "u16":
 		exp, _ := strconv.ParseUint(expected.Value, 10, 16)
-		a, ok := actual.(uint16)
-		return ok && a == uint16(exp)
+		return actual.Kind() == types.ValKindU16 && actual.U16() == uint16(exp)
 	case "bool":
 		expBool := expected.Value == "1" || expected.Value == "true"
-		a, ok := actual.(bool)
-		return ok && a == expBool
+		return actual.Kind() == types.ValKindBool && actual.Bool() == expBool
 	case "string":
-		a, ok := actual.(string)
-		return ok && a == expected.Value
+		return actual.Kind() == types.ValKindString && actual.StringVal() == expected.Value
 	case "char":
 		exp, _ := strconv.ParseInt(expected.Value, 10, 32)
-		a, ok := actual.(rune)
-		return ok && a == rune(exp)
+		return actual.Kind() == types.ValKindChar && actual.Char() == rune(exp)
 	case "enum":
-		// valToAny converts ValKindEnum to string (the case name).
-		a, ok := actual.(string)
-		return ok && a == expected.Value
+		return actual.Kind() == types.ValKindEnum && actual.Enum() == expected.Value
 	case "tuple":
-		// valToAny converts ValKindTuple to []any. The expected value is
-		// a JSON array of nested Value objects.
-		actSlice, ok := actual.([]any)
-		if !ok {
+		if actual.Kind() != types.ValKindTuple {
 			return false
 		}
+		actSlice := actual.Tuple()
 		var nested []Value
 		if err := json.Unmarshal([]byte(expected.Value), &nested); err != nil {
 			return false
@@ -714,11 +659,10 @@ func valuesMatch(actual any, expected Value) bool {
 		}
 		return true
 	case "list":
-		// valToAny converts ValKindList to []any.
-		actSlice, ok := actual.([]any)
-		if !ok {
+		if actual.Kind() != types.ValKindList {
 			return false
 		}
+		actSlice := actual.List()
 		var nested []Value
 		if err := json.Unmarshal([]byte(expected.Value), &nested); err != nil {
 			return false

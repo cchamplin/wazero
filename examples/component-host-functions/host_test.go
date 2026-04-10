@@ -55,12 +55,12 @@ func TestHostFunctions(t *testing.T) {
 		t.Fatal("exported function 'run' not found")
 	}
 
-	results, err := runFunc.Call(ctx, int32(21))
+	results, err := runFunc.CallAndPostReturn(ctx, component.ValS32(21))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	got := results[0].(int32)
+	got := results[0].S32()
 	if got != 42 {
 		t.Errorf("run(21) = %d, want 42", got)
 	}

@@ -171,7 +171,7 @@ func TestRepro_InterfaceExportWithHostImport(t *testing.T) {
 	defer cleanup()
 
 	fn := getHandlerFunc(t, instance, "process")
-	results, err := fn.Call(testCtx)
+	results, err := fn.CallAndPostReturn(testCtx)
 	if err != nil {
 		t.Fatalf("process() call failed: %v", err)
 	}
@@ -179,17 +179,14 @@ func TestRepro_InterfaceExportWithHostImport(t *testing.T) {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
 
-	rec, ok := results[0].(map[string]any)
-	if !ok {
-		t.Fatalf("expected map[string]any result, got %T: %v", results[0], results[0])
+	isOk, okVal, _ := results[0].Result()
+	if !isOk {
+		t.Errorf("process().ok = false, want true")
 	}
-	if got, ok := rec["value"].(uint32); !ok || got != 42 {
-		t.Errorf("process().value = %v, want 42", rec["value"])
+	if okVal == nil || okVal.U32() != 42 {
+		t.Errorf("process().value = %v, want 42", okVal)
 	}
-	if got, ok := rec["ok"].(bool); !ok || !got {
-		t.Errorf("process().ok = %v, want true", rec["ok"])
-	}
-	t.Logf("process() = %v", rec)
+	t.Logf("process() = result{ok=%v, value=%v}", isOk, okVal)
 }
 
 func TestRepro_RecordTypeResolution(t *testing.T) {
@@ -197,23 +194,18 @@ func TestRepro_RecordTypeResolution(t *testing.T) {
 	defer cleanup()
 
 	fn := getHandlerFunc(t, instance, "process")
-	results, err := fn.Call(testCtx)
+	results, err := fn.CallAndPostReturn(testCtx)
 	if err != nil {
 		t.Fatalf("process() call failed: %v", err)
 	}
 
-	rec, ok := results[0].(map[string]any)
-	if !ok {
-		t.Fatalf("expected map[string]any, got %T: %v", results[0], results[0])
+	// Result type: result<u32, string> — has Result() accessor
+	isOk, okVal, errVal := results[0].Result()
+	_ = errVal
+	if isOk && okVal == nil {
+		t.Fatal("result ok but value is nil")
 	}
-
-	if _, hasVal := rec["value"]; !hasVal {
-		t.Fatal("record missing 'value' field")
-	}
-	if _, hasOk := rec["ok"]; !hasOk {
-		t.Fatal("record missing 'ok' field")
-	}
-	t.Logf("Record type resolved correctly: %v", rec)
+	t.Logf("Record type resolved correctly: ok=%v, value=%v", isOk, okVal)
 }
 
 func TestRepro_U64CanonLowerSignature(t *testing.T) {
@@ -222,7 +214,7 @@ func TestRepro_U64CanonLowerSignature(t *testing.T) {
 
 	fn := getHandlerFunc(t, instance, "process-random")
 	input := uint64(123456789)
-	results, err := fn.Call(testCtx, input)
+	results, err := fn.CallAndPostReturn(testCtx, apicomponent.ValU64(input))
 	if err != nil {
 		t.Fatalf("process-random(%d) call failed: %v", input, err)
 	}
@@ -230,10 +222,7 @@ func TestRepro_U64CanonLowerSignature(t *testing.T) {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
 
-	got, ok := results[0].(uint64)
-	if !ok {
-		t.Fatalf("expected uint64, got %T: %v", results[0], results[0])
-	}
+	got := results[0].U64()
 	if got != input {
 		t.Errorf("process-random(%d) = %d, want %d", input, got, input)
 	}
@@ -250,7 +239,7 @@ func TestRepro_StringParameterSupport(t *testing.T) {
 
 	fn := getHandlerFunc(t, instance, "echo-string")
 	input := "hello, component model!"
-	results, err := fn.Call(testCtx, input)
+	results, err := fn.CallAndPostReturn(testCtx, apicomponent.ValString(input))
 	if err != nil {
 		t.Fatalf("echo-string(%q) call failed: %v", input, err)
 	}
@@ -258,10 +247,7 @@ func TestRepro_StringParameterSupport(t *testing.T) {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
 
-	got, ok := results[0].(string)
-	if !ok {
-		t.Fatalf("expected string, got %T: %v", results[0], results[0])
-	}
+	got := results[0].StringVal()
 	if got != input {
 		t.Errorf("echo-string(%q) = %q, want %q", input, got, input)
 	}
@@ -278,14 +264,11 @@ func TestEcho_Bool(t *testing.T) {
 
 	fn := getHandlerFunc(t, instance, "echo-bool")
 	for _, tc := range []bool{true, false} {
-		results, err := fn.Call(testCtx, tc)
+		results, err := fn.CallAndPostReturn(testCtx, apicomponent.ValBool(tc))
 		if err != nil {
 			t.Fatalf("echo-bool(%v) call failed: %v", tc, err)
 		}
-		got, ok := results[0].(bool)
-		if !ok {
-			t.Fatalf("expected bool, got %T: %v", results[0], results[0])
-		}
+		got := results[0].Bool()
 		if got != tc {
 			t.Errorf("echo-bool(%v) = %v", tc, got)
 		}
@@ -298,14 +281,11 @@ func TestEcho_S8(t *testing.T) {
 
 	fn := getHandlerFunc(t, instance, "echo-s8")
 	for _, tc := range []int8{0, 1, -1, 127, -128} {
-		results, err := fn.Call(testCtx, tc)
+		results, err := fn.CallAndPostReturn(testCtx, apicomponent.ValS8(tc))
 		if err != nil {
 			t.Fatalf("echo-s8(%d) call failed: %v", tc, err)
 		}
-		got, ok := results[0].(int8)
-		if !ok {
-			t.Fatalf("expected int8, got %T: %v", results[0], results[0])
-		}
+		got := results[0].S8()
 		if got != tc {
 			t.Errorf("echo-s8(%d) = %d", tc, got)
 		}
@@ -318,14 +298,11 @@ func TestEcho_U8(t *testing.T) {
 
 	fn := getHandlerFunc(t, instance, "echo-u8")
 	for _, tc := range []uint8{0, 1, 255} {
-		results, err := fn.Call(testCtx, tc)
+		results, err := fn.CallAndPostReturn(testCtx, apicomponent.ValU8(tc))
 		if err != nil {
 			t.Fatalf("echo-u8(%d) call failed: %v", tc, err)
 		}
-		got, ok := results[0].(uint8)
-		if !ok {
-			t.Fatalf("expected uint8, got %T: %v", results[0], results[0])
-		}
+		got := results[0].U8()
 		if got != tc {
 			t.Errorf("echo-u8(%d) = %d", tc, got)
 		}
@@ -338,14 +315,11 @@ func TestEcho_S16(t *testing.T) {
 
 	fn := getHandlerFunc(t, instance, "echo-s16")
 	for _, tc := range []int16{0, 1, -1, 32767, -32768} {
-		results, err := fn.Call(testCtx, tc)
+		results, err := fn.CallAndPostReturn(testCtx, apicomponent.ValS16(tc))
 		if err != nil {
 			t.Fatalf("echo-s16(%d) call failed: %v", tc, err)
 		}
-		got, ok := results[0].(int16)
-		if !ok {
-			t.Fatalf("expected int16, got %T: %v", results[0], results[0])
-		}
+		got := results[0].S16()
 		if got != tc {
 			t.Errorf("echo-s16(%d) = %d", tc, got)
 		}
@@ -358,14 +332,11 @@ func TestEcho_U16(t *testing.T) {
 
 	fn := getHandlerFunc(t, instance, "echo-u16")
 	for _, tc := range []uint16{0, 1, 65535} {
-		results, err := fn.Call(testCtx, tc)
+		results, err := fn.CallAndPostReturn(testCtx, apicomponent.ValU16(tc))
 		if err != nil {
 			t.Fatalf("echo-u16(%d) call failed: %v", tc, err)
 		}
-		got, ok := results[0].(uint16)
-		if !ok {
-			t.Fatalf("expected uint16, got %T: %v", results[0], results[0])
-		}
+		got := results[0].U16()
 		if got != tc {
 			t.Errorf("echo-u16(%d) = %d", tc, got)
 		}
@@ -378,14 +349,11 @@ func TestEcho_F32(t *testing.T) {
 
 	fn := getHandlerFunc(t, instance, "echo-f32")
 	for _, tc := range []float32{0.0, 1.5, -1.5, 3.14159} {
-		results, err := fn.Call(testCtx, tc)
+		results, err := fn.CallAndPostReturn(testCtx, apicomponent.ValF32(tc))
 		if err != nil {
 			t.Fatalf("echo-f32(%v) call failed: %v", tc, err)
 		}
-		got, ok := results[0].(float32)
-		if !ok {
-			t.Fatalf("expected float32, got %T: %v", results[0], results[0])
-		}
+		got := results[0].F32()
 		if got != tc {
 			t.Errorf("echo-f32(%v) = %v", tc, got)
 		}
@@ -398,14 +366,11 @@ func TestEcho_F64(t *testing.T) {
 
 	fn := getHandlerFunc(t, instance, "echo-f64")
 	for _, tc := range []float64{0.0, 1.5, -1.5, 3.141592653589793} {
-		results, err := fn.Call(testCtx, tc)
+		results, err := fn.CallAndPostReturn(testCtx, apicomponent.ValF64(tc))
 		if err != nil {
 			t.Fatalf("echo-f64(%v) call failed: %v", tc, err)
 		}
-		got, ok := results[0].(float64)
-		if !ok {
-			t.Fatalf("expected float64, got %T: %v", results[0], results[0])
-		}
+		got := results[0].F64()
 		if got != tc {
 			t.Errorf("echo-f64(%v) = %v", tc, got)
 		}
@@ -418,14 +383,11 @@ func TestEcho_Char(t *testing.T) {
 
 	fn := getHandlerFunc(t, instance, "echo-char")
 	for _, tc := range []rune{'A', 'z', 0x1F600} {
-		results, err := fn.Call(testCtx, apicomponent.ValChar(tc))
+		results, err := fn.CallAndPostReturn(testCtx, apicomponent.ValChar(tc))
 		if err != nil {
 			t.Fatalf("echo-char(%U) call failed: %v", tc, err)
 		}
-		got, ok := results[0].(rune)
-		if !ok {
-			t.Fatalf("expected rune, got %T: %v", results[0], results[0])
-		}
+		got := results[0].Char()
 		if got != tc {
 			t.Errorf("echo-char(%U) = %U", tc, got)
 		}
@@ -442,14 +404,11 @@ func TestEcho_Enum(t *testing.T) {
 
 	fn := getHandlerFunc(t, instance, "echo-enum")
 	for _, tc := range []string{"red", "green", "blue"} {
-		results, err := fn.Call(testCtx, apicomponent.ValEnum(tc))
+		results, err := fn.CallAndPostReturn(testCtx, apicomponent.ValEnum(tc))
 		if err != nil {
 			t.Fatalf("echo-enum(%q) call failed: %v", tc, err)
 		}
-		got, ok := results[0].(string)
-		if !ok {
-			t.Fatalf("expected string (enum), got %T: %v", results[0], results[0])
-		}
+		got := results[0].Enum()
 		if got != tc {
 			t.Errorf("echo-enum(%q) = %q", tc, got)
 		}
@@ -468,14 +427,11 @@ func TestEcho_Flags(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		results, err := fn.Call(testCtx, apicomponent.ValFlags(tc))
+		results, err := fn.CallAndPostReturn(testCtx, apicomponent.ValFlags(tc))
 		if err != nil {
 			t.Fatalf("echo-flags(%v) call failed: %v", tc, err)
 		}
-		got, ok := results[0].(map[string]bool)
-		if !ok {
-			t.Fatalf("expected map[string]bool, got %T: %v", results[0], results[0])
-		}
+		got := results[0].Flags()
 		for k, v := range tc {
 			if v && !got[k] {
 				t.Errorf("echo-flags(%v): flag %q = false, want true", tc, k)
@@ -492,19 +448,18 @@ func TestEcho_Variant(t *testing.T) {
 
 	// Test circle(3.14)
 	circlePayload := apicomponent.ValF64(3.14)
-	results, err := fn.Call(testCtx, apicomponent.ValVariant("circle", &circlePayload))
+	results, err := fn.CallAndPostReturn(testCtx, apicomponent.ValVariant("circle", &circlePayload))
 	if err != nil {
 		t.Fatalf("echo-variant(circle(3.14)) call failed: %v", err)
 	}
-	// Variant comes back as map[string]any with case name key
-	t.Logf("echo-variant(circle(3.14)) = %v (type %T)", results[0], results[0])
+	t.Logf("echo-variant(circle(3.14)) = %v", results[0])
 
 	// Test none
-	results, err = fn.Call(testCtx, apicomponent.ValVariant("none", nil))
+	results, err = fn.CallAndPostReturn(testCtx, apicomponent.ValVariant("none", nil))
 	if err != nil {
 		t.Fatalf("echo-variant(none) call failed: %v", err)
 	}
-	t.Logf("echo-variant(none) = %v (type %T)", results[0], results[0])
+	t.Logf("echo-variant(none) = %v", results[0])
 }
 
 // =============================================================================
@@ -516,22 +471,18 @@ func TestMakeOk(t *testing.T) {
 	defer cleanup()
 
 	fn := getHandlerFunc(t, instance, "make-ok")
-	results, err := fn.Call(testCtx, uint32(42))
+	results, err := fn.CallAndPostReturn(testCtx, apicomponent.ValU32(42))
 	if err != nil {
 		t.Fatalf("make-ok(42) call failed: %v", err)
 	}
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
-	t.Logf("make-ok(42) = %v (type %T)", results[0], results[0])
+	t.Logf("make-ok(42) = %v", results[0])
 
-	// Result comes back as map[string]any{"ok": bool, "value": ...}
-	rec, ok := results[0].(map[string]any)
-	if !ok {
-		t.Fatalf("expected map[string]any result, got %T: %v", results[0], results[0])
-	}
-	if isOk, _ := rec["ok"].(bool); !isOk {
-		t.Errorf("make-ok(42): ok = %v, want true", rec["ok"])
+	isOk, _, _ := results[0].Result()
+	if !isOk {
+		t.Errorf("make-ok(42): ok = false, want true")
 	}
 }
 
@@ -540,20 +491,17 @@ func TestMakeErr(t *testing.T) {
 	defer cleanup()
 
 	fn := getHandlerFunc(t, instance, "make-err")
-	results, err := fn.Call(testCtx, "something went wrong")
+	results, err := fn.CallAndPostReturn(testCtx, apicomponent.ValString("something went wrong"))
 	if err != nil {
 		t.Fatalf("make-err call failed: %v", err)
 	}
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
-	t.Logf("make-err() = %v (type %T)", results[0], results[0])
+	t.Logf("make-err() = %v", results[0])
 
-	rec, ok := results[0].(map[string]any)
-	if !ok {
-		t.Fatalf("expected map[string]any result, got %T: %v", results[0], results[0])
-	}
-	if isOk, _ := rec["ok"].(bool); isOk {
+	isOk, _, _ := results[0].Result()
+	if isOk {
 		t.Errorf("make-err: ok = true, want false")
 	}
 }
@@ -567,14 +515,11 @@ func TestAddThree(t *testing.T) {
 	defer cleanup()
 
 	fn := getHandlerFunc(t, instance, "add-three")
-	results, err := fn.Call(testCtx, uint32(10), uint32(20), uint32(30))
+	results, err := fn.CallAndPostReturn(testCtx, apicomponent.ValU32(10), apicomponent.ValU32(20), apicomponent.ValU32(30))
 	if err != nil {
 		t.Fatalf("add-three call failed: %v", err)
 	}
-	got, ok := results[0].(uint32)
-	if !ok {
-		t.Fatalf("expected uint32, got %T: %v", results[0], results[0])
-	}
+	got := results[0].U32()
 	if got != 60 {
 		t.Errorf("add-three(10, 20, 30) = %d, want 60", got)
 	}
@@ -585,14 +530,11 @@ func TestConcatStrings(t *testing.T) {
 	defer cleanup()
 
 	fn := getHandlerFunc(t, instance, "concat-strings")
-	results, err := fn.Call(testCtx, "hello, ", "world!")
+	results, err := fn.CallAndPostReturn(testCtx, apicomponent.ValString("hello, "), apicomponent.ValString("world!"))
 	if err != nil {
 		t.Fatalf("concat-strings call failed: %v", err)
 	}
-	got, ok := results[0].(string)
-	if !ok {
-		t.Fatalf("expected string, got %T: %v", results[0], results[0])
-	}
+	got := results[0].StringVal()
 	if got != "hello, world!" {
 		t.Errorf("concat-strings = %q, want %q", got, "hello, world!")
 	}
@@ -605,24 +547,21 @@ func TestMixedParams(t *testing.T) {
 	fn := getHandlerFunc(t, instance, "mixed-params")
 
 	// flag=true → "alice:42"
-	results, err := fn.Call(testCtx, "alice", uint32(42), true)
+	results, err := fn.CallAndPostReturn(testCtx, apicomponent.ValString("alice"), apicomponent.ValU32(42), apicomponent.ValBool(true))
 	if err != nil {
 		t.Fatalf("mixed-params call failed: %v", err)
 	}
-	got, ok := results[0].(string)
-	if !ok {
-		t.Fatalf("expected string, got %T: %v", results[0], results[0])
-	}
+	got := results[0].StringVal()
 	if got != "alice:42" {
 		t.Errorf("mixed-params(alice, 42, true) = %q, want %q", got, "alice:42")
 	}
 
 	// flag=false → "alice"
-	results, err = fn.Call(testCtx, "alice", uint32(42), false)
+	results, err = fn.CallAndPostReturn(testCtx, apicomponent.ValString("alice"), apicomponent.ValU32(42), apicomponent.ValBool(false))
 	if err != nil {
 		t.Fatalf("mixed-params call failed: %v", err)
 	}
-	got = results[0].(string)
+	got = results[0].StringVal()
 	if got != "alice" {
 		t.Errorf("mixed-params(alice, 42, false) = %q, want %q", got, "alice")
 	}
@@ -637,14 +576,11 @@ func TestRepro_HostImportEnumParam(t *testing.T) {
 	defer cleanup()
 
 	fn := getHandlerFunc(t, instance, "call-send-enum")
-	results, err := fn.Call(testCtx, apicomponent.ValEnum("green"), "hello")
+	results, err := fn.CallAndPostReturn(testCtx, apicomponent.ValEnum("green"), apicomponent.ValString("hello"))
 	if err != nil {
 		t.Fatalf("call-send-enum(green, \"hello\") failed: %v", err)
 	}
-	got, ok := results[0].(uint32)
-	if !ok {
-		t.Fatalf("expected uint32, got %T: %v", results[0], results[0])
-	}
+	got := results[0].U32()
 	if got != 1 {
 		t.Errorf("call-send-enum() = %d, want 1", got)
 	}
@@ -663,7 +599,7 @@ func TestHostImport_EnumArgTypeVerification(t *testing.T) {
 	defer cleanup()
 
 	fn := getHandlerFunc(t, instance, "call-send-enum")
-	_, err := fn.Call(testCtx, apicomponent.ValEnum("green"), "hello")
+	_, err := fn.CallAndPostReturn(testCtx, apicomponent.ValEnum("green"), apicomponent.ValString("hello"))
 	if err != nil {
 		t.Fatalf("call failed: %v", err)
 	}
@@ -700,7 +636,7 @@ func TestHostImport_EnumStringCombinedArgs(t *testing.T) {
 		{"green", "world"},
 		{"blue", "test"},
 	} {
-		_, err := fn.Call(testCtx, apicomponent.ValEnum(tc.color), tc.msg)
+		_, err := fn.CallAndPostReturn(testCtx, apicomponent.ValEnum(tc.color), apicomponent.ValString(tc.msg))
 		if err != nil {
 			t.Fatalf("call-send-enum(%s, %q) failed: %v", tc.color, tc.msg, err)
 		}
@@ -736,7 +672,7 @@ func TestHostImport_EnumInRecordVerification(t *testing.T) {
 		"event-type": apicomponent.ValEnum("red"),
 		"metadata":   apicomponent.ValOption(&metadata),
 	})
-	_, err := fn.Call(testCtx, eventRecord)
+	_, err := fn.CallAndPostReturn(testCtx, eventRecord)
 	if err != nil {
 		t.Fatalf("call-send-event failed: %v", err)
 	}
@@ -788,11 +724,11 @@ func TestHostImport_AllEnumCasesRoundTrip(t *testing.T) {
 		{"green", 1},
 		{"blue", 2},
 	} {
-		results, err := fn.Call(testCtx, apicomponent.ValEnum(tc.color), "test")
+		results, err := fn.CallAndPostReturn(testCtx, apicomponent.ValEnum(tc.color), apicomponent.ValString("test"))
 		if err != nil {
 			t.Fatalf("call-send-enum(%s) failed: %v", tc.color, err)
 		}
-		got := results[0].(uint32)
+		got := results[0].U32()
 		if got != tc.expected {
 			t.Errorf("call-send-enum(%s) = %d, want %d", tc.color, got, tc.expected)
 		}
@@ -813,11 +749,11 @@ func TestRepro_HostImportRecordWithOption(t *testing.T) {
 		"event-type": apicomponent.ValEnum("red"),
 		"metadata":   apicomponent.ValOption(&metadata),
 	})
-	results, err := fn.Call(testCtx, eventRecord)
+	results, err := fn.CallAndPostReturn(testCtx, eventRecord)
 	if err != nil {
 		t.Fatalf("call-send-event({red, some([1,2,3])}) failed: %v", err)
 	}
-	if results[0].(uint32) != 1 {
+	if results[0].U32() != 1 {
 		t.Errorf("call-send-event() = %v, want 1", results[0])
 	}
 
@@ -826,11 +762,11 @@ func TestRepro_HostImportRecordWithOption(t *testing.T) {
 		"event-type": apicomponent.ValEnum("blue"),
 		"metadata":   apicomponent.ValOption(nil),
 	})
-	results, err = fn.Call(testCtx, eventRecordNone)
+	results, err = fn.CallAndPostReturn(testCtx, eventRecordNone)
 	if err != nil {
 		t.Fatalf("call-send-event({blue, none}) failed: %v", err)
 	}
-	if results[0].(uint32) != 1 {
+	if results[0].U32() != 1 {
 		t.Errorf("call-send-event() = %v, want 1", results[0])
 	}
 }
@@ -840,14 +776,11 @@ func TestHostImport_EnumReturn(t *testing.T) {
 	defer cleanup()
 
 	fn := getHandlerFunc(t, instance, "call-get-color")
-	results, err := fn.Call(testCtx)
+	results, err := fn.CallAndPostReturn(testCtx)
 	if err != nil {
 		t.Fatalf("call-get-color() failed: %v", err)
 	}
-	got, ok := results[0].(string)
-	if !ok {
-		t.Fatalf("expected string (enum), got %T: %v", results[0], results[0])
-	}
+	got := results[0].Enum()
 	if got != "blue" {
 		t.Errorf("call-get-color() = %q, want %q", got, "blue")
 	}
@@ -876,20 +809,20 @@ func TestHostImport_OptionParam(t *testing.T) {
 
 	// Test Some(42)
 	someVal := apicomponent.ValU32(42)
-	results, err := fn.Call(testCtx, apicomponent.ValOption(&someVal))
+	results, err := fn.CallAndPostReturn(testCtx, apicomponent.ValOption(&someVal))
 	if err != nil {
 		t.Fatalf("call-check-option(some(42)) failed: %v", err)
 	}
-	if results[0].(uint32) != 1 {
+	if results[0].U32() != 1 {
 		t.Errorf("call-check-option(some(42)) = %v, want 1", results[0])
 	}
 
 	// Test None
-	results, err = fn.Call(testCtx, apicomponent.ValOption(nil))
+	results, err = fn.CallAndPostReturn(testCtx, apicomponent.ValOption(nil))
 	if err != nil {
 		t.Fatalf("call-check-option(none) failed: %v", err)
 	}
-	if results[0].(uint32) != 0 {
+	if results[0].U32() != 0 {
 		t.Errorf("call-check-option(none) = %v, want 0", results[0])
 	}
 }
@@ -899,7 +832,7 @@ func TestHostImport_RetptrCompositeReturn(t *testing.T) {
 	defer cleanup()
 
 	fn := getHandlerFunc(t, instance, "call-get-event")
-	results, err := fn.Call(testCtx)
+	results, err := fn.CallAndPostReturn(testCtx)
 	if err != nil {
 		t.Fatalf("call-get-event() failed: %v", err)
 	}
@@ -907,10 +840,7 @@ func TestHostImport_RetptrCompositeReturn(t *testing.T) {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
 
-	rec, ok := results[0].(map[string]any)
-	if !ok {
-		t.Fatalf("expected map[string]any, got %T: %v", results[0], results[0])
-	}
+	rec := results[0].Record()
 	if _, ok := rec["event-type"]; !ok {
 		t.Error("record missing 'event-type' field")
 	}
@@ -941,20 +871,20 @@ func TestHostImport_NestedOptionListParam(t *testing.T) {
 	listVal := apicomponent.ValList([]apicomponent.Val{
 		apicomponent.ValU8(1), apicomponent.ValU8(2), apicomponent.ValU8(3),
 	})
-	results, err := fn.Call(testCtx, apicomponent.ValOption(&listVal))
+	results, err := fn.CallAndPostReturn(testCtx, apicomponent.ValOption(&listVal))
 	if err != nil {
 		t.Fatalf("call-check-opt-bytes(some([1,2,3])) failed: %v", err)
 	}
-	if results[0].(uint32) != 3 {
+	if results[0].U32() != 3 {
 		t.Errorf("call-check-opt-bytes(some([1,2,3])) = %v, want 3", results[0])
 	}
 
 	// Test None
-	results, err = fn.Call(testCtx, apicomponent.ValOption(nil))
+	results, err = fn.CallAndPostReturn(testCtx, apicomponent.ValOption(nil))
 	if err != nil {
 		t.Fatalf("call-check-opt-bytes(none) failed: %v", err)
 	}
-	if results[0].(uint32) != 0 {
+	if results[0].U32() != 0 {
 		t.Errorf("call-check-opt-bytes(none) = %v, want 0", results[0])
 	}
 }
@@ -977,11 +907,11 @@ func TestHostImport_RecordWithVariant(t *testing.T) {
 		"tag":   apicomponent.ValString("my-circle"),
 		"shape": apicomponent.ValVariant("circle", &circleVal),
 	})
-	results, err := fn.Call(testCtx, taggedShape)
+	results, err := fn.CallAndPostReturn(testCtx, taggedShape)
 	if err != nil {
 		t.Fatalf("call-send-tagged-shape failed: %v", err)
 	}
-	if results[0].(uint32) != 1 {
+	if results[0].U32() != 1 {
 		t.Errorf("call-send-tagged-shape() = %v, want 1", results[0])
 	}
 
@@ -1019,11 +949,11 @@ func TestHostImport_ListOfRecords(t *testing.T) {
 		"event-type": apicomponent.ValEnum("green"),
 		"metadata":   apicomponent.ValOption(nil),
 	})
-	results, err := fn.Call(testCtx, apicomponent.ValList([]apicomponent.Val{event1, event2}))
+	results, err := fn.CallAndPostReturn(testCtx, apicomponent.ValList([]apicomponent.Val{event1, event2}))
 	if err != nil {
 		t.Fatalf("call-send-events failed: %v", err)
 	}
-	if results[0].(uint32) != 2 {
+	if results[0].U32() != 2 {
 		t.Errorf("call-send-events() = %v, want 2", results[0])
 	}
 }
@@ -1049,7 +979,7 @@ func TestPublicAPI_SingleParamRecordReturn(t *testing.T) {
 	defer cleanup()
 
 	fn := getHandlerFunc(t, instance, "process-with-tag")
-	results, err := fn.Call(testCtx, "hello")
+	results, err := fn.CallAndPostReturn(testCtx, apicomponent.ValString("hello"))
 	if err != nil {
 		t.Fatalf("process-with-tag() call failed: %v", err)
 	}
@@ -1057,16 +987,12 @@ func TestPublicAPI_SingleParamRecordReturn(t *testing.T) {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
 
-	// The result MUST be a map[string]any (record), not an int32 (raw retptr).
-	rec, ok := results[0].(map[string]any)
-	if !ok {
-		t.Fatalf("expected map[string]any result, got %T: %v", results[0], results[0])
+	isOk, okVal, _ := results[0].Result()
+	if !isOk {
+		t.Errorf("process-with-tag().ok = false, want true")
 	}
-	if val, ok := rec["value"].(uint32); !ok || val != 5 {
-		t.Errorf("process-with-tag().value = %v (type %T), want uint32(5)", rec["value"], rec["value"])
-	}
-	if ok, isOk := rec["ok"].(bool); !isOk || !ok {
-		t.Errorf("process-with-tag().ok = %v (type %T), want bool(true)", rec["ok"], rec["ok"])
+	if okVal == nil || okVal.U32() != 5 {
+		t.Errorf("process-with-tag().value = %v, want uint32(5)", okVal)
 	}
 }
 
@@ -1077,7 +1003,7 @@ func TestPublicAPI_TwoStringParamsRecordReturn(t *testing.T) {
 	defer cleanup()
 
 	fn := getHandlerFunc(t, instance, "process-two-strings")
-	results, err := fn.Call(testCtx, "hello", "world")
+	results, err := fn.CallAndPostReturn(testCtx, apicomponent.ValString("hello"), apicomponent.ValString("world"))
 	if err != nil {
 		t.Fatalf("process-two-strings() call failed: %v", err)
 	}
@@ -1085,15 +1011,12 @@ func TestPublicAPI_TwoStringParamsRecordReturn(t *testing.T) {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
 
-	rec, ok := results[0].(map[string]any)
-	if !ok {
-		t.Fatalf("expected map[string]any result, got %T: %v", results[0], results[0])
+	isOk, okVal, _ := results[0].Result()
+	if !isOk {
+		t.Errorf("ok = false, want true")
 	}
-	if val, ok := rec["value"].(uint32); !ok || val != 10 {
-		t.Errorf("value = %v (type %T), want uint32(10)", rec["value"], rec["value"])
-	}
-	if ok, isOk := rec["ok"].(bool); !isOk || !ok {
-		t.Errorf("ok = %v (type %T), want bool(true)", rec["ok"], rec["ok"])
+	if okVal == nil || okVal.U32() != 10 {
+		t.Errorf("value = %v, want uint32(10)", okVal)
 	}
 }
 
@@ -1104,17 +1027,16 @@ func TestPublicAPI_StringAndListParam(t *testing.T) {
 	defer cleanup()
 
 	fn := getHandlerFunc(t, instance, "count-bytes")
-	results, err := fn.Call(testCtx, "id-1", []uint8{10, 20, 30})
+	results, err := fn.CallAndPostReturn(testCtx, apicomponent.ValString("id-1"), apicomponent.ValList([]apicomponent.Val{
+		apicomponent.ValU8(10), apicomponent.ValU8(20), apicomponent.ValU8(30),
+	}))
 	if err != nil {
 		t.Fatalf("count-bytes() call failed: %v", err)
 	}
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
-	got, ok := results[0].(uint32)
-	if !ok {
-		t.Fatalf("expected uint32, got %T: %v", results[0], results[0])
-	}
+	got := results[0].U32()
 	if got != 3 {
 		t.Errorf("count-bytes() = %d, want 3", got)
 	}
@@ -1133,7 +1055,9 @@ func TestPublicAPI_MultiParamRecordReturn(t *testing.T) {
 	defer cleanup()
 
 	fn := getHandlerFunc(t, instance, "handle-bytes")
-	results, err := fn.Call(testCtx, "corr-1", []uint8{1, 2, 3})
+	results, err := fn.CallAndPostReturn(testCtx, apicomponent.ValString("corr-1"), apicomponent.ValList([]apicomponent.Val{
+		apicomponent.ValU8(1), apicomponent.ValU8(2), apicomponent.ValU8(3),
+	}))
 	if err != nil {
 		t.Fatalf("handle-bytes() call failed: %v", err)
 	}
@@ -1141,16 +1065,12 @@ func TestPublicAPI_MultiParamRecordReturn(t *testing.T) {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
 
-	// The result MUST be a map[string]any (record), not an int32 (raw retptr).
-	rec, ok := results[0].(map[string]any)
-	if !ok {
-		t.Fatalf("expected map[string]any result, got %T: %v", results[0], results[0])
+	isOk, okVal, _ := results[0].Result()
+	if !isOk {
+		t.Errorf("handle-bytes().ok = false, want true")
 	}
-	if val, ok := rec["value"].(uint32); !ok || val != 3 {
-		t.Errorf("handle-bytes().value = %v (type %T), want uint32(3)", rec["value"], rec["value"])
-	}
-	if ok, isOk := rec["ok"].(bool); !isOk || !ok {
-		t.Errorf("handle-bytes().ok = %v (type %T), want bool(true)", rec["ok"], rec["ok"])
+	if okVal == nil || okVal.U32() != 3 {
+		t.Errorf("handle-bytes().value = %v, want uint32(3)", okVal)
 	}
 }
 
@@ -1169,26 +1089,25 @@ func TestPublicAPI_MultiParamRecordWithNilOption(t *testing.T) {
 
 	fn := getHandlerFunc(t, instance, "handle-event")
 
-	// Pass a record with nil metadata (option::none) using Go native types
-	// (map[string]any), matching how the director integration test does it.
-	eventRecord := map[string]any{
-		"event-type": "red",
-		"metadata":   nil,
-	}
+	// Pass a record with nil metadata (option::none) using Val types.
+	eventRecord := apicomponent.ValRecord(map[string]apicomponent.Val{
+		"event-type": apicomponent.ValEnum("red"),
+		"metadata":   apicomponent.ValOption(nil),
+	})
 
-	results, err := fn.Call(testCtx, "corr-2", eventRecord)
+	results, err := fn.CallAndPostReturn(testCtx, apicomponent.ValString("corr-2"), eventRecord)
 	if err != nil {
 		t.Fatalf("handle-event(corr-2, {red, nil}) failed: %v", err)
 	}
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
-	rec, ok := results[0].(map[string]any)
-	if !ok {
-		t.Fatalf("expected map[string]any result, got %T: %v", results[0], results[0])
+	isOk, okVal, _ := results[0].Result()
+	if !isOk {
+		t.Errorf("handle-event().ok = false, want true")
 	}
-	if val, ok := rec["value"].(uint32); !ok || val != 1 {
-		t.Errorf("handle-event().value = %v (type %T), want uint32(1)", rec["value"], rec["value"])
+	if okVal == nil || okVal.U32() != 1 {
+		t.Errorf("handle-event().value = %v, want uint32(1)", okVal)
 	}
 }
 
@@ -1215,34 +1134,34 @@ func TestPublicAPI_ComplexNestedRecordParam(t *testing.T) {
 
 	fn := getHandlerFunc(t, instance, "process-complex")
 
-	complexInput := map[string]any{
-		"id": "test-id",
-		"middle": map[string]any{
-			"inner": map[string]any{
-				"label":  "hello",
-				"score":  3.14,
-				"active": true,
-			},
-			"tags":     []any{"a", "b", "c"},
-			"priority": uint32(7),
-			"shape":    map[string]any{"case": "circle", "payload": 2.5},
-		},
-		"color":    "blue",
-		"metadata": []uint8{10, 20},
-	}
+	circlePayload := apicomponent.ValF64(2.5)
+	priority := apicomponent.ValU32(7)
+	metadata := apicomponent.ValList([]apicomponent.Val{apicomponent.ValU8(10), apicomponent.ValU8(20)})
+	complexInput := apicomponent.ValRecord(map[string]apicomponent.Val{
+		"id": apicomponent.ValString("test-id"),
+		"middle": apicomponent.ValRecord(map[string]apicomponent.Val{
+			"inner": apicomponent.ValRecord(map[string]apicomponent.Val{
+				"label":  apicomponent.ValString("hello"),
+				"score":  apicomponent.ValF64(3.14),
+				"active": apicomponent.ValBool(true),
+			}),
+			"tags":     apicomponent.ValList([]apicomponent.Val{apicomponent.ValString("a"), apicomponent.ValString("b"), apicomponent.ValString("c")}),
+			"priority": apicomponent.ValOption(&priority),
+			"shape":    apicomponent.ValVariant("circle", &circlePayload),
+		}),
+		"color":    apicomponent.ValEnum("blue"),
+		"metadata": apicomponent.ValOption(&metadata),
+	})
 
 	// Expected: count(5) + len("test-id")(7) + len("hello")(5) + len(tags)(3) + priority(7) + len(metadata)(2) = 29
-	results, err := fn.Call(testCtx, "ctx-1", uint32(5), complexInput)
+	results, err := fn.CallAndPostReturn(testCtx, apicomponent.ValString("ctx-1"), apicomponent.ValU32(5), complexInput)
 	if err != nil {
 		t.Fatalf("process-complex() call failed: %v", err)
 	}
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
-	got, ok := results[0].(uint32)
-	if !ok {
-		t.Fatalf("expected uint32, got %T: %v", results[0], results[0])
-	}
+	got := results[0].U32()
 	if got != 29 {
 		t.Errorf("process-complex() = %d, want 29", got)
 	}
@@ -1266,7 +1185,7 @@ func TestPublicAPI_ComplexNestedRecordReturn(t *testing.T) {
 
 	fn := getHandlerFunc(t, instance, "transform-complex")
 
-	results, err := fn.Call(testCtx, "myname", uint32(42))
+	results, err := fn.CallAndPostReturn(testCtx, apicomponent.ValString("myname"), apicomponent.ValU32(42))
 	if err != nil {
 		t.Fatalf("transform-complex() call failed: %v", err)
 	}
@@ -1274,52 +1193,41 @@ func TestPublicAPI_ComplexNestedRecordReturn(t *testing.T) {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
 
-	rec, ok := results[0].(map[string]any)
-	if !ok {
-		t.Fatalf("expected map[string]any result, got %T: %v", results[0], results[0])
-	}
+	rec := results[0].Record()
 
 	// Verify top-level fields
-	if success, ok := rec["success"].(bool); !ok || !success {
-		t.Errorf("success = %v (type %T), want true", rec["success"], rec["success"])
+	if rec["success"].Bool() != true {
+		t.Errorf("success = %v, want true", rec["success"].Bool())
 	}
 
 	// Verify nested detail record
-	detail, ok := rec["detail"].(map[string]any)
-	if !ok {
-		t.Fatalf("detail: expected map[string]any, got %T: %v", rec["detail"], rec["detail"])
+	detail := rec["detail"].Record()
+	if detail["code"].U32() != 200 {
+		t.Errorf("detail.code = %v, want 200", detail["code"].U32())
 	}
-	if code, ok := detail["code"].(uint32); !ok || code != 200 {
-		t.Errorf("detail.code = %v, want 200", detail["code"])
+	if detail["message"].StringVal() != "ok:myname" {
+		t.Errorf("detail.message = %v, want 'ok:myname'", detail["message"].StringVal())
 	}
-	if msg, ok := detail["message"].(string); !ok || msg != "ok:myname" {
-		t.Errorf("detail.message = %v, want 'ok:myname'", detail["message"])
-	}
-	if detail["extra"] == nil {
-		t.Errorf("detail.extra = nil, want 'detail-extra'")
+	if detail["extra"].Option() == nil {
+		t.Errorf("detail.extra = None, want Some('detail-extra')")
 	}
 
 	// Verify list<u32>
-	values, ok := rec["values"].([]any)
-	if !ok {
-		t.Fatalf("values: expected []any, got %T: %v", rec["values"], rec["values"])
-	}
+	values := rec["values"].List()
 	if len(values) != 3 {
 		t.Errorf("values length = %d, want 3", len(values))
 	}
 
 	// Verify nested event record with enum + option<list<u8>>
-	event, ok := rec["event"].(map[string]any)
-	if !ok {
-		t.Fatalf("event: expected map[string]any, got %T: %v", rec["event"], rec["event"])
-	}
-	if et, ok := event["event-type"].(string); !ok || et != "green" {
-		t.Errorf("event.event-type = %v, want 'green'", event["event-type"])
+	event := rec["event"].Record()
+	if event["event-type"].Enum() != "green" {
+		t.Errorf("event.event-type = %v, want 'green'", event["event-type"].Enum())
 	}
 
 	// Verify option<string> label
-	if label, ok := rec["label"].(string); !ok || label != "myname" {
-		t.Errorf("label = %v, want 'myname'", rec["label"])
+	labelOpt := rec["label"].Option()
+	if labelOpt == nil || labelOpt.StringVal() != "myname" {
+		t.Errorf("label = %v, want Some('myname')", labelOpt)
 	}
 }
 
@@ -1332,8 +1240,9 @@ func TestPublicAPI_VariantParamComplexReturn(t *testing.T) {
 
 	fn := getHandlerFunc(t, instance, "transform-complex-variant")
 
-	shapeParam := map[string]any{"case": "square", "payload": 4.0}
-	results, err := fn.Call(testCtx, "myname", shapeParam)
+	squarePayload := apicomponent.ValF64(4.0)
+	shapeParam := apicomponent.ValVariant("square", &squarePayload)
+	results, err := fn.CallAndPostReturn(testCtx, apicomponent.ValString("myname"), shapeParam)
 	if err != nil {
 		t.Fatalf("transform-complex-variant() call failed: %v", err)
 	}
@@ -1341,11 +1250,8 @@ func TestPublicAPI_VariantParamComplexReturn(t *testing.T) {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
 
-	rec, ok := results[0].(map[string]any)
-	if !ok {
-		t.Fatalf("expected map[string]any result, got %T: %v", results[0], results[0])
-	}
-	if success, ok := rec["success"].(bool); !ok || !success {
-		t.Errorf("success = %v (type %T), want true", rec["success"], rec["success"])
+	rec := results[0].Record()
+	if rec["success"].Bool() != true {
+		t.Errorf("success = %v, want true", rec["success"].Bool())
 	}
 }

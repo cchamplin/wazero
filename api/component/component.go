@@ -6,9 +6,11 @@
 //
 // This package exports the dynamic value type [Val] and host function
 // signature [HostFunc] needed when defining host functions for component
-// imports. For calling component-exported functions, Go primitives (int32,
-// string, map[string]any, []any, etc.) can be passed directly to
-// [api.ComponentFunc.Call] and are converted automatically.
+// imports and when calling component-exported functions via
+// [api.ComponentFunc.Call] / [api.ComponentFunc.CallAndPostReturn].
+// Use the Val constructors (ValS32, ValString, ValRecord, etc.) to build
+// arguments and the accessor methods (S32, StringVal, Record, etc.) to
+// read results.
 //
 // # Defining host functions
 //

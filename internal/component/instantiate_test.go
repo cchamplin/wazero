@@ -16,6 +16,7 @@ import (
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/internal/component/testdata"
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 // TestInstantiate_AddS32 verifies the full pipeline for the add_s32
@@ -48,7 +49,7 @@ func TestInstantiate_AddS32(t *testing.T) {
 		t.Fatal("expected 'add' function export")
 	}
 
-	results, err := addFunc.Call(ctx, int32(2), int32(3))
+	results, err := addFunc.CallAndPostReturn(ctx, types.ValS32(2), types.ValS32(3))
 	if err != nil {
 		t.Fatalf("Call: %v", err)
 	}
@@ -56,10 +57,7 @@ func TestInstantiate_AddS32(t *testing.T) {
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
-	got, ok := results[0].(int32)
-	if !ok {
-		t.Fatalf("expected int32, got %T", results[0])
-	}
+	got := results[0].S32()
 	if got != 5 {
 		t.Errorf("expected 5, got %d", got)
 	}
@@ -111,17 +109,14 @@ func TestInstantiate_AddS32_EdgeCases(t *testing.T) {
 	for _, tc := range tests {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			results, err := addFunc.Call(ctx, tc.a, tc.b)
+			results, err := addFunc.CallAndPostReturn(ctx, types.ValS32(tc.a), types.ValS32(tc.b))
 			if err != nil {
 				t.Fatalf("Call: %v", err)
 			}
 			if len(results) != 1 {
 				t.Fatalf("expected 1 result, got %d", len(results))
 			}
-			got, ok := results[0].(int32)
-			if !ok {
-				t.Fatalf("expected int32, got %T", results[0])
-			}
+			got := results[0].S32()
 			if got != tc.expected {
 				t.Errorf("expected %d, got %d", tc.expected, got)
 			}

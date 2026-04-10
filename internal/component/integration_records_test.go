@@ -11,6 +11,7 @@ import (
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/internal/component/testdata"
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 // TestPublicAPIRecordEcho verifies round-tripping a record {x: s32, y: s32}
@@ -43,7 +44,9 @@ func TestPublicAPIRecordEcho(t *testing.T) {
 
 	// The echo_record core module doubles x and y.
 	// Input: {x: 7, y: 11} -> Output: {x: 14, y: 22}
-	results, err := echoFunc.Call(ctx, map[string]any{"x": int32(7), "y": int32(11)})
+	results, err := echoFunc.CallAndPostReturn(ctx, types.ValRecord(map[string]types.Val{
+		"x": types.ValS32(7), "y": types.ValS32(11),
+	}))
 	if err != nil {
 		t.Fatalf("Call: %v", err)
 	}
@@ -51,12 +54,9 @@ func TestPublicAPIRecordEcho(t *testing.T) {
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
-	rec, ok := results[0].(map[string]any)
-	if !ok {
-		t.Fatalf("expected map[string]any result, got %T", results[0])
-	}
-	x := rec["x"].(int32)
-	y := rec["y"].(int32)
+	rec := results[0].Record()
+	x := rec["x"].S32()
+	y := rec["y"].S32()
 	if x != 14 {
 		t.Errorf("expected x=14, got %d", x)
 	}
@@ -106,16 +106,18 @@ func TestPublicAPIRecordWithDifferentValues(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			results, err := echoFunc.Call(ctx, map[string]any{"x": tc.x, "y": tc.y})
+			results, err := echoFunc.CallAndPostReturn(ctx, types.ValRecord(map[string]types.Val{
+				"x": types.ValS32(tc.x), "y": types.ValS32(tc.y),
+			}))
 			if err != nil {
 				t.Fatalf("Call: %v", err)
 			}
 			if len(results) != 1 {
 				t.Fatalf("expected 1 result, got %d", len(results))
 			}
-			rec := results[0].(map[string]any)
-			gotX := rec["x"].(int32)
-			gotY := rec["y"].(int32)
+			rec := results[0].Record()
+			gotX := rec["x"].S32()
+			gotY := rec["y"].S32()
 			if gotX != tc.wantX {
 				t.Errorf("x: expected %d, got %d", tc.wantX, gotX)
 			}

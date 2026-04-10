@@ -15,7 +15,6 @@ import (
 )
 
 // valOption wraps a types.Val as Some for passing through the public API.
-// The anyToVal converter handles types.Val directly.
 func valOption(v types.Val) types.Val {
 	return types.ValOption(&v)
 }
@@ -50,7 +49,9 @@ func TestEchoRecord(t *testing.T) {
 
 	// The echo_record core module doubles x and y.
 	// Input: {x: 3, y: 4} -> Output: {x: 6, y: 8}
-	results, err := echoFunc.Call(ctx, map[string]any{"x": int32(3), "y": int32(4)})
+	results, err := echoFunc.CallAndPostReturn(ctx, types.ValRecord(map[string]types.Val{
+		"x": types.ValS32(3), "y": types.ValS32(4),
+	}))
 	if err != nil {
 		t.Fatalf("Call: %v", err)
 	}
@@ -58,18 +59,9 @@ func TestEchoRecord(t *testing.T) {
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
-	rec, ok := results[0].(map[string]any)
-	if !ok {
-		t.Fatalf("expected map[string]any result, got %T", results[0])
-	}
-	x, ok := rec["x"].(int32)
-	if !ok {
-		t.Fatalf("expected int32 for x, got %T", rec["x"])
-	}
-	y, ok := rec["y"].(int32)
-	if !ok {
-		t.Fatalf("expected int32 for y, got %T", rec["y"])
-	}
+	rec := results[0].Record()
+	x := rec["x"].S32()
+	y := rec["y"].S32()
 	if x != 6 {
 		t.Errorf("expected x=6, got %d", x)
 	}
@@ -118,16 +110,18 @@ func TestEchoRecord_EdgeCases(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			results, err := echoFunc.Call(ctx, map[string]any{"x": tc.x, "y": tc.y})
+			results, err := echoFunc.CallAndPostReturn(ctx, types.ValRecord(map[string]types.Val{
+				"x": types.ValS32(tc.x), "y": types.ValS32(tc.y),
+			}))
 			if err != nil {
 				t.Fatalf("Call: %v", err)
 			}
 			if len(results) != 1 {
 				t.Fatalf("expected 1 result, got %d", len(results))
 			}
-			rec := results[0].(map[string]any)
-			gotX := rec["x"].(int32)
-			gotY := rec["y"].(int32)
+			rec := results[0].Record()
+			gotX := rec["x"].S32()
+			gotY := rec["y"].S32()
 			if gotX != tc.wantX {
 				t.Errorf("x: expected %d, got %d", tc.wantX, gotX)
 			}
@@ -166,7 +160,7 @@ func TestOptionRoundtrip(t *testing.T) {
 	}
 
 	// Pass Some(42) as an option<s32> using types.Val.
-	results, err := echoFunc.Call(ctx, valOption(types.ValS32(42)))
+	results, err := echoFunc.CallAndPostReturn(ctx, valOption(types.ValS32(42)))
 	if err != nil {
 		t.Fatalf("Call: %v", err)
 	}
@@ -174,12 +168,12 @@ func TestOptionRoundtrip(t *testing.T) {
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
-	// valToAny converts Some(42) to the unwrapped value: int32(42).
-	// None would be returned as nil.
-	got, ok := results[0].(int32)
-	if !ok {
-		t.Fatalf("expected int32 result (unwrapped Some), got %T: %v", results[0], results[0])
+	// Result is option<s32> — Option() returns *Val for Some, nil for None.
+	opt := results[0].Option()
+	if opt == nil {
+		t.Fatal("expected Some(42), got None")
 	}
+	got := opt.S32()
 	if got != 42 {
 		t.Errorf("expected 42, got %d", got)
 	}
@@ -214,7 +208,9 @@ func TestListSum(t *testing.T) {
 		t.Fatal("expected 'sum' function export")
 	}
 
-	results, err := sumFunc.Call(ctx, []int32{1, 2, 3, 4, 5})
+	results, err := sumFunc.CallAndPostReturn(ctx, types.ValList([]types.Val{
+		types.ValS32(1), types.ValS32(2), types.ValS32(3), types.ValS32(4), types.ValS32(5),
+	}))
 	if err != nil {
 		t.Fatalf("Call: %v", err)
 	}
@@ -222,10 +218,7 @@ func TestListSum(t *testing.T) {
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
-	got, ok := results[0].(int32)
-	if !ok {
-		t.Fatalf("expected int32, got %T", results[0])
-	}
+	got := results[0].S32()
 	if got != 15 {
 		t.Errorf("expected 15, got %d", got)
 	}
@@ -259,7 +252,7 @@ func TestResultDivide(t *testing.T) {
 	}
 
 	// Successful division: 10 / 3 = 3 -> Ok(3)
-	results, err := divideFunc.Call(ctx, int32(10), int32(3))
+	results, err := divideFunc.CallAndPostReturn(ctx, types.ValS32(10), types.ValS32(3))
 	if err != nil {
 		t.Fatalf("Call: %v", err)
 	}
@@ -267,16 +260,14 @@ func TestResultDivide(t *testing.T) {
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
-	// valToAny converts result to map[string]any{"ok": bool, "value"/"error": any}
-	resultMap, ok := results[0].(map[string]any)
-	if !ok {
-		t.Fatalf("expected map[string]any result, got %T: %v", results[0], results[0])
-	}
-	isOk, _ := resultMap["ok"].(bool)
+	isOk, okVal, _ := results[0].Result()
 	if !isOk {
-		t.Fatalf("expected Ok result, got Error: %v", resultMap)
+		t.Fatalf("expected Ok result, got Error")
 	}
-	value, _ := resultMap["value"].(int32)
+	if okVal == nil {
+		t.Fatal("expected non-nil Ok value")
+	}
+	value := okVal.S32()
 	if value != 3 {
 		t.Errorf("expected Ok(3), got Ok(%d)", value)
 	}

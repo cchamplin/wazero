@@ -103,17 +103,25 @@ type Component interface {
 // [examples/component-types] for complex type handling.
 type ComponentFunc interface {
 	// Call invokes the function with the given arguments and returns results.
+	// Does NOT run post-return — caller must call PostReturn after reading results.
+	// Panics if Call is invoked again before PostReturn.
 	//
-	// Arguments accept Go primitives that are automatically converted to
-	// component model values: int32, uint32, int64, uint64, float32, float64,
-	// string, bool, map[string]any (records), []any (lists). For types without
-	// a natural Go equivalent (options, results, variants), use the Val
-	// constructors from the api/component package.
-	//
-	// Results are returned as Go native types: int32 for s32, string for
-	// string, map[string]any for records, []any for lists, etc. Result types
-	// are returned as map[string]any{"ok": bool, "value": ..., "error": ...}.
-	Call(ctx context.Context, params ...any) ([]any, error)
+	// Arguments and results use [types.Val] — the component model's
+	// dynamically-typed value. Use the Val constructors from the
+	// api/component package (ValS32, ValString, ValRecord, etc.) to
+	// build arguments, and the accessor methods (S32, StringVal, Record,
+	// etc.) to read results.
+	Call(ctx context.Context, params ...types.Val) ([]types.Val, error)
+
+	// PostReturn runs the post-return cleanup function. Must be called after Call.
+	// For functions without a post-return phase this is a no-op.
+	PostReturn(ctx context.Context) error
+
+	// CallAndPostReturn is a convenience that calls Call + PostReturn in one shot.
+	// This is the recommended default for most callers. The two-phase
+	// protocol (Call + PostReturn) is for advanced use cases where the
+	// caller needs to read results before cleanup.
+	CallAndPostReturn(ctx context.Context, params ...types.Val) ([]types.Val, error)
 
 	internalapi.WazeroOnly
 }

@@ -59,17 +59,20 @@ func TestRecord(t *testing.T) {
 		t.Fatal("exported function 'echo' not found")
 	}
 
-	// Pass a record as map[string]any
-	input := map[string]any{"x": int32(3), "y": int32(4)}
-	results, err := echoFunc.Call(ctx, input)
+	// Pass a record as ValRecord
+	input := component.ValRecord(map[string]component.Val{
+		"x": component.ValS32(3),
+		"y": component.ValS32(4),
+	})
+	results, err := echoFunc.CallAndPostReturn(ctx, input)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// Result is map[string]any
-	got := results[0].(map[string]any)
-	gotX := got["x"].(int32)
-	gotY := got["y"].(int32)
+	// Result is a Val of kind Record
+	got := results[0].Record()
+	gotX := got["x"].S32()
+	gotY := got["y"].S32()
 
 	// The component doubles coordinates
 	if gotX != 6 || gotY != 8 {
@@ -105,17 +108,20 @@ func TestOption(t *testing.T) {
 	}
 
 	t.Run("Some", func(t *testing.T) {
-		// Options are not handled by anyToVal, so use component.ValOption with a Val
 		inner := component.ValS32(42)
 		opt := component.ValOption(&inner)
 
-		results, err := echoFunc.Call(ctx, opt)
+		results, err := echoFunc.CallAndPostReturn(ctx, opt)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		// valToAny converts option Some to the inner value directly
-		got := results[0].(int32)
+		// Option Some wraps the inner value
+		innerResult := results[0].Option()
+		if innerResult == nil {
+			t.Fatal("echo(Some(42)): expected Some, got None")
+		}
+		got := innerResult.S32()
 		if got != 42 {
 			t.Errorf("echo(Some(42)) = %d, want 42", got)
 		}
@@ -125,16 +131,16 @@ func TestOption(t *testing.T) {
 	t.Run("None", func(t *testing.T) {
 		opt := component.ValOption(nil)
 
-		results, err := echoFunc.Call(ctx, opt)
+		results, err := echoFunc.CallAndPostReturn(ctx, opt)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		// valToAny converts option None to nil
-		if results[0] != nil {
-			t.Errorf("echo(None) = %v, want nil", results[0])
+		// Option None returns nil from Option()
+		if results[0].Option() != nil {
+			t.Errorf("echo(None) = %v, want None", results[0])
 		}
-		t.Logf("echo(None) = %v", results[0])
+		t.Logf("echo(None) = None")
 	})
 }
 
@@ -164,14 +170,17 @@ func TestList(t *testing.T) {
 		t.Fatal("exported function 'sum' not found")
 	}
 
-	// Pass a list as []any
-	input := []any{int32(1), int32(2), int32(3), int32(4), int32(5)}
-	results, err := sumFunc.Call(ctx, input)
+	// Pass a list as ValList
+	input := component.ValList([]component.Val{
+		component.ValS32(1), component.ValS32(2), component.ValS32(3),
+		component.ValS32(4), component.ValS32(5),
+	})
+	results, err := sumFunc.CallAndPostReturn(ctx, input)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	got := results[0].(int32)
+	got := results[0].S32()
 	if got != 15 {
 		t.Errorf("sum([1,2,3,4,5]) = %d, want 15", got)
 	}
@@ -205,16 +214,19 @@ func TestResult(t *testing.T) {
 	}
 
 	t.Run("Ok", func(t *testing.T) {
-		results, err := divideFunc.Call(ctx, int32(10), int32(3))
+		results, err := divideFunc.CallAndPostReturn(ctx, component.ValS32(10), component.ValS32(3))
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		got := results[0].(map[string]any)
-		if !got["ok"].(bool) {
+		isOk, okVal, _ := results[0].Result()
+		if !isOk {
 			t.Errorf("divide(10, 3) returned error, want ok")
 		}
-		value := got["value"].(int32)
+		if okVal == nil {
+			t.Fatal("divide(10, 3) returned nil ok value")
+		}
+		value := okVal.S32()
 		if value != 3 {
 			t.Errorf("divide(10, 3) = %d, want 3", value)
 		}
@@ -222,19 +234,22 @@ func TestResult(t *testing.T) {
 	})
 
 	t.Run("Error", func(t *testing.T) {
-		results, err := divideFunc.Call(ctx, int32(10), int32(0))
+		results, err := divideFunc.CallAndPostReturn(ctx, component.ValS32(10), component.ValS32(0))
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		got := results[0].(map[string]any)
-		if got["ok"].(bool) {
+		isOk, _, errVal := results[0].Result()
+		if isOk {
 			t.Errorf("divide(10, 0) returned ok, want error")
 		}
-		errVal := got["error"].(int32)
-		if errVal != 1 {
-			t.Errorf("divide(10, 0) error = %d, want 1", errVal)
+		if errVal == nil {
+			t.Fatal("divide(10, 0) returned nil error value")
 		}
-		t.Logf("divide(10, 0) = Error(%d)", errVal)
+		errCode := errVal.S32()
+		if errCode != 1 {
+			t.Errorf("divide(10, 0) error = %d, want 1", errCode)
+		}
+		t.Logf("divide(10, 0) = Error(%d)", errCode)
 	})
 }
