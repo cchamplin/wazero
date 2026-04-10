@@ -7,8 +7,9 @@
 // and exports a function `echo(o: option<s32>) -> option<s32>` that returns the input unchanged.
 //
 // Since option<s32> results (2 i32s: discriminant + payload) exceed MaxFlatResults (1),
-// the core ABI uses the retptr convention.
-// Core ABI: (i32, i32, i32) -> () where third param is retptr.
+// the core ABI uses the retptr convention in the lift context: the core function
+// allocates a result buffer, writes results there, and returns the pointer.
+// Core ABI (lift context): (i32, i32) -> (i32) where result is retptr.
 package main
 
 import (
@@ -132,8 +133,9 @@ func main() {
 }
 
 // buildOptionRoundtripCoreModule creates a core wasm module:
-// - Function 0: echo(disc: i32, payload: i32, retptr: i32) -> ()
-//   Writes disc to mem[retptr], payload to mem[retptr+4]
+// - Function 0: echo(disc: i32, payload: i32) -> (i32)
+//   Allocates 8 bytes, writes disc and payload, returns ptr.
+//   In the lift context, the core function returns the retptr.
 // - Function 1: realloc(old_ptr, old_size, align, new_size) -> ptr
 // - Memory, global for bump allocator
 func buildOptionRoundtripCoreModule() []byte {
@@ -144,7 +146,7 @@ func buildOptionRoundtripCoreModule() []byte {
 	// Type section
 	typeSection := []byte{
 		0x02,
-		0x60, 0x03, 0x7f, 0x7f, 0x7f, 0x00,             // type 0: (i32, i32, i32) -> ()
+		0x60, 0x02, 0x7f, 0x7f, 0x01, 0x7f,             // type 0: (i32, i32) -> (i32)
 		0x60, 0x04, 0x7f, 0x7f, 0x7f, 0x7f, 0x01, 0x7f, // type 1: (i32, i32, i32, i32) -> i32
 	}
 	module = append(module, 0x01)
@@ -183,15 +185,36 @@ func buildOptionRoundtripCoreModule() []byte {
 	module = append(module, exportSection...)
 
 	// Code section
-	// Function 0: echo - write disc and payload to retptr
+	// Function 0: echo(disc, payload) -> (retptr)
+	// Allocates 8 bytes, writes disc and payload, returns ptr.
 	echoBody := []byte{
-		0x00, // 0 locals
+		0x01,       // 1 local group
+		0x01, 0x7f, // 1 local of type i32 (local 2 = retptr)
+
+		// Allocate 8 bytes: retptr = align4(global[0]); global[0] = retptr + 8
+		0x23, 0x00,       // global.get 0
+		0x41, 0x03,       // i32.const 3
+		0x6a,             // i32.add
+		0x41, 0x7c,       // i32.const -4
+		0x71,             // i32.and
+		0x21, 0x02,       // local.set 2 (retptr)
+		0x20, 0x02,       // local.get 2
+		0x41, 0x08,       // i32.const 8
+		0x6a,             // i32.add
+		0x24, 0x00,       // global.set 0
+
+		// mem[retptr+0] = disc
 		0x20, 0x02,       // local.get 2 (retptr)
 		0x20, 0x00,       // local.get 0 (disc)
 		0x36, 0x02, 0x00, // i32.store offset=0 align=4
+
+		// mem[retptr+4] = payload
 		0x20, 0x02,       // local.get 2 (retptr)
 		0x20, 0x01,       // local.get 1 (payload)
 		0x36, 0x02, 0x04, // i32.store offset=4 align=4
+
+		// return retptr
+		0x20, 0x02, // local.get 2
 		0x0b,
 	}
 

@@ -9,7 +9,9 @@
 // Otherwise, returns Ok(a / b).
 //
 // Since result<s32, s32> (2 i32s: discriminant + payload) exceeds MaxFlatResults (1),
-// the core ABI uses retptr: (i32, i32, i32) -> () where third param is retptr.
+// the core ABI uses the retptr convention in the lift context: the core function
+// allocates a result buffer, writes results there, and returns the pointer.
+// Core ABI (lift context): (i32, i32) -> (i32) where result is retptr.
 package main
 
 import (
@@ -136,9 +138,11 @@ func main() {
 }
 
 // buildResultDivideCoreModule creates a core wasm module:
-// - Function 0: divide(a: i32, b: i32, retptr: i32) -> ()
+// - Function 0: divide(a: i32, b: i32) -> (i32)
+//   Allocates 8 bytes via bump allocator.
 //   If b == 0: mem[retptr] = 1 (Error), mem[retptr+4] = 1 (error code)
 //   Else: mem[retptr] = 0 (Ok), mem[retptr+4] = a / b
+//   Returns retptr. In the lift context, the core function returns the pointer.
 // - Function 1: realloc(old_ptr, old_size, align, new_size) -> ptr
 // - Memory, global for bump allocator
 func buildResultDivideCoreModule() []byte {
@@ -149,7 +153,7 @@ func buildResultDivideCoreModule() []byte {
 	// Type section
 	typeSection := []byte{
 		0x02,
-		0x60, 0x03, 0x7f, 0x7f, 0x7f, 0x00,             // type 0: (i32, i32, i32) -> ()
+		0x60, 0x02, 0x7f, 0x7f, 0x01, 0x7f,             // type 0: (i32, i32) -> (i32)
 		0x60, 0x04, 0x7f, 0x7f, 0x7f, 0x7f, 0x01, 0x7f, // type 1: (i32, i32, i32, i32) -> i32
 	}
 	module = append(module, 0x01)
@@ -188,9 +192,23 @@ func buildResultDivideCoreModule() []byte {
 	module = append(module, exportSection...)
 
 	// Code section
-	// Function 0: divide(a, b, retptr) -> ()
+	// Function 0: divide(a, b) -> (retptr)
+	// Allocates 8 bytes, writes result discriminant+payload, returns ptr.
 	divideBody := []byte{
-		0x00, // 0 locals
+		0x01,       // 1 local group
+		0x01, 0x7f, // 1 local of type i32 (local 2 = retptr)
+
+		// Allocate 8 bytes: retptr = align4(global[0]); global[0] = retptr + 8
+		0x23, 0x00,       // global.get 0
+		0x41, 0x03,       // i32.const 3
+		0x6a,             // i32.add
+		0x41, 0x7c,       // i32.const -4
+		0x71,             // i32.and
+		0x21, 0x02,       // local.set 2 (retptr)
+		0x20, 0x02,       // local.get 2
+		0x41, 0x08,       // i32.const 8
+		0x6a,             // i32.add
+		0x24, 0x00,       // global.set 0
 
 		// if b == 0
 		0x20, 0x01, // local.get 1 (b)
@@ -218,7 +236,10 @@ func buildResultDivideCoreModule() []byte {
 		0x36, 0x02, 0x04, // i32.store offset=4 align=4
 
 		0x0b, // end if
-		0x0b, // end function
+
+		// return retptr
+		0x20, 0x02, // local.get 2
+		0x0b,       // end function
 	}
 
 	// Function 1: realloc

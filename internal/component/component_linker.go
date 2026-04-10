@@ -1295,13 +1295,6 @@ func (l *ComponentLinker) buildCanonLiftFunc(
 	paramElems := unpackTupleElems(inst.component.Types, funcType.Params)
 	resultElems := unpackTupleElems(inst.component.Types, funcType.Results)
 
-	// Pre-compute whether results need the retptr ABI path.
-	// Per the Canonical ABI spec, if the flattened result width exceeds
-	// MaxFlatResults (1 for synchronous calls), the core function receives
-	// an extra i32 retptr parameter and writes results to memory at that
-	// address instead of returning them directly.
-	_, needsRetptr := abi.FlattenResults(inst.component.Types, resultElems)
-
 	prRef := &postReturnState{}
 
 	hostFunc := func(goCtx context.Context, fnType *types.TypeFunc, args []types.Val) (results []types.Val, retErr error) {
@@ -1349,29 +1342,12 @@ func (l *ComponentLinker) buildCanonLiftFunc(
 		// window (core call -> lift -> post-return).
 		inst.rt.NeedsPostReturn = true
 
-		// If results exceed MaxFlatResults, allocate a retptr buffer via
-		// realloc and append the pointer as the last core parameter.
-		// Spec: definitions.py:1990-1993 canon_lift retptr allocation.
-		var retptr uint32
-		if needsRetptr {
-			if lowerCtx.Realloc == nil {
-				inst.rt.NeedsPostReturn = false
-				inst.rt.Reentrance.LeaveInstance(inst.rt.ID)
-				_ = callCtx.Release()
-				return nil, fmt.Errorf("canon.lift: retptr path requires realloc")
-			}
-			tupleSize, tupleAlign, _ := abi.ResultsTupleLayout(inst.component.Types, resultElems)
-			retptr, err = lowerCtx.Realloc(0, 0, tupleAlign, tupleSize)
-			if err != nil {
-				inst.rt.NeedsPostReturn = false
-				inst.rt.Reentrance.LeaveInstance(inst.rt.ID)
-				_ = callCtx.Release()
-				return nil, fmt.Errorf("canon.lift: retptr realloc: %w", err)
-			}
-			flatArgs = append(flatArgs, uint64(retptr))
-		}
-
 		// :1995 callee invocation.
+		// In the lift context, the core function returns flat results directly.
+		// When results exceed MaxFlatResults, the core function itself allocates
+		// memory and returns [i32] (the retptr). This differs from the lower
+		// context where the caller passes the retptr as an extra parameter.
+		// Spec: definitions.py:1669-1682 flatten_functype — lift: flat_results=['i32'].
 		var flatResults []uint64
 		if coreFunc != nil {
 			flatResults, err = coreFunc.Call(goCtx, flatArgs...)
@@ -1381,12 +1357,6 @@ func (l *ComponentLinker) buildCanonLiftFunc(
 				_ = callCtx.Release()
 				return nil, fmt.Errorf("canon.lift: core call: %w", err)
 			}
-		}
-
-		// If retptr was used, the core function wrote results to memory.
-		// LiftResults expects flat[0] = retptr in the retptr path.
-		if needsRetptr {
-			flatResults = []uint64{uint64(retptr)}
 		}
 
 		// :1997 lift_flat_values on the return path.

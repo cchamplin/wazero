@@ -7,9 +7,10 @@
 // and exports a function `echo(p: point) -> point` that doubles the coordinates.
 //
 // Since record results (2 i32s) exceed MaxFlatResults (1), the core ABI
-// uses the retptr convention: the core function takes an extra i32 retptr
-// parameter and writes results to linear memory at that address.
-// Core ABI: (i32, i32, i32) -> () where third param is retptr.
+// uses the retptr convention in the lift context: the core function allocates
+// a result buffer in linear memory, writes results there, and returns the
+// pointer as a single i32.
+// Core ABI (lift context): (i32, i32) -> (i32) where result is retptr.
 package main
 
 import (
@@ -144,8 +145,9 @@ func main() {
 // buildEchoRecordCoreModule creates a core wasm module with:
 // - Memory (1 page)
 // - Global for bump allocator pointer (starts at 1024)
-// - Function 0: echo(x: i32, y: i32, retptr: i32) -> ()
-//   Writes x*2 to mem[retptr+0] and y*2 to mem[retptr+4]
+// - Function 0: echo(x: i32, y: i32) -> (i32)
+//   Allocates 8 bytes via bump allocator, writes x*2 and y*2, returns ptr.
+//   In the lift context, the core function returns the retptr (not receives it).
 // - Function 1: realloc(old_ptr: i32, old_size: i32, align: i32, new_size: i32) -> i32
 //   Simple bump allocator
 // - Exports: "echo", "realloc", "memory"
@@ -156,13 +158,13 @@ func buildEchoRecordCoreModule() []byte {
 	}
 
 	// Type section: 2 types
-	// Type 0: (i32, i32, i32) -> () [echo with retptr]
+	// Type 0: (i32, i32) -> (i32) [echo — lift context retptr: returns ptr]
 	// Type 1: (i32, i32, i32, i32) -> i32 [realloc]
 	typeSection := []byte{
 		0x02,                         // 2 types
 		0x60,                         // func type 0
-		0x03, 0x7f, 0x7f, 0x7f,      // 3 params: i32, i32, i32
-		0x00,                         // 0 results
+		0x02, 0x7f, 0x7f,            // 2 params: i32, i32
+		0x01, 0x7f,                   // 1 result: i32
 		0x60,                         // func type 1
 		0x04, 0x7f, 0x7f, 0x7f, 0x7f, // 4 params: i32, i32, i32, i32
 		0x01, 0x7f,                   // 1 result: i32
@@ -210,13 +212,26 @@ func buildEchoRecordCoreModule() []byte {
 
 	// Code section: 2 functions
 
-	// Function 0: echo(x: i32, y: i32, retptr: i32)
-	// mem[retptr+0] = x * 2
-	// mem[retptr+4] = y * 2
+	// Function 0: echo(x: i32, y: i32) -> (i32)
+	// Allocates 8 bytes via bump allocator, writes x*2 and y*2, returns ptr.
+	// In the lift context, the core function returns the retptr.
 	echoBody := []byte{
-		0x00, // 0 locals
+		0x01,       // 1 local group
+		0x01, 0x7f, // 1 local of type i32 (local 2 = retptr)
 
-		// mem[retptr] = x * 2
+		// Allocate 8 bytes: retptr = align4(global[0]); global[0] = retptr + 8
+		0x23, 0x00,       // global.get 0
+		0x41, 0x03,       // i32.const 3
+		0x6a,             // i32.add
+		0x41, 0x7c,       // i32.const -4
+		0x71,             // i32.and
+		0x21, 0x02,       // local.set 2 (retptr)
+		0x20, 0x02,       // local.get 2
+		0x41, 0x08,       // i32.const 8
+		0x6a,             // i32.add
+		0x24, 0x00,       // global.set 0
+
+		// mem[retptr+0] = x * 2
 		0x20, 0x02,       // local.get 2 (retptr)
 		0x20, 0x00,       // local.get 0 (x)
 		0x41, 0x02,       // i32.const 2
@@ -230,7 +245,9 @@ func buildEchoRecordCoreModule() []byte {
 		0x6c,             // i32.mul
 		0x36, 0x02, 0x04, // i32.store offset=4 align=4
 
-		0x0b, // end
+		// return retptr
+		0x20, 0x02, // local.get 2
+		0x0b,       // end
 	}
 
 	// Function 1: realloc(old_ptr, old_size, align, new_size) -> ptr
