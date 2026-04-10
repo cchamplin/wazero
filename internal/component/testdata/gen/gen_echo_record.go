@@ -11,6 +11,13 @@
 // a result buffer in linear memory, writes results there, and returns the
 // pointer as a single i32.
 // Core ABI (lift context): (i32, i32) -> (i32) where result is retptr.
+//
+// The component structure follows the required pattern for record types used
+// in exports: the record type is defined in a type section, then imported
+// via a type import with (eq 0) to create an importable type alias. The
+// functype references the imported alias. This satisfies the component model
+// validation rule that types referenced by exported functions must be
+// importable.
 package main
 
 import (
@@ -27,6 +34,39 @@ func main() {
 		// Layer: component (0x0100)
 		0x01, 0x00,
 	}
+
+	// === Section 7: Type Section (first) ===
+	// Type 0: record point { x: s32, y: s32 }
+	typeSection0 := []byte{
+		0x01, // 1 type
+
+		// Type 0: record type
+		0x72,            // record opcode
+		0x02,            // 2 fields
+		0x01, 'x', 0x7a, // field "x": s32
+		0x01, 'y', 0x7a, // field "y": s32
+	}
+	out = append(out, 0x07)
+	out = appendLEB128(out, uint32(len(typeSection0)))
+	out = append(out, typeSection0...)
+
+	// === Section 10: Import Section ===
+	// Import "point" as type (eq 0) → creates type 1
+	// This is required by the component model validation: types used in
+	// exported functions must be importable (imported or exported).
+	importSection := []byte{
+		0x01, // 1 import
+		// Import name: simple name "point"
+		0x00,                                  // simple name discriminator
+		0x05, 'p', 'o', 'i', 'n', 't',       // name "point" (len=5)
+		// ExternDesc: type (eq 0)
+		0x03, // externdesc kind = type
+		0x00, // typebound tag = eq
+		0x00, // typeidx = 0
+	}
+	out = append(out, 0x0a)
+	out = appendLEB128(out, uint32(len(importSection)))
+	out = append(out, importSection...)
 
 	// === Section 1: Core Module ===
 	// Core module with memory, echo function (retptr ABI), and realloc.
@@ -49,62 +89,65 @@ func main() {
 	out = appendLEB128(out, uint32(len(coreInstanceSection)))
 	out = append(out, coreInstanceSection...)
 
-	// === Section 6: Alias Section ===
-	// Alias core exports: echo (func 0), realloc (func 1), memory (memory 0)
-	aliasSection := []byte{
-		0x03, // 3 aliases
+	// === Section 6: Alias Section (memory) ===
+	// Alias core memory "memory" from instance 0 (core memory idx 0)
+	aliasSection0 := []byte{
+		0x01, // 1 alias
 
-		// Alias 0: core func "echo" from instance 0 (core func idx 0)
+		// Alias 0: core memory "memory" from instance 0
+		0x00,                                  // sort prefix for core sort
+		0x02,                                  // core sort = memory
+		0x01,                                  // alias target = core export
+		0x00,                                  // core instance index = 0
+		0x06, 'm', 'e', 'm', 'o', 'r', 'y', // export name "memory" (len=6)
+	}
+	out = append(out, 0x06)
+	out = appendLEB128(out, uint32(len(aliasSection0)))
+	out = append(out, aliasSection0...)
+
+	// === Section 7: Type Section (second) ===
+	// Type 2: functype (param "p" type_1) (result type_1)
+	// References type 1 (the imported alias of the record type).
+	typeSection1 := []byte{
+		0x01, // 1 type
+
+		// Type 2: functype (point) -> point
+		0x40,      // functype sync
+		0x01,      // 1 param
+		0x01, 'p', // param name "p" (length 1)
+		0x01,      // type index 1 (the imported record type alias)
+		0x00,      // single result
+		0x01,      // type index 1 (the imported record type alias)
+	}
+	out = append(out, 0x07)
+	out = appendLEB128(out, uint32(len(typeSection1)))
+	out = append(out, typeSection1...)
+
+	// === Section 6: Alias Section (core funcs) ===
+	// Alias core funcs "echo" and "realloc" from instance 0
+	aliasSection1 := []byte{
+		0x02, // 2 aliases
+
+		// Core func 0: "echo" from instance 0
 		0x00,                      // sort prefix for core sort
 		0x00,                      // core sort = func
 		0x01,                      // alias target = core export
 		0x00,                      // core instance index = 0
 		0x04, 'e', 'c', 'h', 'o', // export name "echo" (len=4)
 
-		// Alias 1: core func "realloc" from instance 0 (core func idx 1)
-		0x00,                                          // sort prefix for core sort
-		0x00,                                          // core sort = func
-		0x01,                                          // alias target = core export
-		0x00,                                          // core instance index = 0
-		0x07, 'r', 'e', 'a', 'l', 'l', 'o', 'c', // export name "realloc" (len=7)
-
-		// Alias 2: core memory "memory" from instance 0 (core memory idx 0)
+		// Core func 1: "realloc" from instance 0
 		0x00,                                      // sort prefix for core sort
-		0x02,                                      // core sort = memory
+		0x00,                                      // core sort = func
 		0x01,                                      // alias target = core export
 		0x00,                                      // core instance index = 0
-		0x06, 'm', 'e', 'm', 'o', 'r', 'y', // export name "memory" (len=6)
+		0x07, 'r', 'e', 'a', 'l', 'l', 'o', 'c', // export name "realloc" (len=7)
 	}
 	out = append(out, 0x06)
-	out = appendLEB128(out, uint32(len(aliasSection)))
-	out = append(out, aliasSection...)
-
-	// === Section 7: Type Section ===
-	// Type 0: record point { x: s32, y: s32 }
-	// Type 1: functype (point) -> point
-	typeSection := []byte{
-		0x02, // 2 types
-
-		// Type 0: record type
-		0x72,            // record opcode
-		0x02,            // 2 fields
-		0x01, 'x', 0x7a, // field "x": s32
-		0x01, 'y', 0x7a, // field "y": s32
-
-		// Type 1: functype (point) -> point
-		0x40,      // functype sync
-		0x01,      // 1 param
-		0x01, 'p', // param name "p" (length 1)
-		0x00,      // type index 0 (the record type)
-		0x00,      // single result
-		0x00,      // type index 0 (the record type)
-	}
-	out = append(out, 0x07)
-	out = appendLEB128(out, uint32(len(typeSection)))
-	out = append(out, typeSection...)
+	out = appendLEB128(out, uint32(len(aliasSection1)))
+	out = append(out, aliasSection1...)
 
 	// === Section 8: Canon Section ===
-	// Lift core function 0 as component function type 1
+	// Lift core function 0 as component function type 2
 	// With memory option (core memory 0) and realloc option (core func 1)
 	canonSection := []byte{
 		0x01, // 1 canonical
@@ -116,7 +159,7 @@ func main() {
 		0x00, // memory index = 0 (aliased memory)
 		0x04, // realloc option
 		0x01, // realloc func index = 1 (aliased realloc)
-		0x01, // type index = 1 (the functype)
+		0x02, // type index = 2 (the functype referencing imported type)
 	}
 	out = append(out, 0x08)
 	out = appendLEB128(out, uint32(len(canonSection)))
@@ -130,7 +173,7 @@ func main() {
 		0x04, 0x65, 0x63, 0x68, 0x6f, // name "echo"
 		0x01, // sort = func
 		0x00, // index = 0
-		0x00, // no externdesc (REQUIRED)
+		0x00, // no externdesc
 	}
 	out = append(out, 0x0b)
 	out = appendLEB128(out, uint32(len(exportSection)))
@@ -161,13 +204,13 @@ func buildEchoRecordCoreModule() []byte {
 	// Type 0: (i32, i32) -> (i32) [echo — lift context retptr: returns ptr]
 	// Type 1: (i32, i32, i32, i32) -> i32 [realloc]
 	typeSection := []byte{
-		0x02,                         // 2 types
-		0x60,                         // func type 0
-		0x02, 0x7f, 0x7f,            // 2 params: i32, i32
-		0x01, 0x7f,                   // 1 result: i32
-		0x60,                         // func type 1
+		0x02,                          // 2 types
+		0x60,                          // func type 0
+		0x02, 0x7f, 0x7f,             // 2 params: i32, i32
+		0x01, 0x7f,                    // 1 result: i32
+		0x60,                          // func type 1
 		0x04, 0x7f, 0x7f, 0x7f, 0x7f, // 4 params: i32, i32, i32, i32
-		0x01, 0x7f,                   // 1 result: i32
+		0x01, 0x7f,                    // 1 result: i32
 	}
 	module = append(module, 0x01) // type section ID
 	module = appendLEB128(module, uint32(len(typeSection)))

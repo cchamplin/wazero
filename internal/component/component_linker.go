@@ -37,12 +37,28 @@ type dtorRef struct {
 	fn api.Function
 }
 
+// reallocRef holds a lazily-resolved reference to a realloc function used
+// by a canon.lower closure. At buildCoreHostModule time the core modules
+// haven't been instantiated yet, so the api.Function cannot be resolved
+// immediately. The closure captured in createCanonLowerFunc reads ref.fn
+// at call time; resolvePendingReallocs fills it once core modules are live.
+type reallocRef struct {
+	fn api.Function
+}
+
 // pendingDtor records a guest resource type whose destructor needs to be
 // resolved after core modules are instantiated. Stored on ComponentLinker
 // and resolved during post-instantiation setup (Task 9).
 type pendingDtor struct {
 	rt          *runtime.ResourceType
 	ref         *dtorRef
+	coreFuncIdx uint32
+}
+
+// pendingRealloc records a canon.lower closure whose realloc function
+// needs to be resolved after core modules are instantiated.
+type pendingRealloc struct {
+	ref         *reallocRef
 	coreFuncIdx uint32
 }
 
@@ -61,6 +77,11 @@ type ComponentLinker struct {
 	// to be resolved after core modules are instantiated. Populated by
 	// bindResourceTypes, consumed by Task 9 post-instantiation wiring.
 	pendingDtors []pendingDtor
+
+	// pendingReallocs collects canon.lower closures whose realloc functions
+	// need to be resolved after core modules are instantiated. Populated by
+	// createCanonLowerFunc, consumed by resolvePendingReallocs.
+	pendingReallocs []pendingRealloc
 }
 
 // NewComponentLinker creates a new component linker with access to a runtime.
@@ -253,11 +274,15 @@ func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledCom
 		return nil, fmt.Errorf("Instantiate: core modules: %w", err)
 	}
 
-	// Step 12.5 — Resolve pending guest destructors.
+	// Step 12.5 — Resolve pending guest destructors and reallocs.
 	// After core modules are instantiated, back-patch the lazy dtorRef.fn
 	// pointers so guest resource destructors can invoke the actual core
 	// functions. Spec: definitions.py:351-361 ResourceType.dtor.
 	l.resolvePendingDtors(inst, funcSpace)
+	// Back-patch lazy reallocRef.fn pointers so canon.lower closures
+	// resolve realloc by index through the funcSpace per spec
+	// (definitions.py:2064-2130), not by hardcoded export name.
+	l.resolvePendingReallocs(inst, funcSpace)
 
 	// Step 13 — Execute start function.
 	if err := l.executeStartFunction(ctx, inst, c); err != nil {
@@ -923,6 +948,16 @@ func (l *ComponentLinker) resolveAndCheckImports(
 	var instanceIdx uint32
 	for i := range c.Imports {
 		imp := &c.Imports[i]
+		// Type imports with (eq idx) are self-contained aliases: the
+		// referenced type is already defined in the component's type
+		// index space. These don't require an external definition from
+		// the linker — the decoder has already created the alias entry
+		// in the type space (decodeImportSection). Skip import resolution
+		// for them.
+		if imp.ExternDesc.Kind == ImportExternDescType &&
+			imp.ExternDesc.TypeBoundKind == TypeBoundEq {
+			continue
+		}
 		def, err := l.MatchImport(imp.Name)
 		if err != nil {
 			return fmt.Errorf("import %q: %w", imp.Name, err)
@@ -1090,7 +1125,14 @@ func (l *ComponentLinker) bindResourceTypes(inst *Instance, c *Component) error 
 				if ref.fn == nil {
 					return fmt.Errorf("guest destructor not yet resolved (core modules not instantiated)")
 				}
-				_, err := ref.fn.Call(context.Background(), uint64(rep))
+				// Use the caller's active context if available (set by the
+				// GoModuleFunc for canon.resource.drop), otherwise fall back
+				// to context.Background().
+				callCtx := inst.activeCtx
+				if callCtx == nil {
+					callCtx = context.Background()
+				}
+				_, err := ref.fn.Call(callCtx, uint64(rep))
 				return err
 			}
 			l.pendingDtors = append(l.pendingDtors, pendingDtor{
@@ -1137,6 +1179,36 @@ func (l *ComponentLinker) resolvePendingDtors(inst *Instance, funcSpace *CoreFun
 	// Clear the list to prevent accumulation across multiple Instantiate
 	// calls on the same linker.
 	l.pendingDtors = l.pendingDtors[:0]
+}
+
+// resolvePendingReallocs back-patches lazy realloc references after core
+// modules have been instantiated. Each pendingRealloc holds a reallocRef
+// whose fn field was nil at createCanonLowerFunc time because the core
+// module had not yet been instantiated. Now that core modules are live,
+// we resolve the core function index through the funcSpace and store the
+// resulting api.Function in the reallocRef so the canon.lower closure can
+// use it at call time.
+//
+// Spec: definitions.py:2064-2130 — realloc is an option-provided function
+// resolved by index, not a named export.
+func (l *ComponentLinker) resolvePendingReallocs(inst *Instance, funcSpace *CoreFuncIndexSpace) {
+	for i := range l.pendingReallocs {
+		pr := &l.pendingReallocs[i]
+		if pr.ref.fn != nil {
+			continue // already resolved
+		}
+		fn, err := resolveCoreFuncViaSpace(inst, pr.coreFuncIdx, funcSpace)
+		if err != nil {
+			// Core function not resolved — the canon.lower closure will
+			// proceed with nil realloc; the abi layer traps if the retptr
+			// path requires it.
+			continue
+		}
+		pr.ref.fn = fn
+	}
+	// Clear the list to prevent accumulation across multiple Instantiate
+	// calls on the same linker.
+	l.pendingReallocs = l.pendingReallocs[:0]
 }
 
 // buildCoreIndexSpaces walks c.Aliases and populates the runtime view of
@@ -1218,15 +1290,25 @@ func buildAbiOptions(canon *CanonicalDef) abi.Options {
 // realloc is nil (the caller then traps if the lower path needs realloc
 // — see abi/lower.go LowerParams retptr path).
 //
+// The ctxPtr parameter is a pointer to a context.Context that the caller
+// sets before invoking abi operations. This allows the realloc closure to
+// use the caller's context (e.g. from a GoModuleFunc's goCtx) without
+// changing the abi.LowerContext.Realloc signature. If ctxPtr is nil or
+// *ctxPtr is nil, context.Background() is used as a fallback.
+//
 // The memory parameter is used to validate realloc return values per the
 // canonical ABI spec (definitions.py): the returned pointer must be aligned
 // and ptr+size must not exceed memory length.
-func reallocAdapter(realloc api.Function, memory api.Memory) func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+func reallocAdapter(realloc api.Function, memory api.Memory, ctxPtr *context.Context) func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
 	if realloc == nil {
 		return nil
 	}
 	return func(oldPtr, oldSize, alignv, newSize uint32) (uint32, error) {
-		res, err := realloc.Call(context.Background(),
+		callCtx := context.Background()
+		if ctxPtr != nil && *ctxPtr != nil {
+			callCtx = *ctxPtr
+		}
+		res, err := realloc.Call(callCtx,
 			uint64(oldPtr), uint64(oldSize), uint64(alignv), uint64(newSize))
 		if err != nil {
 			return 0, err
@@ -1314,8 +1396,17 @@ func (l *ComponentLinker) buildCanonLiftFunc(
 
 	prRef := &postReturnState{}
 
+	// Shared context pointer for the realloc closure. The HostFunc sets
+	// this to its goCtx before invoking abi operations, so that realloc
+	// calls use the caller's context instead of context.Background().
+	var liftGoCtx context.Context
+	liftRealloc := reallocAdapter(realloc, memory, &liftGoCtx)
+
 	hostFunc := func(goCtx context.Context, fnType *types.TypeFunc, args []types.Val) (results []types.Val, retErr error) {
 		_ = fnType // captured via funcType at construction time
+		// Set the shared context pointer so the realloc closure uses the caller's context.
+		liftGoCtx = goCtx
+
 		// Check 1: needs_post_return guard (wasmtime may_enter)
 		// Wasmtime: concurrent_disabled.rs:159-169
 		if inst.rt.NeedsPostReturn {
@@ -1335,7 +1426,7 @@ func (l *ComponentLinker) buildCanonLiftFunc(
 		lowerCtx := &abi.LowerContext{
 			Memory:      memory,
 			Opts:        &opts,
-			Realloc:     reallocAdapter(realloc, memory),
+			Realloc:     liftRealloc,
 			Types:       inst.component.Types,
 			Instance:    inst.rt,
 			CallContext: callCtx,
@@ -1461,20 +1552,30 @@ func (l *ComponentLinker) createCanonLowerFunc(
 	resultTypes []types.ValType,
 	needsRetptr bool,
 ) api.GoModuleFunc {
-	// Snapshot options from the canon.lower declaration. Memory and
-	// realloc are resolved from the core module at call time because
-	// they belong to the core instance the lowered function is
-	// called from.
+	// Snapshot options from the canon.lower declaration. Memory is
+	// resolved from the core module at call time because it belongs to
+	// the core instance the lowered function is called from. Realloc
+	// is resolved by index through the funcSpace via the pendingReallocs
+	// back-patching pattern (spec: realloc is an option-provided function,
+	// not a named export — definitions.py:2064-2130).
 	canonSnapshot := &CanonicalDef{Kind: CanonKindLower, Options: info.options}
+
+	// Lazily-resolved realloc reference, populated by resolvePendingReallocs
+	// after core modules are instantiated.
+	var rRef *reallocRef
+	if info.options.ReallocIdx != nil {
+		rRef = &reallocRef{}
+		l.pendingReallocs = append(l.pendingReallocs, pendingRealloc{
+			ref:         rRef,
+			coreFuncIdx: *info.options.ReallocIdx,
+		})
+	}
 
 	return api.GoModuleFunc(func(goCtx context.Context, mod api.Module, stack []uint64) {
 		memory := mod.Memory()
 		var realloc api.Function
-		if info.options.ReallocIdx != nil {
-			// Session 1: core module exports realloc under the conventional
-			// name "cabi_realloc". If absent, leave realloc nil; the abi
-			// layer traps if the retptr path requires it.
-			realloc = mod.ExportedFunction("cabi_realloc")
+		if rRef != nil {
+			realloc = rRef.fn
 		}
 		opts := buildAbiOptions(canonSnapshot)
 		_ = memory // referenced via liftCtx/lowerCtx below
@@ -1539,7 +1640,7 @@ func (l *ComponentLinker) createCanonLowerFunc(
 		lowerCtx := &abi.LowerContext{
 			Memory:      memory,
 			Opts:        &opts,
-			Realloc:     reallocAdapter(realloc, memory),
+			Realloc:     reallocAdapter(realloc, memory, &goCtx),
 			Types:       c.Types,
 			Instance:    inst.rt,
 			CallContext: callCtx,
@@ -1607,6 +1708,10 @@ func (l *ComponentLinker) createResourceOpExport(
 			ParamTypes: []api.ValueType{api.ValueTypeI32},
 			Func: api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
 				h := uint32(stack[0])
+				// Set the active context so HostDestructor closures can use
+				// the caller's context for core wasm calls.
+				inst.activeCtx = ctx
+				defer func() { inst.activeCtx = nil }()
 				if err := inst.ResourceDrop(resourceIdx, h); err != nil {
 					panic(err)
 				}

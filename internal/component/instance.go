@@ -77,6 +77,12 @@ type Instance struct {
 
 	// Exported instances for API access.
 	exportedInstances map[string]*Instance
+
+	// activeCtx holds the Go context from the current GoModuleFunc invocation.
+	// Set by canon.resource.drop (and other GoModuleFuncs) before calling into
+	// ResourceDrop, so that HostDestructor closures can use the caller's context
+	// instead of context.Background(). Reset to nil after the call completes.
+	activeCtx context.Context
 }
 
 // newInstance constructs an Instance together with its embedded
@@ -429,16 +435,23 @@ func (i *Instance) ResourceDrop(resourceIdx types.ResourceIdx, handleIdx uint32)
 		} else {
 			// Cross-instance: invoke destructor on the defining instance.
 			// Spec: definitions.py:2154-2160 (canon_lift/canon_lower path)
+			//
+			// For the trivially flat (u32) -> () destructor signature, the
+			// canon_lift/canon_lower simplifies to a reentrance check on
+			// the defining instance followed by a direct call. No memory,
+			// realloc, or borrow scoping is needed.
 			if rt.HostDestructor != nil {
+				// Spec: canon_lift at :1979 — trap_if(call_might_be_recursive)
+				// on the defining instance before invoking the destructor.
+				if rt.Impl.Reentrance.CallMightBeRecursive(rt.Impl.ID) {
+					return errReentrance
+				}
 				if err := rt.HostDestructor(resEntry.Rep); err != nil {
 					return fmt.Errorf("resource.drop: cross-instance destructor: %w", err)
 				}
-			} else if rt.Dtor != nil {
-				// TODO(session2-pipeline): replace with canon_lift/canon_lower invocation
-				// per spec definitions.py:2154-2160. Requires buildCanonLiftFunc (Task 7).
-				return fmt.Errorf("resource.drop: guest cross-instance destructor requires canon_lift/canon_lower pipeline (spec definitions.py:2154-2160)")
 			} else {
 				// Spec: definitions.py:2162 — trap_if(call_might_be_recursive(...))
+				// No destructor: just check reentrance.
 				definingInst := getDefiningInstance(i, rt)
 				if definingInst != nil && definingInst.CallMightBeRecursive(i) {
 					return errReentrance
