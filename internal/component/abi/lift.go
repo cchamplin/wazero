@@ -711,7 +711,7 @@ func liftBorrowHandle(ctx *LiftContext, typ types.ValType, handleIdx uint32) (ty
 		return types.Val{}, fmt.Errorf("lift borrow: no component types available")
 	}
 	// Spec: definitions.py:1342 — assert(isinstance(cx.borrow_scope, Subtask))
-	if ctx.BorrowScope == nil {
+	if ctx.CallContext == nil {
 		return types.Val{}, fmt.Errorf("lift borrow: no borrow scope active")
 	}
 	if int(typ.Index) >= len(ctx.Types.ResourceTables) {
@@ -745,7 +745,7 @@ func liftBorrowHandle(ctx *LiftContext, typ types.ValType, handleIdx uint32) (ty
 	}
 	// Spec: definitions.py:1346 — cx.borrow_scope.add_lender(h)
 	// AddLender internally calls IncrementLends — do NOT call IncrementLends separately.
-	if err := ctx.BorrowScope.AddLender(h); err != nil {
+	if err := ctx.CallContext.AddLender(h); err != nil {
 		return types.Val{}, fmt.Errorf("lift borrow: %w", err)
 	}
 	// Gap 4: Spec: definitions.py:1347 — return h.rep (not the handle index)

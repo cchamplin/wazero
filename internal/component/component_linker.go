@@ -1295,15 +1295,14 @@ func (l *ComponentLinker) buildCanonLiftFunc(
 		inst.rt.Reentrance.EnterInstance(inst.rt.ID)
 		defer inst.rt.Reentrance.LeaveInstance(inst.rt.ID)
 
-		borrow := runtime.NewBorrowScope(inst.rt.Table)
-		// C8-b review item 1: always release borrow scope on exit,
+		callCtx := runtime.NewCallContext(inst.rt.Table)
+		// C8-b review item 1: always release call context on exit,
 		// including error paths. :738-742 deliver_resolve.
 		defer func() {
-			if rerr := borrow.Release(); rerr != nil && retErr == nil {
-				retErr = fmt.Errorf("canon.lift: release borrow scope: %w", rerr)
+			if rerr := callCtx.Release(); rerr != nil && retErr == nil {
+				retErr = fmt.Errorf("canon.lift: release call context: %w", rerr)
 			}
 		}()
-		callCtx := runtime.NewCallContext()
 
 		lowerCtx := &abi.LowerContext{
 			Memory:      memory,
@@ -1338,7 +1337,7 @@ func (l *ComponentLinker) buildCanonLiftFunc(
 			Opts:        &opts,
 			Types:       inst.component.Types,
 			Instance:    inst.rt,
-			BorrowScope: borrow,
+			CallContext: callCtx,
 		}
 		liftedResults, err := abi.LiftResults(liftCtx, resultElems, flatResults, abi.MaxFlatResults)
 		if err != nil {
@@ -1415,27 +1414,26 @@ func (l *ComponentLinker) createCanonLowerFunc(
 		}
 
 		// :2068-2070 subtask + contexts.
-		borrow := runtime.NewBorrowScope(inst.rt.Table)
-		// C8-b review item 1: always release borrow scope, even on panic
+		callCtx := runtime.NewCallContext(inst.rt.Table)
+		// C8-b review item 1: always release call context, even on panic
 		// from lift/host/lower paths. :2113 deliver_resolve.
 		defer func() {
-			if rerr := borrow.Release(); rerr != nil {
+			if rerr := callCtx.Release(); rerr != nil {
 				// If we're already unwinding from a panic, surface that
 				// first; otherwise raise the release error as a trap.
 				if p := recover(); p != nil {
 					panic(p)
 				}
-				panic(fmt.Errorf("canon.lower: release borrow scope: %w", rerr))
+				panic(fmt.Errorf("canon.lower: release call context: %w", rerr))
 			}
 		}()
-		callCtx := runtime.NewCallContext()
 
 		liftCtx := &abi.LiftContext{
 			Memory:      memory,
 			Opts:        &opts,
 			Types:       c.Types,
 			Instance:    inst.rt,
-			BorrowScope: borrow,
+			CallContext: callCtx,
 		}
 
 		// :2089 lift params from the incoming core stack. The flat

@@ -15,8 +15,8 @@ import (
 // makeLiftCtx creates a LiftContext whose Instance (ID 0) has a single
 // *runtime.ResourceType at ResourceTypes[0], a ComponentTypes with one
 // Concrete ResourceTable entry at index 0 pointing to Instance 0
-// / Resource 0, and an optional BorrowScope.
-func makeLiftCtx(withBorrowScope bool) (*LiftContext, *runtime.ResourceType) {
+// / Resource 0, and an optional CallContext.
+func makeLiftCtx(withCallContext bool) (*LiftContext, *runtime.ResourceType) {
 	rt := &runtime.ResourceType{}
 	inst := runtime.NewComponentInstance(0, nil)
 	inst.ResourceTypes = []*runtime.ResourceType{rt}
@@ -35,8 +35,8 @@ func makeLiftCtx(withBorrowScope bool) (*LiftContext, *runtime.ResourceType) {
 		Types:    ct,
 		Instance: inst,
 	}
-	if withBorrowScope {
-		ctx.BorrowScope = runtime.NewBorrowScope(inst.Table)
+	if withCallContext {
+		ctx.CallContext = runtime.NewCallContext(inst.Table)
 	}
 	return ctx, rt
 }
@@ -196,7 +196,7 @@ func TestLiftBorrowHandleNoBorrowScope(t *testing.T) {
 
 // TestLiftBorrowHandleNoDoubleIncrement verifies that liftBorrowHandle
 // increments NumLends exactly once. The old code called IncrementLends
-// explicitly AND then called BorrowScope.AddLender which also calls
+// explicitly AND then called CallContext.AddLender which also calls
 // IncrementLends — double-incrementing NumLends.
 //
 // Spec: definitions.py:1346 — cx.borrow_scope.add_lender(h)

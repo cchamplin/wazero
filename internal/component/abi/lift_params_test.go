@@ -25,7 +25,7 @@ func TestLiftParamsFlatPath(t *testing.T) {
 		Memory:      mem,
 		Types:       bag,
 		Instance:    inst,
-		BorrowScope: runtime.NewBorrowScope(inst.Table),
+		CallContext: runtime.NewCallContext(inst.Table),
 	}
 	paramTypes := []types.ValType{types.S32, types.S32}
 	flat := []uint64{42, 0xFFFFFFF9} // 42, -7
@@ -50,7 +50,7 @@ func TestLiftResultsFlatPath(t *testing.T) {
 		Memory:      mem,
 		Types:       bag,
 		Instance:    inst,
-		BorrowScope: runtime.NewBorrowScope(inst.Table),
+		CallContext: runtime.NewCallContext(inst.Table),
 	}
 	// Single i32 result — fits in MaxFlatResults = 1.
 	resultTypes := []types.ValType{types.S32}
@@ -107,7 +107,7 @@ func TestLiftParamsRetptrPath(t *testing.T) {
 		Memory:      mem,
 		Types:       bag,
 		Instance:    inst,
-		BorrowScope: runtime.NewBorrowScope(inst.Table),
+		CallContext: runtime.NewCallContext(inst.Table),
 	}
 	paramTypes := []types.ValType{types.S32, types.S32, types.S32}
 	vals, err := LiftParams(ctx, paramTypes, []uint64{uint64(ptr)}, 2)
@@ -136,7 +136,7 @@ func TestLiftResultsRetptrPath(t *testing.T) {
 		Memory:      mem,
 		Types:       bag,
 		Instance:    inst,
-		BorrowScope: runtime.NewBorrowScope(inst.Table),
+		CallContext: runtime.NewCallContext(inst.Table),
 	}
 	resultTypes := []types.ValType{types.S32, types.S32}
 	vals, err := LiftResults(ctx, resultTypes, []uint64{uint64(ptr)}, 0)

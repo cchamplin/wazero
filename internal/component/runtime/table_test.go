@@ -755,7 +755,7 @@ func TestTable_RepWithType_TypeMismatch(t *testing.T) {
 // code (resource.drop), not in Remove itself.
 func TestTable_RemoveBorrow_DecrementsBorrowCount(t *testing.T) {
 	table := NewTable()
-	callCtx := NewCallContext()
+	callCtx := NewCallContext(nil)
 	rt := &ResourceType{}
 
 	// Simulate lower_borrow: create borrow handle and increment borrow count
@@ -896,7 +896,7 @@ func TestTable_DropOwned_BorrowHandle_NoDestructor(t *testing.T) {
 func TestCreateResourceDropFuncWithContext_CallsDestructor(t *testing.T) {
 	table := NewTable()
 	registry := NewDestructorRegistry()
-	callCtx := NewCallContext()
+	callCtx := NewCallContext(nil)
 	rt := &ResourceType{}
 
 	var destructorCalledWith uint32
@@ -920,7 +920,7 @@ func TestCreateResourceDropFuncWithContext_CallsDestructor(t *testing.T) {
 func TestCreateResourceDropFuncWithContext_DecrementsBorrowCount(t *testing.T) {
 	table := NewTable()
 	registry := NewDestructorRegistry()
-	callCtx := NewCallContext()
+	callCtx := NewCallContext(nil)
 	rt := &ResourceType{}
 
 	dropFunc := table.CreateResourceDropFuncWithContext(rt, registry, 100, 100, callCtx, nil, func(err error) {
@@ -944,7 +944,7 @@ func TestCreateResourceDropFuncWithContext_DecrementsBorrowCount(t *testing.T) {
 func TestCreateResourceDropFuncWithContext_TrapsOnInvalidHandle(t *testing.T) {
 	table := NewTable()
 	registry := NewDestructorRegistry()
-	callCtx := NewCallContext()
+	callCtx := NewCallContext(nil)
 	rt := &ResourceType{}
 
 	var trappedErr error
@@ -961,7 +961,7 @@ func TestCreateResourceDropFuncWithContext_TrapsOnInvalidHandle(t *testing.T) {
 func TestCreateResourceDropFuncWithContext_TrapsOnTypeMismatch(t *testing.T) {
 	table := NewTable()
 	registry := NewDestructorRegistry()
-	callCtx := NewCallContext()
+	callCtx := NewCallContext(nil)
 	rt1 := &ResourceType{}
 	rt2 := &ResourceType{}
 

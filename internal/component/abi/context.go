@@ -64,7 +64,7 @@ type Options struct {
 }
 
 // LiftContext provides context for lifting operations. Per-call state
-// (BorrowScope) lives directly on the context; per-component (Types)
+// (CallContext) lives directly on the context; per-component (Types)
 // and per-instance (Instance) state are pointer references.
 //
 // Spec: each lift call is performed by a specific instance — the one
@@ -76,7 +76,7 @@ type LiftContext struct {
 	Opts        *Options
 	Types       *types.ComponentTypes
 	Instance    *runtime.ComponentInstance
-	BorrowScope *runtime.BorrowScope
+	CallContext *runtime.CallContext
 }
 
 // ReadU8 reads a u8 from memory at the given offset with bounds checking.

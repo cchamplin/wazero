@@ -363,10 +363,10 @@ func (i *Instance) ResourceDrop(resourceIdx types.ResourceIdx, handleIdx uint32)
 	}
 	if !resEntry.Own {
 		// Spec: definitions.py:2163-2164 — borrow branch.
-		// Decrement the scope's borrow counter. The scope checks this at
+		// Decrement the call context's borrow counter. The context checks this at
 		// exit_call to ensure all borrows were dropped before returning.
-		if resEntry.BorrowScope != nil {
-			resEntry.BorrowScope.DecrementBorrows()
+		if resEntry.CallContext != nil {
+			resEntry.CallContext.DecrementBorrows()
 		}
 	}
 	return nil

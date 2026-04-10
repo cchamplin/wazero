@@ -144,7 +144,7 @@ func TestResources(t *testing.T) {
 		require.NoError(t, err)
 
 		// Increment lends on the handle (simulates what lift_borrow does
-		// via BorrowScope.AddLender).
+		// via CallContext.AddLender).
 		fullHandle, _, err := inst.Table().GetByIndex(h)
 		require.NoError(t, err)
 		err = inst.Table().IncrementLends(fullHandle)
@@ -220,24 +220,24 @@ func TestResources(t *testing.T) {
 		require.NoError(t, err)
 		ownEntry := ownEntryIface.(*runtime.ResourceHandleEntry)
 
-		// Step 2: mint a borrow handle and register it in a scope.
-		scope := runtime.NewBorrowScope(inst.Table())
+		// Step 2: mint a borrow handle and register it in a call context.
+		callCtx := runtime.NewCallContext(inst.Table())
 		borrowFull, err := inst.Table().NewResourceHandle(uint32(77), false, rt)
 		require.NoError(t, err)
 
-		err = scope.AddLender(ownFull)
+		err = callCtx.AddLender(ownFull)
 		require.NoError(t, err)
 
 		borrowEntryIface, err := inst.Table().Get(borrowFull)
 		require.NoError(t, err)
 		borrowEntry := borrowEntryIface.(*runtime.ResourceHandleEntry)
-		borrowEntry.BorrowScope = scope
+		borrowEntry.CallContext = callCtx
 
-		scope.IncrementBorrows()
+		callCtx.IncrementBorrows()
 
 		lendsBefore := ownEntry.NumLends
 		require.True(t, lendsBefore > 0, "lender should have outstanding lends")
-		require.Equal(t, 1, scope.NumBorrows())
+		require.Equal(t, 1, callCtx.NumBorrows())
 
 		// Step 3: drop the borrow handle.
 		err = inst.ResourceDrop(types.ResourceIdx(0), borrowFull.Index())
@@ -246,8 +246,8 @@ func TestResources(t *testing.T) {
 		// Destructor was NOT called (borrow branch).
 		require.False(t, dtorCalled, "destructor must not be called for borrow drop")
 
-		// Scope borrow counter was decremented.
-		require.Equal(t, 0, scope.NumBorrows())
+		// Call context borrow counter was decremented.
+		require.Equal(t, 0, callCtx.NumBorrows())
 
 		// Lender's NumLends is NOT decremented at borrow-drop time.
 		// Per wasmtime (resources.rs:338-345), lender NumLends cleanup
@@ -262,8 +262,8 @@ func TestResources(t *testing.T) {
 		_, _, err = inst.Table().GetByIndex(borrowFull.Index())
 		require.Error(t, err)
 
-		// Scope release at exit-call time decrements lender NumLends.
-		err = scope.Release()
+		// Call context release at exit-call time decrements lender NumLends.
+		err = callCtx.Release()
 		require.NoError(t, err)
 		require.Equal(t, lendsBefore-1, ownEntry.NumLends)
 	})
@@ -452,7 +452,7 @@ func TestResources(t *testing.T) {
 	})
 
 	// ------------------------------------------------------------------
-	// Case 13: BorrowScope.AddLender increments NumLends exactly once
+	// Case 13: CallContext.AddLender increments NumLends exactly once
 	// ------------------------------------------------------------------
 	// Ports: the lift_borrow spec path at definitions.py:1341-1347:
 	//     def lift_borrow(cx, i, t):
@@ -461,7 +461,7 @@ func TestResources(t *testing.T) {
 	//       trap_if(h.rt is not t.rt)
 	//       cx.borrow_scope.add_lender(h)
 	//       return h.rep
-	//   AddLender increments h.num_lends and records h in the scope.
+	//   AddLender increments h.num_lends and records h in the context.
 	// Spec: definitions.py:736 self.lenders.append(h); h.num_lends += 1.
 	t.Run("AddLenderIncrementsOnce", func(t *testing.T) {
 		inst := component.NewInstance(&component.Component{}, 1, nil)
@@ -476,22 +476,22 @@ func TestResources(t *testing.T) {
 		entry := entryIface.(*runtime.ResourceHandleEntry)
 		require.Equal(t, uint32(0), entry.NumLends)
 
-		scope := runtime.NewBorrowScope(inst.Table())
+		callCtx := runtime.NewCallContext(inst.Table())
 
 		// AddLender once.
-		err = scope.AddLender(fullHandle)
+		err = callCtx.AddLender(fullHandle)
 		require.NoError(t, err)
 		require.Equal(t, uint32(1), entry.NumLends)
-		require.Equal(t, 1, scope.LendCount())
+		require.Equal(t, 1, callCtx.LendCount())
 
 		// AddLender again on the same handle (two borrows of same resource).
-		err = scope.AddLender(fullHandle)
+		err = callCtx.AddLender(fullHandle)
 		require.NoError(t, err)
 		require.Equal(t, uint32(2), entry.NumLends)
-		require.Equal(t, 2, scope.LendCount())
+		require.Equal(t, 2, callCtx.LendCount())
 
 		// Release decrements all.
-		err = scope.Release()
+		err = callCtx.Release()
 		require.NoError(t, err)
 		require.Equal(t, uint32(0), entry.NumLends)
 	})
@@ -632,16 +632,16 @@ func TestResources(t *testing.T) {
 	})
 
 	// ------------------------------------------------------------------
-	// Case 17: BorrowScope tracks multiple lenders independently
+	// Case 17: CallContext tracks multiple lenders independently
 	// ------------------------------------------------------------------
 	// Ports: run_tests.py:489-492 where the core_wasm callback passes
 	//   two borrow handles (h1, h3) to a host import:
 	//     args = [h1, h3]
 	//     results = canon_lower(opts, host_ft, host_import, thread, args)
 	//   Each borrow-typed parameter goes through lift_borrow (spec
-	//   definitions.py:1341-1347) which calls borrow_scope.add_lender(h).
+	//   definitions.py:1341-1347) which calls call_context.add_lender(h).
 	// Spec: definitions.py:736 self.lenders.append(h); h.num_lends += 1.
-	t.Run("BorrowScopeMultipleLenders", func(t *testing.T) {
+	t.Run("CallContextMultipleLenders", func(t *testing.T) {
 		inst := component.NewInstance(&component.Component{}, 1, nil)
 		rt := &runtime.ResourceType{Impl: inst.Runtime()}
 		inst.Runtime().ResourceTypes = append(inst.Runtime().ResourceTypes, rt)
@@ -659,16 +659,16 @@ func TestResources(t *testing.T) {
 		require.NoError(t, err)
 		entry2 := entry2Iface.(*runtime.ResourceHandleEntry)
 
-		scope := runtime.NewBorrowScope(inst.Table())
+		callCtx := runtime.NewCallContext(inst.Table())
 
-		err = scope.AddLender(fullH1)
+		err = callCtx.AddLender(fullH1)
 		require.NoError(t, err)
-		err = scope.AddLender(fullH2)
+		err = callCtx.AddLender(fullH2)
 		require.NoError(t, err)
 
 		require.Equal(t, uint32(1), entry1.NumLends)
 		require.Equal(t, uint32(1), entry2.NumLends)
-		require.Equal(t, 2, scope.LendCount())
+		require.Equal(t, 2, callCtx.LendCount())
 
 		// h1 and h2 cannot be dropped while lent.
 		err = inst.ResourceDrop(types.ResourceIdx(0), h1)
@@ -676,8 +676,8 @@ func TestResources(t *testing.T) {
 		err = inst.ResourceDrop(types.ResourceIdx(0), h2)
 		require.Error(t, err)
 
-		// Release scope — both lenders' NumLends decremented.
-		err = scope.Release()
+		// Release call context — both lenders' NumLends decremented.
+		err = callCtx.Release()
 		require.NoError(t, err)
 		require.Equal(t, uint32(0), entry1.NumLends)
 		require.Equal(t, uint32(0), entry2.NumLends)

@@ -155,7 +155,7 @@ func TestInstanceResourceDropLendsTrap(t *testing.T) {
 // separately at exit_call (resources.rs:338-345), NOT at borrow-drop time.
 //
 // In wazero's Session 1 synchronous model, Instance.ResourceDrop removes
-// the borrow handle from the table. The CallContext/BorrowScope manages
+// the borrow handle from the table. The CallContext manages
 // the borrow counter and lender NumLends cleanup at scope exit.
 func TestInstanceResourceDropBorrowBranch(t *testing.T) {
 	inst := newInstance(&Component{}, 1, nil)
@@ -177,30 +177,30 @@ func TestInstanceResourceDropBorrowBranch(t *testing.T) {
 	require.NoError(t, err)
 	ownEntry := ownEntryIface.(*runtime.ResourceHandleEntry)
 
-	// Step 2: mint a borrow handle of the same type inside a fresh scope.
+	// Step 2: mint a borrow handle of the same type inside a fresh call context.
 	// Simulates what abi.liftBorrowHandle does when a cross-component call
 	// lifts an own handle from the caller and materializes a borrow in the
 	// callee's table.
-	scope := runtime.NewBorrowScope(inst.rt.Table)
+	callCtx := runtime.NewCallContext(inst.rt.Table)
 	borrowFull, err := inst.rt.Table.NewResourceHandle(uint32(77), false, rt)
 	require.NoError(t, err)
 
-	// Register the lender in the scope (increments lender's NumLends).
-	err = scope.AddLender(ownFull)
+	// Register the lender in the call context (increments lender's NumLends).
+	err = callCtx.AddLender(ownFull)
 	require.NoError(t, err)
 
-	// Associate the borrow entry with the scope.
+	// Associate the borrow entry with the call context.
 	borrowEntryIface, err := inst.rt.Table.Get(borrowFull)
 	require.NoError(t, err)
 	borrowEntry := borrowEntryIface.(*runtime.ResourceHandleEntry)
-	borrowEntry.BorrowScope = scope
+	borrowEntry.CallContext = callCtx
 
-	// Increment the scope's borrow counter (simulates what lower_borrow does).
-	scope.IncrementBorrows()
+	// Increment the call context's borrow counter (simulates what lower_borrow does).
+	callCtx.IncrementBorrows()
 
 	lendsBefore := ownEntry.NumLends
 	require.True(t, lendsBefore > 0, "lender should have outstanding lends")
-	require.Equal(t, 1, scope.NumBorrows(), "scope should have 1 outstanding borrow before drop")
+	require.Equal(t, 1, callCtx.NumBorrows(), "call context should have 1 outstanding borrow before drop")
 
 	// Step 3: drop the borrow handle via ResourceDrop.
 	err = inst.ResourceDrop(types.ResourceIdx(0), borrowFull.Index())
@@ -209,8 +209,8 @@ func TestInstanceResourceDropBorrowBranch(t *testing.T) {
 	// Step 4: destructor was NOT called (borrow branch — spec :2163-2164).
 	require.Equal(t, 0, destructorCalls)
 
-	// Step 4b: scope's borrow counter was decremented (spec :2163-2164).
-	require.Equal(t, 0, scope.NumBorrows(), "scope borrow counter should be decremented after drop")
+	// Step 4b: call context's borrow counter was decremented (spec :2163-2164).
+	require.Equal(t, 0, callCtx.NumBorrows(), "call context borrow counter should be decremented after drop")
 
 	// Step 5: lender's NumLends is NOT decremented at borrow-drop time.
 	// Per wasmtime (resources.rs:338-345), lender NumLends cleanup happens
@@ -227,8 +227,8 @@ func TestInstanceResourceDropBorrowBranch(t *testing.T) {
 	_, _, err = inst.rt.Table.GetByIndex(borrowFull.Index())
 	require.Error(t, err)
 
-	// Step 8: scope.Release() at exit-call time decrements lender NumLends.
-	err = scope.Release()
+	// Step 8: callCtx.Release() at exit-call time decrements lender NumLends.
+	err = callCtx.Release()
 	require.NoError(t, err)
 	require.Equal(t, lendsBefore-1, ownEntry.NumLends)
 }

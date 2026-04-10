@@ -233,7 +233,7 @@ func TestLiftParamsFlatPathMixedKinds(t *testing.T) {
 		Memory:      mem,
 		Types:       ct,
 		Instance:    inst,
-		BorrowScope: runtime.NewBorrowScope(inst.Table),
+		CallContext: runtime.NewCallContext(inst.Table),
 	}
 	paramTypes := []types.ValType{types.S32, types.F64, types.U8}
 	neg42 := int32(-42)
@@ -282,7 +282,7 @@ func TestLiftParamsEmpty(t *testing.T) {
 		Memory:      mem,
 		Types:       ct,
 		Instance:    inst,
-		BorrowScope: runtime.NewBorrowScope(inst.Table),
+		CallContext: runtime.NewCallContext(inst.Table),
 	}
 	vals, err := LiftParams(ctx, nil, nil, MaxFlatParams)
 	require.NoError(t, err)

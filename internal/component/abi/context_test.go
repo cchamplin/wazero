@@ -324,8 +324,8 @@ func TestLowerContext_WithSubtask(t *testing.T) {
 	t.Skip("LowerContext does not expose Subtask field — async task machinery not implemented")
 }
 
-func TestLowerContext_BorrowScope_NilSubtask(t *testing.T) {
-	t.Skip("LowerContext does not expose BorrowScope via Subtask — async task machinery not implemented")
+func TestLowerContext_CallContext_NilSubtask(t *testing.T) {
+	t.Skip("LowerContext does not expose CallContext via Subtask — async task machinery not implemented")
 }
 
 func TestLiftContext_NewShape(t *testing.T) {

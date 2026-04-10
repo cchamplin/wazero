@@ -208,17 +208,17 @@ func TestCanonResourceDrop_Borrowed(t *testing.T) {
 	inst.rt.ResourceTypes = append(inst.rt.ResourceTypes, rt)
 
 	// Create a borrow handle directly in the table (simulating lift_borrow).
-	scope := runtime.NewBorrowScope(inst.rt.Table)
+	callCtx := runtime.NewCallContext(inst.rt.Table)
 	borrowFull, err := inst.rt.Table.NewResourceHandle(uint32(88), false, rt)
 	require.NoError(t, err)
 
-	// Associate the borrow with the scope.
+	// Associate the borrow with the call context.
 	borrowEntry, err := inst.rt.Table.GetResourceHandle(borrowFull)
 	require.NoError(t, err)
-	borrowEntry.BorrowScope = scope
-	scope.IncrementBorrows()
+	borrowEntry.CallContext = callCtx
+	callCtx.IncrementBorrows()
 
-	require.Equal(t, 1, scope.NumBorrows())
+	require.Equal(t, 1, callCtx.NumBorrows())
 
 	// Drop the borrow handle.
 	err = inst.ResourceDrop(types.ResourceIdx(0), borrowFull.Index())
@@ -226,12 +226,12 @@ func TestCanonResourceDrop_Borrowed(t *testing.T) {
 
 	// Destructor was NOT called (borrow branch).
 	require.Equal(t, 0, dtorCalls)
-	// Scope borrow counter was decremented.
-	require.Equal(t, 0, scope.NumBorrows())
+	// Call context borrow counter was decremented.
+	require.Equal(t, 0, callCtx.NumBorrows())
 }
 
 // TestCanonResourceDrop_BorrowedNoCallContext asserts ResourceDrop for a
-// borrow handle with a nil BorrowScope does not panic.
+// borrow handle with a nil CallContext does not panic.
 //
 // Spec: definitions.py:2163-2164 canon_resource_drop borrow branch.
 func TestCanonResourceDrop_BorrowedNoCallContext(t *testing.T) {
@@ -239,11 +239,11 @@ func TestCanonResourceDrop_BorrowedNoCallContext(t *testing.T) {
 	rt := &runtime.ResourceType{Impl: inst.rt}
 	inst.rt.ResourceTypes = append(inst.rt.ResourceTypes, rt)
 
-	// Create a borrow handle with no scope attached.
+	// Create a borrow handle with no call context attached.
 	borrowFull, err := inst.rt.Table.NewResourceHandle(uint32(33), false, rt)
 	require.NoError(t, err)
 
-	// Drop should succeed without panicking even with nil BorrowScope.
+	// Drop should succeed without panicking even with nil CallContext.
 	err = inst.ResourceDrop(types.ResourceIdx(0), borrowFull.Index())
 	require.NoError(t, err)
 }

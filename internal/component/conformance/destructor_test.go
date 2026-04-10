@@ -93,20 +93,20 @@ func TestDestructors(t *testing.T) {
 		ownFull, _, err := inst.Table().GetByIndex(ownIdx)
 		require.NoError(t, err)
 
-		// Mint a borrow handle in a scope.
-		scope := runtime.NewBorrowScope(inst.Table())
+		// Mint a borrow handle in a call context.
+		callCtx := runtime.NewCallContext(inst.Table())
 		borrowFull, err := inst.Table().NewResourceHandle(uint32(77), false, rt)
 		require.NoError(t, err)
 
-		err = scope.AddLender(ownFull)
+		err = callCtx.AddLender(ownFull)
 		require.NoError(t, err)
 
 		borrowEntryIface, err := inst.Table().Get(borrowFull)
 		require.NoError(t, err)
 		borrowEntry := borrowEntryIface.(*runtime.ResourceHandleEntry)
-		borrowEntry.BorrowScope = scope
+		borrowEntry.CallContext = callCtx
 
-		scope.IncrementBorrows()
+		callCtx.IncrementBorrows()
 
 		// Drop the borrow handle.
 		err = inst.ResourceDrop(types.ResourceIdx(0), borrowFull.Index())
@@ -115,8 +115,8 @@ func TestDestructors(t *testing.T) {
 		// Destructor must NOT have been called.
 		require.False(t, dtorCalled, "destructor must not be called for borrow handle drop")
 
-		// Cleanup: release scope and drop the own handle.
-		err = scope.Release()
+		// Cleanup: release call context and drop the own handle.
+		err = callCtx.Release()
 		require.NoError(t, err)
 		err = inst.ResourceDrop(types.ResourceIdx(0), ownIdx)
 		require.NoError(t, err)

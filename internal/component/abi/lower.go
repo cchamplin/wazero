@@ -6,6 +6,7 @@ import (
 	"math"
 
 	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
@@ -678,6 +679,15 @@ func lowerBorrowHandleFlat(ctx *LowerContext, typ types.ValType, val types.Val) 
 	}
 	if ctx.CallContext != nil {
 		ctx.CallContext.IncrementBorrows()
+		// Fix: set the CallContext on the borrow handle entry so that
+		// resource.drop can find it to decrement num_borrows.
+		// Spec: definitions.py lower_borrow sets h.borrow_scope.
+		_, entry, gerr := ctx.Instance.Table.GetByIndex(h.Index())
+		if gerr == nil {
+			if resEntry, ok := entry.(*runtime.ResourceHandleEntry); ok {
+				resEntry.CallContext = ctx.CallContext
+			}
+		}
 	}
 	return []uint64{uint64(h.Index())}, nil
 }

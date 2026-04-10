@@ -64,7 +64,7 @@ type ResourceHandleEntry struct {
 	Rep         uint32        // The resource representation value (u32 per spec)
 	Own         bool          // True if this is an owning handle
 	NumLends    uint32        // Number of active borrows from this handle
-	BorrowScope *BorrowScope  // The scope that created this borrow (for borrowed handles)
+	CallContext *CallContext   // The call context that created this borrow (for borrowed handles)
 }
 
 func (*ResourceHandleEntry) tableEntry() {}

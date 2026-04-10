@@ -23,25 +23,25 @@ const (
 )
 
 // Subtask tracks the lifetime of a single canon_lower call.
-// It owns a borrow scope for tracking borrowed handles during the call.
+// It owns a call context for tracking borrowed handles during the call.
 type Subtask struct {
-	borrowScope *BorrowScope
+	callContext *CallContext
 	state       SubtaskState
 	result      []types.Val // Stored result after resolve
 }
 
-// NewSubtask creates a new Subtask with its own borrow scope.
-// The borrow scope is used to track borrowed handles during the call.
+// NewSubtask creates a new Subtask with its own call context.
+// The call context is used to track borrowed handles during the call.
 func NewSubtask(table *Table) *Subtask {
 	return &Subtask{
-		borrowScope: NewBorrowScope(table),
+		callContext: NewCallContext(table),
 		state:       SubtaskStatePending,
 	}
 }
 
-// BorrowScope returns the borrow scope for this subtask.
-func (s *Subtask) BorrowScope() *BorrowScope {
-	return s.borrowScope
+// CallContext returns the call context for this subtask.
+func (s *Subtask) CallContext() *CallContext {
+	return s.callContext
 }
 
 // State returns the current state of this subtask.
@@ -71,7 +71,7 @@ func (s *Subtask) StartFinish() error {
 }
 
 // Finish transitions from finishing to done.
-// This completes the subtask and releases the borrow scope.
+// This completes the subtask and releases the call context's lends.
 func (s *Subtask) Finish() error {
 	if s.state == SubtaskStatePending {
 		return fmt.Errorf("subtask: cannot finish before resolve")
@@ -81,8 +81,8 @@ func (s *Subtask) Finish() error {
 	}
 
 	// Release borrows
-	if s.borrowScope != nil {
-		if err := s.borrowScope.Release(); err != nil {
+	if s.callContext != nil {
+		if err := s.callContext.Release(); err != nil {
 			return fmt.Errorf("subtask: release borrows: %w", err)
 		}
 	}
@@ -100,16 +100,16 @@ func (s *Subtask) Result() []types.Val {
 // TrackLend records that a handle has been lent (borrowed) during this subtask.
 // The lend will be released when the subtask finishes.
 func (s *Subtask) TrackLend(handle Handle) error {
-	if s.borrowScope == nil {
-		return fmt.Errorf("subtask: no borrow scope")
+	if s.callContext == nil {
+		return fmt.Errorf("subtask: no call context")
 	}
-	return s.borrowScope.AddLender(handle)
+	return s.callContext.AddLender(handle)
 }
 
 // LendCount returns the number of active lends in this subtask.
 func (s *Subtask) LendCount() int {
-	if s.borrowScope == nil {
+	if s.callContext == nil {
 		return 0
 	}
-	return s.borrowScope.LendCount()
+	return s.callContext.LendCount()
 }

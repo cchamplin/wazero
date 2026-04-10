@@ -5,7 +5,7 @@
 // Package conformance: post-return / borrow-lifecycle conformance
 // tests. These exercise CallContext's num_borrows gate (the
 // canonical-ABI invariant that a call must not return while any
-// borrowed handle is still outstanding) and the BorrowScope lends
+// borrowed handle is still outstanding) and the CallContext lends
 // tracking that implements Subtask.lenders from the spec.
 package conformance
 
@@ -26,7 +26,7 @@ import (
 // Spec: definitions.py:571 Task field `num_borrows: int`, initialised
 // to 0 at definitions.py:581.
 func TestPostReturn_BorrowsReleasedBeforeReturn(t *testing.T) {
-	ctx := runtime.NewCallContext()
+	ctx := runtime.NewCallContext(nil)
 
 	// Initially, no borrows - can return.
 	require.True(t, ctx.CanReturn())
@@ -59,13 +59,13 @@ func TestPostReturn_BorrowsReleasedBeforeReturn(t *testing.T) {
 // trap_if(self.num_borrows > 0).
 func TestPostReturn_ValidateReturn(t *testing.T) {
 	t.Run("fresh context can return", func(t *testing.T) {
-		ctx := runtime.NewCallContext()
+		ctx := runtime.NewCallContext(nil)
 		err := ctx.ValidateReturn()
 		require.NoError(t, err)
 	})
 
 	t.Run("single borrow prevents return", func(t *testing.T) {
-		ctx := runtime.NewCallContext()
+		ctx := runtime.NewCallContext(nil)
 		ctx.IncrementBorrows()
 
 		err := ctx.ValidateReturn()
@@ -78,7 +78,7 @@ func TestPostReturn_ValidateReturn(t *testing.T) {
 	})
 
 	t.Run("multiple borrows all must be released", func(t *testing.T) {
-		ctx := runtime.NewCallContext()
+		ctx := runtime.NewCallContext(nil)
 		ctx.IncrementBorrows()
 		ctx.IncrementBorrows()
 		ctx.IncrementBorrows()
@@ -112,7 +112,7 @@ func TestPostReturn_ValidateReturn(t *testing.T) {
 // Spec: definitions.py:697 Task.cancel trap_if(self.num_borrows > 0)
 // (the same gate on the cancel path).
 func TestPostReturn_CanReturn(t *testing.T) {
-	ctx := runtime.NewCallContext()
+	ctx := runtime.NewCallContext(nil)
 
 	// Fresh context.
 	require.True(t, ctx.CanReturn())
@@ -143,7 +143,7 @@ func TestPostReturn_CanReturn(t *testing.T) {
 // increments on each lift_borrow and decrements on each drop_borrow
 // (wired through lower_borrow / drop_handle in the spec).
 func TestPostReturn_NumBorrowsTracking(t *testing.T) {
-	ctx := runtime.NewCallContext()
+	ctx := runtime.NewCallContext(nil)
 
 	require.Equal(t, 0, ctx.NumBorrows())
 
@@ -170,9 +170,9 @@ func TestPostReturn_NumBorrowsTracking(t *testing.T) {
 // Python model constructs a fresh Task at each canon_lift entry
 // (definitions.py:1980).
 func TestPostReturn_MultipleCallContextsIndependent(t *testing.T) {
-	ctx1 := runtime.NewCallContext()
-	ctx2 := runtime.NewCallContext()
-	ctx3 := runtime.NewCallContext()
+	ctx1 := runtime.NewCallContext(nil)
+	ctx2 := runtime.NewCallContext(nil)
+	ctx3 := runtime.NewCallContext(nil)
 
 	ctx1.IncrementBorrows()
 	ctx1.IncrementBorrows()
@@ -201,7 +201,7 @@ func TestPostReturn_MultipleCallContextsIndependent(t *testing.T) {
 // run_tests.py tests that thread resources through canon.lift/lower.
 func TestPostReturn_SimulateHostCallWithBorrows(t *testing.T) {
 	// Simulates: func process(a: borrow<X>, b: borrow<Y>) -> s32
-	ctx := runtime.NewCallContext()
+	ctx := runtime.NewCallContext(nil)
 
 	// lower_borrow for param 'a'.
 	ctx.IncrementBorrows()
@@ -232,7 +232,7 @@ func TestPostReturn_SimulateHostCallWithBorrows(t *testing.T) {
 //
 // Spec: definitions.py:690 Task.return_ trap_if(self.num_borrows > 0).
 func TestPostReturn_ErrOutstandingBorrows(t *testing.T) {
-	ctx := runtime.NewCallContext()
+	ctx := runtime.NewCallContext(nil)
 	ctx.IncrementBorrows()
 
 	err := ctx.ValidateReturn()
@@ -244,17 +244,17 @@ func TestPostReturn_ErrOutstandingBorrows(t *testing.T) {
 
 // TestPostReturn_IntegrationWithResourceTable exercises the full
 // borrow lifecycle: create an owned resource, borrow-lend it via
-// BorrowScope, bump CallContext.num_borrows, verify that Table.Remove
+// CallContext, bump CallContext.num_borrows, verify that Table.Remove
 // traps with ErrResourceInUse while the borrow is live, then release
 // everything and drop the resource.
 //
-// Spec: definitions.py:713 Subtask.lenders list (BorrowScope
-// equivalent). Spec: definitions.py:736 `self.lenders.append(...)`
+// Spec: definitions.py:713 Subtask.lenders list (CallContext
+// lenders). Spec: definitions.py:736 `self.lenders.append(...)`
 // (AddLender). Spec: definitions.py:740-742 release loop that
 // decrements lends on every tracked handle.
 func TestPostReturn_IntegrationWithResourceTable(t *testing.T) {
 	table := runtime.NewTable()
-	ctx := runtime.NewCallContext()
+	ctx := runtime.NewCallContext(table)
 
 	// Create an owned resource handle. Post-C3 API uses
 	// NewResourceHandle(rep, own, rt) instead of the deleted
@@ -263,11 +263,8 @@ func TestPostReturn_IntegrationWithResourceTable(t *testing.T) {
 	handle, err := table.NewResourceHandle(uint32(77), true, nil)
 	require.NoError(t, err)
 
-	// Create a borrow scope for tracking lends.
-	scope := runtime.NewBorrowScope(table)
-
-	// lift_borrow increments lends on the original resource.
-	err = scope.AddLender(handle)
+	// lift_borrow increments lends on the original resource via AddLender.
+	err = ctx.AddLender(handle)
 	require.NoError(t, err)
 
 	// Call context tracks the borrowed parameter.
@@ -286,15 +283,18 @@ func TestPostReturn_IntegrationWithResourceTable(t *testing.T) {
 	// Host function finishes using the borrow.
 	ctx.DecrementBorrows()
 
-	// Release the borrow scope — drops lends back to zero.
-	err = scope.Release()
+	// Release the call context — drops lends back to zero.
+	err = ctx.Release()
 	require.NoError(t, err)
 
 	// Now everything is clean.
 	require.True(t, ctx.CanReturn())
 	require.NoError(t, ctx.ValidateReturn())
 
-	// Resource can now be dropped.
+	// Resource can now be dropped — need to re-create it since Release
+	// cleared lends and we still need a handle to remove.
+	// Actually, the handle is still in the table (Release only decrements
+	// lends, it doesn't remove handles).
 	entry, err = table.Remove(handle)
 	require.NoError(t, err)
 	require.Equal(t, uint32(77), entry.Rep)
@@ -310,11 +310,11 @@ func TestPostReturn_IntegrationWithResourceTable(t *testing.T) {
 // Spec: definitions.py:571 Task.num_borrows is a per-Task field,
 // constructed fresh at each canon_lift entry (definitions.py:1980).
 func TestPostReturn_NestedCalls(t *testing.T) {
-	outerCtx := runtime.NewCallContext()
+	outerCtx := runtime.NewCallContext(nil)
 	outerCtx.IncrementBorrows()
 
 	// Outer call makes a nested call that also receives a borrow.
-	innerCtx := runtime.NewCallContext()
+	innerCtx := runtime.NewCallContext(nil)
 	innerCtx.IncrementBorrows()
 
 	// Inner call finishes and releases its borrow.
@@ -341,7 +341,7 @@ func TestPostReturn_NestedCalls(t *testing.T) {
 // Spec: definitions.py:690 Task.return_ trap_if(self.num_borrows > 0)
 // is a side-effect-free check.
 func TestPostReturn_ZeroBorrowsIdempotent(t *testing.T) {
-	ctx := runtime.NewCallContext()
+	ctx := runtime.NewCallContext(nil)
 
 	// Multiple calls to ValidateReturn should all succeed.
 	require.NoError(t, ctx.ValidateReturn())
@@ -362,7 +362,7 @@ func TestPostReturn_ZeroBorrowsIdempotent(t *testing.T) {
 // Spec: definitions.py:571 Task.num_borrows is `int` (Python
 // arbitrary-precision), used as a plain counter.
 func TestPostReturn_LargeBorrowCount(t *testing.T) {
-	ctx := runtime.NewCallContext()
+	ctx := runtime.NewCallContext(nil)
 
 	const numBorrows = 1000
 
@@ -392,7 +392,7 @@ func TestPostReturn_LargeBorrowCount(t *testing.T) {
 // Spec: definitions.py:581 self.num_borrows = 0 (Task.__init__
 // establishes the pre-call precondition).
 func TestPostReturn_ReusableContext(t *testing.T) {
-	ctx := runtime.NewCallContext()
+	ctx := runtime.NewCallContext(nil)
 
 	// First call cycle.
 	ctx.IncrementBorrows()
