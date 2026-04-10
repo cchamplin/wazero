@@ -72,6 +72,24 @@ func TestCallContext_TrackLenders(t *testing.T) {
 	require.Equal(t, h3, lenders[2])
 }
 
+func TestCallContext_ClearLenders(t *testing.T) {
+	table := NewTable()
+	h1, err := table.NewResourceHandle(uint32(1), true, nil)
+	require.NoError(t, err)
+	h2, err := table.NewResourceHandle(uint32(2), true, nil)
+	require.NoError(t, err)
+
+	ctx := NewCallContext(table)
+
+	require.NoError(t, ctx.AddLender(h1))
+	require.NoError(t, ctx.AddLender(h2))
+
+	require.Equal(t, 2, len(ctx.Lenders()))
+
+	ctx.ClearLenders()
+	require.Equal(t, 0, len(ctx.Lenders()))
+}
+
 func TestCallContext_ExitCall_UndoesLends(t *testing.T) {
 	table := NewTable()
 
@@ -90,7 +108,7 @@ func TestCallContext_ExitCall_UndoesLends(t *testing.T) {
 	require.Equal(t, uint32(2), entry.NumLends)
 
 	// Exit call should undo all lends
-	err = ctx.ExitCall()
+	err = ctx.ExitCall(table)
 	require.NoError(t, err)
 
 	// Verify lends are decremented
@@ -107,7 +125,7 @@ func TestCallContext_ExitCall_FailsWithOutstandingBorrows(t *testing.T) {
 	ctx := NewCallContext(table)
 	ctx.IncrementBorrows() // Simulate unreleased borrow
 
-	err := ctx.ExitCall()
+	err := ctx.ExitCall(table)
 	require.ErrorIs(t, err, ErrOutstandingBorrows)
 }
 
@@ -134,7 +152,7 @@ func TestCallContext_TrackLenders_WithTable(t *testing.T) {
 	require.Equal(t, uint32(1), e2.NumLends)
 
 	// Release decrements all lends
-	require.NoError(t, ctx.ExitCall())
+	require.NoError(t, ctx.Release())
 
 	e1, _ = table.GetResourceHandle(h1)
 	e2, _ = table.GetResourceHandle(h2)
@@ -207,7 +225,7 @@ func TestCallContext_SameLenderMultipleTimes(t *testing.T) {
 	entry, _ := table.GetResourceHandle(h)
 	require.Equal(t, uint32(2), entry.NumLends)
 
-	require.NoError(t, ctx.ExitCall())
+	require.NoError(t, ctx.Release())
 
 	entry, _ = table.GetResourceHandle(h)
 	require.Equal(t, uint32(0), entry.NumLends)

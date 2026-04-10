@@ -1258,11 +1258,11 @@ func (l *ComponentLinker) buildCanonLiftFunc(
 		defer inst.rt.Reentrance.LeaveInstance(inst.rt.ID)
 
 		callCtx := runtime.NewCallContext(inst.rt.Table)
-		// Always exit call context on return, including error paths.
-		// Spec: definitions.py:738-742 deliver_resolve.
+		// C8-b review item 1: always release call context on exit,
+		// including error paths. :738-742 deliver_resolve.
 		defer func() {
-			if rerr := callCtx.ExitCall(); rerr != nil && retErr == nil {
-				retErr = fmt.Errorf("canon.lift: exit call context: %w", rerr)
+			if rerr := callCtx.Release(); rerr != nil && retErr == nil {
+				retErr = fmt.Errorf("canon.lift: release call context: %w", rerr)
 			}
 		}()
 
@@ -1377,16 +1377,16 @@ func (l *ComponentLinker) createCanonLowerFunc(
 
 		// :2068-2070 subtask + contexts.
 		callCtx := runtime.NewCallContext(inst.rt.Table)
-		// Always exit call context, even on panic from lift/host/lower
-		// paths. Spec: definitions.py:2113 deliver_resolve.
+		// C8-b review item 1: always release call context, even on panic
+		// from lift/host/lower paths. :2113 deliver_resolve.
 		defer func() {
-			if rerr := callCtx.ExitCall(); rerr != nil {
+			if rerr := callCtx.Release(); rerr != nil {
 				// If we're already unwinding from a panic, surface that
 				// first; otherwise raise the release error as a trap.
 				if p := recover(); p != nil {
 					panic(p)
 				}
-				panic(fmt.Errorf("canon.lower: exit call context: %w", rerr))
+				panic(fmt.Errorf("canon.lower: release call context: %w", rerr))
 			}
 		}()
 

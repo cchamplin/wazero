@@ -80,10 +80,10 @@ func (s *Subtask) Finish() error {
 		return fmt.Errorf("subtask: already done")
 	}
 
-	// Exit call context (validates borrows + releases lenders).
+	// Release borrows
 	if s.callContext != nil {
-		if err := s.callContext.ExitCall(); err != nil {
-			return fmt.Errorf("subtask: exit call: %w", err)
+		if err := s.callContext.Release(); err != nil {
+			return fmt.Errorf("subtask: release borrows: %w", err)
 		}
 	}
 

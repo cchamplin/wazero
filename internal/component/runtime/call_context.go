@@ -84,6 +84,10 @@ func (c *CallContext) Lenders() []Handle {
 	return c.lenders
 }
 
+// ClearLenders clears the lenders list (called after exit_call processes them).
+func (c *CallContext) ClearLenders() {
+	c.lenders = c.lenders[:0]
+}
 
 // ReleaseBorrow releases a single borrow from the scope: it decrements
 // the handle's NumLends counter (via DecrementLends) and removes the
@@ -126,20 +130,10 @@ func (c *CallContext) LendCount() int {
 	return len(c.lenders)
 }
 
-// ExitCall validates that the call can return and undoes all lend
-// operations. This is the single cleanup path for a call scope.
-// Returns an error if there are outstanding borrows (handles not dropped)
-// or if any lend decrement fails.
-//
-// Spec: definitions.py exit_call — trap if borrow_count > 0, then
-// decrement num_lends for all lenders.
-func (c *CallContext) ExitCall() error {
-	// Spec: trap if borrow_count > 0
-	if err := c.ValidateReturn(); err != nil {
-		return err
-	}
-
-	// Undo all lend operations (decrement num_lends on source handles).
+// Release decrements NumLends for all tracked lenders.
+// Called when the call scope completes. This is the counterpart
+// of the old BorrowScope.Release.
+func (c *CallContext) Release() error {
 	if c.table != nil {
 		for _, h := range c.lenders {
 			if err := c.table.DecrementLends(h); err != nil {
@@ -147,7 +141,33 @@ func (c *CallContext) ExitCall() error {
 			}
 		}
 	}
+	c.lenders = nil
+	return nil
+}
 
-	c.lenders = c.lenders[:0]
+// ExitCall validates that the call can return and undoes all lend operations.
+// This is called when a call scope completes.
+// Returns an error if there are outstanding borrows (handles not dropped).
+func (c *CallContext) ExitCall(table *Table) error {
+	// Spec: trap if borrow_count > 0
+	if err := c.ValidateReturn(); err != nil {
+		return err
+	}
+
+	// Undo all lend operations (decrement num_lends on source handles)
+	// Use the table from the struct if available, fall back to the parameter.
+	tbl := c.table
+	if tbl == nil {
+		tbl = table
+	}
+	if tbl != nil {
+		for _, h := range c.lenders {
+			// Ignore errors from already-removed handles (can happen if
+			// the source handle was transferred during the call)
+			_ = tbl.DecrementLends(h)
+		}
+	}
+
+	c.ClearLenders()
 	return nil
 }
