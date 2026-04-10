@@ -359,10 +359,10 @@ type InstanceTypeDef struct {
 type CanonicalDef struct {
 	Kind CanonKind
 
-	// ComponentFuncIdx is the component function index assigned to this canonical.
+	// ComponentFuncIdx is the index assigned to this canonical in its target space.
 	// For Lift: this is the index in the component function index space.
-	// For Lower: this is the core function index that is created.
-	// For Resource operations: not used.
+	// For Lower: this is the core function index that is created (NextCoreFuncIdx).
+	// For Resource operations: this is the core function index (NextCoreFuncIdx).
 	ComponentFuncIdx uint32
 
 	// For Lift: core function index, options, and component function type

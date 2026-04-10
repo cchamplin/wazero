@@ -853,13 +853,17 @@ func (l *ComponentLinker) buildCanonMaps(c *Component) (map[uint32]canonLowerInf
 		canon := &c.Canonicals[i]
 		switch canon.Kind {
 		case CanonKindLower:
-			lowers[canon.CoreFuncIdx] = canonLowerInfo{
+			// ComponentFuncIdx holds the assigned core function index for Lower
+			// (see decoder.go:506 — NextCoreFuncIdx is stored there).
+			lowers[canon.ComponentFuncIdx] = canonLowerInfo{
 				funcIdx: canon.FuncIdx,
 				typeIdx: canon.TypeIdx,
 				options: canon.Options,
 			}
 		case CanonKindResourceNew, CanonKindResourceDrop, CanonKindResourceRep:
-			resources[canon.CoreFuncIdx] = canonResourceInfo{
+			// ComponentFuncIdx holds the assigned core function index for resource ops
+			// (see decoder.go:512 — NextCoreFuncIdx is stored there).
+			resources[canon.ComponentFuncIdx] = canonResourceInfo{
 				kind:    canon.Kind,
 				typeIdx: canon.TypeIdx,
 			}
