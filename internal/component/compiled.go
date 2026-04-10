@@ -160,7 +160,8 @@ func (c *CompiledComponent) resolveExportFuncType(exp *Export) *api.ComponentFun
 	return nil
 }
 
-// Close releases resources associated with this compiled component.
+// Close releases resources associated with this compiled component,
+// including compiled modules for all nested components.
 func (c *CompiledComponent) Close(ctx context.Context) error {
 	var firstErr error
 	for _, cm := range c.compiledModules {
@@ -168,6 +169,30 @@ func (c *CompiledComponent) Close(ctx context.Context) error {
 			if err := cm.Close(ctx); err != nil && firstErr == nil {
 				firstErr = err
 			}
+		}
+	}
+	// Recursively close compiled modules for nested components.
+	if err := closeNestedCompiledModules(ctx, c.component); err != nil && firstErr == nil {
+		firstErr = err
+	}
+	return firstErr
+}
+
+// closeNestedCompiledModules recursively closes CompiledCoreModules on
+// all nested components in the component tree.
+func closeNestedCompiledModules(ctx context.Context, comp *Component) error {
+	var firstErr error
+	for _, nested := range comp.Components {
+		for _, cm := range nested.CompiledCoreModules {
+			if cm != nil {
+				if err := cm.Close(ctx); err != nil && firstErr == nil {
+					firstErr = err
+				}
+			}
+		}
+		nested.CompiledCoreModules = nil
+		if err := closeNestedCompiledModules(ctx, nested); err != nil && firstErr == nil {
+			firstErr = err
 		}
 	}
 	return firstErr

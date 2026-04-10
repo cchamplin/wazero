@@ -97,23 +97,24 @@ func (l *ComponentLinker) instantiateNestedComponent(
 		return nil, fmt.Errorf("nested: nested instances: %w", err)
 	}
 
-	// instanceToImport is consumed by step 12 (core module instantiation)
-	// which requires CompiledComponent for nested components. Suppress
-	// unused-variable until nested core module instantiation is wired.
 	_ = instanceToImport
 
-	// Steps 10-12 — Canon maps, function aliases, core module instantiation.
-	// For nested components, core module instantiation requires a
-	// CompiledComponent (with pre-compiled modules), which the raw
-	// *Component in parentComponent.Components does not carry. If the
-	// nested component has core instances, error with a precise message.
-	// Steps 10 and 11 only produce inputs for step 12, so they are also
-	// skipped when step 12 is skipped.
-	if len(nestedComp.CoreInstances) > 0 {
-		return nil, fmt.Errorf(
-			"nested core module instantiation requires CompiledComponent for nested components (nested component has %d core instance(s))",
-			len(nestedComp.CoreInstances))
+	// Step 10 — Build canon lower / canon resource info maps.
+	canonLowers, canonResources := l.buildCanonMaps(nestedComp)
+
+	// Step 11 — Build function alias map for inline instance resolution.
+	funcAliases := l.buildFuncAliases(nestedComp)
+
+	// Step 12 — Instantiate core modules using pre-compiled modules stored
+	// on the nested Component by CompileComponent's recursive pass.
+	if err := l.instantiateCoreModules(ctx, nestedInst, nestedComp, nestedComp.CompiledCoreModules,
+		canonLowers, canonResources, funcAliases); err != nil {
+		return nil, fmt.Errorf("nested: core modules: %w", err)
 	}
+
+	// Step 12.5 — Resolve pending guest destructors and reallocs.
+	l.resolvePendingDtors(nestedInst, funcSpace)
+	l.resolvePendingReallocs(nestedInst, funcSpace)
 
 	// Step 13 — Execute start function.
 	if err := l.executeStartFunction(ctx, nestedInst, nestedComp); err != nil {

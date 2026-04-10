@@ -494,7 +494,55 @@ func (r *runtime) CompileComponent(ctx context.Context, binary []byte) (api.Comp
 		compiledModules[i] = compiled
 	}
 
+	// Recursively compile core modules for all nested components so that
+	// instantiateNestedComponent can instantiate them without a full
+	// CompiledComponent wrapper.
+	if err := r.compileNestedComponentModules(ctx, parsed); err != nil {
+		// Clean up root-level compiled modules on failure
+		for _, cm := range compiledModules {
+			if cm != nil {
+				cm.Close(ctx)
+			}
+		}
+		return nil, err
+	}
+
 	return component.NewCompiledComponent(parsed, compiledModules, r), nil
+}
+
+// compileNestedComponentModules recursively compiles core modules for all
+// nested components in the component tree. Each nested *Component gets its
+// CompiledCoreModules field populated so that instantiateNestedComponent
+// can use them directly.
+func (r *runtime) compileNestedComponentModules(ctx context.Context, c *component.Component) error {
+	for i, nested := range c.Components {
+		if len(nested.CoreModules) > 0 {
+			compiled := make([]component.CompiledModuleCloser, len(nested.CoreModules))
+			for j, m := range nested.CoreModules {
+				var moduleBytes []byte
+				if j < len(nested.CoreModuleData) {
+					moduleBytes = nested.CoreModuleData[j]
+				}
+				cm, err := r.compileComponentModule(ctx, m, moduleBytes)
+				if err != nil {
+					// Clean up already-compiled modules for this nested component
+					for k := 0; k < j; k++ {
+						if compiled[k] != nil {
+							compiled[k].Close(ctx)
+						}
+					}
+					return fmt.Errorf("nested component %d: compile core module %d: %w", i, j, err)
+				}
+				compiled[j] = cm
+			}
+			nested.CompiledCoreModules = compiled
+		}
+		// Recurse into further nested components
+		if err := r.compileNestedComponentModules(ctx, nested); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // compileComponentModule compiles a pre-parsed module from a component.
@@ -548,6 +596,12 @@ func (r *runtime) InstantiateComponent(ctx context.Context, compiled api.Compile
 // InstantiateCoreModule implements component.CoreModuleInstantiator.
 // This method allows the component linker to instantiate core modules within a component.
 // The compiled parameter should be a *compiledModule from CompileComponent.
+//
+// Core modules instantiated within a component are made anonymous (empty name)
+// because: (1) the component model isolates core module instances — they are
+// not visible by name outside the component, and (2) multiple core instances
+// may reference the same compiled module, which would cause duplicate-name
+// errors in the Store if the binary's NameSection.ModuleName were used.
 func (r *runtime) InstantiateCoreModule(ctx context.Context, compiled component.CompiledModuleCloser) (api.Module, error) {
 	// Cast to *compiledModule - this should always work since compiled modules
 	// from CompileComponent are created by compileComponentModule
@@ -555,7 +609,7 @@ func (r *runtime) InstantiateCoreModule(ctx context.Context, compiled component.
 	if !ok {
 		return nil, fmt.Errorf("invalid compiled module type: %T", compiled)
 	}
-	return r.InstantiateModule(ctx, cm, NewModuleConfig())
+	return r.InstantiateModule(ctx, cm, NewModuleConfig().WithName(""))
 }
 
 // InstantiateHostModule implements component.HostModuleInstantiator.

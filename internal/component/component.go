@@ -136,6 +136,13 @@ type Component struct {
 	// NextModuleIdx tracks the next core module index during parsing.
 	// This is incremented by core module definitions and alias outer module operations.
 	NextModuleIdx uint32
+
+	// CompiledCoreModules holds pre-compiled core modules for this component.
+	// For the root component these live in CompiledComponent.compiledModules;
+	// for nested components they are populated by CompileComponent's recursive
+	// compilation pass so that instantiateNestedComponent can instantiate
+	// core modules without a full CompiledComponent wrapper.
+	CompiledCoreModules []CompiledModuleCloser
 }
 
 // TypeDef is one entry per slot in the component's type index space,
