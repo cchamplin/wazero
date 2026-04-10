@@ -529,6 +529,87 @@ is now ResourceHandleEntry.CallContext. All callers updated."
 
 ---
 
+### Task 3a: Deduplicate StringEncoding, alignTo, Options, MaxFlatResults
+
+**Purpose:** Clean up 4 instances of code duplication found during review. Each is a case where the same concept exists in multiple places under the same or similar names.
+
+**Files:**
+- Modify: `internal/component/types/` (add canonical `StringEncoding` and export `AlignTo`)
+- Modify: `internal/component/abi/context.go` (remove `StringEncoding` type, simplify `Options`)
+- Modify: `internal/component/abi/lift.go` (remove local `alignTo`)
+- Modify: `internal/component/component.go` (remove `StringEncoding` type)
+- Modify: `internal/component/component_linker.go` (remove local `MaxFlatResults`, simplify `buildAbiOptions`)
+- Modify: `internal/component/instance.go` (remove local `alignTo`)
+- Modify: `internal/component/binary/canonical.go` (update `StringEncoding` imports)
+
+**Verified findings:**
+
+1. **`StringEncoding`** — identical `uint8` type with 3 constants defined in BOTH `component/component.go:403` AND `abi/context.go:50`. The binary decoder writes `component.StringEncoding`. The abi layer reads `abi.StringEncoding`. A manual converter at `component_linker.go:1140-1151` bridges them. Move to `types/` (leaf package both import), delete both copies and the converter.
+
+2. **`abi.Options`** — has fields `MemoryIdx`, `ReallocIdx`, `PostReturnIdx` but **none are ever read by abi/ code** (verified: only `StringEncoding` is accessed via `ctx.Opts.StringEncoding` in `strings.go`). The indices are consumed directly from `CanonicalOptions` by `component_linker.go`. Reduce `abi.Options` to just `{ StringEncoding types.StringEncoding }`. Remove dead fields and simplify `buildAbiOptions` to just set the encoding.
+
+3. **`alignTo`** — three identical copies at `abi/lift.go:879`, `types/abi_info.go:93`, `instance.go:202`. Export as `types.AlignTo`, delete copies in `abi/` and `component/`.
+
+4. **`MaxFlatResults = 1`** — defined at `component_linker.go:34` but every usage references `abi.MaxFlatResults` (lines 1290, 1427). The local constant is dead code. Delete it.
+
+- [ ] **Step 1: Move StringEncoding to types/**
+
+Create `types.StringEncoding` (or add to an existing types file):
+```go
+type StringEncoding uint8
+const (
+    StringEncodingUTF8 StringEncoding = iota
+    StringEncodingUTF16
+    StringEncodingLatin1UTF16
+)
+```
+Update `binary/canonical.go` to use `types.StringEncoding*`. Update `CanonicalOptions.StringEncoding` to be `types.StringEncoding`. Update `abi.Options.StringEncoding` to be `types.StringEncoding`. Delete `component.StringEncoding` and `abi.StringEncoding`. Delete the converter switch in `buildAbiOptions`.
+
+- [ ] **Step 2: Simplify abi.Options**
+
+Reduce to:
+```go
+type Options struct {
+    StringEncoding types.StringEncoding
+}
+```
+Delete `MemoryIdx`, `ReallocIdx`, `PostReturnIdx` from `abi.Options` — they're never read by abi/. Simplify `buildAbiOptions` to just:
+```go
+func buildAbiOptions(canon *CanonicalDef) abi.Options {
+    if canon == nil {
+        return abi.Options{}
+    }
+    return abi.Options{StringEncoding: canon.Options.StringEncoding}
+}
+```
+
+- [ ] **Step 3: Export types.AlignTo, delete copies**
+
+In `types/abi_info.go`, rename `alignTo` to `AlignTo` (exported). In `abi/lift.go` and `instance.go`, delete the local `alignTo` and replace all calls with `types.AlignTo`. Also update `abi/lower.go` callers.
+
+- [ ] **Step 4: Delete dead MaxFlatResults**
+
+Delete `const MaxFlatResults = 1` and its comment at `component_linker.go:31-34`.
+
+- [ ] **Step 5: Run full test suite**
+
+```bash
+go test ./internal/component/... -count=1 2>&1 | tail -20
+```
+
+- [ ] **Step 6: Commit**
+
+```bash
+git commit -m "component: deduplicate StringEncoding, alignTo, Options, MaxFlatResults
+
+- StringEncoding: unified in types/ (was defined in both component/ and abi/)
+- abi.Options: reduced to StringEncoding only (MemoryIdx/ReallocIdx/PostReturnIdx were dead fields never read by abi/)
+- alignTo: exported from types/ (was triplicated in abi/, types/, component/)
+- MaxFlatResults: deleted dead local constant (all callers use abi.MaxFlatResults)"
+```
+
+---
+
 ### Task 3b: lower_borrow Same-Instance Optimization
 
 **Purpose:** Verify and fix the same-instance optimization in `lower_borrow`. This MUST run after Task 3 (CallContext unification).
