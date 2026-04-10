@@ -9,6 +9,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
@@ -22,7 +23,9 @@ import (
 func TestInstantiateSkeleton(t *testing.T) {
 	compiled := buildEmptyCompiledComponent(t)
 
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	inst, err := l.Instantiate(context.Background(), compiled)
 	require.NoError(t, err)
 	require.NotNil(t, inst)
@@ -39,7 +42,9 @@ func TestInstantiateSkeleton(t *testing.T) {
 // (function import matching).
 func TestInstantiateWithTypedImport(t *testing.T) {
 	compiled := buildComponentWithOneTypedImport(t, "ns", "f")
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	// Register the import with a HostFunc (no type at registration —
 	// wasmtime func_new model; Task C3 corrective).
 	err := l.DefineFunc("ns", "f", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {

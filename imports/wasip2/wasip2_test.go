@@ -1,14 +1,18 @@
 package wasip2
 
 import (
+	"context"
 	"testing"
 
+	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
 func TestInstantiate(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := Instantiate(linker)
 	require.NoError(t, err)
 
@@ -18,7 +22,9 @@ func TestInstantiate(t *testing.T) {
 }
 
 func TestInstantiate_IOInterfaces(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := Instantiate(linker)
 	require.NoError(t, err)
 
@@ -32,7 +38,9 @@ func TestInstantiate_IOInterfaces(t *testing.T) {
 }
 
 func TestInstantiate_ClocksInterfaces(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := Instantiate(linker)
 	require.NoError(t, err)
 
@@ -44,7 +52,9 @@ func TestInstantiate_ClocksInterfaces(t *testing.T) {
 }
 
 func TestInstantiate_RandomInterfaces(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := Instantiate(linker)
 	require.NoError(t, err)
 
@@ -58,7 +68,9 @@ func TestInstantiate_RandomInterfaces(t *testing.T) {
 }
 
 func TestInstantiate_CLIInterfaces(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := Instantiate(linker)
 	require.NoError(t, err)
 
@@ -80,7 +92,9 @@ func TestInstantiate_CLIInterfaces(t *testing.T) {
 }
 
 func TestInstantiate_FilesystemInterfaces(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := Instantiate(linker)
 	require.NoError(t, err)
 
@@ -92,7 +106,9 @@ func TestInstantiate_FilesystemInterfaces(t *testing.T) {
 }
 
 func TestInstantiate_SocketsInterfaces(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := Instantiate(linker)
 	require.NoError(t, err)
 
@@ -114,7 +130,9 @@ func TestInstantiate_SocketsInterfaces(t *testing.T) {
 }
 
 func TestInstantiate_HTTPInterfaces(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := Instantiate(linker)
 	require.NoError(t, err)
 

@@ -9,6 +9,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
@@ -18,7 +19,9 @@ import (
 func TestInstantiatePreSuccess(t *testing.T) {
 	compiled := buildEmptyCompiledComponent(t)
 
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	pre, err := l.InstantiatePre(compiled)
 	require.NoError(t, err)
 	require.NotNil(t, pre)
@@ -27,7 +30,9 @@ func TestInstantiatePreSuccess(t *testing.T) {
 // TestInstantiatePreNilCompiled verifies that InstantiatePre returns an
 // error when compiled is nil.
 func TestInstantiatePreNilCompiled(t *testing.T) {
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	pre, err := l.InstantiatePre(nil)
 	require.Error(t, err)
 	require.Nil(t, pre)
@@ -39,7 +44,9 @@ func TestInstantiatePreNilCompiled(t *testing.T) {
 func TestInstancePreInstantiateCreatesWorkingInstance(t *testing.T) {
 	compiled := buildEmptyCompiledComponent(t)
 
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	pre, err := l.InstantiatePre(compiled)
 	require.NoError(t, err)
 
@@ -55,7 +62,9 @@ func TestInstancePreInstantiateCreatesWorkingInstance(t *testing.T) {
 func TestInstancePreInstantiateWithTypedImport(t *testing.T) {
 	compiled := buildComponentWithOneTypedImport(t, "ns", "f")
 
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	err := l.DefineFunc("ns", "f", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 		return args, nil
 	})
@@ -80,7 +89,9 @@ func TestInstancePreInstantiateWithTypedImport(t *testing.T) {
 func TestInstancePreMultipleInstantiatesCreateDistinctInstances(t *testing.T) {
 	compiled := buildEmptyCompiledComponent(t)
 
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	pre, err := l.InstantiatePre(compiled)
 	require.NoError(t, err)
 
@@ -105,7 +116,9 @@ func TestInstancePreMultipleInstantiatesCreateDistinctInstances(t *testing.T) {
 func TestInstancePreComponent(t *testing.T) {
 	compiled := buildEmptyCompiledComponent(t)
 
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	pre, err := l.InstantiatePre(compiled)
 	require.NoError(t, err)
 
@@ -117,7 +130,9 @@ func TestInstancePreComponent(t *testing.T) {
 func TestInstantiatePreMissingImport(t *testing.T) {
 	compiled := buildComponentWithOneTypedImport(t, "ns", "f")
 
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	// Do NOT define the import.
 	pre, err := l.InstantiatePre(compiled)
 	require.Error(t, err)
@@ -135,14 +150,16 @@ func TestInstantiateViaPreMatchesDirectPath(t *testing.T) {
 	}
 
 	// Direct Instantiate path.
-	l1 := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l1 := NewComponentLinker(rt)
 	require.NoError(t, l1.DefineFunc("ns", "f", hostFn))
 	directInst, err := l1.Instantiate(context.Background(), compiled)
 	require.NoError(t, err)
 	require.NotNil(t, directInst)
 
 	// Explicit InstantiatePre + Instantiate path.
-	l2 := NewComponentLinker(nil)
+	l2 := NewComponentLinker(rt)
 	require.NoError(t, l2.DefineFunc("ns", "f", hostFn))
 	pre, err := l2.InstantiatePre(compiled)
 	require.NoError(t, err)

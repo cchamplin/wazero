@@ -2,7 +2,6 @@
 // It provides filesystem access through descriptors and preopened directories.
 // WIT source of truth: debug-vendored/WASI/proposals/filesystem/wit/types.wit
 // Package version: wasi:filesystem@0.2.9 (wazero targets wasi:filesystem@0.2.0)
-//
 package filesystem
 
 import (
@@ -16,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tetratelabs/wazero/api"
 	wasipIO "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/component/runtime"
@@ -258,7 +258,7 @@ func fileInfoToStat(info os.FileInfo) types.Val {
 }
 
 // Instantiate registers all wasi:filesystem interfaces with the linker.
-func Instantiate(linker *component.Linker) error {
+func Instantiate(linker api.ComponentLinker) error {
 	if err := instantiateTypes(linker); err != nil {
 		return err
 	}
@@ -269,7 +269,7 @@ func Instantiate(linker *component.Linker) error {
 }
 
 // instantiateTypes registers wasi:filesystem/types@0.2.0
-func instantiateTypes(linker *component.Linker) error {
+func instantiateTypes(linker api.ComponentLinker) error {
 	inst := linker.DefineInstance("wasi:filesystem/types@0.2.0")
 
 	// descriptor resource

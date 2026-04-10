@@ -2,7 +2,6 @@
 
 // WIT source of truth: debug-vendored/WASI/proposals/io/wit/error.wit
 // Package version: wasi:io@0.2.9 (wazero targets wasi:io@0.2.0)
-//
 package io
 
 import (
@@ -11,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/internal/component"
 	cmpruntime "github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/component/types"
@@ -121,7 +121,7 @@ func (e *Error) Destroy() {
 	// Nothing to clean up
 }
 
-func instantiateError(linker *component.Linker) error {
+func instantiateError(linker api.ComponentLinker) error {
 	inst := linker.DefineInstance("wasi:io/error@0.2.0")
 
 	// Define the error resource type

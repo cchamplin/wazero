@@ -8,8 +8,10 @@
 package conformance
 
 import (
+	"context"
 	"testing"
 
+	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/imports/wasip2/cli"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/testing/require"
@@ -28,7 +30,9 @@ func TestWASICLI(t *testing.T) {
 	// invariant. cli.Instantiate must register all 10 wasi:cli
 	// interfaces with the linker.
 	t.Run("InstantiateRegistersInterfaces", func(t *testing.T) {
-		linker := component.NewLinker()
+		rt := wazero.NewRuntime(context.TODO())
+		defer rt.Close(context.TODO())
+		linker := component.NewComponentLinker(rt)
 		err := cli.Instantiate(linker)
 		require.NoError(t, err)
 
@@ -60,7 +64,9 @@ func TestWASICLI(t *testing.T) {
 	// invariant. Registering the same interfaces twice must return an
 	// error to prevent accidental double-registration.
 	t.Run("InstantiateDuplicateFails", func(t *testing.T) {
-		linker := component.NewLinker()
+		rt := wazero.NewRuntime(context.TODO())
+		defer rt.Close(context.TODO())
+		linker := component.NewComponentLinker(rt)
 		err := cli.Instantiate(linker)
 		require.NoError(t, err)
 		err = cli.Instantiate(linker)
@@ -104,7 +110,9 @@ func TestWASICLI(t *testing.T) {
 		// function exists). We do not call the raw host function here
 		// since it requires context plumbing; the unit tests in
 		// imports/wasip2/cli already cover that path.
-		linker := component.NewLinker()
+		rt := wazero.NewRuntime(context.TODO())
+		defer rt.Close(context.TODO())
+		linker := component.NewComponentLinker(rt)
 		err := cli.Instantiate(linker)
 		require.NoError(t, err)
 		def, err := linker.MatchImport("wasi:cli/environment@0.2.0")
@@ -123,7 +131,9 @@ func TestWASICLI(t *testing.T) {
 	// invariant. The linker must expose get-stdin, get-stdout, and
 	// get-stderr functions.
 	t.Run("StdioAccessorsRegistered", func(t *testing.T) {
-		linker := component.NewLinker()
+		rt := wazero.NewRuntime(context.TODO())
+		defer rt.Close(context.TODO())
+		linker := component.NewComponentLinker(rt)
 		err := cli.Instantiate(linker)
 		require.NoError(t, err)
 

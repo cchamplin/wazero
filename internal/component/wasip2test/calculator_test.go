@@ -20,12 +20,6 @@ func TestCalculatorPlugins(t *testing.T) {
 	rt := wazero.NewRuntime(ctx)
 	defer rt.Close(ctx)
 
-	// Create a basic linker and register WASI P2 interfaces
-	wasiLinker := component.NewLinker()
-	if err := wasip2.Instantiate(wasiLinker); err != nil {
-		t.Fatalf("wasip2.Instantiate: %v", err)
-	}
-
 	plugins := []struct {
 		name                  string
 		pluginName            string // expected return value from get-plugin-name
@@ -64,8 +58,9 @@ func TestCalculatorPlugins(t *testing.T) {
 				linker.SetRelaxedSemverMatching(true)
 			}
 
-			// Merge WASI definitions into the component linker
-			linker.MergeFrom(wasiLinker)
+			if err := wasip2.Instantiate(linker); err != nil {
+				t.Fatalf("wasip2.Instantiate: %v", err)
+			}
 
 			// Set up WASI context with config and resource table
 			// This is required for plugins that use WASI (especially Go plugins with P1->P2 adapter)
@@ -78,8 +73,6 @@ func TestCalculatorPlugins(t *testing.T) {
 			resourceTable := runtime.NewTable()
 			testCtx := wasip2.WithConfig(ctx, wasiConfig)
 			testCtx = component.WithResourceTable(testCtx, resourceTable)
-
-
 
 			// Instantiate the component
 			instance, err := linker.Instantiate(testCtx, compiled.(*component.CompiledComponent))

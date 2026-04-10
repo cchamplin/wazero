@@ -33,15 +33,12 @@ func TestVariantPlugin_EnumTypeResolution(t *testing.T) {
 	linker.SetRelaxedSemverMatching(true)
 
 	// WASI P2
-	wasiLinker := component.NewLinker()
-	if err := wasip2.Instantiate(wasiLinker); err != nil {
+	if err := wasip2.Instantiate(linker); err != nil {
 		t.Fatalf("wasip2.Instantiate: %v", err)
 	}
-	linker.MergeFrom(wasiLinker)
 
 	// Types interface (no functions, just type definitions)
-	hostLinker := component.NewLinker()
-	err = hostLinker.DefineInstance("test:variantlog/types").
+	err = linker.DefineInstance("test:variantlog/types").
 		SkipValidation().
 		Build()
 	if err != nil {
@@ -49,7 +46,7 @@ func TestVariantPlugin_EnumTypeResolution(t *testing.T) {
 	}
 
 	// host-logger import
-	err = hostLinker.DefineInstance("test:variantlog/host-logger").
+	err = linker.DefineInstance("test:variantlog/host-logger").
 		Func("get-default-severity", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 			// Return severity::warning (enum index 1)
 			return []types.Val{types.ValU32(1)}, nil
@@ -59,7 +56,6 @@ func TestVariantPlugin_EnumTypeResolution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DefineInstance host-logger: %v", err)
 	}
-	linker.MergeFrom(hostLinker)
 
 	// WASI context
 	var stdout, stderr bytes.Buffer

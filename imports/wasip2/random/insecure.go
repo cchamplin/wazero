@@ -2,7 +2,6 @@
 
 // WIT source of truth: debug-vendored/WASI/proposals/random/wit/insecure.wit, insecure-seed.wit
 // Package version: wasi:random@0.2.9 (wazero targets wasi:random@0.2.0)
-//
 package random
 
 import (
@@ -11,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
@@ -67,7 +66,7 @@ func InsecureSeed() (uint64, uint64) {
 	return seed1, seed2
 }
 
-func instantiateInsecure(linker *component.Linker) error {
+func instantiateInsecure(linker api.ComponentLinker) error {
 	inst := linker.DefineInstance("wasi:random/insecure@0.2.0")
 
 	inst.Func("get-insecure-random-bytes", getInsecureRandomBytes)
@@ -76,7 +75,7 @@ func instantiateInsecure(linker *component.Linker) error {
 	return inst.SkipValidation().Build()
 }
 
-func instantiateInsecureSeed(linker *component.Linker) error {
+func instantiateInsecureSeed(linker api.ComponentLinker) error {
 	inst := linker.DefineInstance("wasi:random/insecure-seed@0.2.0")
 
 	inst.Func("insecure-seed", insecureSeedFunc)

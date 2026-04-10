@@ -8,10 +8,12 @@
 package conformance
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/imports/wasip2/filesystem"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/testing/require"
@@ -30,7 +32,9 @@ func TestWASIFilesystem(t *testing.T) {
 	// invariant. filesystem.Instantiate must register the types and
 	// preopens interfaces.
 	t.Run("InstantiateRegistersInterfaces", func(t *testing.T) {
-		linker := component.NewLinker()
+		rt := wazero.NewRuntime(context.TODO())
+		defer rt.Close(context.TODO())
+		linker := component.NewComponentLinker(rt)
 		err := filesystem.Instantiate(linker)
 		require.NoError(t, err)
 

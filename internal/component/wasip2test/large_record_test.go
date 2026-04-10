@@ -33,21 +33,18 @@ func TestLargeRecordPlugin_RetptrLifting(t *testing.T) {
 	linker.SetRelaxedSemverMatching(true)
 
 	// WASI P2
-	wasiLinker := component.NewLinker()
-	if err := wasip2.Instantiate(wasiLinker); err != nil {
+	if err := wasip2.Instantiate(linker); err != nil {
 		t.Fatalf("wasip2.Instantiate: %v", err)
 	}
-	linker.MergeFrom(wasiLinker)
 
 	// Types interface
-	hostLinker := component.NewLinker()
-	err = hostLinker.DefineInstance("test:large-record/types").SkipValidation().Build()
+	err = linker.DefineInstance("test:large-record/types").SkipValidation().Build()
 	if err != nil {
 		t.Fatalf("DefineInstance types: %v", err)
 	}
 
 	// host-data import - returns coordinates {x: 10, y: 20, z: 30}
-	err = hostLinker.DefineInstance("test:large-record/host-data").
+	err = linker.DefineInstance("test:large-record/host-data").
 		Func("get-position", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 			rec := map[string]types.Val{
 				"x": types.ValS32(10),
@@ -61,7 +58,6 @@ func TestLargeRecordPlugin_RetptrLifting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DefineInstance host-data: %v", err)
 	}
-	linker.MergeFrom(hostLinker)
 
 	// WASI context
 	var stdout, stderr bytes.Buffer

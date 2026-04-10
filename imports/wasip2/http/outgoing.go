@@ -2,7 +2,6 @@
 
 // WIT source of truth: debug-vendored/WASI/proposals/http/wit/{types,handler,proxy}.wit
 // Package version: wasi:http@0.2.9 (wazero targets wasi:http@0.2.0)
-//
 package http
 
 import (
@@ -10,6 +9,7 @@ import (
 	"fmt"
 	gohttp "net/http"
 
+	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/component/types"
@@ -20,7 +20,7 @@ import (
 var DefaultHTTPClient = gohttp.DefaultClient
 
 // instantiateOutgoingHandler registers wasi:http/outgoing-handler@0.2.0
-func instantiateOutgoingHandler(linker *component.Linker) error {
+func instantiateOutgoingHandler(linker api.ComponentLinker) error {
 	inst := linker.DefineInstance("wasi:http/outgoing-handler@0.2.0")
 
 	// handle: func(request: own<outgoing-request>, options: option<own<request-options>>) -> result<own<future-incoming-response>, error-code>

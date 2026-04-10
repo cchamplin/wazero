@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/component/runtime"
@@ -20,7 +21,9 @@ import (
 )
 
 func TestInstantiate(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := Instantiate(linker)
 	require.NoError(t, err)
 
@@ -40,7 +43,9 @@ func TestInstantiate(t *testing.T) {
 }
 
 func TestInstantiate_Duplicate(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 
 	// First registration should succeed
 	err := Instantiate(linker)
@@ -56,7 +61,9 @@ func TestInstantiate_Duplicate(t *testing.T) {
 // ====================
 
 func TestInstantiateTypes(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := instantiateTypes(linker)
 	require.NoError(t, err)
 
@@ -1399,7 +1406,9 @@ func TestHttpErrorCode(t *testing.T) {
 // ====================
 
 func TestInstantiateOutgoingHandler(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := instantiateOutgoingHandler(linker)
 	require.NoError(t, err)
 
@@ -1434,7 +1443,9 @@ func TestOutgoingHandlerHandle(t *testing.T) {
 // ====================
 
 func TestInstantiateIncomingHandler(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := instantiateIncomingHandler(linker)
 	require.NoError(t, err)
 

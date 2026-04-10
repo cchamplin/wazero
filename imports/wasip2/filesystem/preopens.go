@@ -2,13 +2,13 @@
 
 // WIT source of truth: debug-vendored/WASI/proposals/filesystem/wit/preopens.wit
 // Package version: wasi:filesystem@0.2.9 (wazero targets wasi:filesystem@0.2.0)
-//
 package filesystem
 
 import (
 	"context"
 	"os"
 
+	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/component/types"
 )
@@ -20,7 +20,7 @@ type PreopensConfig interface {
 }
 
 // instantiatePreopens registers wasi:filesystem/preopens@0.2.0
-func instantiatePreopens(linker *component.Linker) error {
+func instantiatePreopens(linker api.ComponentLinker) error {
 	inst := linker.DefineInstance("wasi:filesystem/preopens@0.2.0")
 
 	inst.Func("get-directories", getDirectories)

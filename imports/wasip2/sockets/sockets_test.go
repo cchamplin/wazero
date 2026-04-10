@@ -7,6 +7,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/tetratelabs/wazero"
 	wasipIO "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/component/runtime"
@@ -15,7 +16,9 @@ import (
 )
 
 func TestInstantiate(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := Instantiate(linker)
 	require.NoError(t, err)
 
@@ -39,7 +42,9 @@ func TestInstantiate(t *testing.T) {
 }
 
 func TestInstantiate_Duplicate(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 
 	// First registration should succeed
 	err := Instantiate(linker)
@@ -55,7 +60,9 @@ func TestInstantiate_Duplicate(t *testing.T) {
 // ====================
 
 func TestInstantiateNetwork(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := instantiateNetwork(linker)
 	require.NoError(t, err)
 
@@ -71,7 +78,9 @@ func TestInstantiateNetwork(t *testing.T) {
 }
 
 func TestInstantiateInstanceNetwork(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := instantiateInstanceNetwork(linker)
 	require.NoError(t, err)
 
@@ -99,7 +108,9 @@ func TestInstanceNetwork(t *testing.T) {
 // ====================
 
 func TestInstantiateIpNameLookup(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := instantiateIpNameLookup(linker)
 	require.NoError(t, err)
 
@@ -201,7 +212,9 @@ func TestResolveAddressStreamSubscribe(t *testing.T) {
 // ====================
 
 func TestInstantiateTcp(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := instantiateTcp(linker)
 	require.NoError(t, err)
 
@@ -254,7 +267,9 @@ func TestInstantiateTcp(t *testing.T) {
 }
 
 func TestInstantiateTcpCreateSocket(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := instantiateTcpCreateSocket(linker)
 	require.NoError(t, err)
 
@@ -656,7 +671,9 @@ func TestTcpSocketShutdown(t *testing.T) {
 // ====================
 
 func TestInstantiateUdp(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := instantiateUdp(linker)
 	require.NoError(t, err)
 
@@ -716,7 +733,9 @@ func TestInstantiateUdp(t *testing.T) {
 }
 
 func TestInstantiateUdpCreateSocket(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := instantiateUdpCreateSocket(linker)
 	require.NoError(t, err)
 

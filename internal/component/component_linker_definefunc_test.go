@@ -12,6 +12,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
@@ -22,7 +23,9 @@ import (
 // of truth; the runtime supplies the type to the callback at call
 // time.
 func TestComponentLinkerDefineFuncDynamicTyping(t *testing.T) {
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 
 	var observedType *types.TypeFunc
 	fn := HostFunc(func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {

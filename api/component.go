@@ -205,8 +205,7 @@ type ComponentFunc interface {
 // ComponentLinker configures imports before instantiating a component.
 //
 // Use this to define host functions, instances, and resources that satisfy
-// a component's imports. For WASI Preview 2 support, use
-// [imports/wasip2.MergeInto] to register all WASI P2 interfaces at once.
+// a component's imports. For WASI Preview 2 support, use ?
 //
 // See [examples/component-host-functions] and [examples/component-wasip2]
 // for usage examples.

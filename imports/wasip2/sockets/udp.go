@@ -2,7 +2,6 @@
 
 // WIT source of truth: debug-vendored/WASI/proposals/sockets/wit/{udp,udp-create-socket}.wit
 // Package version: wasi:sockets@0.2.9 (wazero targets wasi:sockets@0.2.0)
-//
 package sockets
 
 import (
@@ -10,13 +9,14 @@ import (
 	"fmt"
 	"net"
 
+	"github.com/tetratelabs/wazero/api"
 	wasipIO "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 // instantiateUdp registers wasi:sockets/udp@0.2.0
-func instantiateUdp(linker *component.Linker) error {
+func instantiateUdp(linker api.ComponentLinker) error {
 	inst := linker.DefineInstance("wasi:sockets/udp@0.2.0")
 
 	// udp-socket resource
@@ -65,7 +65,7 @@ func instantiateUdp(linker *component.Linker) error {
 }
 
 // instantiateUdpCreateSocket registers wasi:sockets/udp-create-socket@0.2.0
-func instantiateUdpCreateSocket(linker *component.Linker) error {
+func instantiateUdpCreateSocket(linker api.ComponentLinker) error {
 	inst := linker.DefineInstance("wasi:sockets/udp-create-socket@0.2.0")
 
 	// create-udp-socket: func(network: borrow<network>, address-family: ip-address-family) -> result<own<udp-socket>, error-code>

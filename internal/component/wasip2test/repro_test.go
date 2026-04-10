@@ -1,7 +1,7 @@
 // internal/component/wasip2test/repro_test.go
 //
 // Reproduction tests for component model bugs.
-// ALL tests use the PUBLIC API (rt.NewComponentLinker, wasip2.MergeInto,
+// ALL tests use the PUBLIC API (rt.NewComponentLinker, wasip2.Initialize,
 // linker.DefineInstance, api.ComponentFunc.Call) to ensure bugs in the
 // public API wrapper layer are caught.
 package wasip2test
@@ -81,7 +81,7 @@ func newPublicAPIInstance(t *testing.T, overrides map[string]apicomponent.HostFu
 	linker := rt.NewComponentLinker()
 	linker.SetRelaxedSemverMatching(true)
 
-	if err := wasip2.MergeInto(linker); err != nil {
+	if err := wasip2.Instantiate(linker); err != nil {
 		compiled.Close(ctx)
 		rt.Close(ctx)
 		t.Fatalf("wasip2.MergeInto: %v", err)

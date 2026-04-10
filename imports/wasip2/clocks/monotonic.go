@@ -2,13 +2,13 @@
 
 // WIT source of truth: debug-vendored/WASI/proposals/clocks/wit/monotonic-clock.wit
 // Package version: wasi:clocks@0.2.9 (wazero targets wasi:clocks@0.2.0)
-//
 package clocks
 
 import (
 	"context"
 	"time"
 
+	"github.com/tetratelabs/wazero/api"
 	wasip2io "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/component/runtime"
@@ -65,7 +65,7 @@ func SubscribeInstant(instant uint64) (readyFn func() bool, blockFn func()) {
 		func() { time.Sleep(time.Until(targetTime)) }
 }
 
-func instantiateMonotonicClock(linker *component.Linker) error {
+func instantiateMonotonicClock(linker api.ComponentLinker) error {
 	inst := linker.DefineInstance("wasi:clocks/monotonic-clock@0.2.0")
 
 	inst.Func("now", monotonicClockNow)

@@ -2,7 +2,6 @@
 
 // WIT source of truth: debug-vendored/WASI/proposals/io/wit/streams.wit
 // Package version: wasi:io@0.2.9 (wazero targets wasi:io@0.2.0)
-//
 package io
 
 import (
@@ -11,6 +10,7 @@ import (
 	goio "io"
 	"sync"
 
+	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/component/types"
@@ -585,7 +585,7 @@ func createPollableHandle(ctx context.Context, pollable *Pollable) types.Val {
 	return types.ValOwn(uint32(handle))
 }
 
-func instantiateStreams(linker *component.Linker) error {
+func instantiateStreams(linker api.ComponentLinker) error {
 	inst := linker.DefineInstance("wasi:io/streams@0.2.0")
 
 	// input-stream resource

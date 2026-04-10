@@ -81,11 +81,14 @@ type CompiledComponent struct {
 
 	component       *Component
 	compiledModules []CompiledModuleCloser
-	runtime         any // Stores the runtime for later use (avoids import cycle)
+	runtime         WazeroRuntime
 }
 
 // NewCompiledComponent creates a new CompiledComponent.
-func NewCompiledComponent(c *Component, compiledModules []CompiledModuleCloser, rt any) *CompiledComponent {
+func NewCompiledComponent(c *Component, compiledModules []CompiledModuleCloser, rt WazeroRuntime) *CompiledComponent {
+	if rt == nil {
+		panic("runtime is nil")
+	}
 	return &CompiledComponent{
 		component:       c,
 		compiledModules: compiledModules,

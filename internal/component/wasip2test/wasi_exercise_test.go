@@ -54,14 +54,11 @@ func runWasiExercise(t *testing.T, wasmFile string) {
 	defer compiled.Close(ctx)
 
 	// Set up WASI P2 in a separate linker, then merge into the component linker.
-	wasiLinker := component.NewLinker()
-	if err := wasip2.Instantiate(wasiLinker); err != nil {
-		t.Fatalf("wasip2.Instantiate: %v", err)
-	}
-
 	linker := component.NewComponentLinker(rt)
 	linker.SetRelaxedSemverMatching(true)
-	linker.MergeFrom(wasiLinker)
+	if err := wasip2.Instantiate(linker); err != nil {
+		t.Fatalf("wasip2.Instantiate: %v", err)
+	}
 
 	// Create a per-test temp directory and expose it to the guest as the
 	// preopened root. The Rust and Go components use get-directories()[0]

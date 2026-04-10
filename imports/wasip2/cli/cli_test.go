@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/component/types"
@@ -42,7 +43,9 @@ func (c *testConfig) StdoutIsTerminal() bool { return c.stdoutIsTerminal }
 func (c *testConfig) StderrIsTerminal() bool { return c.stderrIsTerminal }
 
 func TestInstantiate(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := Instantiate(linker)
 	require.NoError(t, err)
 
@@ -69,7 +72,9 @@ func TestInstantiate(t *testing.T) {
 }
 
 func TestInstantiate_Duplicate(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 
 	// First registration should succeed
 	err := Instantiate(linker)
@@ -82,7 +87,9 @@ func TestInstantiate_Duplicate(t *testing.T) {
 
 // Environment interface tests
 func TestInstantiateEnvironment(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := instantiateEnvironment(linker)
 	require.NoError(t, err)
 
@@ -198,7 +205,9 @@ func TestInitialCwd(t *testing.T) {
 
 // Exit interface tests
 func TestInstantiateExit(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := instantiateExit(linker)
 	require.NoError(t, err)
 
@@ -238,7 +247,9 @@ func TestExit_Failure(t *testing.T) {
 
 // Stdin interface tests
 func TestInstantiateStdin(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := instantiateStdin(linker)
 	require.NoError(t, err)
 
@@ -288,7 +299,9 @@ func TestGetStdin_WithConfig(t *testing.T) {
 
 // Stdout interface tests
 func TestInstantiateStdout(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := instantiateStdout(linker)
 	require.NoError(t, err)
 
@@ -338,7 +351,9 @@ func TestGetStdout_WithConfig(t *testing.T) {
 
 // Stderr interface tests
 func TestInstantiateStderr(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := instantiateStderr(linker)
 	require.NoError(t, err)
 
@@ -388,7 +403,9 @@ func TestGetStderr_WithConfig(t *testing.T) {
 
 // Terminal input interface tests
 func TestInstantiateTerminalInput(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := instantiateTerminalInput(linker)
 	require.NoError(t, err)
 
@@ -405,7 +422,9 @@ func TestInstantiateTerminalInput(t *testing.T) {
 
 // Terminal output interface tests
 func TestInstantiateTerminalOutput(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := instantiateTerminalOutput(linker)
 	require.NoError(t, err)
 
@@ -436,7 +455,9 @@ func TestExitError(t *testing.T) {
 
 // Terminal stdin interface tests
 func TestInstantiateTerminalStdin(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := instantiateTerminalStdin(linker)
 	require.NoError(t, err)
 
@@ -452,7 +473,9 @@ func TestInstantiateTerminalStdin(t *testing.T) {
 
 // Terminal stdout interface tests
 func TestInstantiateTerminalStdout(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := instantiateTerminalStdout(linker)
 	require.NoError(t, err)
 
@@ -468,7 +491,9 @@ func TestInstantiateTerminalStdout(t *testing.T) {
 
 // Terminal stderr interface tests
 func TestInstantiateTerminalStderr(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewCompiledComponent(rt)
 	err := instantiateTerminalStderr(linker)
 	require.NoError(t, err)
 

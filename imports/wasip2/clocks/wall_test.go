@@ -3,9 +3,11 @@
 package clocks
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
@@ -26,7 +28,9 @@ func TestWallClock_Resolution(t *testing.T) {
 }
 
 func TestInstantiateWallClock(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := instantiateWallClock(linker)
 	require.NoError(t, err)
 
@@ -47,7 +51,9 @@ func TestInstantiateWallClock(t *testing.T) {
 }
 
 func TestInstantiateWallClock_Duplicate(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 
 	// First registration should succeed
 	err := instantiateWallClock(linker)

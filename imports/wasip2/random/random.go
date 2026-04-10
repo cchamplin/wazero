@@ -10,12 +10,12 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 
-	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 // Instantiate registers all wasi:random interfaces with the linker.
-func Instantiate(linker *component.Linker) error {
+func Instantiate(linker api.ComponentLinker) error {
 	if err := instantiateRandom(linker); err != nil {
 		return err
 	}
@@ -47,7 +47,7 @@ func GetRandomU64() uint64 {
 	return binary.LittleEndian.Uint64(buf[:])
 }
 
-func instantiateRandom(linker *component.Linker) error {
+func instantiateRandom(linker api.ComponentLinker) error {
 	inst := linker.DefineInstance("wasi:random/random@0.2.0")
 
 	inst.Func("get-random-bytes", getRandomBytes)

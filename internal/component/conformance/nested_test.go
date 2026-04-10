@@ -11,6 +11,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
@@ -30,7 +31,9 @@ import (
 //
 // Spec: Component-model nested component instantiation.
 func TestNested_TwoLevelInstantiation(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 
 	hostFnCalled := false
 	hostValue := int32(0)
@@ -107,7 +110,9 @@ func TestNested_TwoLevelInstantiation(t *testing.T) {
 //
 // Spec: Component-model nested component depth.
 func TestNested_MaxDepth(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	baseCallCount := 0
 
 	err := linker.DefineFunc("base:api@1.0.0", "fn", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
@@ -161,8 +166,10 @@ func TestNested_MaxDepth(t *testing.T) {
 //
 // Spec: Component-model linker independence.
 func TestNested_IndependentLinkers(t *testing.T) {
-	linker1 := component.NewLinker()
-	linker2 := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker1 := component.NewComponentLinker(rt)
+	linker2 := component.NewComponentLinker(rt)
 
 	fn1Called := false
 	fn2Called := false
@@ -214,7 +221,9 @@ func TestNested_IndependentLinkers(t *testing.T) {
 //
 // Spec: Component-model multiple import resolution.
 func TestNested_ComponentWithMultipleImports(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 
 	err := linker.DefineFunc("wasi:io@1.0.0", "read", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 		return nil, nil
@@ -254,7 +263,9 @@ func TestNested_ComponentWithMultipleImports(t *testing.T) {
 //
 // Spec: Component-model import resolution failure.
 func TestNested_ComponentWithMissingOneImport(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 
 	err := linker.DefineFunc("wasi:io@1.0.0", "read", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 		return nil, nil
@@ -305,7 +316,9 @@ func TestInstance_ExportOldGetNew(t *testing.T) {
 		},
 	}
 
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	ctx := context.Background()
 	inst, err := linker.Instantiate(ctx, comp)
 	require.NoError(t, err)
@@ -335,7 +348,9 @@ func TestInstance_ExportNewGetOld(t *testing.T) {
 		},
 	}
 
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	ctx := context.Background()
 	inst, err := linker.Instantiate(ctx, comp)
 	require.NoError(t, err)
@@ -363,7 +378,9 @@ func TestInstance_ExportSelectsMax(t *testing.T) {
 		},
 	}
 
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	ctx := context.Background()
 	inst, err := linker.Instantiate(ctx, comp)
 	require.NoError(t, err)
@@ -390,7 +407,9 @@ func TestInstance_ExportMajorVersionMismatch(t *testing.T) {
 		},
 	}
 
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	ctx := context.Background()
 	inst, err := linker.Instantiate(ctx, comp)
 	require.NoError(t, err)
@@ -415,7 +434,9 @@ func TestInstance_ExportExactMatch(t *testing.T) {
 		},
 	}
 
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	ctx := context.Background()
 	inst, err := linker.Instantiate(ctx, comp)
 	require.NoError(t, err)
@@ -444,7 +465,9 @@ func TestInstance_ExportPre1_0_Rules(t *testing.T) {
 		},
 	}
 
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	ctx := context.Background()
 	inst, err := linker.Instantiate(ctx, comp)
 	require.NoError(t, err)
@@ -474,7 +497,9 @@ func TestInstance_MultipleExportsWithDifferentNames(t *testing.T) {
 		},
 	}
 
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	ctx := context.Background()
 	inst, err := linker.Instantiate(ctx, comp)
 	require.NoError(t, err)

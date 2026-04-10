@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
@@ -65,7 +66,9 @@ func TestSubscribeInstant_Future(t *testing.T) {
 }
 
 func TestInstantiateMonotonicClock(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := instantiateMonotonicClock(linker)
 	require.NoError(t, err)
 
@@ -92,7 +95,9 @@ func TestInstantiateMonotonicClock(t *testing.T) {
 }
 
 func TestInstantiateMonotonicClock_Duplicate(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 
 	// First registration should succeed
 	err := instantiateMonotonicClock(linker)

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
@@ -20,7 +21,9 @@ func TestStartFunction_NoStart(t *testing.T) {
 	//
 	// When c.Start is nil, executeStartFunction should return nil immediately.
 	c := &Component{}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	inst := NewInstance(c, 0, nil)
 
 	err := l.executeStartFunction(context.Background(), inst, c)
@@ -46,7 +49,9 @@ func TestStartFunction_ExecutesOnce(t *testing.T) {
 			ResultCount: 1,
 		},
 	}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	inst := NewInstance(c, 0, nil)
 
 	// Pre-populate value index space with an argument.
@@ -100,7 +105,9 @@ func TestStartFunction_FuncNotFound(t *testing.T) {
 			ResultCount: 0,
 		},
 	}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	inst := NewInstance(c, 0, nil)
 
 	err := l.executeStartFunction(context.Background(), inst, c)
@@ -128,7 +135,9 @@ func TestStartFunction_NilImpl(t *testing.T) {
 			ResultCount: 0,
 		},
 	}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	inst := NewInstance(c, 0, nil)
 	inst.componentFuncs[0] = ComponentFunc{
 		Type: &c.Types.Funcs[0],
@@ -161,7 +170,9 @@ func TestStartFunction_ConsumeArgs(t *testing.T) {
 			ResultCount: 0,
 		},
 	}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	inst := NewInstance(c, 0, nil)
 
 	inst.AddValue(types.ValS32(10))
@@ -210,7 +221,9 @@ func TestStartFunction_ValueAlreadyConsumed(t *testing.T) {
 			ResultCount: 0,
 		},
 	}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	inst := NewInstance(c, 0, nil)
 
 	inst.AddValue(types.ValS32(42))
@@ -246,7 +259,9 @@ func TestStartFunction_ValueIndexOutOfRange(t *testing.T) {
 			ResultCount: 0,
 		},
 	}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	inst := NewInstance(c, 0, nil)
 
 	inst.componentFuncs[0] = ComponentFunc{
@@ -279,7 +294,9 @@ func TestStartFunction_ResultCountMismatch(t *testing.T) {
 			ResultCount: 2,
 		},
 	}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	inst := NewInstance(c, 0, nil)
 
 	inst.componentFuncs[0] = ComponentFunc{
@@ -315,7 +332,9 @@ func TestStartFunction_MultipleResults(t *testing.T) {
 			ResultCount: 2,
 		},
 	}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	inst := NewInstance(c, 0, nil)
 
 	inst.componentFuncs[0] = ComponentFunc{
@@ -364,7 +383,9 @@ func TestStartFunction_ReturnsError(t *testing.T) {
 			ResultCount: 0,
 		},
 	}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	inst := NewInstance(c, 0, nil)
 
 	startErr := errors.New("start function failed")

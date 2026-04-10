@@ -6,6 +6,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
@@ -40,7 +41,9 @@ func TestValueImport(t *testing.T) {
 		component: c,
 	}
 
-	linker := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := NewComponentLinker(rt)
 
 	// Define the value that satisfies the import. The key stored by
 	// DefineValue is "config/name" (namespace+"/"+name), matching the

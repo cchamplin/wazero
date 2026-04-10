@@ -12,6 +12,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
@@ -23,7 +24,9 @@ import (
 //
 // Spec: Component-model import resolution and instantiation.
 func TestIntegration_ComponentWithFuncImport(t *testing.T) {
-	l := NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 
 	err := l.DefineFunc("test:host@1.0.0", "double", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 		if len(args) > 0 {
@@ -63,7 +66,9 @@ func TestIntegration_ComponentWithFuncImport(t *testing.T) {
 //
 // Spec: Component-model semver-compatible import matching.
 func TestIntegration_FuncImportSemverMatch(t *testing.T) {
-	l := NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 
 	err := l.DefineFunc("api@1.0.1", "fn", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 		return nil, nil
@@ -93,7 +98,9 @@ func TestIntegration_FuncImportSemverMatch(t *testing.T) {
 //
 // Spec: Component-model semver import mismatch error.
 func TestIntegration_FuncImportSemverMismatch(t *testing.T) {
-	l := NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 
 	err := l.DefineFunc("api@1.0.0", "fn", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 		return nil, nil
@@ -122,7 +129,9 @@ func TestIntegration_FuncImportSemverMismatch(t *testing.T) {
 //
 // Spec: Component-model major version incompatibility.
 func TestIntegration_FuncImportMajorVersionMismatch(t *testing.T) {
-	l := NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 
 	err := l.DefineFunc("api@2.0.0", "fn", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 		return nil, nil
@@ -152,7 +161,9 @@ func TestIntegration_FuncImportMajorVersionMismatch(t *testing.T) {
 //
 // Spec: Component-model instance import definition.
 func TestIntegration_InstanceImport(t *testing.T) {
-	l := NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 
 	err := l.DefineInstance("wasi:io/streams@0.2.0").
 		Func("read", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
@@ -180,7 +191,9 @@ func TestIntegration_InstanceImport(t *testing.T) {
 //
 // Spec: Component-model instance import with versioning.
 func TestIntegration_InstanceImportWithVersioning(t *testing.T) {
-	l := NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 
 	err := l.DefineInstance("wasi:io/streams@0.2.1").
 		Func("read", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
@@ -201,7 +214,9 @@ func TestIntegration_InstanceImportWithVersioning(t *testing.T) {
 //
 // Spec: Component-model full linking scenario.
 func TestIntegration_FullLinkingScenario(t *testing.T) {
-	l := NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 
 	err := l.DefineFunc("math@1.0.0", "add", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 		if len(args) >= 2 {
@@ -257,7 +272,9 @@ func TestIntegration_FullLinkingScenario(t *testing.T) {
 //
 // Spec: Component-model semver best-match selection.
 func TestIntegration_MultipleVersionedImports(t *testing.T) {
-	l := NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 
 	err := l.DefineFunc("api@1.0.0", "fn", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 		return []types.Val{types.ValS32(100)}, nil
@@ -297,7 +314,9 @@ func TestIntegration_MultipleVersionedImports(t *testing.T) {
 //
 // Spec: Component-model resource definition with destructor.
 func TestIntegration_ResourceDefinition(t *testing.T) {
-	l := NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 
 	destructorCalled := false
 	var destroyedRep uint32
@@ -327,7 +346,9 @@ func TestIntegration_ResourceDefinition(t *testing.T) {
 //
 // Spec: Component-model mixed import kinds.
 func TestIntegration_MixedImports(t *testing.T) {
-	l := NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 
 	err := l.DefineFunc("api@1.0.0", "process", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 		return nil, nil
@@ -353,7 +374,9 @@ func TestIntegration_MixedImports(t *testing.T) {
 //
 // Spec: Component-model export semver matching.
 func TestIntegration_ExportSemverMatching(t *testing.T) {
-	l := NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 
 	c := &Component{
 		Exports: []Export{
@@ -390,7 +413,9 @@ func TestIntegration_ExportSemverMatching(t *testing.T) {
 //
 // Spec: Component-model export highest-version selection.
 func TestIntegration_ExportSelectsMaxVersion(t *testing.T) {
-	l := NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 
 	c := &Component{
 		Exports: []Export{
@@ -414,7 +439,9 @@ func TestIntegration_ExportSelectsMaxVersion(t *testing.T) {
 //
 // Spec: Component-model instantiation with no exports.
 func TestIntegration_NoExportsComponent(t *testing.T) {
-	l := NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 
 	c := &Component{
 		Imports: []Import{},
@@ -435,7 +462,9 @@ func TestIntegration_NoExportsComponent(t *testing.T) {
 //
 // Spec: Component-model instantiation with type definitions.
 func TestIntegration_ComponentWithTypes(t *testing.T) {
-	l := NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 
 	c := &Component{
 		TypeDefs: []TypeDef{
@@ -462,7 +491,9 @@ func TestIntegration_ComponentWithTypes(t *testing.T) {
 //
 // Spec: Component-model pre-1.0 semver matching.
 func TestIntegration_Pre1_0_SemverHandling(t *testing.T) {
-	l := NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 
 	err := l.DefineFunc("api@0.2.1", "fn", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 		return nil, nil
@@ -493,7 +524,9 @@ func TestIntegration_Pre1_0_SemverHandling(t *testing.T) {
 //
 // Spec: Component-model pre-1.0 minor version incompatibility.
 func TestIntegration_Pre1_0_MinorVersionMismatch(t *testing.T) {
-	l := NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 
 	err := l.DefineFunc("api@0.3.0", "fn", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 		return nil, nil
@@ -522,7 +555,9 @@ func TestIntegration_Pre1_0_MinorVersionMismatch(t *testing.T) {
 //
 // Spec: Component-model WASI-style namespaced imports.
 func TestIntegration_WASILikeNamespace(t *testing.T) {
-	l := NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 
 	err := l.DefineFunc("wasi:cli/environment@0.2.0", "get-environment", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 		return nil, nil
@@ -565,7 +600,9 @@ func TestIntegration_WASILikeNamespace(t *testing.T) {
 //
 // Spec: Component-model host function callback.
 func TestIntegration_HostFunctionCallback(t *testing.T) {
-	l := NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 
 	callCount := 0
 
@@ -597,12 +634,20 @@ func TestIntegration_HostFunctionCallback(t *testing.T) {
 //
 // Spec: Component-model instance builder chaining.
 func TestIntegration_InstanceBuilderChaining(t *testing.T) {
-	l := NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 
 	err := l.DefineInstance("api@1.0.0").
-		Func("a", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) { return nil, nil }).
-		Func("b", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) { return nil, nil }).
-		Func("c", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) { return nil, nil }).
+		Func("a", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+			return nil, nil
+		}).
+		Func("b", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+			return nil, nil
+		}).
+		Func("c", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+			return nil, nil
+		}).
 		Build()
 	require.NoError(t, err)
 

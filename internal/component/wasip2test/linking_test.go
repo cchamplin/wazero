@@ -144,8 +144,7 @@ func TestComponentLinking_ProviderConsumer(t *testing.T) {
 
 	// Create a linker for the consumer that provides the "math" instance
 	// by wrapping the provider's exported add function
-	linker := component.NewLinker()
-	err = linker.DefineInstance("math").
+	err = providerLinker.DefineInstance("math").
 		Func("add", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 			// Forward the call to the provider's add function
 			return providerAddFunc.CallAndPostReturn(ctx, args...)
@@ -157,11 +156,9 @@ func TestComponentLinking_ProviderConsumer(t *testing.T) {
 	}
 
 	// Create component linker for consumer
-	consumerLinker := component.NewComponentLinker(consumerRT)
-	consumerLinker.MergeFrom(linker)
 
 	// Instantiate the consumer component
-	consumerInstance, err := consumerLinker.Instantiate(testCtx, compiledConsumer.(*component.CompiledComponent))
+	consumerInstance, err := providerLinker.Instantiate(testCtx, compiledConsumer.(*component.CompiledComponent))
 	if err != nil {
 		t.Skipf("pipeline limitation: Instantiate (consumer) failed: %v", err)
 	}
@@ -275,7 +272,6 @@ func TestComponentLinking_MultipleValues(t *testing.T) {
 
 	providerLinker := component.NewComponentLinker(providerRT)
 
-
 	providerInstance, err := providerLinker.Instantiate(testCtx, compiledProvider.(*component.CompiledComponent))
 	if err != nil {
 		t.Skipf("pipeline limitation: Instantiate (provider) failed: %v", err)
@@ -286,8 +282,7 @@ func TestComponentLinking_MultipleValues(t *testing.T) {
 		t.Fatal("provider 'add' function not found")
 	}
 
-	linker := component.NewLinker()
-	err = linker.DefineInstance("math").
+	err = providerLinker.DefineInstance("math").
 		Func("add", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 			return providerAddFunc.CallAndPostReturn(ctx, args...)
 		}).
@@ -297,12 +292,7 @@ func TestComponentLinking_MultipleValues(t *testing.T) {
 		t.Fatalf("DefineInstance (math): %v", err)
 	}
 
-	consumerLinker := component.NewComponentLinker(consumerRT)
-	consumerLinker.MergeFrom(linker)
-
-
-
-	consumerInstance, err := consumerLinker.Instantiate(testCtx, compiledConsumer.(*component.CompiledComponent))
+	consumerInstance, err := providerLinker.Instantiate(testCtx, compiledConsumer.(*component.CompiledComponent))
 	if err != nil {
 		t.Skipf("pipeline limitation: Instantiate (consumer) failed: %v", err)
 	}
@@ -391,7 +381,6 @@ func TestComponentLinking_ExportDiscovery(t *testing.T) {
 	testCtx := component.WithResourceTable(ctx, resourceTable)
 
 	providerLinker := component.NewComponentLinker(rt)
-
 
 	providerInstance, err := providerLinker.Instantiate(testCtx, compiledProvider.(*component.CompiledComponent))
 	if err != nil {
@@ -527,7 +516,6 @@ func TestComponentLinking_ProviderCallCount(t *testing.T) {
 
 	providerLinker := component.NewComponentLinker(providerRT)
 
-
 	providerInstance, err := providerLinker.Instantiate(testCtx, compiledProvider.(*component.CompiledComponent))
 	if err != nil {
 		t.Skipf("pipeline limitation: Instantiate (provider) failed: %v", err)
@@ -540,8 +528,7 @@ func TestComponentLinking_ProviderCallCount(t *testing.T) {
 
 	// Track how many times the wrapper is called
 	var callCount int
-	linker := component.NewLinker()
-	err = linker.DefineInstance("math").
+	err = providerLinker.DefineInstance("math").
 		Func("add", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 			callCount++
 			return providerAddFunc.CallAndPostReturn(ctx, args...)
@@ -552,12 +539,7 @@ func TestComponentLinking_ProviderCallCount(t *testing.T) {
 		t.Fatalf("DefineInstance (math): %v", err)
 	}
 
-	consumerLinker := component.NewComponentLinker(consumerRT)
-	consumerLinker.MergeFrom(linker)
-
-
-
-	consumerInstance, err := consumerLinker.Instantiate(testCtx, compiledConsumer.(*component.CompiledComponent))
+	consumerInstance, err := providerLinker.Instantiate(testCtx, compiledConsumer.(*component.CompiledComponent))
 	if err != nil {
 		t.Skipf("pipeline limitation: Instantiate (consumer) failed: %v", err)
 	}

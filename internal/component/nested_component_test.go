@@ -9,15 +9,19 @@
 //
 // Spec: Component-model nested instantiation (Explainer.md :1020+).
 // Design: docs/superpowers/specs/2026-04-08-canonical-abi-session1-design.md
-//   lines 1134-1137.
+//
+//	lines 1134-1137.
+//
 // Plan: docs/superpowers/plans/2026-04-08-canonical-abi-session1-plan.md
-//   (Task D2 lines 4001-4170).
+//
+//	(Task D2 lines 4001-4170).
 package component
 
 import (
 	"context"
 	"testing"
 
+	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
@@ -29,7 +33,9 @@ import (
 // Spec: trivial base case — no nested instances means nothing to do.
 func TestProcessNestedInstances_Empty(t *testing.T) {
 	c := &Component{}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	inst := NewInstance(c, 0, nil)
 	defs, err := l.processNestedInstances(context.Background(), inst, c)
 	if err != nil {
@@ -55,7 +61,9 @@ func TestProcessNestedInstances_Instantiate(t *testing.T) {
 			{Kind: ComponentInstanceExprInstantiate, ComponentIdx: 0},
 		},
 	}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	inst := NewInstance(parent, 0, nil)
 	defs, err := l.processNestedInstances(context.Background(), inst, parent)
 	if err != nil {
@@ -94,7 +102,9 @@ func TestProcessNestedInstances_Inline(t *testing.T) {
 			{Kind: TypeDefKindFunc, Func: 0},
 		},
 	}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	inst := NewInstance(c, 0, nil)
 	// Populate typeSpace so resolveInlineExport can find the type.
 	inst.typeSpace = []*TypeDef{&c.TypeDefs[0]}
@@ -141,7 +151,9 @@ func TestProcessNestedInstances_InlineFuncExport(t *testing.T) {
 			},
 		},
 	}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	inst := NewInstance(c, 0, nil)
 	inst.componentFuncs[0] = ComponentFunc{
 		Type: &c.Types.Funcs[0],
@@ -182,7 +194,9 @@ func TestProcessNestedInstances_InlineValueExport(t *testing.T) {
 			},
 		},
 	}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	inst := NewInstance(c, 0, nil)
 	inst.AddValue(types.ValU32(42))
 
@@ -218,7 +232,9 @@ func TestInstantiateNestedComponent_Basic(t *testing.T) {
 	parent := &Component{
 		Components: []*Component{nested},
 	}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	parentInst := NewInstance(parent, 0, nil)
 	ci := &ParsedComponentInstance{
 		Kind:         ComponentInstanceExprInstantiate,
@@ -249,7 +265,9 @@ func TestInstantiateNestedComponent_ComponentIdxOutOfRange(t *testing.T) {
 	parent := &Component{
 		Components: []*Component{},
 	}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	parentInst := NewInstance(parent, 0, nil)
 	ci := &ParsedComponentInstance{
 		Kind:         ComponentInstanceExprInstantiate,
@@ -294,7 +312,9 @@ func TestInstantiateNestedComponent_WithImports(t *testing.T) {
 		Types:      bag,
 		Components: []*Component{nested},
 	}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	parentInst := NewInstance(parent, 0, nil)
 	// Populate parent's componentFuncs so the arg can be resolved.
 	called := false
@@ -353,7 +373,9 @@ func TestInstantiateNestedComponent_TypeSpace(t *testing.T) {
 	parent := &Component{
 		Components: []*Component{nested},
 	}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	parentInst := NewInstance(parent, 0, nil)
 	ci := &ParsedComponentInstance{
 		Kind:         ComponentInstanceExprInstantiate,
@@ -397,7 +419,9 @@ func TestInstantiateNestedComponent_InstanceArg(t *testing.T) {
 	parent := &Component{
 		Components: []*Component{nested},
 	}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	parentInst := NewInstance(parent, 0, nil)
 
 	// Create a child instance to put in parent's instanceSpace
@@ -444,7 +468,9 @@ func TestInstantiateNestedComponent_TypeArg(t *testing.T) {
 		Components: []*Component{nested},
 		TypeDefs:   []TypeDef{{Kind: TypeDefKindFunc, Func: 0}},
 	}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	parentInst := NewInstance(parent, 0, nil)
 	parentInst.typeSpace = []*TypeDef{&parent.TypeDefs[0]}
 
@@ -483,7 +509,9 @@ func TestInstantiateNestedComponent_ComponentArg(t *testing.T) {
 	parent := &Component{
 		Components: []*Component{nested, innerNested},
 	}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	parentInst := NewInstance(parent, 0, nil)
 
 	ci := &ParsedComponentInstance{
@@ -521,7 +549,9 @@ func TestInstantiateNestedComponent_ValueArg(t *testing.T) {
 	parent := &Component{
 		Components: []*Component{nested},
 	}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	parentInst := NewInstance(parent, 0, nil)
 	parentInst.AddValue(types.ValU32(42))
 
@@ -567,7 +597,9 @@ func TestInstantiateNestedComponent_ThreeLevels(t *testing.T) {
 			{Kind: ComponentInstanceExprInstantiate, ComponentIdx: 0},
 		},
 	}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	outerInst := NewInstance(outer, 0, nil)
 
 	defs, err := l.processNestedInstances(context.Background(), outerInst, outer)
@@ -606,7 +638,9 @@ func TestProcessNestedInstances_MultipleInstances(t *testing.T) {
 			{Kind: ComponentInstanceExprInstantiate, ComponentIdx: 1},
 		},
 	}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	inst := NewInstance(parent, 0, nil)
 
 	defs, err := l.processNestedInstances(context.Background(), inst, parent)
@@ -634,7 +668,9 @@ func TestInstantiateNestedComponent_FuncArgNotFound(t *testing.T) {
 	parent := &Component{
 		Components: []*Component{{}},
 	}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	parentInst := NewInstance(parent, 0, nil)
 	ci := &ParsedComponentInstance{
 		Kind:         ComponentInstanceExprInstantiate,
@@ -677,7 +713,9 @@ func TestInstantiateNestedComponent_TypeFromParentComponent(t *testing.T) {
 		Components: []*Component{nested},
 		TypeDefs:   []TypeDef{{Kind: TypeDefKindFunc, Func: 0}},
 	}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	parentInst := NewInstance(parent, 0, nil)
 	// Populate typeSpace so that resolveFromParentScope can find it.
 	parentInst.AddTypeToSpace(&parent.TypeDefs[0])
@@ -704,7 +742,9 @@ func TestResolveFromParentScope_UnsupportedSort(t *testing.T) {
 	parent := &Component{
 		Components: []*Component{{}},
 	}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	parentInst := NewInstance(parent, 0, nil)
 	_, err := l.resolveFromParentScope(parentInst, parent, ComponentInstantiateArg{
 		Name: "x",
@@ -742,7 +782,9 @@ func TestInstantiateNestedComponent_ExportsInstance(t *testing.T) {
 			{Name: "env", Kind: ExportKindInstance, Idx: 0},
 		},
 	}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	inst := NewInstance(parent, 0, nil)
 
 	// Process nested instances to create child and populate instanceSpace.
@@ -832,7 +874,9 @@ func TestWireExports_TypeExport(t *testing.T) {
 			{Name: "my-type", Kind: ExportKindType, Idx: 0},
 		},
 	}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	inst := NewInstance(c, 0, nil)
 
 	funcSpace := NewCoreFuncIndexSpace()
@@ -860,7 +904,9 @@ func TestWireExports_ValueExport(t *testing.T) {
 			{Name: "my-val", Kind: ExportKindValue, Idx: 0},
 		},
 	}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	inst := NewInstance(c, 0, nil)
 
 	funcSpace := NewCoreFuncIndexSpace()
@@ -887,7 +933,9 @@ func TestWireExports_InstanceExport(t *testing.T) {
 			{Name: "my-instance", Kind: ExportKindInstance, Idx: 0},
 		},
 	}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	inst := NewInstance(c, 0, nil)
 
 	// Put a real nested instance in instanceSpace[0].
@@ -949,7 +997,9 @@ func TestWireExports_InstanceExportFromInline(t *testing.T) {
 			{Name: "my-inline", Kind: ExportKindInstance, Idx: 0},
 		},
 	}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	inst := NewInstance(c, 0, nil)
 
 	// Reserve a nil slot for the inline instance (mimics processNestedInstances).
@@ -1005,7 +1055,9 @@ func TestWireExports_MixedExportKinds(t *testing.T) {
 			{Name: "my-instance", Kind: ExportKindInstance, Idx: 0},
 		},
 	}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	inst := NewInstance(c, 0, nil)
 
 	child := NewInstance(&Component{}, 1, nil)
@@ -1040,7 +1092,9 @@ func TestWireExports_MixedExportKinds(t *testing.T) {
 //
 // Spec: Component-model nested instance exports.
 func TestWireNestedComponentExports_ShimPattern(t *testing.T) {
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	parent := NewInstance(&Component{}, 0, nil)
 	child := NewInstance(&Component{}, 1, nil)
 	child.exports["greet"] = &ExportedFunc{
@@ -1075,7 +1129,9 @@ func TestWireNestedComponentExports_ShimPattern(t *testing.T) {
 //
 // Spec: Component-model nested instance exports (multiple functions).
 func TestWireNestedComponentExports_MultipleExports(t *testing.T) {
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	parent := NewInstance(&Component{}, 0, nil)
 	child := NewInstance(&Component{}, 1, nil)
 	child.exports["fn-a"] = &ExportedFunc{
@@ -1117,7 +1173,9 @@ func TestWireNestedComponentExports_MultipleExports(t *testing.T) {
 // Wasmtime parallel: N/A (edge case).
 // Spec: Component-model nested instance exports (empty instance).
 func TestWireNestedComponentExports_NilComponent(t *testing.T) {
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	parent := NewInstance(&Component{}, 0, nil)
 	child := NewInstance(&Component{}, 1, nil)
 
@@ -1151,7 +1209,9 @@ func TestBuildTypeSpace_FromTypeIdxToStoredIdx(t *testing.T) {
 		},
 	}
 	parent := &Component{Components: []*Component{nested}}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	parentInst := NewInstance(parent, 0, nil)
 	ci := &ParsedComponentInstance{Kind: ComponentInstanceExprInstantiate, ComponentIdx: 0}
 
@@ -1210,7 +1270,9 @@ func TestBuildTypeSpace_ExportAliases(t *testing.T) {
 			},
 		},
 	}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	parentInst := NewInstance(parentComp, 0, nil)
 	parentInst.AddInstanceToSpace(srcInst)
 
@@ -1247,11 +1309,13 @@ func TestResolveFromParentScope_TypeWithStoredIdxMapping(t *testing.T) {
 	parent := NewInstance(&Component{}, 0, nil)
 	funcTD := &TypeDef{Kind: TypeDefKindFunc, Func: 0}
 	resourceTD := &TypeDef{Kind: TypeDefKindResource, Resource: 0}
-	parent.AddTypeToSpace(funcTD)    // idx 0
+	parent.AddTypeToSpace(funcTD)     // idx 0
 	parent.AddTypeToSpace(resourceTD) // idx 1
 
 	parentComp := &Component{}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 
 	// Resolve type at index 1 — should return resourceTD
 	def, err := l.resolveFromParentScope(parent, parentComp, ComponentInstantiateArg{
@@ -1306,7 +1370,9 @@ func TestResolveFromParentScope_TypeFromExportAlias(t *testing.T) {
 			},
 		},
 	}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	parent := NewInstance(parentComp, 0, nil)
 	parent.AddInstanceToSpace(srcInst)
 
@@ -1355,7 +1421,10 @@ func TestResolveFromParentScope_InstanceSpaceAlignment(t *testing.T) {
 		t.Fatalf("expected importedInst at index 3, got %d", idx)
 	}
 
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+
+	l := NewComponentLinker(rt)
 
 	// Resolving instance at slot 3 should succeed (real instance)
 	def, err := l.resolveFromParentScope(parent, parentComp, ComponentInstantiateArg{
@@ -1411,7 +1480,9 @@ func TestResolveFromParentScope_ComponentFuncsOrdering(t *testing.T) {
 		},
 	}
 	parentComp := &Component{}
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 
 	// Resolving func at index 5 should succeed
 	def, err := l.resolveFromParentScope(parent, parentComp, ComponentInstantiateArg{

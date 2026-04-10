@@ -33,21 +33,18 @@ func TestNestedTypesPlugin_OptionResultSharedRecords(t *testing.T) {
 	linker.SetRelaxedSemverMatching(true)
 
 	// WASI P2
-	wasiLinker := component.NewLinker()
-	if err := wasip2.Instantiate(wasiLinker); err != nil {
+	if err := wasip2.Instantiate(linker); err != nil {
 		t.Fatalf("wasip2.Instantiate: %v", err)
 	}
-	linker.MergeFrom(wasiLinker)
 
 	// Types interface (no functions)
-	hostLinker := component.NewLinker()
-	err = hostLinker.DefineInstance("test:nested-types/types").SkipValidation().Build()
+	err = linker.DefineInstance("test:nested-types/types").SkipValidation().Build()
 	if err != nil {
 		t.Fatalf("DefineInstance types: %v", err)
 	}
 
 	// store import - returns some(item) for id=1, none for others
-	err = hostLinker.DefineInstance("test:nested-types/store").
+	err = linker.DefineInstance("test:nested-types/store").
 		Func("get-item", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 			// For now, return a simple option<item> as none
 			// The exact ABI encoding of option<record> depends on the lowering
@@ -58,7 +55,6 @@ func TestNestedTypesPlugin_OptionResultSharedRecords(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DefineInstance store: %v", err)
 	}
-	linker.MergeFrom(hostLinker)
 
 	// WASI context
 	var stdout, stderr bytes.Buffer

@@ -3,11 +3,11 @@
 package sockets
 
 import (
-	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/api"
 )
 
 // Instantiate registers all wasi:sockets interfaces with the linker.
-func Instantiate(linker *component.Linker) error {
+func Instantiate(linker api.ComponentLinker) error {
 	if err := instantiateNetwork(linker); err != nil {
 		return err
 	}

@@ -68,7 +68,7 @@ type pendingRealloc struct {
 // preserved. The method bodies that drive instantiation panic with a
 // precise Session 1 pointer.
 type ComponentLinker struct {
-	runtime         any // wazero.Runtime - stored as any to avoid import cycle
+	runtime         WazeroRuntime
 	definitions     map[string]Definition
 	relaxedSemver   bool
 	instanceCounter uint32
@@ -91,7 +91,10 @@ type ComponentLinker struct {
 
 // NewComponentLinker creates a new component linker with access to a runtime.
 // The runtime parameter should be a wazero.Runtime instance.
-func NewComponentLinker(rt any) *ComponentLinker {
+func NewComponentLinker(rt WazeroRuntime) *ComponentLinker {
+	if rt == nil {
+		panic("runtime is nil")
+	}
 	return &ComponentLinker{
 		runtime:     rt,
 		definitions: make(map[string]Definition),
@@ -724,7 +727,8 @@ func resolveCoreMemoryViaSpace(inst *Instance, memIdx uint32, space *CoreMemoryI
 //
 // Spec: Component-model nested instantiation (Explainer.md :1020+).
 // Plan: docs/superpowers/plans/2026-04-08-canonical-abi-session1-plan.md
-//   (Task D2).
+//
+//	(Task D2).
 func (l *ComponentLinker) processNestedInstances(ctx context.Context, inst *Instance, c *Component) (map[uint32]*InstanceDef, error) {
 	componentInstDefs := make(map[uint32]*InstanceDef)
 	for i := range c.ComponentInstances {
@@ -1201,22 +1205,13 @@ func (l *ComponentLinker) buildCoreIndexSpaces(c *Component, funcSpace *CoreFunc
 
 // MatchImport finds a definition that satisfies the import name.
 func (l *ComponentLinker) MatchImport(importName string) (Definition, error) {
-	// Reuse the basic Linker's matching logic.
-	linker := &Linker{definitions: l.definitions, relaxedSemver: l.relaxedSemver}
-	return linker.MatchImport(importName)
+	return nil, fmt.Errorf("not implemented yet")
 }
 
 // Get retrieves a definition by its full key.
 func (l *ComponentLinker) Get(key string) (Definition, bool) {
 	def, ok := l.definitions[key]
 	return def, ok
-}
-
-// MergeFrom copies all definitions from a Linker into this ComponentLinker.
-func (l *ComponentLinker) MergeFrom(linker *Linker) {
-	for key, def := range linker.definitions {
-		l.definitions[key] = def
-	}
 }
 
 // -- Task C8-a: canon.lift / canon.lower / canon.resource.* closures ----
@@ -1318,25 +1313,26 @@ func unpackTupleElems(bag *types.ComponentTypes, v types.ValType) []types.ValTyp
 // deferred to ExportedFunc.PostReturn via the shared *postReturnState.
 //
 // Spec step mapping:
-//   :1979       trap_if(call_might_be_recursive) — via
-//               inst.rt.Reentrance.CallMightBeRecursive. The structural
-//               variant (Instance.CallMightBeRecursive) requires a
-//               caller *Instance which the HostFunc signature does not
-//               carry; the tracker-based check captures "is this
-//               instance already on the active call stack", which is
-//               the spec-relevant condition once the caller is out of
-//               band (host or indirect). Both the tracker bookkeeping
-//               (EnterInstance/LeaveInstance) and the structural check
-//               serve different purposes per Task B4's corrective.
-//   :1990/:1955 lower_flat_values on the args — wazero uses
-//               abi.LowerParams which expects the caller to toggle
-//               may_leave around the aggregate (lower.go:729).
-//   :1995       callee core-function invocation.
-//   :1997       lift_flat_values on the core results — abi.LiftResults.
-//   :2000-2002  post_return with may_leave toggled off for the duration
-//               — DEFERRED to PostReturn via postReturnState.
-//   :738-742    deliver_resolve — close the borrow scope — DEFERRED to
-//               PostReturn (callCtx.Release moved there).
+//
+//	:1979       trap_if(call_might_be_recursive) — via
+//	            inst.rt.Reentrance.CallMightBeRecursive. The structural
+//	            variant (Instance.CallMightBeRecursive) requires a
+//	            caller *Instance which the HostFunc signature does not
+//	            carry; the tracker-based check captures "is this
+//	            instance already on the active call stack", which is
+//	            the spec-relevant condition once the caller is out of
+//	            band (host or indirect). Both the tracker bookkeeping
+//	            (EnterInstance/LeaveInstance) and the structural check
+//	            serve different purposes per Task B4's corrective.
+//	:1990/:1955 lower_flat_values on the args — wazero uses
+//	            abi.LowerParams which expects the caller to toggle
+//	            may_leave around the aggregate (lower.go:729).
+//	:1995       callee core-function invocation.
+//	:1997       lift_flat_values on the core results — abi.LiftResults.
+//	:2000-2002  post_return with may_leave toggled off for the duration
+//	            — DEFERRED to PostReturn via postReturnState.
+//	:738-742    deliver_resolve — close the borrow scope — DEFERRED to
+//	            PostReturn (callCtx.Release moved there).
 //
 // Wasmtime parallel: runtime/component/func.rs Func::call / call_raw
 // (lines 232-706). The two-phase split mirrors wasmtime's
@@ -1486,17 +1482,18 @@ func (l *ComponentLinker) buildCanonLiftFunc(
 // canon.lower core wasm function. Spec: definitions.py:2064-2130.
 //
 // Spec step mapping:
-//   :2065       trap_if(not caller_task.inst.may_leave) — wazero uses
-//               the per-instance MayLeave; see instance.go MayLeave.
-//   :2068-2070  subtask + borrow scope + lift/lower contexts.
-//   :2089       lift_flat_values on the incoming core args —
-//               abi.LiftParams.
-//   :2095       host callback invocation via compFunc.Impl(goCtx,
-//               compFunc.Type, args). Direct HostFunc call per Task C3;
-//               do NOT type-assert to *FuncDef.
-//   :2104-2113  lower_flat_values on the results with may_leave toggle
-//               (:1955/:1973).
-//   :2113       deliver_resolve — close the borrow scope.
+//
+//	:2065       trap_if(not caller_task.inst.may_leave) — wazero uses
+//	            the per-instance MayLeave; see instance.go MayLeave.
+//	:2068-2070  subtask + borrow scope + lift/lower contexts.
+//	:2089       lift_flat_values on the incoming core args —
+//	            abi.LiftParams.
+//	:2095       host callback invocation via compFunc.Impl(goCtx,
+//	            compFunc.Type, args). Direct HostFunc call per Task C3;
+//	            do NOT type-assert to *FuncDef.
+//	:2104-2113  lower_flat_values on the results with may_leave toggle
+//	            (:1955/:1973).
+//	:2113       deliver_resolve — close the borrow scope.
 //
 // Wasmtime parallel: runtime/component/func/host.rs DynamicHostFn::call
 // at around lines 640-694.
@@ -1627,9 +1624,10 @@ func (l *ComponentLinker) createCanonLowerFunc(
 // signatures.
 //
 // Core wasm signatures (plan lines 3129-3131):
-//   resource.new  (param i32) (result i32)  — rep in, handle out
-//   resource.drop (param i32)                — handle in, nothing
-//   resource.rep  (param i32) (result i32)  — handle in, rep out
+//
+//	resource.new  (param i32) (result i32)  — rep in, handle out
+//	resource.drop (param i32)                — handle in, nothing
+//	resource.rep  (param i32) (result i32)  — handle in, rep out
 func (l *ComponentLinker) createResourceOpExport(
 	inst *Instance,
 	name string,

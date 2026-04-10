@@ -29,7 +29,7 @@ type ComponentLinkerWrapper struct {
 
 // NewComponentLinkerWrapper creates a new wrapper that implements api.ComponentLinker.
 // The runtime parameter should be a wazero.Runtime instance for core module instantiation.
-func NewComponentLinkerWrapper(rt any) *ComponentLinkerWrapper {
+func NewComponentLinkerWrapper(rt WazeroRuntime) *ComponentLinkerWrapper {
 	return &ComponentLinkerWrapper{
 		linker: NewComponentLinker(rt),
 	}
@@ -44,7 +44,7 @@ func (l *ComponentLinkerWrapper) DefineFunc(namespace, name string, fn api.HostF
 
 // DefineInstance starts building an instance definition with multiple exports.
 func (l *ComponentLinkerWrapper) DefineInstance(namespace string) api.ComponentInstanceBuilder {
-	return &ComponentInstanceBuilderWrapper2{
+	return &ComponentInstanceBuilderWrapper{
 		builder: l.linker.DefineInstance(namespace),
 	}
 }
@@ -52,13 +52,6 @@ func (l *ComponentLinkerWrapper) DefineInstance(namespace string) api.ComponentI
 // DefineResource defines a resource type with its destructor.
 func (l *ComponentLinkerWrapper) DefineResource(namespace, name string, dtor func(rep uint32)) error {
 	return l.linker.DefineResource(namespace, name, dtor)
-}
-
-// MergeFrom copies all definitions from a basic Linker into this ComponentLinkerWrapper.
-// This allows WASI interfaces registered on a basic Linker to be used with
-// a ComponentLinkerWrapper that has runtime integration for core module instantiation.
-func (l *ComponentLinkerWrapper) MergeFrom(linker *Linker) {
-	l.linker.MergeFrom(linker)
 }
 
 // SetRelaxedSemverMatching enables or disables relaxed semver matching.
@@ -125,11 +118,11 @@ func (w *InstancePreWrapper) Component() api.CompiledComponent {
 	return w.inner.Component()
 }
 
-// ComponentInstanceBuilderWrapper wraps InstanceBuilder to implement api.ComponentInstanceBuilder.
-// NOTE: This is kept for backward compatibility with code using the basic Linker.
+// ComponentInstanceBuilderWrapper wraps ComponentInstanceBuilder to implement api.ComponentInstanceBuilder.
+// This is the wrapper used by ComponentLinkerWrapper which has runtime integration.
 type ComponentInstanceBuilderWrapper struct {
 	internalapi.WazeroOnlyType
-	builder *InstanceBuilder
+	builder *ComponentInstanceBuilder
 }
 
 // Func adds a function export to the instance being built.
@@ -153,37 +146,6 @@ func (b *ComponentInstanceBuilderWrapper) SkipValidation() api.ComponentInstance
 
 // Build finalizes the instance definition.
 func (b *ComponentInstanceBuilderWrapper) Build() error {
-	return b.builder.Build()
-}
-
-// ComponentInstanceBuilderWrapper2 wraps ComponentInstanceBuilder to implement api.ComponentInstanceBuilder.
-// This is the wrapper used by ComponentLinkerWrapper which has runtime integration.
-type ComponentInstanceBuilderWrapper2 struct {
-	internalapi.WazeroOnlyType
-	builder *ComponentInstanceBuilder
-}
-
-// Func adds a function export to the instance being built.
-// Direct pass-through under the wasmtime func_new model.
-func (b *ComponentInstanceBuilderWrapper2) Func(name string, fn api.HostFunc) api.ComponentInstanceBuilder {
-	b.builder.Func(name, HostFunc(fn))
-	return b
-}
-
-// Resource adds a resource type definition to the instance.
-func (b *ComponentInstanceBuilderWrapper2) Resource(name string, dtor func(rep uint32)) api.ComponentInstanceBuilder {
-	b.builder.Resource(name, dtor)
-	return b
-}
-
-// SkipValidation disables type checking for this instance definition.
-func (b *ComponentInstanceBuilderWrapper2) SkipValidation() api.ComponentInstanceBuilder {
-	b.builder.SkipValidation()
-	return b
-}
-
-// Build finalizes the instance definition.
-func (b *ComponentInstanceBuilderWrapper2) Build() error {
 	return b.builder.Build()
 }
 
@@ -323,4 +285,3 @@ func (w *ComponentInstanceWrapper) Close(ctx context.Context) error {
 	// No cleanup needed for nested instances
 	return nil
 }
-

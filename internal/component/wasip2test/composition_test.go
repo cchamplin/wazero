@@ -139,8 +139,8 @@ func getLoggerFromRegistry(id uint32) *Logger {
 
 // Host-managed resource type singletons for composition tests.
 var (
-	compositionLoggerResourceType  = &runtime.ResourceType{}
-	compositionRequestResourceType = &runtime.ResourceType{}
+	compositionLoggerResourceType   = &runtime.ResourceType{}
+	compositionRequestResourceType  = &runtime.ResourceType{}
 	compositionResponseResourceType = &runtime.ResourceType{}
 )
 
@@ -385,26 +385,24 @@ func TestServiceMiddlewareComposition_FullComposition(t *testing.T) {
 	// =====================================
 	// Step 2: Instantiate the middleware component
 	// =====================================
-	middlewareLinker := component.NewComponentLinker(middlewareRT)
-	middlewareLinker.SetRelaxedSemverMatching(true)
 
 	// Define host imports for middleware
-	err = defineLoggingInterface(middlewareLinker, resourceTable, sharedLogger)
+	err = defineLoggingInterface(serviceLinker, resourceTable, sharedLogger)
 	if err != nil {
 		t.Fatalf("defineLoggingInterface (middleware): %v", err)
 	}
-	err = defineTypesInterface(middlewareLinker, resourceTable)
+	err = defineTypesInterface(serviceLinker, resourceTable)
 	if err != nil {
 		t.Fatalf("defineTypesInterface (middleware): %v", err)
 	}
 
 	// Define the handler interface that middleware imports, pointing to service's export
-	err = defineHandlerInterface(middlewareLinker, serviceHandlerExecute, resourceTable)
+	err = defineHandlerInterface(serviceLinker, serviceHandlerExecute, resourceTable)
 	if err != nil {
 		t.Fatalf("defineHandlerInterface: %v", err)
 	}
 
-	middlewareInstance, err := middlewareLinker.Instantiate(testCtx, compiledMiddleware.(*component.CompiledComponent))
+	middlewareInstance, err := serviceLinker.Instantiate(testCtx, compiledMiddleware.(*component.CompiledComponent))
 	if err != nil {
 		t.Skipf("pipeline limitation: Instantiate (middleware) failed: %v", err)
 	}
@@ -536,10 +534,8 @@ func TestServiceMiddlewareComposition_ErrorHandling(t *testing.T) {
 // Helper function to define the logging interface for a linker
 func defineLoggingInterface(linker *component.ComponentLinker, table *runtime.Table, sharedLogger *Logger) error {
 	// Use basic Linker Func for per-call registration, then merge into ComponentLinker
-	basicLinker := component.NewLinker()
-
 	// Define example:service/logging@0.1.0
-	err := basicLinker.DefineInstance("example:service/logging@0.1.0").
+	err := linker.DefineInstance("example:service/logging@0.1.0").
 		Resource("logger", func(rep uint32) {
 			// Destructor - nothing to clean up for logger
 		}).
@@ -592,17 +588,14 @@ func defineLoggingInterface(linker *component.ComponentLinker, table *runtime.Ta
 		return err
 	}
 
-	linker.MergeFrom(basicLinker)
 	return nil
 }
 
 // Helper function to define the types interface for a linker
 func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Table) error {
 	// Use basic Linker Func for per-call registration, then merge into ComponentLinker
-	basicLinker := component.NewLinker()
-
 	// Define example:service/types@0.1.0
-	err := basicLinker.DefineInstance("example:service/types@0.1.0").
+	err := linker.DefineInstance("example:service/types@0.1.0").
 		Resource("request", func(rep uint32) {
 			// Destructor
 		}).
@@ -650,7 +643,7 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Tabl
 			}
 
 			req := NewRequest(headers, body)
-				handle, hErr := rt.NewResourceHandle(registerRequest(req), true, compositionRequestResourceType)
+			handle, hErr := rt.NewResourceHandle(registerRequest(req), true, compositionRequestResourceType)
 			if hErr != nil {
 				return nil, hErr
 			}
@@ -668,8 +661,8 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Tabl
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 			resEntry, resOk := entry.(*runtime.ResourceHandleEntry)
-				_ = resEntry
-				if !resOk {
+			_ = resEntry
+			if !resOk {
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 
@@ -713,8 +706,8 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Tabl
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 			resEntry, resOk := entry.(*runtime.ResourceHandleEntry)
-				_ = resEntry
-				if !resOk {
+			_ = resEntry
+			if !resOk {
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 
@@ -769,8 +762,8 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Tabl
 			}
 
 			resp := NewResponse(headers, body)
-				_ = resp
-				handle, hErr := rt.NewResourceHandle(uint32(0), true, compositionResponseResourceType)
+			_ = resp
+			handle, hErr := rt.NewResourceHandle(uint32(0), true, compositionResponseResourceType)
 			if hErr != nil {
 				return nil, hErr
 			}
@@ -788,8 +781,8 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Tabl
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 			resEntry, resOk := entry.(*runtime.ResourceHandleEntry)
-				_ = resEntry
-				if !resOk {
+			_ = resEntry
+			if !resOk {
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 
@@ -833,8 +826,8 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Tabl
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 			resEntry, resOk := entry.(*runtime.ResourceHandleEntry)
-				_ = resEntry
-				if !resOk {
+			_ = resEntry
+			if !resOk {
 				return []types.Val{types.ValList([]types.Val{})}, nil
 			}
 
@@ -865,17 +858,14 @@ func defineTypesInterface(linker *component.ComponentLinker, table *runtime.Tabl
 		return err
 	}
 
-	linker.MergeFrom(basicLinker)
 	return nil
 }
 
 // Helper function to define the handler interface that forwards to a service
 func defineHandlerInterface(linker *component.ComponentLinker, serviceExecute *component.ExportedFunc, table *runtime.Table) error {
 	// Use basic Linker Func for per-call registration, then merge into ComponentLinker
-	basicLinker := component.NewLinker()
-
 	// Define example:service/handler@0.1.0
-	err := basicLinker.DefineInstance("example:service/handler@0.1.0").
+	err := linker.DefineInstance("example:service/handler@0.1.0").
 		Func("execute", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 			// Forward the call to the service's execute function
 			return serviceExecute.CallAndPostReturn(ctx, args...)
@@ -887,6 +877,5 @@ func defineHandlerInterface(linker *component.ComponentLinker, serviceExecute *c
 		return err
 	}
 
-	linker.MergeFrom(basicLinker)
 	return nil
 }

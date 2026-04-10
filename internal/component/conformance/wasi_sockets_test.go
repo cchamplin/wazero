@@ -8,8 +8,10 @@
 package conformance
 
 import (
+	"context"
 	"testing"
 
+	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/imports/wasip2/sockets"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/testing/require"
@@ -28,7 +30,9 @@ func TestWASISockets(t *testing.T) {
 	// invariant. sockets.Instantiate must register all socket-related
 	// interfaces with the linker.
 	t.Run("InstantiateRegistersInterfaces", func(t *testing.T) {
-		linker := component.NewLinker()
+		rt := wazero.NewRuntime(context.TODO())
+		defer rt.Close(context.TODO())
+		linker := component.NewComponentLinker(rt)
 		err := sockets.Instantiate(linker)
 		require.NoError(t, err)
 

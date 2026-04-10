@@ -81,7 +81,7 @@ func TestComponentConvert(t *testing.T) {
 	}
 
 	// Create linker and define host instance with multiply function
-	linker := component.NewLinker()
+	linker := component.NewComponentLinker(rt)
 
 	var multiplyCallCount int
 	err = linker.DefineInstance("host:math/ops").
@@ -103,15 +103,10 @@ func TestComponentConvert(t *testing.T) {
 	}
 	defer compiled.Close(ctx)
 
-	componentLinker := component.NewComponentLinker(rt)
-	componentLinker.MergeFrom(linker)
-
 	resourceTable := runtime.NewTable()
 	testCtx := component.WithResourceTable(ctx, resourceTable)
 
-
-
-	instance, err := componentLinker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
+	instance, err := linker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
 	if err != nil {
 		t.Skipf("pipeline limitation: Instantiate failed: %v", err)
 	}
@@ -183,7 +178,7 @@ func TestComponentConvert_NegativeTemperature(t *testing.T) {
 		t.Skipf("wasm-tools WAT compilation failed: %v", err)
 	}
 
-	linker := component.NewLinker()
+	linker := component.NewComponentLinker(rt)
 	err = linker.DefineInstance("host:math/ops").
 		Func("multiply", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 			a := args[0].S32()
@@ -202,15 +197,10 @@ func TestComponentConvert_NegativeTemperature(t *testing.T) {
 	}
 	defer compiled.Close(ctx)
 
-	componentLinker := component.NewComponentLinker(rt)
-	componentLinker.MergeFrom(linker)
-
 	resourceTable := runtime.NewTable()
 	testCtx := component.WithResourceTable(ctx, resourceTable)
 
-
-
-	instance, err := componentLinker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
+	instance, err := linker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
 	if err != nil {
 		t.Skipf("pipeline limitation: Instantiate failed: %v", err)
 	}
@@ -281,7 +271,7 @@ func TestComponentConvert_Zero(t *testing.T) {
 		t.Skipf("wasm-tools WAT compilation failed: %v", err)
 	}
 
-	linker := component.NewLinker()
+	linker := component.NewComponentLinker(rt)
 	err = linker.DefineInstance("host:math/ops").
 		Func("multiply", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 			a := args[0].S32()
@@ -300,15 +290,10 @@ func TestComponentConvert_Zero(t *testing.T) {
 	}
 	defer compiled.Close(ctx)
 
-	componentLinker := component.NewComponentLinker(rt)
-	componentLinker.MergeFrom(linker)
-
 	resourceTable := runtime.NewTable()
 	testCtx := component.WithResourceTable(ctx, resourceTable)
 
-
-
-	instance, err := componentLinker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
+	instance, err := linker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
 	if err != nil {
 		t.Skipf("pipeline limitation: Instantiate failed: %v", err)
 	}
@@ -384,7 +369,7 @@ func TestComponentConvert_HostFunctionCalled(t *testing.T) {
 		t.Skipf("wasm-tools WAT compilation failed: %v", err)
 	}
 
-	linker := component.NewLinker()
+	linker := component.NewComponentLinker(rt)
 
 	var multiplyCallCount int
 	var lastMultiplyArgs [2]int32
@@ -408,15 +393,10 @@ func TestComponentConvert_HostFunctionCalled(t *testing.T) {
 	}
 	defer compiled.Close(ctx)
 
-	componentLinker := component.NewComponentLinker(rt)
-	componentLinker.MergeFrom(linker)
-
 	resourceTable := runtime.NewTable()
 	testCtx := component.WithResourceTable(ctx, resourceTable)
 
-
-
-	instance, err := componentLinker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
+	instance, err := linker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
 	if err != nil {
 		t.Skipf("pipeline limitation: Instantiate failed: %v", err)
 	}
@@ -499,7 +479,7 @@ func TestComponentConvert_MultipleConversions(t *testing.T) {
 		t.Skipf("wasm-tools WAT compilation failed: %v", err)
 	}
 
-	linker := component.NewLinker()
+	linker := component.NewComponentLinker(rt)
 	err = linker.DefineInstance("host:math/ops").
 		Func("multiply", func(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 			a := args[0].S32()
@@ -518,15 +498,10 @@ func TestComponentConvert_MultipleConversions(t *testing.T) {
 	}
 	defer compiled.Close(ctx)
 
-	componentLinker := component.NewComponentLinker(rt)
-	componentLinker.MergeFrom(linker)
-
 	resourceTable := runtime.NewTable()
 	testCtx := component.WithResourceTable(ctx, resourceTable)
 
-
-
-	instance, err := componentLinker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
+	instance, err := linker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
 	if err != nil {
 		t.Skipf("pipeline limitation: Instantiate failed: %v", err)
 	}

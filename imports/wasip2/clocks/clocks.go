@@ -3,11 +3,11 @@
 package clocks
 
 import (
-	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/api"
 )
 
 // Instantiate registers all wasi:clocks interfaces with the linker.
-func Instantiate(linker *component.Linker) error {
+func Instantiate(linker api.ComponentLinker) error {
 	if err := instantiateWallClock(linker); err != nil {
 		return err
 	}

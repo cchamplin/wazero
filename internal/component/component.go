@@ -9,6 +9,11 @@ import (
 	"github.com/tetratelabs/wazero/internal/wasm"
 )
 
+type WazeroRuntime interface {
+	HostModuleInstantiator
+	CoreModuleInstantiator
+}
+
 // Component represents a parsed WebAssembly component.
 // Unlike core wasm modules, components can contain nested modules
 // and components, and use rich interface types.
@@ -398,7 +403,6 @@ type CanonicalOptions struct {
 	CoreTypeIdx    *uint32 // core type index for lowering
 	GC             bool    // use GC version of canonical ABI
 }
-
 
 // Export represents a component export.
 type Export struct {

@@ -8,8 +8,10 @@
 package conformance
 
 import (
+	"context"
 	"testing"
 
+	"github.com/tetratelabs/wazero"
 	wasiphttp "github.com/tetratelabs/wazero/imports/wasip2/http"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/testing/require"
@@ -28,7 +30,9 @@ func TestWASIHTTP(t *testing.T) {
 	// invariant. http.Instantiate must register the types, incoming-
 	// handler, and outgoing-handler interfaces.
 	t.Run("InstantiateRegistersInterfaces", func(t *testing.T) {
-		linker := component.NewLinker()
+		rt := wazero.NewRuntime(context.TODO())
+		defer rt.Close(context.TODO())
+		linker := component.NewComponentLinker(rt)
 		err := wasiphttp.Instantiate(linker)
 		require.NoError(t, err)
 

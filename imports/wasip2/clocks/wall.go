@@ -2,14 +2,13 @@
 
 // WIT source of truth: debug-vendored/WASI/proposals/clocks/wit/wall-clock.wit
 // Package version: wasi:clocks@0.2.9 (wazero targets wasi:clocks@0.2.0)
-//
 package clocks
 
 import (
 	"context"
 	"time"
 
-	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
@@ -38,7 +37,7 @@ func WallClockResolution() Datetime {
 	}
 }
 
-func instantiateWallClock(linker *component.Linker) error {
+func instantiateWallClock(linker api.ComponentLinker) error {
 	inst := linker.DefineInstance("wasi:clocks/wall-clock@0.2.0")
 
 	inst.Func("now", wallClockNow)

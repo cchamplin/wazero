@@ -3,10 +3,12 @@
 package io
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
 
+	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
@@ -123,7 +125,9 @@ func TestError_UnwrapWithErrorsPackage(t *testing.T) {
 }
 
 func TestInstantiateError(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := instantiateError(linker)
 	require.NoError(t, err)
 
@@ -144,7 +148,9 @@ func TestInstantiateError(t *testing.T) {
 }
 
 func TestInstantiateError_Duplicate(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 
 	// First registration should succeed
 	err := instantiateError(linker)

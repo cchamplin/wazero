@@ -2,7 +2,6 @@
 
 // WIT source of truth: debug-vendored/WASI/proposals/sockets/wit/{tcp,tcp-create-socket}.wit
 // Package version: wasi:sockets@0.2.9 (wazero targets wasi:sockets@0.2.0)
-//
 package sockets
 
 import (
@@ -10,13 +9,14 @@ import (
 	"fmt"
 	"net"
 
+	"github.com/tetratelabs/wazero/api"
 	wasipIO "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 // instantiateTcp registers wasi:sockets/tcp@0.2.0
-func instantiateTcp(linker *component.Linker) error {
+func instantiateTcp(linker api.ComponentLinker) error {
 	inst := linker.DefineInstance("wasi:sockets/tcp@0.2.0")
 
 	// tcp-socket resource
@@ -67,7 +67,7 @@ func instantiateTcp(linker *component.Linker) error {
 }
 
 // instantiateTcpCreateSocket registers wasi:sockets/tcp-create-socket@0.2.0
-func instantiateTcpCreateSocket(linker *component.Linker) error {
+func instantiateTcpCreateSocket(linker api.ComponentLinker) error {
 	inst := linker.DefineInstance("wasi:sockets/tcp-create-socket@0.2.0")
 
 	// create-tcp-socket: func(network: borrow<network>, address-family: ip-address-family) -> result<own<tcp-socket>, error-code>

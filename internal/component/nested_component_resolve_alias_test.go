@@ -1,7 +1,10 @@
 package component
 
 import (
+	"context"
 	"testing"
+
+	"github.com/tetratelabs/wazero"
 )
 
 // wasmtime reference: debug-vendored/wasmtime/crates/wasmtime/src/runtime/component/types.rs:1129-1141
@@ -43,7 +46,9 @@ func TestResolveExportTypeAlias_DirectType(t *testing.T) {
 		ExportName:  "my-resource",
 	}
 
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	got := l.resolveExportTypeAlias(parent, parentComp, alias)
 	if got == nil {
 		t.Fatal("expected non-nil TypeDef, got nil")
@@ -110,7 +115,9 @@ func TestResolveExportTypeAlias_NilParent(t *testing.T) {
 		ExportName:  "some-type",
 	}
 
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	got := l.resolveExportTypeAlias(parent, parentComp, alias)
 	if got != nil {
 		t.Fatalf("expected nil, got %+v", got)
@@ -147,7 +154,9 @@ func TestResolveExportTypeAlias_WrongExportKind(t *testing.T) {
 		ExportName:  "my-func",
 	}
 
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	got := l.resolveExportTypeAlias(parent, parentComp, alias)
 	if got != nil {
 		t.Fatalf("expected nil for wrong export kind, got %+v", got)

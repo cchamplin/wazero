@@ -3,8 +3,10 @@
 package random
 
 import (
+	"context"
 	"testing"
 
+	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
@@ -43,7 +45,9 @@ func TestInsecureSeed_Deterministic(t *testing.T) {
 }
 
 func TestInstantiateInsecure(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := instantiateInsecure(linker)
 	require.NoError(t, err)
 
@@ -64,7 +68,9 @@ func TestInstantiateInsecure(t *testing.T) {
 }
 
 func TestInstantiateInsecure_Duplicate(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 
 	// First registration should succeed
 	err := instantiateInsecure(linker)
@@ -76,7 +82,9 @@ func TestInstantiateInsecure_Duplicate(t *testing.T) {
 }
 
 func TestInstantiateInsecureSeed(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := instantiateInsecureSeed(linker)
 	require.NoError(t, err)
 
@@ -94,7 +102,9 @@ func TestInstantiateInsecureSeed(t *testing.T) {
 }
 
 func TestInstantiateInsecureSeed_Duplicate(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 
 	// First registration should succeed
 	err := instantiateInsecureSeed(linker)

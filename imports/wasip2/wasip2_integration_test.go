@@ -8,6 +8,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/component/types"
@@ -17,7 +18,9 @@ import (
 // TestInstantiateWithDefaultConfig verifies that all WASI Preview 2 interfaces
 // are properly registered with the linker when using the default configuration.
 func TestInstantiateWithDefaultConfig(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 
 	err := Instantiate(linker)
 	require.NoError(t, err)
@@ -70,7 +73,9 @@ func TestInstantiateWithDefaultConfig(t *testing.T) {
 // TestInstantiateWithCustomConfig verifies that custom configuration is properly
 // propagated when using InstantiateWithConfig.
 func TestInstantiateWithCustomConfig(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 
 	stdin := bytes.NewBufferString("custom input")
 	stdout := &bytes.Buffer{}
@@ -127,7 +132,9 @@ func TestFullWorkflow(t *testing.T) {
 		WithEnviron([]string{"HOME=/home/test", "PATH=/usr/bin"}).
 		WithArgs([]string{"myapp", "--verbose", "file.txt"})
 
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	table := runtime.NewTable()
 
 	// Create context with config and resource table
@@ -245,7 +252,9 @@ func TestDefaultConfigWithOSDefaults(t *testing.T) {
 // TestInstantiateIdempotent verifies that attempting to instantiate twice
 // returns an error for duplicate definitions.
 func TestInstantiateIdempotent(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewLinker(rt)
 
 	// First instantiation should succeed
 	err := Instantiate(linker)
@@ -289,7 +298,9 @@ func TestResourceTableIntegration(t *testing.T) {
 		WithStdin(stdin).
 		WithStdout(stdout)
 
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	table := runtime.NewTable()
 
 	ctx := WithConfig(context.Background(), config)
@@ -337,7 +348,9 @@ func TestResourceTableIntegration(t *testing.T) {
 
 // TestClocksIntegration verifies that clock interfaces are properly accessible.
 func TestClocksIntegration(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 
 	err := Instantiate(linker)
 	require.NoError(t, err)
@@ -395,7 +408,9 @@ func TestClocksIntegration(t *testing.T) {
 
 // TestRandomIntegration verifies that random interfaces produce values.
 func TestRandomIntegration(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 
 	err := Instantiate(linker)
 	require.NoError(t, err)
@@ -458,7 +473,9 @@ func TestRandomIntegration(t *testing.T) {
 
 // TestFilesystemPreopensIntegration verifies filesystem preopens are accessible.
 func TestFilesystemPreopensIntegration(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 
 	err := Instantiate(linker)
 	require.NoError(t, err)

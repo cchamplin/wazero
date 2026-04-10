@@ -206,7 +206,9 @@ func TestResourceLifecycle_LinkerDefinition(t *testing.T) {
 	}
 
 	// Create linker and define a resource type
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := linker.DefineInstance("test:resource/types@0.1.0").
 		Resource("store", destructor).
 		Build()
@@ -544,8 +546,6 @@ func TestResourceLifecycle_ComponentWithResource(t *testing.T) {
 	resourceTable := runtime.NewTable()
 	testCtx := component.WithResourceTable(ctx, resourceTable)
 
-
-
 	// Try to instantiate
 	instance, err := linker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
 	if err != nil {
@@ -611,7 +611,9 @@ func TestResourceLifecycle_ResourceConstructorCallback(t *testing.T) {
 	}
 
 	// Define the resource and constructor in a linker
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := linker.DefineInstance("test:kv/types@0.1.0").
 		Resource("store", destructor).
 		Build()
@@ -780,77 +782,4 @@ func TestResourceLifecycle_ResourceMethodCallback(t *testing.T) {
 // using ResourceTypeID.
 func TestResourceLifecycle_TypedResources(t *testing.T) {
 	t.Skip("NewResourceTypeID and NewWithType APIs removed in canonical-ABI unification")
-}
-
-// TestResourceLifecycle_MergeLinkers tests merging resource definitions
-// between linkers.
-func TestResourceLifecycle_MergeLinkers(t *testing.T) {
-	ctx := context.Background()
-	rt := wazero.NewRuntime(ctx)
-	defer rt.Close(ctx)
-
-	var destructor1Called, destructor2Called bool
-	var mu sync.Mutex
-
-	// Create first linker with one resource
-	linker1 := component.NewLinker()
-	err := linker1.DefineInstance("test:types/a@0.1.0").
-		Resource("res-a", func(rep uint32) {
-			mu.Lock()
-			destructor1Called = true
-			mu.Unlock()
-		}).
-		Build()
-	if err != nil {
-		t.Fatalf("DefineInstance linker1: %v", err)
-	}
-
-	// Create second linker with another resource
-	linker2 := component.NewLinker()
-	err = linker2.DefineInstance("test:types/b@0.1.0").
-		Resource("res-b", func(rep uint32) {
-			mu.Lock()
-			destructor2Called = true
-			mu.Unlock()
-		}).
-		Build()
-	if err != nil {
-		t.Fatalf("DefineInstance linker2: %v", err)
-	}
-
-	// Create component linker and merge both
-	componentLinker := component.NewComponentLinker(rt)
-	componentLinker.MergeFrom(linker1)
-	componentLinker.MergeFrom(linker2)
-
-	// Verify both are present
-	def1, ok1 := componentLinker.Get("test:types/a@0.1.0")
-	if !ok1 {
-		t.Error("Resource A not found after merge")
-	}
-
-	def2, ok2 := componentLinker.Get("test:types/b@0.1.0")
-	if !ok2 {
-		t.Error("Resource B not found after merge")
-	}
-
-	// Call destructors to verify
-	inst1 := def1.(*component.InstanceDef)
-	res1 := inst1.Exports["res-a"].(*component.ResourceDef)
-	res1.Destructor(1)
-
-	inst2 := def2.(*component.InstanceDef)
-	res2 := inst2.Exports["res-b"].(*component.ResourceDef)
-	res2.Destructor(2)
-
-	mu.Lock()
-	defer mu.Unlock()
-	if !destructor1Called {
-		t.Error("Destructor 1 was not called")
-	}
-	if !destructor2Called {
-		t.Error("Destructor 2 was not called")
-	}
-
-	t.Log("Merge linkers test passed")
 }

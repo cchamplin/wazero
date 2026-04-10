@@ -2,7 +2,6 @@
 
 // WIT source of truth: debug-vendored/WASI/proposals/http/wit/types.wit
 // Package version: wasi:http@0.2.9 (wazero targets wasi:http@0.2.0)
-//
 package http
 
 import (
@@ -10,6 +9,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/component/runtime"
@@ -17,7 +17,7 @@ import (
 )
 
 // Instantiate registers all wasi:http interfaces with the linker.
-func Instantiate(linker *component.Linker) error {
+func Instantiate(linker api.ComponentLinker) error {
 	if err := instantiateTypes(linker); err != nil {
 		return err
 	}
@@ -31,7 +31,7 @@ func Instantiate(linker *component.Linker) error {
 }
 
 // instantiateTypes registers wasi:http/types@0.2.0
-func instantiateTypes(linker *component.Linker) error {
+func instantiateTypes(linker api.ComponentLinker) error {
 	inst := linker.DefineInstance("wasi:http/types@0.2.0")
 
 	// ==================

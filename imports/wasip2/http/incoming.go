@@ -2,7 +2,6 @@
 
 // WIT source of truth: debug-vendored/WASI/proposals/http/wit/{types,handler,proxy}.wit
 // Package version: wasi:http@0.2.9 (wazero targets wasi:http@0.2.0)
-//
 package http
 
 import (
@@ -12,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/component/types"
@@ -23,7 +23,7 @@ import (
 const defaultHandlerTimeout = 30 * time.Second
 
 // instantiateIncomingHandler registers wasi:http/incoming-handler@0.2.0
-func instantiateIncomingHandler(linker *component.Linker) error {
+func instantiateIncomingHandler(linker api.ComponentLinker) error {
 	inst := linker.DefineInstance("wasi:http/incoming-handler@0.2.0")
 
 	// handle: func(request: own<incoming-request>, response-out: own<response-outparam>)

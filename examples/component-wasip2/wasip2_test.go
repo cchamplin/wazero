@@ -42,7 +42,7 @@ func TestWASIP2Plugin(t *testing.T) {
 	// that use pre-1.0 versions like 0.2.x)
 	linker.SetRelaxedSemverMatching(true)
 
-	// Merge WASI P2 interfaces into the linker with custom configuration
+	// Initialize WASI P2 interfaces into the linker with custom configuration
 	var stdout, stderr bytes.Buffer
 	wasiConfig := wasip2.NewConfig().
 		WithStdout(&stdout).
@@ -50,7 +50,7 @@ func TestWASIP2Plugin(t *testing.T) {
 		WithArgs([]string{"test"}).
 		WithEnviron([]string{})
 
-	if err := wasip2.MergeIntoWithConfig(linker, wasiConfig); err != nil {
+	if err := wasip2.InstantiateWithConfig(linker, wasiConfig); err != nil {
 		t.Fatal(err)
 	}
 

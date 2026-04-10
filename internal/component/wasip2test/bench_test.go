@@ -42,8 +42,8 @@ func newBenchInstance(b *testing.B) (api.Component, context.Context, func()) {
 	linker := rt.NewComponentLinker()
 	linker.SetRelaxedSemverMatching(true)
 
-	if err := wasip2.MergeInto(linker); err != nil {
-		b.Fatalf("wasip2.MergeInto: %v", err)
+	if err := wasip2.Instantiate(linker); err != nil {
+		b.Fatalf("wasip2.Instantiate: %v", err)
 	}
 
 	_ = linker.DefineInstance("test:repro/types").SkipValidation().Build()

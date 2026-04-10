@@ -2,7 +2,6 @@
 
 // WIT source of truth: debug-vendored/WASI/proposals/io/wit/poll.wit
 // Package version: wasi:io@0.2.9 (wazero targets wasi:io@0.2.0)
-//
 package io
 
 import (
@@ -10,6 +9,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/component/types"
@@ -158,7 +158,7 @@ func getPollable(ctx context.Context, handle uint32) (*Pollable, error) {
 	return p, nil
 }
 
-func instantiatePoll(linker *component.Linker) error {
+func instantiatePoll(linker api.ComponentLinker) error {
 	inst := linker.DefineInstance("wasi:io/poll@0.2.0")
 
 	// Define pollable resource

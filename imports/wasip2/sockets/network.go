@@ -2,7 +2,6 @@
 
 // WIT source of truth: debug-vendored/WASI/proposals/sockets/wit/{network,instance-network,ip-name-lookup}.wit
 // Package version: wasi:sockets@0.2.9 (wazero targets wasi:sockets@0.2.0)
-//
 package sockets
 
 import (
@@ -10,6 +9,7 @@ import (
 	"net"
 	"strings"
 
+	"github.com/tetratelabs/wazero/api"
 	wasipIO "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/component/runtime"
@@ -17,7 +17,7 @@ import (
 )
 
 // instantiateNetwork registers wasi:sockets/network@0.2.0
-func instantiateNetwork(linker *component.Linker) error {
+func instantiateNetwork(linker api.ComponentLinker) error {
 	inst := linker.DefineInstance("wasi:sockets/network@0.2.0")
 
 	// network resource - represents a network capability
@@ -31,7 +31,7 @@ func instantiateNetwork(linker *component.Linker) error {
 }
 
 // instantiateInstanceNetwork registers wasi:sockets/instance-network@0.2.0
-func instantiateInstanceNetwork(linker *component.Linker) error {
+func instantiateInstanceNetwork(linker api.ComponentLinker) error {
 	inst := linker.DefineInstance("wasi:sockets/instance-network@0.2.0")
 
 	// instance-network: func() -> own<network>
@@ -58,7 +58,7 @@ func instanceNetwork(ctx context.Context, _ *types.TypeFunc, args []types.Val) (
 }
 
 // instantiateIpNameLookup registers wasi:sockets/ip-name-lookup@0.2.0
-func instantiateIpNameLookup(linker *component.Linker) error {
+func instantiateIpNameLookup(linker api.ComponentLinker) error {
 	inst := linker.DefineInstance("wasi:sockets/ip-name-lookup@0.2.0")
 
 	// resolve-address-stream resource
@@ -260,4 +260,3 @@ func networkErrorCode(ctx context.Context, _ *types.TypeFunc, args []types.Val) 
 	}
 	return []types.Val{types.ValOption(nil)}, nil
 }
-

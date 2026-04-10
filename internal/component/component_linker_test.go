@@ -1,7 +1,7 @@
 // internal/component/component_linker_test.go
 //
 // Tests for the ComponentLinker: DefineFunc, DefineInstance, DefineResource,
-// MergeFrom, post-return functions, ordered instantiation, and type checking.
+// Initialize, post-return functions, ordered instantiation, and type checking.
 //
 // Restored from Session 0 compile-fix stubs (Task 17). Adapted to the
 // current HostFunc signature and ComponentLinker API.
@@ -11,6 +11,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/internal/component/runtime"
 	"github.com/tetratelabs/wazero/internal/component/types"
@@ -25,7 +26,9 @@ import (
 //
 // Spec: Component-model host function definition.
 func TestComponentLinkerDefineFunc(t *testing.T) {
-	linker := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := NewComponentLinker(rt)
 
 	err := linker.DefineFunc("test:api@1.0.0", "hello", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 		return []types.Val{types.ValString("Hello!")}, nil
@@ -46,7 +49,9 @@ func TestComponentLinkerDefineFunc(t *testing.T) {
 //
 // Spec: Component-model instance definition with function exports.
 func TestComponentLinkerDefineInstance(t *testing.T) {
-	linker := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := NewComponentLinker(rt)
 
 	err := linker.DefineInstance("wasi:cli/environment@0.2.0").
 		Func("get-environment", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
@@ -70,40 +75,13 @@ func TestComponentLinkerDefineInstance(t *testing.T) {
 
 // Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/
 //
-//	component/linker.rs (MergeFrom copies definitions between linkers).
-//
-// No counterpart (justified): MergeFrom is a wazero convenience API that
-// copies definitions from a basic Linker into a ComponentLinker. Wasmtime
-// does not have a separate Linker/ComponentLinker split.
-func TestComponentLinkerMergeFrom(t *testing.T) {
-	basic := NewLinker()
-	err := basic.DefineFunc("test@1.0.0", "fn", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
-		return []types.Val{types.ValS32(42)}, nil
-	})
-	require.NoError(t, err)
-
-	cl := NewComponentLinker(nil)
-	cl.MergeFrom(basic)
-
-	// The definition should now be in the ComponentLinker
-	def, err := cl.MatchImport("test@1.0.0/fn")
-	require.NoError(t, err)
-	require.NotNil(t, def)
-
-	funcDef, ok := def.(*FuncDef)
-	require.True(t, ok)
-	results, err := funcDef.Callback(context.Background(), nil, nil)
-	require.NoError(t, err)
-	require.Equal(t, int32(42), results[0].S32())
-}
-
-// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/
-//
 //	component/linker.rs (resource definition in LinkerInstance).
 //
 // Spec: Component-model resource definition with destructor.
 func TestComponentLinkerDefineResource(t *testing.T) {
-	linker := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := NewComponentLinker(rt)
 
 	destroyed := false
 	err := linker.DefineResource("wasi:io/streams@0.2.0", "input-stream", func(rep uint32) {
@@ -189,7 +167,9 @@ func TestPostReturnNotCalledWhenNil(t *testing.T) {
 //
 // Spec: Component-model ordered core instance instantiation.
 func TestComponentLinker_OrderedInstantiation(t *testing.T) {
-	linker := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := NewComponentLinker(rt)
 
 	// Verify that the linker can resolve imports from previously defined
 	// definitions and that the MatchImport infrastructure works end-to-end.
@@ -254,7 +234,9 @@ func TestComponentLinker_TypeCheckingIntegration(t *testing.T) {
 		component: c,
 	}
 
-	linker := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := NewComponentLinker(rt)
 
 	err := linker.DefineFunc("test", "fn", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 		return []types.Val{types.ValString("wrong")}, nil
@@ -290,9 +272,9 @@ type dtorMockModule struct {
 	fn         api.Function
 }
 
-func (m *dtorMockModule) String() string                       { return "dtorMock" }
-func (m *dtorMockModule) Name() string                         { return "dtorMock" }
-func (m *dtorMockModule) Memory() api.Memory                   { return nil }
+func (m *dtorMockModule) String() string     { return "dtorMock" }
+func (m *dtorMockModule) Name() string       { return "dtorMock" }
+func (m *dtorMockModule) Memory() api.Memory { return nil }
 func (m *dtorMockModule) ExportedFunction(name string) api.Function {
 	if name == m.exportName {
 		return m.fn
@@ -310,8 +292,8 @@ func (m *dtorMockModule) ExportedGlobal(string) api.Global { return nil }
 func (m *dtorMockModule) CloseWithExitCode(_ context.Context, _ uint32) error {
 	return nil
 }
-func (m *dtorMockModule) IsClosed() bool               { return false }
-func (m *dtorMockModule) Close(context.Context) error   { return nil }
+func (m *dtorMockModule) IsClosed() bool              { return false }
+func (m *dtorMockModule) Close(context.Context) error { return nil }
 
 // Spec: definitions.py:351-361 ResourceType {dtor, dtor_async, dtor_callback}.
 // Wasmtime parallel: runtime/component/instance.rs post-instantiation
@@ -323,7 +305,9 @@ func (m *dtorMockModule) Close(context.Context) error   { return nil }
 // actual core destructor function.
 func TestResolvePendingDtors(t *testing.T) {
 	t.Run("resolves destructor from core instance", func(t *testing.T) {
-		linker := NewComponentLinker(nil)
+		rt := wazero.NewRuntime(context.TODO())
+		defer rt.Close(context.TODO())
+		linker := NewComponentLinker(rt)
 		inst := NewInstance(nil, 1, nil)
 
 		// Set up a mock core instance at index 0 with a "dtor" export.
@@ -357,7 +341,9 @@ func TestResolvePendingDtors(t *testing.T) {
 	})
 
 	t.Run("skips already resolved dtors", func(t *testing.T) {
-		linker := NewComponentLinker(nil)
+		rt := wazero.NewRuntime(context.TODO())
+		defer rt.Close(context.TODO())
+		linker := NewComponentLinker(rt)
 		inst := NewInstance(nil, 1, nil)
 
 		existingFn := &dtorMockFunction{name: "existing"}
@@ -376,7 +362,9 @@ func TestResolvePendingDtors(t *testing.T) {
 	})
 
 	t.Run("leaves unresolvable dtors with nil fn", func(t *testing.T) {
-		linker := NewComponentLinker(nil)
+		rt := wazero.NewRuntime(context.TODO())
+		defer rt.Close(context.TODO())
+		linker := NewComponentLinker(rt)
 		inst := NewInstance(nil, 1, nil)
 		inst.coreInstances = []api.Module{} // no core instances
 
@@ -399,7 +387,9 @@ func TestResolvePendingDtors(t *testing.T) {
 	})
 
 	t.Run("clears pendingDtors after resolution", func(t *testing.T) {
-		linker := NewComponentLinker(nil)
+		rt := wazero.NewRuntime(context.TODO())
+		defer rt.Close(context.TODO())
+		linker := NewComponentLinker(rt)
 		inst := NewInstance(nil, 1, nil)
 
 		funcSpace := NewCoreFuncIndexSpace()
@@ -455,7 +445,9 @@ func TestComponentLinker_DefineUnknownImportsAsTraps(t *testing.T) {
 			},
 		}
 		compiled := &CompiledComponent{component: c}
-		linker := NewComponentLinker(nil)
+		rt := wazero.NewRuntime(context.TODO())
+		defer rt.Close(context.TODO())
+		linker := NewComponentLinker(rt)
 
 		// Without DefineUnknownImportsAsTraps, instantiation should fail.
 		_, err := linker.Instantiate(context.Background(), compiled)
@@ -490,7 +482,9 @@ func TestComponentLinker_DefineUnknownImportsAsTraps(t *testing.T) {
 			},
 		}
 		compiled := &CompiledComponent{component: c}
-		linker := NewComponentLinker(nil)
+		rt := wazero.NewRuntime(context.TODO())
+		defer rt.Close(context.TODO())
+		linker := NewComponentLinker(rt)
 		linker.DefineUnknownImportsAsTraps()
 
 		// With the flag, instantiation should succeed.
@@ -532,7 +526,9 @@ func TestComponentLinker_DefineUnknownImportsAsTraps(t *testing.T) {
 			},
 		}
 		compiled := &CompiledComponent{component: c}
-		linker := NewComponentLinker(nil)
+		rt := wazero.NewRuntime(context.TODO())
+		defer rt.Close(context.TODO())
+		linker := NewComponentLinker(rt)
 		linker.DefineUnknownImportsAsTraps()
 
 		inst, err := linker.Instantiate(context.Background(), compiled)
@@ -567,7 +563,9 @@ func TestComponentLinker_DefineUnknownImportsAsTraps(t *testing.T) {
 			},
 		}
 		compiled := &CompiledComponent{component: c}
-		linker := NewComponentLinker(nil)
+		rt := wazero.NewRuntime(context.TODO())
+		defer rt.Close(context.TODO())
+		linker := NewComponentLinker(rt)
 		linker.DefineUnknownImportsAsTraps()
 
 		called := false
@@ -593,7 +591,9 @@ func TestComponentLinker_DefineUnknownImportsAsTraps(t *testing.T) {
 
 // TestMakeTrapStub tests the trap stub creation directly.
 func TestMakeTrapStub(t *testing.T) {
-	linker := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := NewComponentLinker(rt)
 
 	t.Run("func stub returns trap error", func(t *testing.T) {
 		imp := &Import{

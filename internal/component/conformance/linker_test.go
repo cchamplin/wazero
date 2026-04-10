@@ -14,6 +14,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
@@ -29,7 +30,9 @@ import (
 // embedder linker surface; canonical-abi run_tests.py does not
 // exercise the host linker.
 func TestLinker_OldImportNewItem(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 
 	hostFn := func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 		return []types.Val{types.ValS32(42)}, nil
@@ -58,7 +61,9 @@ func TestLinker_OldImportNewItem(t *testing.T) {
 // embedder linker surface; canonical-abi run_tests.py does not
 // exercise the host linker.
 func TestLinker_NewImportOldItem(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 
 	hostFn := func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 		return nil, nil
@@ -83,7 +88,9 @@ func TestLinker_NewImportOldItem(t *testing.T) {
 // embedder linker surface; canonical-abi run_tests.py does not
 // exercise the host linker.
 func TestLinker_SelectsMaxVersion(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 
 	versions := []string{"1.0.0", "1.0.1", "1.0.2", "1.1.0", "1.2.0"}
 	for _, ver := range versions {
@@ -113,7 +120,9 @@ func TestLinker_SelectsMaxVersion(t *testing.T) {
 // embedder linker surface; canonical-abi run_tests.py does not
 // exercise the host linker.
 func TestLinker_MajorVersionMismatch(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 
 	hostFn := func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 		return nil, nil
@@ -126,7 +135,7 @@ func TestLinker_MajorVersionMismatch(t *testing.T) {
 	require.Error(t, err)
 	require.Nil(t, def)
 
-	linker2 := component.NewLinker()
+	linker2 := component.NewComponentLinker(rt)
 	err = linker2.DefineFunc("test:api@1.0.0", "fn", hostFn)
 	require.NoError(t, err)
 
@@ -150,7 +159,9 @@ func TestLinker_Pre1_0_SemverRules(t *testing.T) {
 	}
 
 	// 0.1.x is not compatible with 0.2.x.
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 	err := linker.DefineFunc("test:api@0.2.0", "fn", hostFn)
 	require.NoError(t, err)
 
@@ -159,7 +170,7 @@ func TestLinker_Pre1_0_SemverRules(t *testing.T) {
 	require.Nil(t, def)
 
 	// 0.1.1 satisfies 0.1.0 (patch bump is compatible).
-	linker2 := component.NewLinker()
+	linker2 := component.NewComponentLinker(rt)
 	err = linker2.DefineFunc("test:api@0.1.1", "fn", hostFn)
 	require.NoError(t, err)
 
@@ -168,7 +179,7 @@ func TestLinker_Pre1_0_SemverRules(t *testing.T) {
 	require.NotNil(t, def)
 
 	// 0.1.0 does not satisfy 0.1.1 (newer patch required).
-	linker3 := component.NewLinker()
+	linker3 := component.NewComponentLinker(rt)
 	err = linker3.DefineFunc("test:api@0.1.0", "fn", hostFn)
 	require.NoError(t, err)
 
@@ -187,7 +198,9 @@ func TestLinker_Pre1_0_SemverRules(t *testing.T) {
 // embedder linker surface; canonical-abi run_tests.py does not
 // exercise the host linker.
 func TestLinker_MinorVersionBump(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 
 	hostFn := func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 		return nil, nil
@@ -219,7 +232,9 @@ func TestLinker_MinorVersionBump(t *testing.T) {
 // embedder linker surface; canonical-abi run_tests.py does not
 // exercise the host linker.
 func TestImport_FunctionsInInstances(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 
 	addCalled := false
 	mulCalled := false
@@ -278,7 +293,9 @@ func TestImport_FunctionsInInstances(t *testing.T) {
 // embedder linker surface; canonical-abi run_tests.py does not
 // exercise the host linker.
 func TestImport_MissingImport(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 
 	comp := &component.Component{
 		Imports: []component.Import{
@@ -306,7 +323,9 @@ func TestImport_MissingImport(t *testing.T) {
 // embedder linker surface; canonical-abi run_tests.py does not
 // exercise the host linker.
 func TestImport_ResourceWithDestructor(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 
 	destructorCalled := false
 	var destroyedRep uint32
@@ -341,7 +360,9 @@ func TestImport_ResourceWithDestructor(t *testing.T) {
 // embedder linker surface; canonical-abi run_tests.py does not
 // exercise the host linker.
 func TestImport_ResourceInInstance(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 
 	destructorCalled := false
 
@@ -378,7 +399,9 @@ func TestImport_ResourceInInstance(t *testing.T) {
 // embedder linker surface; canonical-abi run_tests.py does not
 // exercise the host linker.
 func TestImport_DuplicateDefinition(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 
 	hostFn := func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 		return nil, nil
@@ -400,7 +423,9 @@ func TestImport_DuplicateDefinition(t *testing.T) {
 // embedder linker surface; canonical-abi run_tests.py does not
 // exercise the host linker.
 func TestImport_DuplicateInstanceDefinition(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 
 	err := linker.DefineInstance("test:ns@1.0.0").Build()
 	require.NoError(t, err)
@@ -419,7 +444,9 @@ func TestImport_DuplicateInstanceDefinition(t *testing.T) {
 // embedder linker surface; canonical-abi run_tests.py does not
 // exercise the host linker.
 func TestImport_NoVersion(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 
 	hostFn := func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 		return nil, nil
@@ -447,7 +474,9 @@ func TestImport_NoVersion(t *testing.T) {
 // embedder linker surface; canonical-abi run_tests.py does not
 // exercise the host linker.
 func TestImport_InstantiateWithResolvedImports(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 
 	hostFn := func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 		return nil, nil
@@ -489,7 +518,9 @@ func TestImport_InstantiateWithResolvedImports(t *testing.T) {
 // embedder linker surface; canonical-abi run_tests.py does not
 // exercise the host linker.
 func TestImport_DynamicHostFunc(t *testing.T) {
-	linker := component.NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	linker := component.NewComponentLinker(rt)
 
 	called := false
 	echo := func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {

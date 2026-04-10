@@ -5,6 +5,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
@@ -34,7 +35,9 @@ func TestTypeIndexOutOfRange(t *testing.T) {
 		}},
 	}
 	compiled := NewCompiledComponent(c, nil, nil)
-	l := NewComponentLinker(nil)
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 	err := l.DefineFunc("ns", "f", func(_ context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val, error) {
 		return args, nil
 	})
@@ -88,7 +91,9 @@ func TestDeepNesting(t *testing.T) {
 // No counterpart (justified): wazero API invariant — empty linker definitions
 // produce valid empty instance.
 func TestLinkerEmptyDefinitions(t *testing.T) {
-	l := NewLinker()
+	rt := wazero.NewRuntime(context.TODO())
+	defer rt.Close(context.TODO())
+	l := NewComponentLinker(rt)
 
 	// Try to match an import with no definitions
 	_, err := l.MatchImport("wasi:test/thing@1.0.0")

@@ -2,7 +2,6 @@
 // It provides environment, arguments, standard streams, and terminal access.
 // WIT source of truth: debug-vendored/WASI/proposals/cli/wit/{environment,exit,stdio,terminal}.wit
 // Package version: wasi:cli@0.2.9 (wazero targets wasi:cli@0.2.0)
-//
 package cli
 
 import (
@@ -11,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/tetratelabs/wazero/api"
 	wasip2io "github.com/tetratelabs/wazero/imports/wasip2/io"
 	"github.com/tetratelabs/wazero/internal/component"
 	"github.com/tetratelabs/wazero/internal/component/runtime"
@@ -120,7 +120,7 @@ func (e *ExitError) Error() string {
 }
 
 // Instantiate registers all wasi:cli interfaces with the linker.
-func Instantiate(linker *component.Linker) error {
+func Instantiate(linker api.ComponentLinker) error {
 	if err := instantiateEnvironment(linker); err != nil {
 		return err
 	}
@@ -155,7 +155,7 @@ func Instantiate(linker *component.Linker) error {
 }
 
 // instantiateEnvironment registers wasi:cli/environment@0.2.0
-func instantiateEnvironment(linker *component.Linker) error {
+func instantiateEnvironment(linker api.ComponentLinker) error {
 	inst := linker.DefineInstance("wasi:cli/environment@0.2.0")
 
 	inst.Func("get-environment", getEnvironment)
@@ -220,7 +220,7 @@ func initialCwd(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]typ
 }
 
 // instantiateExit registers wasi:cli/exit@0.2.0
-func instantiateExit(linker *component.Linker) error {
+func instantiateExit(linker api.ComponentLinker) error {
 	inst := linker.DefineInstance("wasi:cli/exit@0.2.0")
 
 	inst.Func("exit", exit)
@@ -243,7 +243,7 @@ func exit(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types.Val
 }
 
 // instantiateStdin registers wasi:cli/stdin@0.2.0
-func instantiateStdin(linker *component.Linker) error {
+func instantiateStdin(linker api.ComponentLinker) error {
 	inst := linker.DefineInstance("wasi:cli/stdin@0.2.0")
 
 	// get-stdin: func() -> own<input-stream>
@@ -275,7 +275,7 @@ func getStdin(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]types
 }
 
 // instantiateStdout registers wasi:cli/stdout@0.2.0
-func instantiateStdout(linker *component.Linker) error {
+func instantiateStdout(linker api.ComponentLinker) error {
 	inst := linker.DefineInstance("wasi:cli/stdout@0.2.0")
 
 	// get-stdout: func() -> own<output-stream>
@@ -308,7 +308,7 @@ func getStdout(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]type
 }
 
 // instantiateStderr registers wasi:cli/stderr@0.2.0
-func instantiateStderr(linker *component.Linker) error {
+func instantiateStderr(linker api.ComponentLinker) error {
 	inst := linker.DefineInstance("wasi:cli/stderr@0.2.0")
 
 	// get-stderr: func() -> own<output-stream>
@@ -341,7 +341,7 @@ func getStderr(ctx context.Context, _ *types.TypeFunc, args []types.Val) ([]type
 }
 
 // instantiateTerminalInput registers wasi:cli/terminal-input@0.2.0
-func instantiateTerminalInput(linker *component.Linker) error {
+func instantiateTerminalInput(linker api.ComponentLinker) error {
 	inst := linker.DefineInstance("wasi:cli/terminal-input@0.2.0")
 
 	// Define terminal-input resource
@@ -353,7 +353,7 @@ func instantiateTerminalInput(linker *component.Linker) error {
 }
 
 // instantiateTerminalOutput registers wasi:cli/terminal-output@0.2.0
-func instantiateTerminalOutput(linker *component.Linker) error {
+func instantiateTerminalOutput(linker api.ComponentLinker) error {
 	inst := linker.DefineInstance("wasi:cli/terminal-output@0.2.0")
 
 	// Define terminal-output resource
@@ -365,7 +365,7 @@ func instantiateTerminalOutput(linker *component.Linker) error {
 }
 
 // instantiateTerminalStdin registers wasi:cli/terminal-stdin@0.2.0
-func instantiateTerminalStdin(linker *component.Linker) error {
+func instantiateTerminalStdin(linker api.ComponentLinker) error {
 	inst := linker.DefineInstance("wasi:cli/terminal-stdin@0.2.0")
 
 	// get-terminal-stdin: func() -> option<own<terminal-input>>
@@ -410,7 +410,7 @@ func getTerminalStdin(ctx context.Context, _ *types.TypeFunc, args []types.Val) 
 }
 
 // instantiateTerminalStdout registers wasi:cli/terminal-stdout@0.2.0
-func instantiateTerminalStdout(linker *component.Linker) error {
+func instantiateTerminalStdout(linker api.ComponentLinker) error {
 	inst := linker.DefineInstance("wasi:cli/terminal-stdout@0.2.0")
 
 	// get-terminal-stdout: func() -> option<own<terminal-output>>
@@ -455,7 +455,7 @@ func getTerminalStdout(ctx context.Context, _ *types.TypeFunc, args []types.Val)
 }
 
 // instantiateTerminalStderr registers wasi:cli/terminal-stderr@0.2.0
-func instantiateTerminalStderr(linker *component.Linker) error {
+func instantiateTerminalStderr(linker api.ComponentLinker) error {
 	inst := linker.DefineInstance("wasi:cli/terminal-stderr@0.2.0")
 
 	// get-terminal-stderr: func() -> option<own<terminal-output>>
