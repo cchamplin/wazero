@@ -14,10 +14,10 @@ import (
 
 // decodeInstanceTypeDef decodes an instance type definition.
 //
-// In Session 0 the nested declarations are parsed for bytes-correctness
+// Currently the nested declarations are parsed for bytes-correctness
 // only: their shapes are not threaded into any structural type table, so
-// nested type slots carry empty payloads. Session 2 will revisit this
-// with a scope-aware nested decoder.
+// nested type slots carry empty payloads. TODO: revisit this with a
+// scope-aware nested decoder for full nested instance/component type support.
 //
 // Format: 0x42 vec(instancetypedecl)
 // instancetypedecl ::= 0x00 core:type   (core type)
@@ -221,13 +221,13 @@ func decodeCoreTypeDefForInstance(r *bytes.Reader) (*component.CoreTypeDef, erro
 // decodeNestedTypeDef decodes a type definition nested within an
 // instance/component type.
 //
-// Session 0 scope: the nested decoder parses enough bytes to keep the
-// binary stream in lockstep with the spec. Composite value-type payloads
-// are consumed via skipDefinedType so the outer stream advances
-// correctly, but no interning happens and the returned TypeDef carries
-// only the Kind discriminator. Session 2 will wire a nested
-// *typeScope / *ComponentTypesBuilder through this path so the nested
-// types actually land in the parent component's table.
+// Currently the nested decoder parses enough bytes to keep the binary
+// stream in lockstep with the spec. Composite value-type payloads are
+// consumed via skipDefinedType so the outer stream advances correctly,
+// but no interning happens and the returned TypeDef carries only the
+// Kind discriminator. TODO: wire a nested *typeScope /
+// *ComponentTypesBuilder through this path so the nested types actually
+// land in the parent component's table.
 func decodeNestedTypeDef(r *bytes.Reader) (*component.TypeDef, error) {
 	opcode, err := r.ReadByte()
 	if err != nil {

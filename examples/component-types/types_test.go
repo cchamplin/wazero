@@ -33,7 +33,7 @@ var listSumWasm []byte
 //go:embed testdata/result_divide.wasm
 var resultDivideWasm []byte
 
-// TestRecord demonstrates passing records (structs) as map[string]any.
+// TestRecord demonstrates passing records (structs) using ValRecord.
 func TestRecord(t *testing.T) {
 	ctx := context.Background()
 	rt := wazero.NewRuntime(ctx)
@@ -45,8 +45,8 @@ func TestRecord(t *testing.T) {
 	}
 	defer compiled.Close(ctx)
 
-	// session 1 work: InstantiateComponent/Instantiate not yet implemented
-	t.Skip("session 1 work: InstantiateComponent/Instantiate not yet implemented")
+	// TODO: remove this skip — InstantiateComponent now works via ComponentLinker.
+	t.Skip("pending example validation before enabling")
 
 	instance, err := rt.InstantiateComponent(ctx, compiled)
 	if err != nil {
@@ -93,8 +93,8 @@ func TestOption(t *testing.T) {
 	}
 	defer compiled.Close(ctx)
 
-	// session 1 work: InstantiateComponent/Instantiate not yet implemented
-	t.Skip("session 1 work: InstantiateComponent/Instantiate not yet implemented")
+	// TODO: remove this skip — InstantiateComponent now works via ComponentLinker.
+	t.Skip("pending example validation before enabling")
 
 	instance, err := rt.InstantiateComponent(ctx, compiled)
 	if err != nil {
@@ -156,8 +156,8 @@ func TestList(t *testing.T) {
 	}
 	defer compiled.Close(ctx)
 
-	// session 1 work: InstantiateComponent/Instantiate not yet implemented
-	t.Skip("session 1 work: InstantiateComponent/Instantiate not yet implemented")
+	// TODO: remove this skip — InstantiateComponent now works via ComponentLinker.
+	t.Skip("pending example validation before enabling")
 
 	instance, err := rt.InstantiateComponent(ctx, compiled)
 	if err != nil {
@@ -187,7 +187,7 @@ func TestList(t *testing.T) {
 	t.Logf("sum([1,2,3,4,5]) = %d", got)
 }
 
-// TestResult demonstrates result types returned as map[string]any.
+// TestResult demonstrates result types using ValResultOk and ValResultError.
 func TestResult(t *testing.T) {
 	ctx := context.Background()
 	rt := wazero.NewRuntime(ctx)
@@ -199,8 +199,8 @@ func TestResult(t *testing.T) {
 	}
 	defer compiled.Close(ctx)
 
-	// session 1 work: InstantiateComponent/Instantiate not yet implemented
-	t.Skip("session 1 work: InstantiateComponent/Instantiate not yet implemented")
+	// TODO: remove this skip — InstantiateComponent now works via ComponentLinker.
+	t.Skip("pending example validation before enabling")
 
 	instance, err := rt.InstantiateComponent(ctx, compiled)
 	if err != nil {

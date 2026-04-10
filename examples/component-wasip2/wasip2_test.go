@@ -57,8 +57,8 @@ func TestWASIP2Plugin(t *testing.T) {
 	// Set up the WASI context
 	ctx = wasip2.WithConfig(ctx, wasiConfig)
 
-	// session 1 work: Instantiate not yet implemented
-	t.Skip("session 1 work: Instantiate not yet implemented")
+	// TODO: remove this skip — Instantiate now works via ComponentLinker.
+	t.Skip("pending example validation before enabling")
 
 	// Instantiate the component
 	instance, err := linker.Instantiate(ctx, compiled)

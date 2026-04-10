@@ -447,7 +447,7 @@ func (b *ComponentTypesBuilder) InternErrorContextTable() ValType {
 // InternAbstractResource creates a new Abstract TypeResourceTable entry
 // and returns the index. Each call returns a fresh index — abstract
 // resource declarations are distinct by construction. Concrete promotion
-// at instantiation time is Session 2 work.
+// happens at instantiation time in ComponentLinker.bindResourceTypes.
 func (b *ComponentTypesBuilder) InternAbstractResource() ResourceTableIdx {
 	b.panicIfFinished()
 	idx := uint32(len(b.ct.ResourceTables))

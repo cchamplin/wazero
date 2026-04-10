@@ -91,8 +91,7 @@ const (
 // Built by ComponentTypesBuilder during binary decode, frozen at Finish,
 // and threaded through all subsequent lift/lower / validation / linking.
 // One pointer identity per compiled component drives the fast-path
-// type-equality short-circuit during cross-component type checking
-// (added in Session 2).
+// type-equality short-circuit during cross-component type checking.
 type ComponentTypes struct {
 	Records            []TypeRecord
 	Variants           []TypeVariant

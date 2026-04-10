@@ -12,8 +12,8 @@
 //
 // Scope-local index tracking is provided by typeScope: binary scope-local
 // index N corresponds to scope.entries[N], tagged as either a value type
-// or a resource declaration (or, in Session 2, an instance/component type
-// declaration). Lookup rules are in decodeValType.
+// or a resource declaration (or an instance/component type declaration
+// once nested type support is complete). Lookup rules are in decodeValType.
 
 package binary
 
@@ -48,7 +48,7 @@ const (
 // interns an Abstract TypeResourceTable entry on the builder and records
 // the resulting ResourceTableIdx in the scope. The destructor /
 // callback function indices remain in ResourceTypeDef until runtime
-// linking consumes them (Session 2 work).
+// linking consumes them (via ComponentLinker.bindResourceTypes).
 type ResourceTypeDef struct {
 	// Destructor is the function index of the destructor, or nil if none.
 	Destructor *uint32
@@ -70,11 +70,11 @@ type scopeEntryKind uint8
 const (
 	scopeEntryValType  scopeEntryKind = iota // value type (record, variant, list, ...)
 	scopeEntryResource                       // resource declaration
-	// Session 2: scopeEntryInstance, scopeEntryComponent
+	// TODO: scopeEntryInstance, scopeEntryComponent for full nested type support
 	scopeEntryOther // function / instance / component type — not addressable as a ValType
 	scopeEntryAlias // unresolved type alias (export or outer) — may resolve to any kind;
 	// own<>/borrow<> are allowed to reference these slots because the actual
-	// kind can only be determined after cross-component resolution (Session 2).
+	// kind can only be determined after cross-component resolution.
 	// An abstract resource placeholder is interned at append time so that
 	// own<>/borrow<> handle construction succeeds.
 )

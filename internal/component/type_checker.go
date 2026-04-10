@@ -34,11 +34,10 @@ func NewTypeChecker(c *Component) *TypeChecker {
 
 // checkFuncType validates that actual function type matches expected.
 //
-// Session 0 compile-fix: the previous walk over NamedValType{} pairs is
-// gone because TypeFunc now stores params/results as interned tuple
-// ValTypes referenced via ComponentTypes.Tuples. Compare by shallow
-// equality only; full structural subtyping is Session 2 work that will
-// use the canonical ComponentTypes identity instead of walking per-field.
+// TypeFunc stores params/results as interned tuple ValTypes referenced via
+// ComponentTypes.Tuples. Compare by shallow equality only; TODO: full
+// structural subtyping will use the canonical ComponentTypes identity
+// instead of walking per-field.
 func (tc *TypeChecker) checkFuncType(expected, actual *types.TypeFunc) error {
 	if expected == nil || actual == nil {
 		if expected != actual {

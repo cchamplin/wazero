@@ -138,16 +138,10 @@ func Instantiate(ctx context.Context, instantiator ModuleInstantiator, c *Compon
 			}
 		}
 
-		// Session 0 compile-fix: resolving canon lift's TypeIdx to a
-		// *types.TypeFunc requires the Task 13 binary decoder rewrite and
-		// the Session 2 TypeDef/ComponentTypes wiring. Until then we wire
-		// the export with a nil funcType; the ExportedFunc.Call body
-		// panics anyway until Session 1 replaces it.
-		// C8-b: ExportedFunc now carries a HostFunc impl closure
-		// instead of linker-time fields. This legacy free-function
-		// Instantiate path predates ComponentLinker.Instantiate and
-		// does not build the closure; Call will report "no impl"
-		// until the caller migrates to ComponentLinker.
+		// This legacy free-function Instantiate path predates
+		// ComponentLinker.Instantiate and does not build the impl
+		// closure or resolve the TypeFunc. Call will report "no impl"
+		// until the caller migrates to ComponentLinker.Instantiate.
 		_, _, _, _ = coreFunc, canon, memory, reallocFunc
 		inst.exports[exp.Name] = &ExportedFunc{
 			name:      exp.Name,

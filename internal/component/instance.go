@@ -494,7 +494,7 @@ func invokeLocalDestructor(inst *Instance, rt *runtime.ResourceType, rep uint32)
 	if rt.Dtor != nil {
 		return fmt.Errorf(
 			"invokeLocalDestructor: guest destructor at core function index %d: "+
-				"guest destructors require core function index space resolution (Session 2 wiring)",
+				"guest destructor not resolved (core module may not have been instantiated)",
 			*rt.Dtor,
 		)
 	}

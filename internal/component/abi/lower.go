@@ -627,7 +627,7 @@ func lowerOwnHandleFlat(ctx *LowerContext, typ types.ValType, val types.Val) ([]
 	if expectedRT == nil {
 		return nil, fmt.Errorf(
 			"no resource type for instance %d declaration %d "+
-				"(resource concrete promotion not yet wired — session 2)",
+				"(cross-instance resolution failed — defining instance may not be instantiated)",
 			rt.Instance, rt.Resource)
 	}
 	rep := val.Own()
@@ -662,7 +662,7 @@ func lowerBorrowHandleFlat(ctx *LowerContext, typ types.ValType, val types.Val) 
 	if expectedRT == nil {
 		return nil, fmt.Errorf(
 			"no resource type for instance %d declaration %d "+
-				"(resource concrete promotion not yet wired — session 2)",
+				"(cross-instance resolution failed — defining instance may not be instantiated)",
 			rt.Instance, rt.Resource)
 	}
 	rep := val.Borrow()

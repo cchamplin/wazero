@@ -658,7 +658,7 @@ func liftOwnHandle(ctx *LiftContext, typ types.ValType, handleIdx uint32) (types
 	if expectedRT == nil {
 		return types.Val{}, fmt.Errorf(
 			"lift own: no resource type for instance %d declaration %d "+
-				"(cross-instance resolution: session 2 wiring)",
+				"(cross-instance resolution failed — defining instance may not be instantiated)",
 			rt.Instance, rt.Resource)
 	}
 
@@ -725,7 +725,7 @@ func liftBorrowHandle(ctx *LiftContext, typ types.ValType, handleIdx uint32) (ty
 	if expectedRT == nil {
 		return types.Val{}, fmt.Errorf(
 			"lift borrow: no resource type for instance %d declaration %d "+
-				"(cross-instance resolution: session 2 wiring)",
+				"(cross-instance resolution failed — defining instance may not be instantiated)",
 			rt.Instance, rt.Resource)
 	}
 

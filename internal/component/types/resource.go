@@ -31,8 +31,8 @@ type ResourceTableIdx uint32
 //     instance type declaration. Cannot be lifted/lowered at runtime;
 //     lift/lower traps if reached at call time.
 //
-// At end of Session 0 ALL entries are Abstract — Concrete promotion at
-// instantiation time is Session 2 work.
+// After binary decode ALL entries are Abstract. Concrete promotion
+// happens at instantiation time in ComponentLinker.bindResourceTypes.
 //
 // Spec: CanonicalABI.md:531-549.
 type TypeResourceTable struct {

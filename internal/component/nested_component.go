@@ -160,7 +160,7 @@ func (l *ComponentLinker) resolveFromParentScope(
 		// outer aliases). Session 0 compile-fix: the old TypeIdxToStoredIdx
 		// fallback and direct parentComponent.Types[idx] indexing are gone —
 		// Component.Types is now *types.ComponentTypes, the canonical type
-		// bag, and the Session 2 rewrite threads TypeDef through differently.
+		// bag, and the current implementation threads TypeDef through differently.
 		typeDef := parent.GetTypeFromSpace(arg.Idx)
 		if typeDef != nil {
 			return &TypeDefDef{TypeDef: typeDef}, nil

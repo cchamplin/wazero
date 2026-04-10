@@ -56,9 +56,9 @@ type ComponentInstance struct {
 	// equal — matching the spec's `h.rt is t.rt` check at
 	// definitions.py:1345.
 	//
-	// Populated at instantiation time (Session 2). Empty in Session 0;
-	// all TypeResourceTable entries are Abstract and resource lift/lower
-	// traps before reaching this pool.
+	// Populated at instantiation time by ComponentLinker.bindResourceTypes.
+	// Empty before instantiation; all TypeResourceTable entries are
+	// Abstract and resource lift/lower traps before reaching this pool.
 	ResourceTypes []*ResourceType
 
 	// Destructors is this instance's destructor registry.
@@ -127,8 +127,7 @@ func (c *ComponentInstance) IsMayLeave() bool {
 // the ResourceTypes[ResourceIdx] entry.
 //
 // Returns nil if the target instance is not found or the resource type
-// slot is not yet populated (Session 0 state — Concrete promotion is
-// Session 2 work).
+// slot is not yet populated (pre-instantiation state).
 func (c *ComponentInstance) LookupResourceType(
 	instanceIdx types.RuntimeComponentInstanceIdx,
 	resourceIdx types.ResourceIdx,

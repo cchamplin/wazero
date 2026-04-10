@@ -222,7 +222,7 @@ func decodeCoreModuleSection(c *component.Component, content []byte) error {
 //     on dc.c.TypeDefs[slot].Resource* fields.
 //   - 0x41 / 0x42                 → component / instance type declaration;
 //     decoded with the per-kind helpers and appended to the scope as
-//     scopeEntryOther (Session 2 work upgrades these to first-class slots)
+//     scopeEntryOther (TODO: upgrade these to first-class scope slots)
 //   - primitive / composite       → value type; decoded by decodeDefinedType
 //     or decodeValType and appended to the scope as a scopeEntryValType
 func decodeTypeSection(dc *decodeContext, r *bytes.Reader) error {
@@ -290,11 +290,11 @@ func decodeTypeSection(dc *decodeContext, r *bytes.Reader) error {
 			})
 
 		case TypeOpInstance:
-			// Session 2 work: nested instance types still parse as
-			// opaque declarations so the scope index space stays in
-			// sync with the binary format. The decoded declaration
-			// list is now surfaced via Component.TypeDefs so later
-			// passes can walk it structurally.
+			// TODO: nested instance types still parse as opaque
+			// declarations so the scope index space stays in sync
+			// with the binary format. The decoded declaration list
+			// is surfaced via Component.TypeDefs so later passes
+			// can walk it structurally.
 			itd, err := decodeInstanceTypeDef(r)
 			if err != nil {
 				return fmt.Errorf("decode instance type %d: %w", slot, err)

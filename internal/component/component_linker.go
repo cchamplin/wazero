@@ -1031,8 +1031,8 @@ func (l *ComponentLinker) buildTypeSpace(inst *Instance, c *Component) {
 }
 
 // nextInstanceID returns the next monotonic instance ID for this linker.
-// Session 1: simple counter on the linker; Session 2 may widen to a
-// store-wide ID namespace when cross-instance resource lookup lands.
+// Simple counter on the linker; the store-wide ResourceStore maps
+// these IDs to resource types for cross-instance lookup.
 func (l *ComponentLinker) nextInstanceID() uint32 {
 	l.instanceCounter++
 	return l.instanceCounter
@@ -1051,8 +1051,9 @@ func (l *ComponentLinker) bindResourceTypes(inst *Instance, c *Component) error 
 	}
 	for rtIdx, table := range c.Types.ResourceTables {
 		if table.Concrete {
-			// Already concrete (cross-component imported resource). Session 1
-			// does not overwrite; Session 2 handles cross-component matching.
+			// Already concrete (cross-component imported resource); do not
+			// overwrite. Cross-component matching is handled by the
+			// store-wide ResourceStore.
 			continue
 		}
 		// Locate destructor metadata for this declaration via c.TypeDefs.

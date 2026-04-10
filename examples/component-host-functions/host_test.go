@@ -41,8 +41,10 @@ func TestHostFunctions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// session 1 work: Instantiate not yet implemented
-	t.Skip("session 1 work: Instantiate not yet implemented")
+	// TODO: this component's import resolution fails at instantiation.
+	// The linker cannot resolve canon.lower for "double" because the
+	// component's internal wiring references a host module with an empty name.
+	t.Skip("host import resolution requires further canon.lower wiring for this component")
 
 	instance, err := linker.Instantiate(ctx, compiled)
 	if err != nil {
