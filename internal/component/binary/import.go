@@ -175,9 +175,11 @@ func decodeImportSection(dc *decodeContext, r *bytes.Reader) error {
 			switch imp.ExternDesc.TypeBoundKind {
 			case component.TypeBoundSubResource:
 				// (sub resource) introduces a fresh abstract resource
-				// into the type index space and scope.
+				// into the type index space and scope.  Marked as imported
+				// so that canon resource.new/resource.rep are rejected —
+				// those operations require a locally-defined resource.
 				rtIdx := dc.builder.InternAbstractResource()
-				dc.scope.appendResource(rtIdx)
+				dc.scope.appendImportedResource(rtIdx)
 				dc.c.TypeDefs = append(dc.c.TypeDefs, component.TypeDef{
 					Kind:     component.TypeDefKindResource,
 					Resource: rtIdx,

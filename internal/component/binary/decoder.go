@@ -563,6 +563,18 @@ func decodeCanonSection(dc *decodeContext, r *bytes.Reader) error {
 				return fmt.Errorf("decode canonical %d: type index %d is not a resource type", startIdx+i, typeIdx)
 			}
 
+			// canon resource.new and resource.rep require a locally-defined
+			// resource — imported resources and aliases (which may reference
+			// resources from other components) are not allowed.
+			// canon resource.drop is permitted on both local and imported resources.
+			// Spec: Binary.md §2.8 (canonical definitions); wasm-tools
+			// resources.wast lines 83-95 and 346-356.
+			if def.Kind == component.CanonKindResourceNew || def.Kind == component.CanonKindResourceRep {
+				if entry.kind == scopeEntryAlias || entry.imported {
+					return fmt.Errorf("decode canonical %d: type index %d is not a local resource", startIdx+i, typeIdx)
+				}
+			}
+
 			// Resource operations (new, drop, rep) produce core functions.
 			// Store the assigned core function index, then increment.
 			def.ComponentFuncIdx = c.NextCoreFuncIdx

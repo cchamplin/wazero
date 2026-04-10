@@ -84,6 +84,7 @@ type scopeEntry struct {
 	kind     scopeEntryKind
 	valType  types.ValType          // valid iff kind == scopeEntryValType
 	resource types.ResourceTableIdx // valid iff kind == scopeEntryResource
+	imported bool                   // true when the resource was introduced by an import (not locally defined)
 }
 
 // typeScope tracks scope-local type indices during decode. Each scope is
@@ -110,6 +111,19 @@ func (s *typeScope) appendResource(rtIdx types.ResourceTableIdx) {
 	s.entries = append(s.entries, scopeEntry{
 		kind:     scopeEntryResource,
 		resource: rtIdx,
+	})
+}
+
+// appendImportedResource records a resource type that was introduced by an
+// import (e.g. `(import "x" (type $x (sub resource)))`). Imported resources
+// are usable with own<>/borrow<>/resource.drop but NOT with resource.new or
+// resource.rep — those operations require locally-defined resources.
+// Spec: canonical-abi/definitions.py canon_resource_new / canon_resource_rep.
+func (s *typeScope) appendImportedResource(rtIdx types.ResourceTableIdx) {
+	s.entries = append(s.entries, scopeEntry{
+		kind:     scopeEntryResource,
+		resource: rtIdx,
+		imported: true,
 	})
 }
 
