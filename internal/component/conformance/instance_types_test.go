@@ -269,7 +269,7 @@ func TestInstanceTypeListRoundtrip(t *testing.T) {
 	lowerCtx := &abi.LowerContext{
 		Types:  ct,
 		Memory: mem,
-		Opts:   &abi.Options{StringEncoding: abi.StringEncodingUTF8},
+		Opts:   &abi.Options{StringEncoding: types.StringEncodingUTF8},
 		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
 			if align > 1 {
 				alloc = (alloc + align - 1) &^ (align - 1)
@@ -282,7 +282,7 @@ func TestInstanceTypeListRoundtrip(t *testing.T) {
 	liftCtx := &abi.LiftContext{
 		Types:  ct,
 		Memory: mem,
-		Opts:   &abi.Options{StringEncoding: abi.StringEncodingUTF8},
+		Opts:   &abi.Options{StringEncoding: types.StringEncodingUTF8},
 	}
 
 	elements := []types.Val{

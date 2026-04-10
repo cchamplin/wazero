@@ -47,7 +47,7 @@ var testStrings = []struct {
 
 // newStringLowerContext constructs a LowerContext around a fresh
 // wazerotest.NewMemory with a bump-pointer realloc starting at startPtr.
-func newStringLowerContext(startPtr uint32, enc abi.StringEncoding) *abi.LowerContext {
+func newStringLowerContext(startPtr uint32, enc types.StringEncoding) *abi.LowerContext {
 	mem := wazerotest.NewMemory(wazerotest.PageSize)
 	alloc := startPtr
 	return &abi.LowerContext{
@@ -67,7 +67,7 @@ func newStringLowerContext(startPtr uint32, enc abi.StringEncoding) *abi.LowerCo
 
 // newStringLiftContextFrom constructs a LiftContext around a shared
 // *wazerotest.Memory produced by a companion LowerContext.
-func newStringLiftContextFrom(lc *abi.LowerContext, enc abi.StringEncoding) *abi.LiftContext {
+func newStringLiftContextFrom(lc *abi.LowerContext, enc types.StringEncoding) *abi.LiftContext {
 	return &abi.LiftContext{
 		Memory: lc.Memory,
 		Opts:   &abi.Options{StringEncoding: enc},
@@ -84,12 +84,12 @@ func newStringLiftContextFrom(lc *abi.LowerContext, enc abi.StringEncoding) *abi
 func TestStringsUTF8Roundtrip(t *testing.T) {
 	for _, tc := range testStrings {
 		t.Run(tc.name, func(t *testing.T) {
-			lowerCtx := newStringLowerContext(256, abi.StringEncodingUTF8)
+			lowerCtx := newStringLowerContext(256, types.StringEncodingUTF8)
 
 			ptr, length, err := abi.LowerString(lowerCtx, tc.s)
 			require.NoError(t, err)
 
-			liftCtx := newStringLiftContextFrom(lowerCtx, abi.StringEncodingUTF8)
+			liftCtx := newStringLiftContextFrom(lowerCtx, types.StringEncodingUTF8)
 
 			iter := abi.NewFlatIter([]uint64{uint64(ptr), uint64(length)})
 			lifted, err := abi.LiftFlat(liftCtx, types.String_, iter)
@@ -109,12 +109,12 @@ func TestStringsUTF8Roundtrip(t *testing.T) {
 func TestStringsUTF16Roundtrip(t *testing.T) {
 	for _, tc := range testStrings {
 		t.Run(tc.name, func(t *testing.T) {
-			lowerCtx := newStringLowerContext(256, abi.StringEncodingUTF16)
+			lowerCtx := newStringLowerContext(256, types.StringEncodingUTF16)
 
 			ptr, codeUnits, err := abi.LowerString(lowerCtx, tc.s)
 			require.NoError(t, err)
 
-			liftCtx := newStringLiftContextFrom(lowerCtx, abi.StringEncodingUTF16)
+			liftCtx := newStringLiftContextFrom(lowerCtx, types.StringEncodingUTF16)
 
 			iter := abi.NewFlatIter([]uint64{uint64(ptr), uint64(codeUnits)})
 			lifted, err := abi.LiftFlat(liftCtx, types.String_, iter)
@@ -136,12 +136,12 @@ func TestStringsUTF16Roundtrip(t *testing.T) {
 func TestStringsLatin1UTF16Roundtrip(t *testing.T) {
 	for _, tc := range testStrings {
 		t.Run(tc.name, func(t *testing.T) {
-			lowerCtx := newStringLowerContext(256, abi.StringEncodingLatin1UTF16)
+			lowerCtx := newStringLowerContext(256, types.StringEncodingLatin1UTF16)
 
 			ptr, taggedLen, err := abi.LowerString(lowerCtx, tc.s)
 			require.NoError(t, err)
 
-			liftCtx := newStringLiftContextFrom(lowerCtx, abi.StringEncodingLatin1UTF16)
+			liftCtx := newStringLiftContextFrom(lowerCtx, types.StringEncodingLatin1UTF16)
 
 			iter := abi.NewFlatIter([]uint64{uint64(ptr), uint64(taggedLen)})
 			lifted, err := abi.LiftFlat(liftCtx, types.String_, iter)
@@ -171,7 +171,7 @@ func TestStringsLatin1UTF16Compression(t *testing.T) {
 
 	for _, s := range latin1Only {
 		t.Run("latin1_compression", func(t *testing.T) {
-			lowerCtx := newStringLowerContext(64, abi.StringEncodingLatin1UTF16)
+			lowerCtx := newStringLowerContext(64, types.StringEncodingLatin1UTF16)
 
 			_, taggedLen, err := abi.LowerString(lowerCtx, s)
 			require.NoError(t, err)
@@ -190,7 +190,7 @@ func TestStringsLatin1UTF16Compression(t *testing.T) {
 
 	for _, s := range nonLatin1 {
 		t.Run("utf16_fallback", func(t *testing.T) {
-			lowerCtx := newStringLowerContext(64, abi.StringEncodingLatin1UTF16)
+			lowerCtx := newStringLowerContext(64, types.StringEncodingLatin1UTF16)
 
 			_, taggedLen, err := abi.LowerString(lowerCtx, s)
 			require.NoError(t, err)
@@ -222,7 +222,7 @@ func TestStringsPtrOutOfBounds(t *testing.T) {
 
 		liftCtx := &abi.LiftContext{
 			Memory: mem,
-			Opts:   &abi.Options{StringEncoding: abi.StringEncodingUTF8},
+			Opts:   &abi.Options{StringEncoding: types.StringEncodingUTF8},
 		}
 
 		_, err := abi.LiftString(liftCtx, 0)
@@ -237,7 +237,7 @@ func TestStringsPtrOutOfBounds(t *testing.T) {
 
 		liftCtx := &abi.LiftContext{
 			Memory: mem,
-			Opts:   &abi.Options{StringEncoding: abi.StringEncodingUTF8},
+			Opts:   &abi.Options{StringEncoding: types.StringEncodingUTF8},
 		}
 
 		_, err := abi.LiftString(liftCtx, 0)
@@ -254,7 +254,7 @@ func TestStringsPtrOutOfBounds(t *testing.T) {
 
 		liftCtx := &abi.LiftContext{
 			Memory: mem,
-			Opts:   &abi.Options{StringEncoding: abi.StringEncodingUTF8},
+			Opts:   &abi.Options{StringEncoding: types.StringEncodingUTF8},
 		}
 
 		s, err := abi.LiftString(liftCtx, 0)
@@ -271,7 +271,7 @@ func TestStringsPtrOutOfBounds(t *testing.T) {
 
 		liftCtx := &abi.LiftContext{
 			Memory: mem,
-			Opts:   &abi.Options{StringEncoding: abi.StringEncodingUTF16},
+			Opts:   &abi.Options{StringEncoding: types.StringEncodingUTF16},
 		}
 
 		_, err := abi.LiftString(liftCtx, 0)
@@ -296,7 +296,7 @@ func TestStringsPtrOverflow(t *testing.T) {
 
 		liftCtx := &abi.LiftContext{
 			Memory: mem,
-			Opts:   &abi.Options{StringEncoding: abi.StringEncodingUTF8},
+			Opts:   &abi.Options{StringEncoding: types.StringEncodingUTF8},
 		}
 
 		_, err := abi.LiftString(liftCtx, 0)
@@ -310,7 +310,7 @@ func TestStringsPtrOverflow(t *testing.T) {
 
 		liftCtx := &abi.LiftContext{
 			Memory: mem,
-			Opts:   &abi.Options{StringEncoding: abi.StringEncodingUTF16},
+			Opts:   &abi.Options{StringEncoding: types.StringEncodingUTF16},
 		}
 
 		_, err := abi.LiftString(liftCtx, 0)
@@ -331,11 +331,11 @@ func TestStringsPtrOverflow(t *testing.T) {
 func TestStringsEmptyHandling(t *testing.T) {
 	encodings := []struct {
 		name string
-		enc  abi.StringEncoding
+		enc  types.StringEncoding
 	}{
-		{"utf8", abi.StringEncodingUTF8},
-		{"utf16", abi.StringEncodingUTF16},
-		{"latin1utf16", abi.StringEncodingLatin1UTF16},
+		{"utf8", types.StringEncodingUTF8},
+		{"utf16", types.StringEncodingUTF16},
+		{"latin1utf16", types.StringEncodingLatin1UTF16},
 	}
 
 	for _, enc := range encodings {
@@ -404,7 +404,7 @@ func TestStringsInvalidUTF8(t *testing.T) {
 
 			liftCtx := &abi.LiftContext{
 				Memory: mem,
-				Opts:   &abi.Options{StringEncoding: abi.StringEncodingUTF8},
+				Opts:   &abi.Options{StringEncoding: types.StringEncodingUTF8},
 			}
 
 			_, err := abi.LiftString(liftCtx, 0)
@@ -435,7 +435,7 @@ func TestStringsUTF16Surrogates(t *testing.T) {
 
 		liftCtx := &abi.LiftContext{
 			Memory: mem,
-			Opts:   &abi.Options{StringEncoding: abi.StringEncodingUTF16},
+			Opts:   &abi.Options{StringEncoding: types.StringEncodingUTF16},
 		}
 
 		s, err := abi.LiftString(liftCtx, 0)
@@ -455,7 +455,7 @@ func TestStringsUTF16Surrogates(t *testing.T) {
 
 		liftCtx := &abi.LiftContext{
 			Memory: mem,
-			Opts:   &abi.Options{StringEncoding: abi.StringEncodingUTF16},
+			Opts:   &abi.Options{StringEncoding: types.StringEncodingUTF16},
 		}
 
 		s, err := abi.LiftString(liftCtx, 0)
@@ -473,10 +473,10 @@ func TestStringsUTF16Surrogates(t *testing.T) {
 // table across utf8 / utf16 / latin1+utf16 source and destination
 // encodings.
 func TestStringsCrossEncodingConversion(t *testing.T) {
-	encodings := []abi.StringEncoding{
-		abi.StringEncodingUTF8,
-		abi.StringEncodingUTF16,
-		abi.StringEncodingLatin1UTF16,
+	encodings := []types.StringEncoding{
+		types.StringEncodingUTF8,
+		types.StringEncodingUTF16,
+		types.StringEncodingLatin1UTF16,
 	}
 
 	for _, srcEnc := range encodings {
@@ -514,13 +514,13 @@ func TestStringsCrossEncodingConversion(t *testing.T) {
 	}
 }
 
-func encName(enc abi.StringEncoding) string {
+func encName(enc types.StringEncoding) string {
 	switch enc {
-	case abi.StringEncodingUTF8:
+	case types.StringEncodingUTF8:
 		return "utf8"
-	case abi.StringEncodingUTF16:
+	case types.StringEncodingUTF16:
 		return "utf16"
-	case abi.StringEncodingLatin1UTF16:
+	case types.StringEncodingLatin1UTF16:
 		return "latin1utf16"
 	default:
 		return "unknown"
@@ -553,14 +553,14 @@ func TestStringsTypeProperties(t *testing.T) {
 func TestStringsLowerFlatRoundtrip(t *testing.T) {
 	for _, tc := range testStrings {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx := newStringLowerContext(256, abi.StringEncodingUTF8)
+			ctx := newStringLowerContext(256, types.StringEncodingUTF8)
 
 			val := types.ValString(tc.s)
 			flat, err := abi.LowerFlat(ctx, types.String_, val)
 			require.NoError(t, err)
 			require.Equal(t, 2, len(flat))
 
-			liftCtx := newStringLiftContextFrom(ctx, abi.StringEncodingUTF8)
+			liftCtx := newStringLiftContextFrom(ctx, types.StringEncodingUTF8)
 			iter := abi.NewFlatIter(flat)
 			lifted, err := abi.LiftFlat(liftCtx, types.String_, iter)
 			require.NoError(t, err)
@@ -580,7 +580,7 @@ func TestStringsReallocError(t *testing.T) {
 	mem := wazerotest.NewMemory(wazerotest.PageSize)
 	ctx := &abi.LowerContext{
 		Memory: mem,
-		Opts:   &abi.Options{StringEncoding: abi.StringEncodingUTF8},
+		Opts:   &abi.Options{StringEncoding: types.StringEncodingUTF8},
 		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
 			return 0, errors.New("allocation failed")
 		},
@@ -602,7 +602,7 @@ func TestStringsWriteError(t *testing.T) {
 	mem := wazerotest.NewMemory(wazerotest.PageSize)
 	ctx := &abi.LowerContext{
 		Memory: mem,
-		Opts:   &abi.Options{StringEncoding: abi.StringEncodingUTF8},
+		Opts:   &abi.Options{StringEncoding: types.StringEncodingUTF8},
 		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
 			// Return a pointer beyond the single page so the
 			// subsequent Write() fails.
@@ -628,7 +628,7 @@ func TestStringsUnknownEncoding(t *testing.T) {
 	t.Run("lower", func(t *testing.T) {
 		ctx := &abi.LowerContext{
 			Memory: mem,
-			Opts:   &abi.Options{StringEncoding: abi.StringEncoding(99)},
+			Opts:   &abi.Options{StringEncoding: types.StringEncoding(99)},
 			Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
 				return 0, nil
 			},
@@ -662,7 +662,7 @@ func TestStringsUTF16ByteLength(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx := newStringLowerContext(64, abi.StringEncodingUTF16)
+			ctx := newStringLowerContext(64, types.StringEncodingUTF16)
 
 			_, codeUnits, err := abi.LowerString(ctx, tc.s)
 			require.NoError(t, err)
@@ -699,7 +699,7 @@ func TestStringsLatin1UTF16TagBit(t *testing.T) {
 
 		ctx := &abi.LiftContext{
 			Memory: mem,
-			Opts:   &abi.Options{StringEncoding: abi.StringEncodingLatin1UTF16},
+			Opts:   &abi.Options{StringEncoding: types.StringEncodingLatin1UTF16},
 		}
 
 		s, err := abi.LiftString(ctx, 0)
@@ -721,7 +721,7 @@ func TestStringsLatin1UTF16TagBit(t *testing.T) {
 
 		ctx := &abi.LiftContext{
 			Memory: mem,
-			Opts:   &abi.Options{StringEncoding: abi.StringEncodingLatin1UTF16},
+			Opts:   &abi.Options{StringEncoding: types.StringEncodingLatin1UTF16},
 		}
 
 		s, err := abi.LiftString(ctx, 0)
@@ -742,7 +742,7 @@ func TestStringsLatin1UTF16TagBit(t *testing.T) {
 
 		ctx := &abi.LiftContext{
 			Memory: mem,
-			Opts:   &abi.Options{StringEncoding: abi.StringEncodingLatin1UTF16},
+			Opts:   &abi.Options{StringEncoding: types.StringEncodingLatin1UTF16},
 		}
 
 		s, err := abi.LiftString(ctx, 0)
@@ -770,7 +770,7 @@ func TestStringsHeapOperations(t *testing.T) {
 
 		ctx := &abi.LiftContext{
 			Memory: mem,
-			Opts:   &abi.Options{StringEncoding: abi.StringEncodingUTF8},
+			Opts:   &abi.Options{StringEncoding: types.StringEncodingUTF8},
 		}
 
 		val, err := abi.LiftHeap(ctx, types.String_, 0)
@@ -785,7 +785,7 @@ func TestStringsHeapOperations(t *testing.T) {
 
 		ctx := &abi.LowerContext{
 			Memory: mem,
-			Opts:   &abi.Options{StringEncoding: abi.StringEncodingUTF8},
+			Opts:   &abi.Options{StringEncoding: types.StringEncodingUTF8},
 			Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
 				result := allocPtr
 				allocPtr += newSize

@@ -1067,7 +1067,7 @@ func TestLiftFieldFromMemory_AllPrimitiveTypes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Align offset to the type's natural alignment.
 			if tc.size > 1 {
-				offset = alignTo(offset, tc.size)
+				offset = types.AlignTo(offset, tc.size)
 			}
 			tc.write(offset)
 			val, err := abi.LiftHeap(ctx, tc.typ, offset)

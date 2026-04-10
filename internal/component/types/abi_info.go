@@ -25,10 +25,10 @@ type DiscriminantInfo struct {
 
 	// PayloadOffset is the byte offset of the payload in the memory32
 	// discriminated layout. For memory64 the equivalent offset is
-	// derivable as alignTo(DiscSize, variantABI.Align64) — it is not
+	// derivable as AlignTo(DiscSize, variantABI.Align64) — it is not
 	// stored separately because the variant's overall Align64 is the
 	// max payload align64 (always >= DiscSize for the interesting
-	// cases) and alignTo gives the same result.
+	// cases) and AlignTo gives the same result.
 	PayloadOffset uint32
 }
 
@@ -88,9 +88,9 @@ func (v ValType) ABI(ct *ComponentTypes) CanonicalABIInfo {
 	panic(fmt.Sprintf("ABI: unknown TypeKind %d", v.Kind))
 }
 
-// alignTo rounds offset up to the given alignment. align must be a
+// AlignTo rounds offset up to the given alignment. align must be a
 // power of two.
-func alignTo(offset, align uint32) uint32 {
+func AlignTo(offset, align uint32) uint32 {
 	return (offset + align - 1) &^ (align - 1)
 }
 
@@ -119,12 +119,12 @@ func computeRecordABI(fields []RecordField, ct *ComponentTypes) CanonicalABIInfo
 		if fa.Align64 > align64 {
 			align64 = fa.Align64
 		}
-		size32 = alignTo(size32, fa.Align32) + fa.Size32
-		size64 = alignTo(size64, fa.Align64) + fa.Size64
+		size32 = AlignTo(size32, fa.Align32) + fa.Size32
+		size64 = AlignTo(size64, fa.Align64) + fa.Size64
 		flatten += fa.FlattenCount
 	}
-	size32 = alignTo(size32, align32)
-	size64 = alignTo(size64, align64)
+	size32 = AlignTo(size32, align32)
+	size64 = AlignTo(size64, align64)
 	return CanonicalABIInfo{
 		Size32: size32, Align32: align32,
 		Size64: size64, Align64: align64,
@@ -198,10 +198,10 @@ func computeVariantABI(cases []VariantCase, ct *ComponentTypes) (CanonicalABIInf
 		align64 = maxCaseAlign64
 	}
 
-	payloadOffset32 := alignTo(discA, maxCaseAlign32)
-	size32 := alignTo(payloadOffset32+maxCaseSize32, align32)
-	payloadOffset64 := alignTo(discA, maxCaseAlign64)
-	size64 := alignTo(payloadOffset64+maxCaseSize64, align64)
+	payloadOffset32 := AlignTo(discA, maxCaseAlign32)
+	size32 := AlignTo(payloadOffset32+maxCaseSize32, align32)
+	payloadOffset64 := AlignTo(discA, maxCaseAlign64)
+	size64 := AlignTo(payloadOffset64+maxCaseSize64, align64)
 
 	abi := CanonicalABIInfo{
 		Size32: size32, Align32: align32,

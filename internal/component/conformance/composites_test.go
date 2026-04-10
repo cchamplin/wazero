@@ -31,7 +31,7 @@ func compositeListCtx(t *testing.T, ct *types.ComponentTypes, startPtr uint32, m
 	lower := &abi.LowerContext{
 		Types:  ct,
 		Memory: mem,
-		Opts:   &abi.Options{StringEncoding: abi.StringEncodingUTF8},
+		Opts:   &abi.Options{StringEncoding: types.StringEncodingUTF8},
 		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
 			if align > 1 {
 				alloc = (alloc + align - 1) &^ (align - 1)
@@ -44,7 +44,7 @@ func compositeListCtx(t *testing.T, ct *types.ComponentTypes, startPtr uint32, m
 	lift := &abi.LiftContext{
 		Types:  ct,
 		Memory: mem,
-		Opts:   &abi.Options{StringEncoding: abi.StringEncodingUTF8},
+		Opts:   &abi.Options{StringEncoding: types.StringEncodingUTF8},
 	}
 	return lower, lift
 }
@@ -1872,7 +1872,7 @@ func TestListEmpty(t *testing.T) {
 		ctx := &abi.LowerContext{
 			Types:  ct,
 			Memory: mem,
-			Opts:   &abi.Options{StringEncoding: abi.StringEncodingUTF8},
+			Opts:   &abi.Options{StringEncoding: types.StringEncodingUTF8},
 			Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
 				reallocCalled = true
 				return 0, nil
@@ -1892,7 +1892,7 @@ func TestListEmpty(t *testing.T) {
 		liftCtx := &abi.LiftContext{
 			Types:  ct,
 			Memory: wazerotest.NewMemory(wazerotest.PageSize),
-			Opts:   &abi.Options{StringEncoding: abi.StringEncodingUTF8},
+			Opts:   &abi.Options{StringEncoding: types.StringEncodingUTF8},
 		}
 		iter := abi.NewFlatIter(flat)
 		lifted, err := abi.LiftFlat(liftCtx, listType, iter)

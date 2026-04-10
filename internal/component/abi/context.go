@@ -46,21 +46,9 @@ func canonicalizeNaN64(f float64) float64 {
 	return f
 }
 
-// StringEncoding specifies the string encoding for Canonical ABI.
-type StringEncoding uint8
-
-const (
-	StringEncodingUTF8 StringEncoding = iota
-	StringEncodingUTF16
-	StringEncodingLatin1UTF16
-)
-
 // Options holds Canonical ABI options from canonical definitions.
 type Options struct {
-	StringEncoding StringEncoding
-	MemoryIdx      uint32
-	ReallocIdx     *uint32
-	PostReturnIdx  *uint32
+	StringEncoding types.StringEncoding
 }
 
 // LiftContext provides context for lifting operations. Per-call state

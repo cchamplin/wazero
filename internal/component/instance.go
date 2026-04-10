@@ -198,13 +198,6 @@ func (f *ExportedFunc) Type() *types.TypeFunc {
 	return f.funcType
 }
 
-// alignTo rounds up offset to the next multiple of align.
-func alignTo(offset, align uint32) uint32 {
-	if align == 0 {
-		return offset
-	}
-	return (offset + align - 1) &^ (align - 1)
-}
 
 // --- Resource management surface (per-instance) --------------------------
 //

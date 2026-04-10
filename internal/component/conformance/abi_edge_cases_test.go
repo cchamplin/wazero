@@ -125,7 +125,7 @@ func TestABI_MaxStringLength(t *testing.T) {
 
 	lowerCtx := &abi.LowerContext{
 		Memory: mem,
-		Opts:   &abi.Options{StringEncoding: abi.StringEncodingUTF8},
+		Opts:   &abi.Options{StringEncoding: types.StringEncodingUTF8},
 		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
 			result := allocPtr
 			allocPtr += newSize
@@ -148,7 +148,7 @@ func TestABI_MaxStringLength(t *testing.T) {
 
 		liftCtx := &abi.LiftContext{
 			Memory: mem,
-			Opts:   &abi.Options{StringEncoding: abi.StringEncodingUTF8},
+			Opts:   &abi.Options{StringEncoding: types.StringEncodingUTF8},
 		}
 
 		iter := abi.NewFlatIter([]uint64{uint64(ptr), uint64(length)})
@@ -175,7 +175,7 @@ func TestABI_ZeroLengthList(t *testing.T) {
 	lowerCtx := &abi.LowerContext{
 		Types:  ct,
 		Memory: wazerotest.NewMemory(wazerotest.PageSize),
-		Opts:   &abi.Options{StringEncoding: abi.StringEncodingUTF8},
+		Opts:   &abi.Options{StringEncoding: types.StringEncodingUTF8},
 		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
 			reallocCalled = true
 			return 0, nil
@@ -196,7 +196,7 @@ func TestABI_ZeroLengthList(t *testing.T) {
 		liftCtx := &abi.LiftContext{
 			Types:  ct,
 			Memory: wazerotest.NewMemory(wazerotest.PageSize),
-			Opts:   &abi.Options{StringEncoding: abi.StringEncodingUTF8},
+			Opts:   &abi.Options{StringEncoding: types.StringEncodingUTF8},
 		}
 
 		iter := abi.NewFlatIter([]uint64{0, 0})
@@ -286,7 +286,7 @@ func TestABI_AlignmentBoundary(t *testing.T) {
 
 			ctx := &abi.LiftContext{
 				Memory: mem,
-				Opts:   &abi.Options{StringEncoding: abi.StringEncodingUTF8},
+				Opts:   &abi.Options{StringEncoding: types.StringEncodingUTF8},
 			}
 
 			lifted, err := abi.LiftHeap(ctx, tc.typ, tc.offset)
@@ -329,7 +329,7 @@ func TestABI_InvalidAlignment(t *testing.T) {
 
 			ctx := &abi.LiftContext{
 				Memory: mem,
-				Opts:   &abi.Options{StringEncoding: abi.StringEncodingUTF8},
+				Opts:   &abi.Options{StringEncoding: types.StringEncodingUTF8},
 			}
 
 			lifted, err := abi.LiftHeap(ctx, tc.typ, tc.offset)

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/tetratelabs/wazero/experimental/wazerotest"
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -19,7 +20,7 @@ func TestLiftStringUTF8(t *testing.T) {
 
 	ctx := &LiftContext{
 		Memory: mem,
-		Opts:   &Options{StringEncoding: StringEncodingUTF8},
+		Opts:   &Options{StringEncoding: types.StringEncodingUTF8},
 	}
 
 	val, err := LiftString(ctx, 0)
@@ -36,7 +37,7 @@ func TestLiftStringUTF8_Unicode(t *testing.T) {
 
 	ctx := &LiftContext{
 		Memory: mem,
-		Opts:   &Options{StringEncoding: StringEncodingUTF8},
+		Opts:   &Options{StringEncoding: types.StringEncodingUTF8},
 	}
 
 	val, err := LiftString(ctx, 0)
@@ -51,7 +52,7 @@ func TestLiftStringUTF8_Empty(t *testing.T) {
 
 	ctx := &LiftContext{
 		Memory: mem,
-		Opts:   &Options{StringEncoding: StringEncodingUTF8},
+		Opts:   &Options{StringEncoding: types.StringEncodingUTF8},
 	}
 
 	val, err := LiftString(ctx, 0)
@@ -68,7 +69,7 @@ func TestLiftStringUTF8_InvalidUTF8(t *testing.T) {
 
 	ctx := &LiftContext{
 		Memory: mem,
-		Opts:   &Options{StringEncoding: StringEncodingUTF8},
+		Opts:   &Options{StringEncoding: types.StringEncodingUTF8},
 	}
 
 	_, err := LiftString(ctx, 0)
@@ -84,7 +85,7 @@ func TestLiftStringUTF8_BoundsCheck(t *testing.T) {
 
 	ctx := &LiftContext{
 		Memory: mem,
-		Opts:   &Options{StringEncoding: StringEncodingUTF8},
+		Opts:   &Options{StringEncoding: types.StringEncodingUTF8},
 	}
 
 	_, err := LiftString(ctx, 0)
@@ -102,7 +103,7 @@ func TestLiftStringUTF8_AtOffset(t *testing.T) {
 
 	ctx := &LiftContext{
 		Memory: mem,
-		Opts:   &Options{StringEncoding: StringEncodingUTF8},
+		Opts:   &Options{StringEncoding: types.StringEncodingUTF8},
 	}
 
 	val, err := LiftString(ctx, 16)
@@ -120,7 +121,7 @@ func TestLiftStringUTF8_Emoji(t *testing.T) {
 
 	ctx := &LiftContext{
 		Memory: mem,
-		Opts:   &Options{StringEncoding: StringEncodingUTF8},
+		Opts:   &Options{StringEncoding: types.StringEncodingUTF8},
 	}
 
 	val, err := LiftString(ctx, 0)
@@ -144,7 +145,7 @@ func TestLiftStringUTF16(t *testing.T) {
 
 	ctx := &LiftContext{
 		Memory: mem,
-		Opts:   &Options{StringEncoding: StringEncodingUTF16},
+		Opts:   &Options{StringEncoding: types.StringEncodingUTF16},
 	}
 
 	val, err := LiftString(ctx, 0)
@@ -159,7 +160,7 @@ func TestLiftStringUTF16_Empty(t *testing.T) {
 
 	ctx := &LiftContext{
 		Memory: mem,
-		Opts:   &Options{StringEncoding: StringEncodingUTF16},
+		Opts:   &Options{StringEncoding: types.StringEncodingUTF16},
 	}
 
 	val, err := LiftString(ctx, 0)
@@ -177,7 +178,7 @@ func TestLiftStringUTF16_SurrogatePair(t *testing.T) {
 
 	ctx := &LiftContext{
 		Memory: mem,
-		Opts:   &Options{StringEncoding: StringEncodingUTF16},
+		Opts:   &Options{StringEncoding: types.StringEncodingUTF16},
 	}
 
 	val, err := LiftString(ctx, 0)
@@ -193,7 +194,7 @@ func TestLiftStringUTF16_BoundsCheck(t *testing.T) {
 
 	ctx := &LiftContext{
 		Memory: mem,
-		Opts:   &Options{StringEncoding: StringEncodingUTF16},
+		Opts:   &Options{StringEncoding: types.StringEncodingUTF16},
 	}
 
 	_, err := LiftString(ctx, 0)
@@ -212,7 +213,7 @@ func TestLiftStringLatin1UTF16_Latin1(t *testing.T) {
 
 	ctx := &LiftContext{
 		Memory: mem,
-		Opts:   &Options{StringEncoding: StringEncodingLatin1UTF16},
+		Opts:   &Options{StringEncoding: types.StringEncodingLatin1UTF16},
 	}
 
 	val, err := LiftString(ctx, 0)
@@ -230,7 +231,7 @@ func TestLiftStringLatin1UTF16_Latin1Extended(t *testing.T) {
 
 	ctx := &LiftContext{
 		Memory: mem,
-		Opts:   &Options{StringEncoding: StringEncodingLatin1UTF16},
+		Opts:   &Options{StringEncoding: types.StringEncodingLatin1UTF16},
 	}
 
 	val, err := LiftString(ctx, 0)
@@ -252,7 +253,7 @@ func TestLiftStringLatin1UTF16_UTF16Tagged(t *testing.T) {
 
 	ctx := &LiftContext{
 		Memory: mem,
-		Opts:   &Options{StringEncoding: StringEncodingLatin1UTF16},
+		Opts:   &Options{StringEncoding: types.StringEncodingLatin1UTF16},
 	}
 
 	val, err := LiftString(ctx, 0)
@@ -267,7 +268,7 @@ func TestLiftStringLatin1UTF16_Empty(t *testing.T) {
 
 	ctx := &LiftContext{
 		Memory: mem,
-		Opts:   &Options{StringEncoding: StringEncodingLatin1UTF16},
+		Opts:   &Options{StringEncoding: types.StringEncodingLatin1UTF16},
 	}
 
 	val, err := LiftString(ctx, 0)
@@ -283,7 +284,7 @@ func TestLiftStringLatin1UTF16_Latin1BoundsCheck(t *testing.T) {
 
 	ctx := &LiftContext{
 		Memory: mem,
-		Opts:   &Options{StringEncoding: StringEncodingLatin1UTF16},
+		Opts:   &Options{StringEncoding: types.StringEncodingLatin1UTF16},
 	}
 
 	_, err := LiftString(ctx, 0)
@@ -302,7 +303,7 @@ func TestLiftStringUTF16_UnpairedSurrogate(t *testing.T) {
 
 	ctx := &LiftContext{
 		Memory: mem,
-		Opts:   &Options{StringEncoding: StringEncodingUTF16},
+		Opts:   &Options{StringEncoding: types.StringEncodingUTF16},
 	}
 
 	val, err := LiftString(ctx, 0)
@@ -321,7 +322,7 @@ func TestLiftStringLatin1UTF16_UTF16SurrogatePair(t *testing.T) {
 
 	ctx := &LiftContext{
 		Memory: mem,
-		Opts:   &Options{StringEncoding: StringEncodingLatin1UTF16},
+		Opts:   &Options{StringEncoding: types.StringEncodingLatin1UTF16},
 	}
 
 	val, err := LiftString(ctx, 0)
@@ -337,7 +338,7 @@ func TestLowerStringUTF8(t *testing.T) {
 
 	ctx := &LowerContext{
 		Memory: mem,
-		Opts:   &Options{StringEncoding: StringEncodingUTF8},
+		Opts:   &Options{StringEncoding: types.StringEncodingUTF8},
 		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
 			return allocPtr, nil
 		},
@@ -354,7 +355,7 @@ func TestLowerStringUTF8_Empty(t *testing.T) {
 	mem := wazerotest.NewMemory(64)
 	ctx := &LowerContext{
 		Memory: mem,
-		Opts:   &Options{StringEncoding: StringEncodingUTF8},
+		Opts:   &Options{StringEncoding: types.StringEncodingUTF8},
 		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
 			t.Fatal("Realloc should not be called for empty string")
 			return 0, nil
@@ -373,7 +374,7 @@ func TestLowerStringUTF8_Unicode(t *testing.T) {
 
 	ctx := &LowerContext{
 		Memory: mem,
-		Opts:   &Options{StringEncoding: StringEncodingUTF8},
+		Opts:   &Options{StringEncoding: types.StringEncodingUTF8},
 		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
 			return allocPtr, nil
 		},
@@ -392,7 +393,7 @@ func TestLowerStringUTF16(t *testing.T) {
 
 	ctx := &LowerContext{
 		Memory: mem,
-		Opts:   &Options{StringEncoding: StringEncodingUTF16},
+		Opts:   &Options{StringEncoding: types.StringEncodingUTF16},
 		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
 			return allocPtr, nil
 		},
@@ -411,7 +412,7 @@ func TestLowerStringUTF16_Empty(t *testing.T) {
 	mem := wazerotest.NewMemory(64)
 	ctx := &LowerContext{
 		Memory: mem,
-		Opts:   &Options{StringEncoding: StringEncodingUTF16},
+		Opts:   &Options{StringEncoding: types.StringEncodingUTF16},
 		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
 			t.Fatal("Realloc should not be called for empty string")
 			return 0, nil
@@ -430,7 +431,7 @@ func TestLowerStringUTF16_SurrogatePair(t *testing.T) {
 
 	ctx := &LowerContext{
 		Memory: mem,
-		Opts:   &Options{StringEncoding: StringEncodingUTF16},
+		Opts:   &Options{StringEncoding: types.StringEncodingUTF16},
 		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
 			return allocPtr, nil
 		},
@@ -451,7 +452,7 @@ func TestLowerStringLatin1UTF16_Latin1(t *testing.T) {
 
 	ctx := &LowerContext{
 		Memory: mem,
-		Opts:   &Options{StringEncoding: StringEncodingLatin1UTF16},
+		Opts:   &Options{StringEncoding: types.StringEncodingLatin1UTF16},
 		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
 			return allocPtr, nil
 		},
@@ -473,7 +474,7 @@ func TestLowerStringLatin1UTF16_Latin1Extended(t *testing.T) {
 
 	ctx := &LowerContext{
 		Memory: mem,
-		Opts:   &Options{StringEncoding: StringEncodingLatin1UTF16},
+		Opts:   &Options{StringEncoding: types.StringEncodingLatin1UTF16},
 		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
 			return allocPtr, nil
 		},
@@ -496,7 +497,7 @@ func TestLowerStringLatin1UTF16_Empty(t *testing.T) {
 	mem := wazerotest.NewMemory(64)
 	ctx := &LowerContext{
 		Memory: mem,
-		Opts:   &Options{StringEncoding: StringEncodingLatin1UTF16},
+		Opts:   &Options{StringEncoding: types.StringEncodingLatin1UTF16},
 		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
 			t.Fatal("Realloc should not be called for empty string")
 			return 0, nil
@@ -515,7 +516,7 @@ func TestLowerStringLatin1UTF16_FallbackUTF16(t *testing.T) {
 
 	ctx := &LowerContext{
 		Memory: mem,
-		Opts:   &Options{StringEncoding: StringEncodingLatin1UTF16},
+		Opts:   &Options{StringEncoding: types.StringEncodingLatin1UTF16},
 		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
 			return allocPtr, nil
 		},
@@ -533,7 +534,7 @@ func TestLowerStringUTF8_ReallocError(t *testing.T) {
 	mem := wazerotest.NewMemory(64)
 	ctx := &LowerContext{
 		Memory: mem,
-		Opts:   &Options{StringEncoding: StringEncodingUTF8},
+		Opts:   &Options{StringEncoding: types.StringEncodingUTF8},
 		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
 			return 0, fmt.Errorf("out of memory")
 		},
@@ -549,7 +550,7 @@ func TestLowerStringUTF8_WriteError(t *testing.T) {
 	mem := newByteMemory(10)
 	ctx := &LowerContext{
 		Memory: mem,
-		Opts:   &Options{StringEncoding: StringEncodingUTF8},
+		Opts:   &Options{StringEncoding: types.StringEncodingUTF8},
 		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
 			return 100, nil // Return pointer beyond memory bounds
 		},
@@ -564,7 +565,7 @@ func TestLowerStringUnknownEncoding(t *testing.T) {
 	mem := wazerotest.NewMemory(64)
 	ctx := &LowerContext{
 		Memory: mem,
-		Opts:   &Options{StringEncoding: StringEncoding(99)}, // Invalid encoding
+		Opts:   &Options{StringEncoding: types.StringEncoding(99)}, // Invalid encoding
 		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
 			return 0, nil
 		},
@@ -589,7 +590,7 @@ func TestLiftStringUTF16AlignmentValidation(t *testing.T) {
 
 	ctx := &LiftContext{
 		Memory: mem,
-		Opts:   &Options{StringEncoding: StringEncodingUTF16},
+		Opts:   &Options{StringEncoding: types.StringEncodingUTF16},
 	}
 
 	// ptr=1 is misaligned for UTF-16 (requires 2-byte alignment)
@@ -613,7 +614,7 @@ func TestLiftStringLatin1UTF16AlignmentValidation(t *testing.T) {
 
 	ctx := &LiftContext{
 		Memory: mem,
-		Opts:   &Options{StringEncoding: StringEncodingLatin1UTF16},
+		Opts:   &Options{StringEncoding: types.StringEncodingLatin1UTF16},
 	}
 
 	// taggedLen with UTF16_TAG set, ptr=1 misaligned
@@ -638,7 +639,7 @@ func TestLiftStringLatin1AlignmentValidation(t *testing.T) {
 
 	ctx := &LiftContext{
 		Memory: mem,
-		Opts:   &Options{StringEncoding: StringEncodingLatin1UTF16},
+		Opts:   &Options{StringEncoding: types.StringEncodingLatin1UTF16},
 	}
 
 	// taggedLen without UTF16_TAG - pure Latin-1, but still requires 2-byte alignment per spec

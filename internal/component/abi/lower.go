@@ -351,7 +351,7 @@ func LowerHeap(ctx *LowerContext, typ types.ValType, val types.Val, offset uint3
 		fieldOffset := uint32(0)
 		for _, f := range rec.Fields {
 			fa := f.Type.ABI(ctx.Types)
-			fieldOffset = alignTo(fieldOffset, fa.Align32)
+			fieldOffset = types.AlignTo(fieldOffset, fa.Align32)
 			fieldVal, ok := valRec[f.Name]
 			if !ok {
 				return fmt.Errorf("missing record field: %s", f.Name)
@@ -372,7 +372,7 @@ func LowerHeap(ctx *LowerContext, typ types.ValType, val types.Val, offset uint3
 		elemOffset := uint32(0)
 		for i, elemType := range tup.Types {
 			ea := elemType.ABI(ctx.Types)
-			elemOffset = alignTo(elemOffset, ea.Align32)
+			elemOffset = types.AlignTo(elemOffset, ea.Align32)
 			if err := LowerHeap(ctx, elemType, elems[i], offset+elemOffset); err != nil {
 				return fmt.Errorf("lower tuple element %d: %w", i, err)
 			}
@@ -715,11 +715,11 @@ func paramsTupleLayout(ct *types.ComponentTypes, elems []types.ValType) (size, a
 		if ea.Align32 > align {
 			align = ea.Align32
 		}
-		size = alignTo(size, ea.Align32)
+		size = types.AlignTo(size, ea.Align32)
 		offsets[i] = size
 		size += ea.Size32
 	}
-	size = alignTo(size, align)
+	size = types.AlignTo(size, align)
 	return size, align, offsets
 }
 
@@ -849,7 +849,7 @@ func LowerResults(ctx *LowerContext, resultTypes []types.ValType, results []type
 		}
 		ptr := uint32(stack[len(stack)-1])
 		tupleSize, tupleAlign, offsets := paramsTupleLayout(ctx.Types, resultTypes)
-		if ptr != alignTo(ptr, tupleAlign) {
+		if ptr != types.AlignTo(ptr, tupleAlign) {
 			return fmt.Errorf(
 				"LowerResults: retptr %d not aligned to %d", ptr, tupleAlign)
 		}

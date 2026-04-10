@@ -63,7 +63,7 @@ func TestUTFValidationInvalidUTF8(t *testing.T) {
 			ptr, length := writeStringBytesToMemory(mem, 256, tc.data)
 			liftCtx := &abi.LiftContext{
 				Memory: mem,
-				Opts:   &abi.Options{StringEncoding: abi.StringEncodingUTF8},
+				Opts:   &abi.Options{StringEncoding: types.StringEncodingUTF8},
 			}
 
 			iter := abi.NewFlatIter([]uint64{uint64(ptr), uint64(length)})
@@ -96,7 +96,7 @@ func TestUTFValidationValidUTF8(t *testing.T) {
 			ptr, length := writeStringBytesToMemory(mem, 256, tc.data)
 			liftCtx := &abi.LiftContext{
 				Memory: mem,
-				Opts:   &abi.Options{StringEncoding: abi.StringEncodingUTF8},
+				Opts:   &abi.Options{StringEncoding: types.StringEncodingUTF8},
 			}
 
 			iter := abi.NewFlatIter([]uint64{uint64(ptr), uint64(length)})
@@ -132,7 +132,7 @@ func TestUTFValidationUTF16UnpairedSurrogate(t *testing.T) {
 			ptr, length := writeUTF16ToMemory(mem, 256, tc.codeUnits)
 			liftCtx := &abi.LiftContext{
 				Memory: mem,
-				Opts:   &abi.Options{StringEncoding: abi.StringEncodingUTF16},
+				Opts:   &abi.Options{StringEncoding: types.StringEncodingUTF16},
 			}
 
 			iter := abi.NewFlatIter([]uint64{uint64(ptr), uint64(length)})
@@ -159,7 +159,7 @@ func TestUTFValidationUTF16AlignmentCheck(t *testing.T) {
 
 	liftCtx := &abi.LiftContext{
 		Memory: mem,
-		Opts:   &abi.Options{StringEncoding: abi.StringEncodingUTF16},
+		Opts:   &abi.Options{StringEncoding: types.StringEncodingUTF16},
 	}
 
 	// ptr=257 (odd), length=1 code unit
@@ -178,7 +178,7 @@ func TestUTFValidationUTF16AlignmentCheck(t *testing.T) {
 func TestUTFValidationLatin1Boundary(t *testing.T) {
 	t.Run("latin1_max_U00FF", func(t *testing.T) {
 		// "\u00FF" should lower as Latin-1 (no UTF-16 tag)
-		lowerCtx := newStringLowerContext(256, abi.StringEncodingLatin1UTF16)
+		lowerCtx := newStringLowerContext(256, types.StringEncodingLatin1UTF16)
 
 		ptr, taggedLen, err := abi.LowerString(lowerCtx, "\u00FF")
 		require.NoError(t, err)
@@ -186,7 +186,7 @@ func TestUTFValidationLatin1Boundary(t *testing.T) {
 		require.Equal(t, uint32(0), taggedLen&(1<<31))
 		require.True(t, ptr > 0 || taggedLen == 1)
 
-		liftCtx := newStringLiftContextFrom(lowerCtx, abi.StringEncodingLatin1UTF16)
+		liftCtx := newStringLiftContextFrom(lowerCtx, types.StringEncodingLatin1UTF16)
 		iter := abi.NewFlatIter([]uint64{uint64(ptr), uint64(taggedLen)})
 		val, err := abi.LiftFlat(liftCtx, types.String_, iter)
 		require.NoError(t, err)
@@ -195,7 +195,7 @@ func TestUTFValidationLatin1Boundary(t *testing.T) {
 
 	t.Run("above_latin1_U0100", func(t *testing.T) {
 		// "\u0100" is above Latin-1, should use UTF-16 path
-		lowerCtx := newStringLowerContext(256, abi.StringEncodingLatin1UTF16)
+		lowerCtx := newStringLowerContext(256, types.StringEncodingLatin1UTF16)
 
 		ptr, taggedLen, err := abi.LowerString(lowerCtx, "\u0100")
 		require.NoError(t, err)
@@ -204,7 +204,7 @@ func TestUTFValidationLatin1Boundary(t *testing.T) {
 			"tag bit should be set for code point above Latin-1")
 		_ = ptr
 
-		liftCtx := newStringLiftContextFrom(lowerCtx, abi.StringEncodingLatin1UTF16)
+		liftCtx := newStringLiftContextFrom(lowerCtx, types.StringEncodingLatin1UTF16)
 		iter := abi.NewFlatIter([]uint64{uint64(ptr), uint64(taggedLen)})
 		val, err := abi.LiftFlat(liftCtx, types.String_, iter)
 		require.NoError(t, err)
@@ -225,7 +225,7 @@ func TestUTFValidationLatin1UTF16Alignment(t *testing.T) {
 
 	liftCtx := &abi.LiftContext{
 		Memory: mem,
-		Opts:   &abi.Options{StringEncoding: abi.StringEncodingLatin1UTF16},
+		Opts:   &abi.Options{StringEncoding: types.StringEncodingLatin1UTF16},
 	}
 
 	// ptr=257 (odd), taggedLen=1 (no UTF-16 tag, Latin-1 path)
@@ -242,11 +242,11 @@ func TestUTFValidationLatin1UTF16Alignment(t *testing.T) {
 func TestUTFValidationEmptyStrings(t *testing.T) {
 	encodings := []struct {
 		name string
-		enc  abi.StringEncoding
+		enc  types.StringEncoding
 	}{
-		{"utf8", abi.StringEncodingUTF8},
-		{"utf16", abi.StringEncodingUTF16},
-		{"latin1_utf16", abi.StringEncodingLatin1UTF16},
+		{"utf8", types.StringEncodingUTF8},
+		{"utf16", types.StringEncodingUTF16},
+		{"latin1_utf16", types.StringEncodingLatin1UTF16},
 	}
 
 	for _, enc := range encodings {

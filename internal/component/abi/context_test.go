@@ -22,7 +22,7 @@ func TestLiftContext(t *testing.T) {
 	ctx := &LiftContext{
 		Memory: mem,
 		Opts: &Options{
-			StringEncoding: StringEncodingUTF8,
+			StringEncoding: types.StringEncodingUTF8,
 		},
 	}
 

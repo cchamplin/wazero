@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/types"
 	"github.com/tetratelabs/wazero/internal/leb128"
 )
 
@@ -138,11 +139,11 @@ func decodeCanonicalOptions(r *bytes.Reader, opts *component.CanonicalOptions) e
 
 		switch optCode {
 		case CanonOptStringUTF8:
-			opts.StringEncoding = component.StringEncodingUTF8
+			opts.StringEncoding = types.StringEncodingUTF8
 		case CanonOptStringUTF16:
-			opts.StringEncoding = component.StringEncodingUTF16
+			opts.StringEncoding = types.StringEncodingUTF16
 		case CanonOptStringLatin1UTF16:
-			opts.StringEncoding = component.StringEncodingLatin1UTF16
+			opts.StringEncoding = types.StringEncodingLatin1UTF16
 		case CanonOptMemory:
 			idx, _, err := leb128.DecodeUint32(r)
 			if err != nil {

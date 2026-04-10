@@ -389,7 +389,7 @@ const (
 
 // CanonicalOptions holds optional parameters for canonical operations.
 type CanonicalOptions struct {
-	StringEncoding StringEncoding
+	StringEncoding types.StringEncoding
 	MemoryIdx      *uint32 // nil if not specified
 	ReallocIdx     *uint32 // nil if not specified
 	PostReturnIdx  *uint32 // nil if not specified
@@ -399,14 +399,6 @@ type CanonicalOptions struct {
 	GC             bool    // use GC version of canonical ABI
 }
 
-// StringEncoding specifies how strings are encoded.
-type StringEncoding uint8
-
-const (
-	StringEncodingUTF8 StringEncoding = iota
-	StringEncodingUTF16
-	StringEncodingLatin1UTF16
-)
 
 // Export represents a component export.
 type Export struct {

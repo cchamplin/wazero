@@ -28,11 +28,6 @@ import (
 	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
-// MaxFlatResults is the maximum number of flattened result values that can
-// be returned directly (for synchronous calls). Beyond this, results spill
-// to memory via a return pointer.
-const MaxFlatResults = 1
-
 // dtorRef holds a lazily-resolved reference to a guest destructor function.
 // At bindResourceTypes time the core modules haven't been instantiated yet, so
 // the api.Function cannot be resolved immediately. The closure captured in
@@ -1166,48 +1161,15 @@ func (l *ComponentLinker) MergeFrom(linker *Linker) {
 // Instantiate steps 12-14, ExportedFunc.Call rewrite) is deferred to
 // Task C8-b; the end-to-end integration test to Task C8-c.
 
-// buildAbiOptions constructs an abi.Options from a CanonicalDef's
-// CanonicalOptions together with the per-instance memory and realloc
-// function. The impedance mismatch between CanonicalOptions.MemoryIdx
-// (*uint32, nilable) and abi.Options.MemoryIdx (uint32, value) is
-// handled here: when canon.Options.MemoryIdx is nil we pass 0, which
-// is the convention used by the abi.Context constructors.
-//
-// The memory / realloc api.Function values themselves travel through
-// the LiftContext / LowerContext memory + realloc fields directly;
-// abi.Options only carries the indirection indices for reference.
-//
-// Spec: definitions.py:1978-1990 canon_lift uses CanonicalOptions fields
-// memory / realloc / post_return directly; wasmtime
-// runtime/component/func/options.rs has the parallel Options struct.
-// C8-b cleanup (review item 4): dropped unused memory/realloc parameters.
-// Options only carries indirection indices; the live api.Memory/api.Function
-// values travel via LiftContext/LowerContext.Memory / .Realloc set by callers.
+// buildAbiOptions constructs an abi.Options from a CanonicalDef.
+// Now that both CanonicalOptions and abi.Options use types.StringEncoding,
+// this is a direct copy of the encoding field.
 func buildAbiOptions(canon *CanonicalDef) abi.Options {
-	var memIdx uint32
-	if canon != nil && canon.Options.MemoryIdx != nil {
-		memIdx = *canon.Options.MemoryIdx
-	}
-	var realloIdx *uint32
-	var postIdx *uint32
-	var enc abi.StringEncoding
-	if canon != nil {
-		realloIdx = canon.Options.ReallocIdx
-		postIdx = canon.Options.PostReturnIdx
-		switch canon.Options.StringEncoding {
-		case StringEncodingUTF8:
-			enc = abi.StringEncodingUTF8
-		case StringEncodingUTF16:
-			enc = abi.StringEncodingUTF16
-		case StringEncodingLatin1UTF16:
-			enc = abi.StringEncodingLatin1UTF16
-		}
+	if canon == nil {
+		return abi.Options{}
 	}
 	return abi.Options{
-		StringEncoding: enc,
-		MemoryIdx:      memIdx,
-		ReallocIdx:     realloIdx,
-		PostReturnIdx:  postIdx,
+		StringEncoding: canon.Options.StringEncoding,
 	}
 }
 

@@ -76,6 +76,17 @@ var (
 	String_ = ValType{Kind: TypeKindString}
 )
 
+// StringEncoding specifies the string encoding for Canonical ABI.
+//
+// Spec: definitions.py StringEncoding enum (UTF-8, UTF-16, Latin1+UTF-16).
+type StringEncoding uint8
+
+const (
+	StringEncodingUTF8 StringEncoding = iota
+	StringEncodingUTF16
+	StringEncodingLatin1UTF16
+)
+
 // ComponentTypes is the per-top-level-component immutable type bag.
 // Built by ComponentTypesBuilder during binary decode, frozen at Finish,
 // and threaded through all subsequent lift/lower / validation / linking.

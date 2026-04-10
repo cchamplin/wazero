@@ -6,6 +6,8 @@ import (
 	"math"
 	"unicode/utf16"
 	"unicode/utf8"
+
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 // utf16Tag is the tag bit used in Latin1+UTF16 encoding to indicate UTF-16.
@@ -32,11 +34,11 @@ func LiftString(ctx *LiftContext, offset uint32) (string, error) {
 // This is used by LiftFlat for flat string representation (ptr, len as separate values).
 func liftStringFromPtrLen(ctx *LiftContext, ptr, taggedLen uint32) (string, error) {
 	switch ctx.Opts.StringEncoding {
-	case StringEncodingUTF8:
+	case types.StringEncodingUTF8:
 		return liftStringUTF8(ctx, ptr, taggedLen)
-	case StringEncodingUTF16:
+	case types.StringEncodingUTF16:
 		return liftStringUTF16(ctx, ptr, taggedLen)
-	case StringEncodingLatin1UTF16:
+	case types.StringEncodingLatin1UTF16:
 		return liftStringLatin1UTF16(ctx, ptr, taggedLen)
 	default:
 		return "", fmt.Errorf("unknown string encoding: %d", ctx.Opts.StringEncoding)
@@ -127,11 +129,11 @@ func liftStringLatin1UTF16(ctx *LiftContext, ptr, taggedLen uint32) (string, err
 // NOTE: Integration with LowerFlat/LowerHeap for types.String is handled in Task 65.
 func LowerString(ctx *LowerContext, s string) (ptr, taggedLen uint32, err error) {
 	switch ctx.Opts.StringEncoding {
-	case StringEncodingUTF8:
+	case types.StringEncodingUTF8:
 		return lowerStringUTF8(ctx, s)
-	case StringEncodingUTF16:
+	case types.StringEncodingUTF16:
 		return lowerStringUTF16(ctx, s)
-	case StringEncodingLatin1UTF16:
+	case types.StringEncodingLatin1UTF16:
 		return lowerStringLatin1UTF16(ctx, s)
 	default:
 		return 0, 0, fmt.Errorf("unknown string encoding: %d", ctx.Opts.StringEncoding)

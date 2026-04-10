@@ -31,7 +31,7 @@ func TestReallocFailureStringLower(t *testing.T) {
 
 	lowerCtx := &abi.LowerContext{
 		Memory: mem,
-		Opts:   &abi.Options{StringEncoding: abi.StringEncodingUTF8},
+		Opts:   &abi.Options{StringEncoding: types.StringEncodingUTF8},
 		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
 			return 0, reallocErr
 		},
@@ -57,7 +57,7 @@ func TestReallocFailureListLower(t *testing.T) {
 	lowerCtx := &abi.LowerContext{
 		Types:  ct,
 		Memory: mem,
-		Opts:   &abi.Options{StringEncoding: abi.StringEncodingUTF8},
+		Opts:   &abi.Options{StringEncoding: types.StringEncodingUTF8},
 		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
 			return 0, reallocErr
 		},
@@ -101,7 +101,7 @@ func TestReallocReturnsButMemoryWriteFails(t *testing.T) {
 	mem := wazerotest.NewMemory(wazerotest.PageSize)
 	lowerCtx := &abi.LowerContext{
 		Memory: mem,
-		Opts:   &abi.Options{StringEncoding: abi.StringEncodingUTF8},
+		Opts:   &abi.Options{StringEncoding: types.StringEncodingUTF8},
 		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
 			// Return a pointer past the end of memory
 			return uint32(mem.Size()) + 1000, nil
@@ -125,7 +125,7 @@ func TestReallocSuccessAfterFailure(t *testing.T) {
 
 	lowerCtx := &abi.LowerContext{
 		Memory: mem,
-		Opts:   &abi.Options{StringEncoding: abi.StringEncodingUTF8},
+		Opts:   &abi.Options{StringEncoding: types.StringEncodingUTF8},
 		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
 			callCount++
 			if callCount == 1 {
@@ -154,7 +154,7 @@ func TestReallocSuccessAfterFailure(t *testing.T) {
 func TestReallocEmptyStringNoCall(t *testing.T) {
 	called := false
 	lowerCtx := &abi.LowerContext{
-		Opts: &abi.Options{StringEncoding: abi.StringEncodingUTF8},
+		Opts: &abi.Options{StringEncoding: types.StringEncodingUTF8},
 		Realloc: func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
 			called = true
 			return 0, nil

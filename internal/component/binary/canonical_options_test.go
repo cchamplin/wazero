@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/tetratelabs/wazero/internal/component"
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 func TestDecodeCanonicalOptions(t *testing.T) {
@@ -20,14 +21,14 @@ func TestDecodeCanonicalOptions(t *testing.T) {
 			name:  "empty options defaults to utf8",
 			input: []byte{0x00}, // count = 0
 			expected: component.CanonicalOptions{
-				StringEncoding: component.StringEncodingUTF8,
+				StringEncoding: types.StringEncodingUTF8,
 			},
 		},
 		{
 			name:  "async option",
 			input: []byte{0x01, 0x06}, // count = 1, async
 			expected: component.CanonicalOptions{
-				StringEncoding: component.StringEncodingUTF8,
+				StringEncoding: types.StringEncodingUTF8,
 				Async:          true,
 			},
 		},
@@ -35,7 +36,7 @@ func TestDecodeCanonicalOptions(t *testing.T) {
 			name:  "callback option with index 5",
 			input: []byte{0x01, 0x07, 0x05}, // count = 1, callback, index = 5
 			expected: component.CanonicalOptions{
-				StringEncoding: component.StringEncodingUTF8,
+				StringEncoding: types.StringEncodingUTF8,
 				CallbackIdx:    ptrUint32(5),
 			},
 		},
@@ -43,7 +44,7 @@ func TestDecodeCanonicalOptions(t *testing.T) {
 			name:  "core-type option with index 3",
 			input: []byte{0x01, 0x08, 0x03}, // count = 1, core-type, index = 3
 			expected: component.CanonicalOptions{
-				StringEncoding: component.StringEncodingUTF8,
+				StringEncoding: types.StringEncodingUTF8,
 				CoreTypeIdx:    ptrUint32(3),
 			},
 		},
@@ -51,7 +52,7 @@ func TestDecodeCanonicalOptions(t *testing.T) {
 			name:  "gc option",
 			input: []byte{0x01, 0x09}, // count = 1, gc
 			expected: component.CanonicalOptions{
-				StringEncoding: component.StringEncodingUTF8,
+				StringEncoding: types.StringEncodingUTF8,
 				GC:             true,
 			},
 		},
@@ -59,7 +60,7 @@ func TestDecodeCanonicalOptions(t *testing.T) {
 			name:  "multiple options async memory realloc",
 			input: []byte{0x03, 0x06, 0x03, 0x00, 0x04, 0x01}, // count = 3, async, memory idx=0, realloc idx=1
 			expected: component.CanonicalOptions{
-				StringEncoding: component.StringEncodingUTF8,
+				StringEncoding: types.StringEncodingUTF8,
 				Async:          true,
 				MemoryIdx:      ptrUint32(0),
 				ReallocIdx:     ptrUint32(1),

@@ -59,7 +59,7 @@ func TestErrorMessages(t *testing.T) {
 
 		liftCtx := &abi.LiftContext{
 			Types: ct,
-			Opts:  &abi.Options{StringEncoding: abi.StringEncodingUTF8},
+			Opts:  &abi.Options{StringEncoding: types.StringEncodingUTF8},
 		}
 		// ptr=0, len=5 — non-empty list, nil memory
 		iter := abi.NewFlatIter([]uint64{0, 5})

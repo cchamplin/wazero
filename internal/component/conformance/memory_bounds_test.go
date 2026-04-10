@@ -83,7 +83,7 @@ func TestMemoryBoundsZeroLengthListAtBoundary(t *testing.T) {
 	liftCtx := &abi.LiftContext{
 		Types:  ct,
 		Memory: mem,
-		Opts:   &abi.Options{StringEncoding: abi.StringEncodingUTF8},
+		Opts:   &abi.Options{StringEncoding: types.StringEncodingUTF8},
 	}
 
 	// ptr at the very end of memory, length=0
@@ -108,7 +108,7 @@ func TestMemoryBoundsListExceedsMemory(t *testing.T) {
 	liftCtx := &abi.LiftContext{
 		Types:  ct,
 		Memory: mem,
-		Opts:   &abi.Options{StringEncoding: abi.StringEncodingUTF8},
+		Opts:   &abi.Options{StringEncoding: types.StringEncodingUTF8},
 	}
 
 	// ptr near end, length would overflow past memory
@@ -128,7 +128,7 @@ func TestMemoryBoundsStringShortRead(t *testing.T) {
 	mem := wazerotest.NewMemory(wazerotest.PageSize)
 	liftCtx := &abi.LiftContext{
 		Memory: mem,
-		Opts:   &abi.Options{StringEncoding: abi.StringEncodingUTF8},
+		Opts:   &abi.Options{StringEncoding: types.StringEncodingUTF8},
 	}
 
 	// String at offset near end of memory with length extending past end

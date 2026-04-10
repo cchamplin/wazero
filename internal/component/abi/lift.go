@@ -401,7 +401,7 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (types.Val, er
 		fieldOffset := uint32(0)
 		for _, f := range rec.Fields {
 			fa := f.Type.ABI(ctx.Types)
-			fieldOffset = alignTo(fieldOffset, fa.Align32)
+			fieldOffset = types.AlignTo(fieldOffset, fa.Align32)
 			fieldVal, err := LiftHeap(ctx, f.Type, offset+fieldOffset)
 			if err != nil {
 				return types.Val{}, fmt.Errorf("lift record field %s: %w", f.Name, err)
@@ -416,7 +416,7 @@ func LiftHeap(ctx *LiftContext, typ types.ValType, offset uint32) (types.Val, er
 		elemOffset := uint32(0)
 		for i, elemType := range tup.Types {
 			ea := elemType.ABI(ctx.Types)
-			elemOffset = alignTo(elemOffset, ea.Align32)
+			elemOffset = types.AlignTo(elemOffset, ea.Align32)
 			elem, err := LiftHeap(ctx, elemType, offset+elemOffset)
 			if err != nil {
 				return types.Val{}, fmt.Errorf("lift tuple element %d: %w", i, err)
@@ -782,7 +782,7 @@ func LiftParams(ctx *LiftContext, paramTypes []types.ValType, flat []uint64, max
 		}
 		ptr := uint32(flat[0])
 		tupleSize, tupleAlign, offsets := paramsTupleLayout(ctx.Types, paramTypes)
-		if ptr != alignTo(ptr, tupleAlign) {
+		if ptr != types.AlignTo(ptr, tupleAlign) {
 			return nil, fmt.Errorf(
 				"LiftParams: retptr %d not aligned to %d", ptr, tupleAlign)
 		}
@@ -842,7 +842,7 @@ func LiftResults(ctx *LiftContext, resultTypes []types.ValType, flat []uint64, m
 		}
 		ptr := uint32(flat[0])
 		tupleSize, tupleAlign, offsets := paramsTupleLayout(ctx.Types, resultTypes)
-		if ptr != alignTo(ptr, tupleAlign) {
+		if ptr != types.AlignTo(ptr, tupleAlign) {
 			return nil, fmt.Errorf(
 				"LiftResults: retptr %d not aligned to %d", ptr, tupleAlign)
 		}
@@ -874,14 +874,6 @@ func LiftResults(ctx *LiftContext, resultTypes []types.ValType, flat []uint64, m
 	return vals, nil
 }
 
-// alignTo rounds offset up to the given alignment. align must be a
-// power of two.
-func alignTo(offset, align uint32) uint32 {
-	if align == 0 {
-		return offset
-	}
-	return (offset + align - 1) &^ (align - 1)
-}
 
 // isValidUnicodeScalar checks if a value is a valid Unicode scalar value.
 // Unicode scalar values are any code point except high-surrogate and low-surrogate code points.
