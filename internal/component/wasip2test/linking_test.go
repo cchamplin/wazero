@@ -161,8 +161,6 @@ func TestComponentLinking_ProviderConsumer(t *testing.T) {
 	consumerLinker.MergeFrom(linker)
 
 	// Instantiate the consumer component
-
-
 	consumerInstance, err := consumerLinker.Instantiate(testCtx, compiledConsumer.(*component.CompiledComponent))
 	if err != nil {
 		t.Skipf("Instantiate (consumer): %v", err)

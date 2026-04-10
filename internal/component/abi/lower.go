@@ -532,21 +532,21 @@ func LowerHeap(ctx *LowerContext, typ types.ValType, val types.Val, offset uint3
 		elements := val.List()
 		length := uint32(len(elements))
 
-		if length == 0 {
-			writeUint32Le(ctx.Memory, offset, 0)
-			writeUint32Le(ctx.Memory, offset+4, 0)
-			return nil
-		}
-
 		if ctx.Realloc == nil {
-			return fmt.Errorf("lower list: realloc function required for non-empty list")
+			return fmt.Errorf("lower list: realloc function required")
 		}
 
 		elemABI := list.Element.ABI(ctx.Types)
 		elemSize := elemABI.Size32
 		elemAlign := elemABI.Align32
+		if elemAlign == 0 {
+			elemAlign = 1
+		}
 		totalSize := length * elemSize
 
+		// Per canonical ABI: realloc is always called, even for empty lists.
+		// The returned pointer must be aligned and within memory bounds.
+		// (spec definitions.py:1594-1601 store_list_into_range)
 		ptr, err := ctx.Realloc(0, 0, elemAlign, totalSize)
 		if err != nil {
 			return fmt.Errorf("lower list: realloc failed: %w", err)

@@ -1910,9 +1910,12 @@ func TestListEmpty(t *testing.T) {
 		err := abi.LowerHeap(lowerCtx, listType, val, 0)
 		require.NoError(t, err)
 
+		// Per spec (definitions.py:1594-1601 store_list_into_range):
+		// realloc is called even for empty lists. The pointer is whatever
+		// realloc returns (aligned, within memory bounds); length is 0.
 		ptr := binary.LittleEndian.Uint32(lowerCtx.Memory.(*wazerotest.Memory).Bytes[0:4])
 		length := binary.LittleEndian.Uint32(lowerCtx.Memory.(*wazerotest.Memory).Bytes[4:8])
-		require.Equal(t, uint32(0), ptr)
+		require.NotEqual(t, uint32(0), ptr, "realloc must be called even for empty lists")
 		require.Equal(t, uint32(0), length)
 
 		lifted, err := abi.LiftHeap(liftCtx, listType, 0)

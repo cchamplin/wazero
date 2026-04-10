@@ -15,6 +15,7 @@ package spectest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
@@ -435,10 +436,11 @@ func safeCall(ctx context.Context, fn api.ComponentFunc, args []any) (results []
 				err = fmt.Errorf("exit error: %v", r)
 				return
 			}
-			// Errors wrapping a trap (e.g., fmt.Errorf wrapping a
-			// wasmruntime.Error) are also expected runtime behaviour.
+			// Errors wrapping a trap (e.g., fmt.Errorf("%w", wasmErr) in
+			// component_linker canon.lower/lift closures) are also traps.
 			if e, ok := r.(error); ok {
-				if strings.Contains(e.Error(), "wasm error:") {
+				var wasmErr *wasmruntime.Error
+				if errors.As(e, &wasmErr) {
 					err = e
 					return
 				}
