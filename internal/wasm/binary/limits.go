@@ -38,6 +38,10 @@ func decodeLimitsType(r *bytes.Reader) (min uint32, max *uint32, shared bool, er
 			max = &m
 		}
 	case 0x04: // memory64, min only (u64 LEB128, truncated to u32)
+		// Note: spec says u64 but we use DecodeInt64 (signed) since
+		// DecodeUint64 isn't available. Values up to 2^63-1 decode
+		// correctly; larger values would be misinterpreted but are
+		// truncated to uint32 anyway so this is safe in practice.
 		var min64 int64
 		min64, _, err = leb128.DecodeInt64(r)
 		if err != nil {

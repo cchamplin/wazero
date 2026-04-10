@@ -396,6 +396,7 @@ const (
 )
 
 // CanonicalOptions holds optional parameters for canonical operations.
+// Per Binary.md:346-354, canonopt codes are 0x00-0x07.
 type CanonicalOptions struct {
 	StringEncoding types.StringEncoding
 	MemoryIdx      *uint32 // nil if not specified
@@ -403,8 +404,6 @@ type CanonicalOptions struct {
 	PostReturnIdx  *uint32 // nil if not specified
 	Async          bool    // true if async option specified (gated)
 	CallbackIdx    *uint32 // callback function index (gated)
-	CoreTypeIdx    *uint32 // core type index for lowering
-	GC             bool    // use GC version of canonical ABI
 }
 
 

@@ -103,19 +103,65 @@ func decodeExport(r *bytes.Reader) (component.Export, error) {
 		return exp, fmt.Errorf("read extern desc flag: %w", err)
 	}
 	if hasExternDesc == 0x01 {
-		// Read extern desc kind
+		// Read extern desc kind per Binary.md:236-241
+		// externdesc ::= 0x00 0x11 i:<core:typeidx>  (core module)
+		//              | 0x01 i:<typeidx>             (func)
+		//              | 0x02 b:<valuebound>          (value)
+		//              | 0x03 b:<typebound>           (type)
+		//              | 0x04 i:<typeidx>             (component)
+		//              | 0x05 i:<typeidx>             (instance)
 		externKind, err := r.ReadByte()
 		if err != nil {
 			return exp, fmt.Errorf("read extern desc kind: %w", err)
 		}
-		_ = externKind
 
-		// Read type index
-		typeIdx, _, err := leb128.DecodeUint32(r)
-		if err != nil {
-			return exp, fmt.Errorf("read extern desc type index: %w", err)
+		switch externKind {
+		case 0x00:
+			// Core module: has an additional 0x11 sort byte before the typeidx
+			if _, err := r.ReadByte(); err != nil {
+				return exp, fmt.Errorf("read extern desc core module sort: %w", err)
+			}
+			typeIdx, _, err := leb128.DecodeUint32(r)
+			if err != nil {
+				return exp, fmt.Errorf("read extern desc core type index: %w", err)
+			}
+			exp.TypeIdx = &typeIdx
+		case 0x03:
+			// Type bound: 0x00 i:<typeidx> | 0x01 (sub resource)
+			boundKind, err := r.ReadByte()
+			if err != nil {
+				return exp, fmt.Errorf("read type bound kind: %w", err)
+			}
+			if boundKind == 0x00 {
+				typeIdx, _, err := leb128.DecodeUint32(r)
+				if err != nil {
+					return exp, fmt.Errorf("read type bound index: %w", err)
+				}
+				exp.TypeIdx = &typeIdx
+			}
+			// boundKind 0x01 = (sub resource), no additional data
+		case 0x01, 0x04, 0x05:
+			// func, component, instance: single typeidx
+			typeIdx, _, err := leb128.DecodeUint32(r)
+			if err != nil {
+				return exp, fmt.Errorf("read extern desc type index: %w", err)
+			}
+			exp.TypeIdx = &typeIdx
+		case 0x02:
+			// Value bound: 0x00 i:<valueidx> | 0x01 t:<valtype>
+			boundKind, err := r.ReadByte()
+			if err != nil {
+				return exp, fmt.Errorf("read value bound kind: %w", err)
+			}
+			if boundKind == 0x00 || boundKind == 0x01 {
+				// Both forms have a single index/type to skip
+				if _, _, err := leb128.DecodeUint32(r); err != nil {
+					return exp, fmt.Errorf("read value bound data: %w", err)
+				}
+			}
+		default:
+			return exp, fmt.Errorf("unknown extern desc kind: 0x%02x", externKind)
 		}
-		exp.TypeIdx = &typeIdx
 	}
 
 	return exp, nil
