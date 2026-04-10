@@ -504,6 +504,8 @@ func (r *runtime) CompileComponent(ctx context.Context, binary []byte) (api.Comp
 				cm.Close(ctx)
 			}
 		}
+		// Clean up any partially-compiled nested component modules
+		component.CloseNestedCompiledModules(ctx, parsed)
 		return nil, err
 	}
 

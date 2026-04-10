@@ -172,15 +172,15 @@ func (c *CompiledComponent) Close(ctx context.Context) error {
 		}
 	}
 	// Recursively close compiled modules for nested components.
-	if err := closeNestedCompiledModules(ctx, c.component); err != nil && firstErr == nil {
+	if err := CloseNestedCompiledModules(ctx, c.component); err != nil && firstErr == nil {
 		firstErr = err
 	}
 	return firstErr
 }
 
-// closeNestedCompiledModules recursively closes CompiledCoreModules on
-// all nested components in the component tree.
-func closeNestedCompiledModules(ctx context.Context, comp *Component) error {
+// CloseNestedCompiledModules recursively closes compiled modules for all
+// nested components in the component tree.
+func CloseNestedCompiledModules(ctx context.Context, comp *Component) error {
 	var firstErr error
 	for _, nested := range comp.Components {
 		for _, cm := range nested.CompiledCoreModules {
@@ -191,7 +191,7 @@ func closeNestedCompiledModules(ctx context.Context, comp *Component) error {
 			}
 		}
 		nested.CompiledCoreModules = nil
-		if err := closeNestedCompiledModules(ctx, nested); err != nil && firstErr == nil {
+		if err := CloseNestedCompiledModules(ctx, nested); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
