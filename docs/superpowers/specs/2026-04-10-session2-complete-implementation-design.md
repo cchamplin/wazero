@@ -22,14 +22,18 @@ The implementation proceeds in four layers, bottom-up: Foundation (cross-instanc
 - `ComponentLinker.Instantiate` handles real multi-module components: canon.lower closures invoke guest code, canon.resource operations are wired, memory and realloc are shared.
 - The spectest runner implements all `.wast` command types: `component`, `assert_invalid`, `module`, `invoke`, `assert_return`, `assert_trap`, `register`.
 - Every `t.Skip` in the codebase is either removed (test passes) or justified with a spec citation for async deferral. No skip is left unaddressed.
-- The public `api/component/` surface matches wasmtime's C API: type introspection, resource operations, post-return, InstancePre, export access.
+- The public `api/component/` surface matches wasmtime's C API: type introspection, resource operations, post-return, InstancePre, export access, component-level import/export enumeration.
 - Any defects found in abi/, binary/, runtime/, or types/ are fixed at the source. No workarounds, no shims, no duplicate types or paths.
+- The existing 4 component examples (basic, host-functions, types, wasip2) continue to pass as a regression gate.
 
 ## Non-Goals (explicitly deferred)
 
 - **Async lift/lower** (stream, future, error-context, subtask). The `TypeKindStream`, `TypeKindFuture`, `TypeKindErrorContext` trap arms stay. Tests that require async semantics remain skipped with "async: no session scheduled" and a spec citation.
 - **Typed function call API** (`TypedFunc[P, R]` generics). The dynamic `Val`-based API is sufficient when all spec types can be exercised through it. Code generation (wit-bindgen-go) is a separate tool.
 - **WIT-binding codegen**. Not on any session.
+- **WAC test components** (`debug-vendored/wac/`). These require external Go module dependencies not available in the repo. Noted as a known limitation.
+- **wit-bindgen Go runtime tests** (`debug-vendored/wit-bindgen/tests/runtime/`). These have unresolvable Go package dependencies (`wit_component/*`, `github.com/bytecodealliance/wit-bindgen/wit_types`). The pre-compiled `.wasm` files from `debug-vendored/wit-bindgen/tests/*.wasm` can be used as binary test fixtures if they exist, but the Go test harnesses cannot be compiled.
+- **Component serialization/deserialization** (`component_serialize`, `component_deserialize`). Wasmtime C API feature not needed for correctness.
 
 ## Spec Authorities
 
@@ -37,10 +41,10 @@ All citations reference files vendored in the repo. These sources win over any c
 
 - `debug-vendored/component-model/design/mvp/canonical-abi/definitions.py` — the canonical-abi reference implementation.
   - `lift_own` at lines 1333-1339, `lift_borrow` at 1341-1347.
-  - `lower_own` at 1641-1643, `lower_borrow` at 1645-1651.
+  - `lower_own` at 1641-1643, `lower_borrow` at 1645-1651 (same-instance optimization at 1647).
   - `canon_resource_new` at 2134-2138, `canon_resource_rep` at 2169-2173.
   - `canon_resource_drop` at 2142-2165 (cross-instance destructor routing).
-  - `canon_lift` at 1978-2040 (post-return at 1999-2002).
+  - `canon_lift` at 1978-2040 (may_enter check at 1979, post-return at 1999-2002).
   - `canon_lower` at 2064-2130.
   - `lower_flat_values` at 1943-1975, `lift_flat_values` at 1977-1993.
   - `call_might_be_recursive` at 290-299.
@@ -48,11 +52,12 @@ All citations reference files vendored in the repo. These sources win over any c
 - `debug-vendored/component-model/design/mvp/CanonicalABI.md` — spec prose.
 - `debug-vendored/wasmtime/crates/c-api/include/wasmtime/component/` — wasmtime C API (the language-neutral public surface reference).
   - `func.h` — `func_call`, `func_post_return`, `func_type`.
-  - `linker.h` — linker, instantiation, resource definition.
-  - `val.h` — value types, resource operations.
+  - `linker.h` — linker, instantiation, resource definition, `define_unknown_imports_as_traps`.
+  - `val.h` — value types, `resource_any_t`, `resource_host_t`, resource operations.
   - `types/val.h` — full type introspection.
   - `types/func.h` — function type introspection.
   - `types/resource.h` — resource type equality.
+  - `component.h` — `component_type`, import/export enumeration.
 - `debug-vendored/wasmtime/crates/wasmtime/src/runtime/component/` — wasmtime Rust runtime.
   - `instance.rs` — Instantiator, InstancePre.
   - `func.rs` — Func::call, post_return.
@@ -63,10 +68,10 @@ All citations reference files vendored in the repo. These sources win over any c
 
 Bottom-up in four layers. Each layer builds on the previous:
 
-1. **Foundation** — Fix cross-instance resources, add post-return protocol, wire handle+list params through abi
+1. **Foundation** — Fix cross-instance resources, add post-return protocol, wire handle+list params through abi, add may_enter and lower_borrow optimizations
 2. **Pipeline** — Complete Instantiate for real multi-module components, fix wireExports, wire canon.lower/lift/resource closures
-3. **Tests** — Spectest runner, unskip all tests, add real .wasm integration tests
-4. **Public API** — Type introspection, resource surface, InstancePre, post-return, export access
+3. **Tests** — Spectest runner, unskip all tests, add real .wasm integration tests, verify examples
+4. **Public API** — Type introspection, resource surface, InstancePre, post-return, export access, component-level introspection
 
 If any layer reveals defects in abi/, binary/, runtime/, or types/, the defect is fixed at the source in that layer. No workarounds.
 
@@ -110,13 +115,23 @@ def canon_resource_drop(rt, thread, i):
    - Call the destructor on `rt.Impl` (the defining instance) via the abi lift/lower path
    - Set `may_leave=false` around the call per spec
 
-2. **Guest destructor resolution** (`instance.go:376-389`): `rt.Dtor` is a core function index. Resolution requires access to the defining instance's core modules. Fix: add a `DestructorFunc func(rep uint32) error` field on `runtime.ResourceType` (a Go closure, not a core function index). The closure is set at instantiation time by the `ComponentLinker`, which has access to both the `runtime.ResourceType` and the core module exports. This avoids an import cycle between `runtime/` and `component/` — the closure captures the core function reference at bind time. The `Dtor *uint32` field is kept for the binary decoder but `DestructorFunc` is the runtime resolution path.
+2. **Guest destructor resolution** (`instance.go:376-389`): `rt.Dtor` is a core function index in the binary format. The runtime resolution path uses the existing `runtime.ResourceType.HostDestructor` field (type `func(rep uint32) error`, defined at `runtime/resource_type.go:42`). For guest-declared resources, `HostDestructor` is set at instantiation time by the `ComponentLinker` as a closure that captures the resolved core function from the defining instance's core module exports. This avoids an import cycle between `runtime/` and `component/` — the closure captures the core function reference at bind time. The `Dtor *uint32` field is kept for the binary decoder; `HostDestructor` is the runtime invocation path. Note: there is also a `runtime.DestructorFunc` type (`func(rep uint32)`, no error return) in `runtime/destructor.go`. This type is used by the `Table`-level destructor registry and has a different signature. Do not confuse the two — `HostDestructor` on `ResourceType` returns an error; `DestructorFunc` does not. Both must be kept, with their distinct purposes documented.
 
 3. **Reentrance check** (`instance.go:350-352`): When no destructor and cross-instance, call `CallMightBeRecursive` between the calling instance and the defining instance per spec `:2162`. The defining instance is resolved from the store-wide registry (see item 4). `CallMightBeRecursive` already exists — wire it in with the resolved defining instance.
 
-4. **Store-wide resource type registry**: `LookupResourceType` currently walks the `Parent` chain, which fails for sibling instances. Add a store-level `map[resourceTypeKey]*ResourceType` registry on `runtime.ComponentInstance` (or a shared store object). Populated at instantiation time. `LookupResourceType` consults the registry when the parent-chain walk fails. Key: `(RuntimeComponentInstanceIdx, ResourceIdx)`.
+4. **Store-wide resource type registry**: `LookupResourceType` currently walks the `Parent` chain, which fails for sibling instances. Add a `runtime.ResourceStore` struct — a shared object holding `map[resourceTypeKey]*ResourceType` where the key is `(RuntimeComponentInstanceIdx, ResourceIdx)`. The `ResourceStore` is created once per top-level `ComponentLinker.Instantiate` call and injected into every `runtime.ComponentInstance` constructed during that instantiation (including nested instances). `LookupResourceType` consults the store when the parent-chain walk fails. The `ResourceStore` also holds a `map[uint32]*component.Instance` mapping instance IDs to wrapper instances, enabling cross-instance `CallMightBeRecursive` resolution without an import cycle (the map stores an `interface{}` in `runtime/` and is type-asserted in `component/`).
 
-5. **Fix any defects in abi/lift.go or runtime/table.go** encountered during cross-instance testing. The `liftOwnHandle`/`liftBorrowHandle` paths must correctly resolve resource types across instances via `LookupResourceType` or the store registry.
+5. **`lower_borrow` same-instance optimization** (spec `definitions.py:1645-1651`):
+   ```python
+   def lower_borrow(cx, rep, t):
+       if cx.inst is t.rt.impl:
+           return rep
+       h = ResourceHandle(t.rt, rep, own=False, borrow_scope=cx.borrow_scope)
+       return cx.inst.table.add(h)
+   ```
+   When the calling instance IS the defining instance, the spec returns `rep` directly without allocating a borrow handle. This is a correctness requirement, not just an optimization — it changes observable behavior (the handle table is not touched). Verify that `abi/lower.go`'s `lowerBorrowHandle` implements this. If not, fix it.
+
+6. **Fix any defects in abi/lift.go or runtime/table.go** encountered during cross-instance testing. The `liftOwnHandle`/`liftBorrowHandle` paths must correctly resolve resource types across instances via `LookupResourceType` or the store registry.
 
 ### 1B. Post-Return Two-Phase Protocol
 
@@ -143,7 +158,25 @@ if opts.post_return is not None:
 
 3. **Borrow scope lifecycle:** Each `Call` creates a `runtime.CallContext` with a `BorrowScope`, passes it to `LowerContext`. `PostReturn` verifies all borrows are dropped (spec `deliver_resolve` at `:738-742`), then invokes the post-return core function.
 
-### 1C. ExportedFunc.Call Handle + List Wiring
+### 1C. `may_enter` Check at `canon_lift` Entry
+
+**Problem:** The spec requires a `may_enter` check at `canon_lift` entry that is not implemented.
+
+**Spec requirement** (`definitions.py:1979`):
+```python
+def canon_lift(opts, inst, ft, core_wasm_func, caller, ...):
+    trap_if(not inst.may_enter)
+```
+
+The `may_enter` flag prevents reentrant calls into a component instance that is currently executing a synchronous export. It is set to `false` during the body of a synchronous `canon_lift` call and restored to `true` afterward (spec lines 1980-1981 for sync path).
+
+**Changes:**
+
+1. Add `MayEnter bool` field to `runtime.ComponentInstance` (initialized to `true`).
+2. In `buildCanonLiftFunc`: at entry, `trap_if(!inst.rt.MayEnter)`. For synchronous calls, set `inst.rt.MayEnter = false` before invoking the core function. The restore sequence is: (a) set `MayEnter = true` before calling post-return (spec line 1997), (b) then run post-return with `may_leave=false`. This intermediate restore is important — the post-return function itself may trigger reentrant calls that need `may_enter` to be true.
+3. Add `IsMayEnter()` accessor on `runtime.ComponentInstance` for consistency with `IsMayLeave()`.
+
+### 1D. ExportedFunc.Call Handle + List Wiring
 
 **Problem:** ExportedFunc.Call delegates to a HostFunc closure that doesn't wire resource handle or list parameters through `abi.LiftParams`/`abi.LowerParams`.
 
@@ -165,7 +198,7 @@ if opts.post_return is not None:
 
 ### 2A. Complete Instantiate for Real Multi-Module Components
 
-**Problem:** ~60 tests skip because `Instantiate` can't handle real compiled components with core modules, canon.lower closures, and shared memory.
+**Problem:** Tests skip because `Instantiate` can't handle real compiled components with core modules, canon.lower closures, and shared memory. The specific count does not matter — every such skip must be addressed.
 
 **What a real component contains:**
 - One or more core modules (the actual wasm code)
@@ -200,7 +233,7 @@ if opts.post_return is not None:
 
 ### 2B. wireExports Composite Type Resolution
 
-**Problem:** 6 tests skip because `wireExports` can't resolve core function indices for record/option/result-typed exports.
+**Problem:** Tests skip because `wireExports` can't resolve core function indices for record/option/result-typed exports. The specific count does not matter — every such skip must be addressed.
 
 **Changes:**
 
@@ -227,7 +260,7 @@ No workarounds. No duplicate types or fields. Pre-production code means we fix t
 
 ### 3A. Spectest Runner
 
-**Problem:** 65 ResourcesWast skips. The spectest runner parses `.wast` but only implements `component` commands.
+**Problem:** ResourcesWast tests skip because the spectest runner only implements `component` commands.
 
 **Changes — implement all `.wast` command types:**
 
@@ -258,15 +291,26 @@ Do not target a specific number. Do not assume a skip is accounted for because i
 ### 3C. Real .wasm Integration Tests
 
 **Port wasmtime sync WAT tests into the spectest runner:**
-- `types.wast`, `enums.wast`, `nested.wast`, `linking.wast`, `import.wast`, `modules.wast`, `aliasing.wast`, `enum_discriminant.wast`, `fixed_length_lists.wast`
+- `simple.wast`, `resources.wast`, `types.wast`, `enums.wast`, `nested.wast`, `linking.wast`, `import.wast`, `modules.wast`, `aliasing.wast`, `tags.wast`, `enum_discriminant.wast`, `fixed_length_lists.wast`
+
+Note: `tags.wast` tests exception handling with tags. If wazero's core wasm engine does not support the exception-handling proposal, skip with a documented reason citing the missing core wasm feature (not a component model gap).
 
 **Verify all existing wasip2test .wasm files pass** once the pipeline is complete. These exercise WASI HTTP, filesystem, clocks, sockets, random end-to-end with real compiled components.
 
-**Verify conformance coverage** against `run_tests.py` sync test categories: scalars, composites, strings, heap, flattening, roundtrips, resources, reentrance. Identify and fill any remaining gaps.
+**Verify all 4 existing component examples pass** (basic, host-functions, types, wasip2) as a regression gate after public API changes.
+
+**Verify conformance coverage** against `run_tests.py` sync test categories: scalars, composites, strings, heap, flattening, roundtrips, resources, reentrance. The sync categories are already covered by the conformance test suite (primitives_test.go, composites_test.go, strings_test.go, flat_abi_test.go, resources_test.go, reentrance_test.go). Verify completeness and fill any gaps found. The async categories (test_async_to_async through test_thread_cancel_callback) are explicitly deferred — document this in the test files.
 
 ### 3D. Defect-Driven Fixes
 
 Tests are defect discovery, not just validation. If any test reveals a defect in abi/, binary/, runtime/, or types/, fix the defect at the source. Do not modify the test to work around the defect. Do not add shims or adapters. Fix the root cause.
+
+### 3E. Documentation
+
+Update documentation to reflect changes made in this session:
+- Godoc on public `api/component/` types (type introspection, resource ops, post-return, InstancePre)
+- Update component examples if the public API surface changed
+- Update any architecture comments in internal packages that reference Session 1/Session 2 deferrals that are now resolved
 
 ---
 
@@ -274,7 +318,7 @@ Tests are defect discovery, not just validation. If any test reveals a defect in
 
 ### 4A. Type Introspection
 
-**Reference:** wasmtime C API `types/val.h`, `types/func.h`.
+**Reference:** wasmtime C API `types/val.h`, `types/func.h`, `component.h`.
 
 **Add to `api/component/`:**
 
@@ -302,37 +346,50 @@ Tests are defect discovery, not just validation. If any test reveals a defect in
    Case  { Name string; Type *ValType }  // nil = no payload
    ```
 
+4. **Component-level import/export introspection** (matching wasmtime C API `component_type_import_count/get/nth`, `component_type_export_count/get/nth`):
+   - `CompiledComponent.Imports()` and `CompiledComponent.Exports()` already exist, returning `[]api.ComponentImport` and `[]api.ComponentExport` respectively (defined in `internal/component/compiled.go`). Verify these types expose sufficient information (name, kind) and add type introspection fields if missing (e.g., the associated `FuncType` for function exports, the `ResourceType` for resource exports).
+   - The existing `ExportKind` enum in `internal/component/component.go` already defines: `ExportKindFunc`, `ExportKindValue`, `ExportKindType`, `ExportKindComponent`, `ExportKindInstance`, `ExportKindTable`, `ExportKindMemory`, `ExportKindGlobal`. Expose this through the public API if not already accessible.
+
 ### 4B. Resource API Surface
 
 **Reference:** wasmtime C API `val.h`, `linker.h`.
 
+Wasmtime's C API distinguishes `resource_any_t` (opaque, could be guest or host) from `resource_host_t` (known host resource with rep/type). In Go, this maps to:
+
 1. **`ResourceType` public type** — wraps `*runtime.ResourceType`:
    - `Equal(other ResourceType) bool` — pointer identity per spec
+   - Created at instantiation time; returned by linker and instance APIs
 
-2. **`Instance.GetResource(name string) (ResourceType, bool)`** — resolve exported resource type.
+2. **`ResourceHandle` public type** — represents an opaque resource handle (guest or host):
+   - `Type() ResourceType` — the resource type
+   - `Owned() bool` — true for own handles, false for borrow
+   - `Rep() uint32` — the representation (only valid for host-defined resources)
+   - This covers the `resource_any_t` use case. The `resource_host_t` distinction is implicit: if the embedder created the resource via `ResourceNew`, they know the rep. If they received it from a guest call, they use `Rep()` to get it.
 
-3. **Resource handle operations on public Instance:**
+3. **`Instance.GetResource(name string) (ResourceType, bool)`** — resolve exported resource type.
+
+4. **Resource handle operations on public Instance:**
    ```
    ResourceNew(rt ResourceType, rep uint32) (uint32, error)
    ResourceRep(rt ResourceType, handle uint32) (uint32, error)
    ResourceDrop(rt ResourceType, handle uint32) error
    ```
 
-4. **`ComponentLinker.DefineResource` returns `ResourceType`** so embedders can use it for cross-instance operations.
+5. **`ComponentLinker.DefineResource` returns `ResourceType`** so embedders can use it for cross-instance operations.
 
 ### 4C. Post-Return on Public API
 
 **Reference:** wasmtime C API `func.h` — `func_call` + `func_post_return`.
 
-1. **`ComponentFunc` interface:**
-   ```
-   Call(ctx context.Context, params ...Val) ([]Val, error)
-   PostReturn(ctx context.Context) error
-   CallAndPostReturn(ctx context.Context, params ...Val) ([]Val, error)
-   Type() FuncType
-   ```
+The existing `api.ComponentFunc` interface (at `api/component.go:104-119`) returns `[]any`. The new component model API returns `[]Val`. Rather than modifying the existing interface (which would break the current examples), the approach is:
 
-2. **Panic guard:** `Call` before `PostReturn` panics, matching wasmtime.
+1. **Evolve `api.ComponentFunc`** to support `[]Val` returns. Since the codebase is pre-production, the existing `[]any` interface can be changed to `[]Val`. Update the 4 examples accordingly.
+
+2. **Add `PostReturn(ctx) error`** and **`CallAndPostReturn(ctx, params...) ([]Val, error)`** to the interface.
+
+3. **Add `Type() FuncType`** to the interface for type introspection.
+
+4. **Panic guard:** `Call` before `PostReturn` panics, matching wasmtime.
 
 ### 4D. InstancePre
 
@@ -351,8 +408,14 @@ Tests are defect discovery, not just validation. If any test reveals a defect in
 **Reference:** wasmtime C API `instance.h`.
 
 1. `Instance.ExportedFunction(name string) ComponentFunc` — already exists internally, expose publicly.
-2. `Instance.ExportedFunctions() map[string]ComponentFunc` — iterate all exports.
+2. `Instance.ExportedFunctions() map[string]ComponentFunc` — iterate all exported functions.
 3. `Instance.ExportedInstance(name string) *Instance` — already exists internally, expose publicly.
+
+### 4F. Linker Convenience APIs
+
+**Reference:** wasmtime C API `linker.h`.
+
+1. **`DefineUnknownImportsAsTraps()`** on `ComponentLinker` — convenience for partial linking. When enabled, any import not satisfied by a definition is automatically stubbed with a function that traps with "import not defined: <name>". This is useful for testing and for components with large WASI surfaces where only a subset is needed.
 
 ---
 
@@ -363,6 +426,10 @@ Tests are defect discovery, not just validation. If any test reveals a defect in
 3. The spectest runner passes all sync commands in `resources.wast` and additional ported WAT files.
 4. Cross-instance resource handles work end-to-end: create in instance A, lift/lower/drop in instance B.
 5. Post-return two-phase protocol is exposed and enforced.
-6. The public `api/component/` API covers: type introspection, resource operations, post-return, InstancePre, export access.
+6. The public `api/component/` API covers: type introspection, resource operations, post-return, InstancePre, export access, component-level import/export enumeration.
 7. No workarounds, shims, duplicate types, or non-conformant code paths remain in abi/, binary/, runtime/, types/, or component/.
 8. WASI P2 interfaces (HTTP, filesystem, sockets, clocks, random, CLI, io) exercised via real .wasm components.
+9. The 4 existing component examples (basic, host-functions, types, wasip2) pass as regression gates.
+10. The `may_enter` check is enforced at `canon_lift` entry per spec.
+11. The `lower_borrow` same-instance optimization is implemented per spec.
+12. Documentation (godoc, examples, internal comments) updated to reflect all changes.
