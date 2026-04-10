@@ -160,6 +160,10 @@ type Component interface {
 	// or nil if not found.
 	ExportedFunction(name string) ComponentFunc
 
+	// ExportedFunctions returns a map of all exported functions keyed by name.
+	// The returned map is a copy; modifications do not affect the component.
+	ExportedFunctions() map[string]ComponentFunc
+
 	// ExportedInstance returns a nested exported instance, or nil if not found.
 	ExportedInstance(name string) Component
 
@@ -248,6 +252,12 @@ type ComponentLinker interface {
 	// When enabled, pre-1.0 versions (0.x.y) match any patch version within
 	// the same minor version (e.g., 0.2.0 matches 0.2.3).
 	SetRelaxedSemverMatching(relaxed bool)
+
+	// DefineUnknownImportsAsTraps causes any unresolved imports to be
+	// automatically satisfied by trap stubs during instantiation.
+	// Calling a trap-stubbed import at runtime returns an error
+	// containing the import name rather than panicking.
+	DefineUnknownImportsAsTraps()
 
 	internalapi.WazeroOnly
 }

@@ -66,6 +66,12 @@ func (l *ComponentLinkerWrapper) SetRelaxedSemverMatching(relaxed bool) {
 	l.linker.SetRelaxedSemverMatching(relaxed)
 }
 
+// DefineUnknownImportsAsTraps causes any unresolved imports to be
+// automatically satisfied by trap stubs during instantiation.
+func (l *ComponentLinkerWrapper) DefineUnknownImportsAsTraps() {
+	l.linker.DefineUnknownImportsAsTraps()
+}
+
 // Instantiate creates a component instance with resolved imports.
 func (l *ComponentLinkerWrapper) Instantiate(ctx context.Context, compiled api.CompiledComponent) (api.Component, error) {
 	// Get the internal compiled component
@@ -196,6 +202,21 @@ func (c *ComponentWrapper) ExportedFunction(name string) api.ComponentFunc {
 	return &ComponentFuncWrapper{fn: f}
 }
 
+// ExportedFunctions returns a map of all exported functions keyed by name.
+// The returned map is a copy; modifications do not affect the component.
+func (c *ComponentWrapper) ExportedFunctions() map[string]api.ComponentFunc {
+	if c.instance == nil {
+		return nil
+	}
+	result := make(map[string]api.ComponentFunc)
+	for name, fn := range c.instance.exports {
+		if fn != nil {
+			result[name] = &ComponentFuncWrapper{fn: fn}
+		}
+	}
+	return result
+}
+
 // ExportedInstance returns a nested exported instance.
 func (c *ComponentWrapper) ExportedInstance(name string) api.Component {
 	if c.instance == nil {
@@ -268,6 +289,21 @@ func (w *ComponentInstanceWrapper) ExportedFunction(name string) api.ComponentFu
 		return nil
 	}
 	return &ComponentFuncWrapper{fn: fn}
+}
+
+// ExportedFunctions returns a map of all exported functions keyed by name.
+// The returned map is a copy; modifications do not affect the component.
+func (w *ComponentInstanceWrapper) ExportedFunctions() map[string]api.ComponentFunc {
+	if w.instance == nil {
+		return nil
+	}
+	result := make(map[string]api.ComponentFunc)
+	for name, fn := range w.instance.exports {
+		if fn != nil {
+			result[name] = &ComponentFuncWrapper{fn: fn}
+		}
+	}
+	return result
 }
 
 // ExportedInstance returns a nested exported instance by name.

@@ -274,6 +274,115 @@ func TestComponentWrapper_Close_ReturnsFirstError(t *testing.T) {
 	}
 }
 
+// TestComponentWrapper_ExportedFunctions verifies that
+// ComponentWrapper.ExportedFunctions returns a copy of the exported
+// functions map keyed by name, wrapping each *ExportedFunc in a
+// ComponentFuncWrapper.
+//
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/
+// component/instance.rs (exports iteration on Instance).
+// No counterpart (justified): canonical-abi run_tests.py does not exercise
+// the host-embedding export iteration API; this is a wazero embedder surface.
+func TestComponentWrapper_ExportedFunctions(t *testing.T) {
+	inst := NewInstance(nil, 0, nil)
+	inst.exports["add"] = &ExportedFunc{name: "add"}
+	inst.exports["sub"] = &ExportedFunc{name: "sub"}
+
+	wrapper := &ComponentWrapper{instance: inst}
+	fns := wrapper.ExportedFunctions()
+
+	if len(fns) != 2 {
+		t.Fatalf("ExportedFunctions should return 2 entries, got %d", len(fns))
+	}
+	if fns["add"] == nil {
+		t.Error("ExportedFunctions should include 'add'")
+	}
+	if fns["sub"] == nil {
+		t.Error("ExportedFunctions should include 'sub'")
+	}
+	if fns["missing"] != nil {
+		t.Error("ExportedFunctions should not include 'missing'")
+	}
+
+	// Verify the returned map is a copy: mutations should not affect the original.
+	fns["injected"] = nil
+	if len(wrapper.ExportedFunctions()) != 2 {
+		t.Error("ExportedFunctions must return a copy, not a reference to internal state")
+	}
+}
+
+// TestComponentWrapper_ExportedFunctions_NilInstance verifies that
+// ExportedFunctions returns nil when the wrapper's instance is nil.
+func TestComponentWrapper_ExportedFunctions_NilInstance(t *testing.T) {
+	wrapper := &ComponentWrapper{instance: nil}
+	fns := wrapper.ExportedFunctions()
+	if fns != nil {
+		t.Error("ExportedFunctions on nil instance should return nil")
+	}
+}
+
+// TestComponentWrapper_ExportedFunctions_Empty verifies that
+// ExportedFunctions returns an empty (non-nil) map for an instance
+// with no exports.
+func TestComponentWrapper_ExportedFunctions_Empty(t *testing.T) {
+	inst := NewInstance(nil, 0, nil)
+	wrapper := &ComponentWrapper{instance: inst}
+	fns := wrapper.ExportedFunctions()
+	if fns == nil {
+		t.Error("ExportedFunctions should return non-nil empty map")
+	}
+	if len(fns) != 0 {
+		t.Errorf("ExportedFunctions should return empty map, got %d entries", len(fns))
+	}
+}
+
+// TestComponentInstanceWrapper_ExportedFunctions verifies that
+// ComponentInstanceWrapper.ExportedFunctions returns a copy of the
+// nested instance's exported functions.
+func TestComponentInstanceWrapper_ExportedFunctions(t *testing.T) {
+	inst := NewInstance(nil, 0, nil)
+	inst.exports["greet"] = &ExportedFunc{name: "greet"}
+
+	wrapper := &ComponentInstanceWrapper{instance: inst}
+	fns := wrapper.ExportedFunctions()
+
+	if len(fns) != 1 {
+		t.Fatalf("ExportedFunctions should return 1 entry, got %d", len(fns))
+	}
+	if fns["greet"] == nil {
+		t.Error("ExportedFunctions should include 'greet'")
+	}
+
+	// Verify the returned map is a copy.
+	fns["injected"] = nil
+	if len(wrapper.ExportedFunctions()) != 1 {
+		t.Error("ExportedFunctions must return a copy")
+	}
+}
+
+// TestComponentInstanceWrapper_ExportedFunctions_NilInstance verifies that
+// ExportedFunctions returns nil when the wrapper's instance is nil.
+func TestComponentInstanceWrapper_ExportedFunctions_NilInstance(t *testing.T) {
+	wrapper := &ComponentInstanceWrapper{instance: nil}
+	fns := wrapper.ExportedFunctions()
+	if fns != nil {
+		t.Error("ExportedFunctions on nil instance should return nil")
+	}
+}
+
+// TestComponentLinkerWrapper_DefineUnknownImportsAsTraps verifies
+// that DefineUnknownImportsAsTraps on the wrapper delegates to the
+// underlying ComponentLinker.
+func TestComponentLinkerWrapper_DefineUnknownImportsAsTraps(t *testing.T) {
+	wrapper := NewComponentLinkerWrapper(nil)
+	// Should not panic.
+	wrapper.DefineUnknownImportsAsTraps()
+	// Verify the underlying linker has the flag set.
+	if !wrapper.linker.trapUnknownImports {
+		t.Error("DefineUnknownImportsAsTraps should set trapUnknownImports on the underlying linker")
+	}
+}
+
 // TestComponentWrapper_Close_DoubleClose verifies that calling
 // ComponentWrapper.Close twice is safe: the first call closes the
 // module and nils the instance pointer, and the second call takes the

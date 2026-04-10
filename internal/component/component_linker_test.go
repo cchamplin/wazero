@@ -420,3 +420,226 @@ func TestResolvePendingDtors(t *testing.T) {
 		require.Equal(t, 0, len(linker.pendingDtors))
 	})
 }
+
+// Wasmtime parallel: debug-vendored/wasmtime/crates/wasmtime/src/runtime/
+//
+//	component/linker.rs (Linker::define_unknown_imports_as_traps — auto-stubs
+//	unresolved imports with trap functions).
+//
+// Spec: No direct spec counterpart; this is an embedder convenience API.
+func TestComponentLinker_DefineUnknownImportsAsTraps(t *testing.T) {
+	t.Run("without flag missing import fails", func(t *testing.T) {
+		ft := types.TypeFunc{
+			Params:  types.ValType{Kind: types.TypeKindTuple},
+			Results: types.ValType{Kind: types.TypeKindTuple},
+		}
+		bag := &types.ComponentTypes{
+			Funcs: []types.TypeFunc{ft},
+		}
+		c := &Component{
+			Types: bag,
+			Imports: []Import{
+				{
+					Name: "test/unsatisfied",
+					ExternDesc: ImportExternDesc{
+						Kind:    ImportExternDescFunc,
+						TypeIdx: 0,
+					},
+				},
+			},
+			TypeDefs: []TypeDef{
+				{
+					Kind: TypeDefKindFunc,
+					Func: 0,
+				},
+			},
+		}
+		compiled := &CompiledComponent{component: c}
+		linker := NewComponentLinker(nil)
+
+		// Without DefineUnknownImportsAsTraps, instantiation should fail.
+		_, err := linker.Instantiate(context.Background(), compiled)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "unsatisfied")
+	})
+
+	t.Run("with flag missing func import succeeds", func(t *testing.T) {
+		ft := types.TypeFunc{
+			Params:  types.ValType{Kind: types.TypeKindTuple},
+			Results: types.ValType{Kind: types.TypeKindTuple},
+		}
+		bag := &types.ComponentTypes{
+			Funcs: []types.TypeFunc{ft},
+		}
+		c := &Component{
+			Types: bag,
+			Imports: []Import{
+				{
+					Name: "test/unsatisfied",
+					ExternDesc: ImportExternDesc{
+						Kind:    ImportExternDescFunc,
+						TypeIdx: 0,
+					},
+				},
+			},
+			TypeDefs: []TypeDef{
+				{
+					Kind: TypeDefKindFunc,
+					Func: 0,
+				},
+			},
+		}
+		compiled := &CompiledComponent{component: c}
+		linker := NewComponentLinker(nil)
+		linker.DefineUnknownImportsAsTraps()
+
+		// With the flag, instantiation should succeed.
+		inst, err := linker.Instantiate(context.Background(), compiled)
+		require.NoError(t, err)
+		require.NotNil(t, inst)
+
+		// The trap-stubbed function should be in componentFuncs.
+		// Function imports occupy the first N slots.
+		cf, ok := inst.componentFuncs[0]
+		require.True(t, ok, "trap stub should be in componentFuncs[0]")
+		require.NotNil(t, cf.Impl)
+
+		// Calling the stub should return an error containing the import name.
+		_, callErr := cf.Impl(context.Background(), nil, nil)
+		require.Error(t, callErr)
+		require.Contains(t, callErr.Error(), "test/unsatisfied")
+		require.Contains(t, callErr.Error(), "trap")
+	})
+
+	t.Run("with flag missing instance import succeeds", func(t *testing.T) {
+		bag := &types.ComponentTypes{}
+		c := &Component{
+			Types: bag,
+			Imports: []Import{
+				{
+					Name: "test:missing/iface@1.0.0",
+					ExternDesc: ImportExternDesc{
+						Kind:    ImportExternDescInstance,
+						TypeIdx: 0,
+					},
+				},
+			},
+			TypeDefs: []TypeDef{
+				{
+					Kind:     TypeDefKindInstance,
+					Instance: &InstanceTypeDef{},
+				},
+			},
+		}
+		compiled := &CompiledComponent{component: c}
+		linker := NewComponentLinker(nil)
+		linker.DefineUnknownImportsAsTraps()
+
+		inst, err := linker.Instantiate(context.Background(), compiled)
+		require.NoError(t, err)
+		require.NotNil(t, inst)
+	})
+
+	t.Run("existing imports still used when flag set", func(t *testing.T) {
+		ft := types.TypeFunc{
+			Params:  types.ValType{Kind: types.TypeKindTuple},
+			Results: types.ValType{Kind: types.TypeKindTuple},
+		}
+		bag := &types.ComponentTypes{
+			Funcs: []types.TypeFunc{ft},
+		}
+		c := &Component{
+			Types: bag,
+			Imports: []Import{
+				{
+					Name: "test/provided",
+					ExternDesc: ImportExternDesc{
+						Kind:    ImportExternDescFunc,
+						TypeIdx: 0,
+					},
+				},
+			},
+			TypeDefs: []TypeDef{
+				{
+					Kind: TypeDefKindFunc,
+					Func: 0,
+				},
+			},
+		}
+		compiled := &CompiledComponent{component: c}
+		linker := NewComponentLinker(nil)
+		linker.DefineUnknownImportsAsTraps()
+
+		called := false
+		err := linker.DefineFunc("test", "provided", func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+			called = true
+			return []types.Val{types.ValS32(42)}, nil
+		})
+		require.NoError(t, err)
+
+		inst, err := linker.Instantiate(context.Background(), compiled)
+		require.NoError(t, err)
+		require.NotNil(t, inst)
+
+		// The provided function should be used, not a trap stub.
+		cf, ok := inst.componentFuncs[0]
+		require.True(t, ok)
+		results, callErr := cf.Impl(context.Background(), nil, nil)
+		require.NoError(t, callErr)
+		require.True(t, called)
+		require.Equal(t, int32(42), results[0].S32())
+	})
+}
+
+// TestMakeTrapStub tests the trap stub creation directly.
+func TestMakeTrapStub(t *testing.T) {
+	linker := NewComponentLinker(nil)
+
+	t.Run("func stub returns trap error", func(t *testing.T) {
+		imp := &Import{
+			Name:       "my:pkg/iface@1.0.0/do-stuff",
+			ExternDesc: ImportExternDesc{Kind: ImportExternDescFunc},
+		}
+		def := linker.makeTrapStub(imp)
+		fd, ok := def.(*FuncDef)
+		require.True(t, ok)
+		require.NotNil(t, fd.Callback)
+
+		_, err := fd.Callback(context.Background(), nil, nil)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "my:pkg/iface@1.0.0/do-stuff")
+		require.Contains(t, err.Error(), "trap")
+	})
+
+	t.Run("instance stub creates skip-validation InstanceDef", func(t *testing.T) {
+		imp := &Import{
+			Name:       "my:pkg/iface@1.0.0",
+			ExternDesc: ImportExternDesc{Kind: ImportExternDescInstance},
+		}
+		def := linker.makeTrapStub(imp)
+		instDef, ok := def.(*InstanceDef)
+		require.True(t, ok)
+		require.True(t, instDef.SkipValidation)
+		require.NotNil(t, instDef.Exports)
+	})
+
+	t.Run("component stub creates ComponentDef", func(t *testing.T) {
+		imp := &Import{
+			Name:       "my:pkg/component@1.0.0",
+			ExternDesc: ImportExternDesc{Kind: ImportExternDescComponent},
+		}
+		def := linker.makeTrapStub(imp)
+		_, ok := def.(*ComponentDef)
+		require.True(t, ok)
+	})
+
+	t.Run("value stub creates ImportedValueDef", func(t *testing.T) {
+		imp := &Import{
+			Name:       "my-value",
+			ExternDesc: ImportExternDesc{Kind: ImportExternDescValue},
+		}
+		def := linker.makeTrapStub(imp)
+		_, ok := def.(*ImportedValueDef)
+		require.True(t, ok)
+	})
+}

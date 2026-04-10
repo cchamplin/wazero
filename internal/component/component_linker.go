@@ -73,6 +73,11 @@ type ComponentLinker struct {
 	relaxedSemver   bool
 	instanceCounter uint32
 
+	// trapUnknownImports, when true, causes unresolved imports to be
+	// satisfied by trap stubs that return an error when called. This
+	// mirrors wasmtime's Linker::define_unknown_imports_as_traps.
+	trapUnknownImports bool
+
 	// pendingDtors collects guest resource types whose destructors need
 	// to be resolved after core modules are instantiated. Populated by
 	// bindResourceTypes, consumed by Task 9 post-instantiation wiring.
@@ -101,6 +106,45 @@ func (l *ComponentLinker) SetRelaxedSemverMatching(relaxed bool) {
 // RelaxedSemverMatching returns whether relaxed semver matching is enabled.
 func (l *ComponentLinker) RelaxedSemverMatching() bool {
 	return l.relaxedSemver
+}
+
+// DefineUnknownImportsAsTraps causes any unresolved imports to be
+// automatically satisfied by trap stubs during instantiation. Calling
+// a trap-stubbed import at runtime returns an error containing the
+// import name. Mirrors wasmtime's Linker::define_unknown_imports_as_traps.
+func (l *ComponentLinker) DefineUnknownImportsAsTraps() {
+	l.trapUnknownImports = true
+}
+
+// makeTrapStub creates a Definition that will pass type-checking but
+// traps at runtime when invoked. Used by resolveAndCheckImports when
+// trapUnknownImports is true and an import cannot be found.
+func (l *ComponentLinker) makeTrapStub(imp *Import) Definition {
+	importName := imp.Name
+	switch imp.ExternDesc.Kind {
+	case ImportExternDescFunc:
+		return &FuncDef{
+			Callback: func(ctx context.Context, ft *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+				return nil, fmt.Errorf("trap: import %q not defined", importName)
+			},
+		}
+	case ImportExternDescInstance:
+		return &InstanceDef{
+			Exports:        make(map[string]Definition),
+			SkipValidation: true,
+		}
+	case ImportExternDescComponent:
+		return &ComponentDef{}
+	case ImportExternDescValue:
+		return &ImportedValueDef{}
+	default:
+		// For unknown kinds, return a FuncDef trap stub as a fallback.
+		return &FuncDef{
+			Callback: func(ctx context.Context, ft *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+				return nil, fmt.Errorf("trap: import %q not defined", importName)
+			},
+		}
+	}
 }
 
 // DefineFunc adds a host function definition. The host has no type
@@ -871,7 +915,11 @@ func (l *ComponentLinker) resolveAndCheckImports(
 		}
 		def, err := l.MatchImport(imp.Name)
 		if err != nil {
-			return fmt.Errorf("import %q: %w", imp.Name, err)
+			if l.trapUnknownImports {
+				def = l.makeTrapStub(imp)
+			} else {
+				return fmt.Errorf("import %q: %w", imp.Name, err)
+			}
 		}
 		if err := tc.CheckDefinition(&imp.ExternDesc, imp.Name, def); err != nil {
 			return fmt.Errorf("import %q: type check: %w", imp.Name, err)
