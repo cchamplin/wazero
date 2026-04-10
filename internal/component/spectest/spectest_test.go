@@ -6,7 +6,7 @@ import (
 
 func TestParseWastFile(t *testing.T) {
 	// Parse the upstream simple.wast test file
-	commands, err := ParseWastFile("testdata/simple.wast")
+	commands, err := ParseWastFile("testdata/wasmtime/simple.wast")
 	if err != nil {
 		t.Fatalf("ParseWastFile: %v", err)
 	}

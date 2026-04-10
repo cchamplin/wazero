@@ -31,7 +31,7 @@ import (
 
 // resourcesWastPath is the path to the resources.wast test file
 // Sourced from wasm-tools: tests/cli/component-model/resources.wast
-const resourcesWastPath = "testdata/resources.wast"
+const resourcesWastPath = "testdata/wasmtime/resources.wast"
 
 // runnerState tracks stateful context across commands in a wast test suite.
 // The spec test runner maintains the "current instance" (the most recently
@@ -654,39 +654,39 @@ func valuesMatch(actual types.Val, expected Value) bool {
 }
 
 func TestSimpleWast(t *testing.T) {
-	runWastSuite(t, "testdata/simple.wast")
+	runWastSuite(t, "testdata/wasmtime/simple.wast")
 }
 
 func TestResourcesWasmtimeWast(t *testing.T) {
-	runWastSuite(t, "testdata/resources.wast")
+	runWastSuite(t, "testdata/wasmtime/resources.wast")
 }
 
 func TestTypesWast(t *testing.T) {
-	runWastSuite(t, "testdata/types.wast")
+	runWastSuite(t, "testdata/wasmtime/types.wast")
 }
 
 func TestEnumsWast(t *testing.T) {
-	runWastSuite(t, "testdata/enums.wast")
+	runWastSuite(t, "testdata/wasmtime/enums.wast")
 }
 
 func TestNestedWast(t *testing.T) {
-	runWastSuite(t, "testdata/nested.wast")
+	runWastSuite(t, "testdata/wasmtime/nested.wast")
 }
 
 func TestLinkingWast(t *testing.T) {
-	runWastSuite(t, "testdata/linking.wast")
+	runWastSuite(t, "testdata/wasmtime/linking.wast")
 }
 
 func TestImportWast(t *testing.T) {
-	runWastSuite(t, "testdata/import.wast")
+	runWastSuite(t, "testdata/wasmtime/import.wast")
 }
 
 func TestModulesWast(t *testing.T) {
-	runWastSuite(t, "testdata/modules.wast")
+	runWastSuite(t, "testdata/wasmtime/modules.wast")
 }
 
 func TestAliasingWast(t *testing.T) {
-	runWastSuite(t, "testdata/aliasing.wast")
+	runWastSuite(t, "testdata/wasmtime/aliasing.wast")
 }
 
 func TestTagsWast(t *testing.T) {
@@ -694,23 +694,23 @@ func TestTagsWast(t *testing.T) {
 }
 
 func TestEnumDiscriminantWast(t *testing.T) {
-	runWastSuite(t, "testdata/enum_discriminant.wast")
+	runWastSuite(t, "testdata/wasmtime/enum_discriminant.wast")
 }
 
 func TestFixedLengthListsWast(t *testing.T) {
-	runWastSuite(t, "testdata/fixed_length_lists.wast")
+	runWastSuite(t, "testdata/wasmtime/fixed_length_lists.wast")
 }
 
 func TestAdapterWast(t *testing.T) {
-	runWastSuite(t, "testdata/adapter.wast")
+	runWastSuite(t, "testdata/wasmtime/adapter.wast")
 }
 
 func TestInstanceWast(t *testing.T) {
-	runWastSuite(t, "testdata/instance.wast")
+	runWastSuite(t, "testdata/wasmtime/instance.wast")
 }
 
 func TestRestrictionsWast(t *testing.T) {
-	runWastSuite(t, "testdata/restrictions.wast")
+	runWastSuite(t, "testdata/wasmtime/restrictions.wast")
 }
 
 // runAssertInvalidTest tests that an invalid component fails to compile
