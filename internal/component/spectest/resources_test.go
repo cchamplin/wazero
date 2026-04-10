@@ -42,11 +42,10 @@ type runnerState struct {
 	currentInst api.Component    // most recently instantiated component
 	currentName string           // name of current module (from "name" field), if any
 	registry    map[string]api.Component // named instances from register commands
-	// skipUntilNextModule is set when a module fails to compile/instantiate;
-	// subsequent invoke/assert commands targeting it must be skipped rather
-	// than crashing.
-	skipUntilNextModule bool
-	skipReason          string
+	// failedModule is set when a module fails to compile/instantiate;
+	// subsequent invoke/assert commands targeting it will also fail.
+	failedModule bool
+	failReason   string
 }
 
 // newRunnerState creates a fresh runner state for a test suite.
@@ -213,11 +212,11 @@ func formatTestName(cmdType string, line, index int) string {
 // gracefully instead of crashing.
 func runModuleInstantiateTest(t *testing.T, ctx context.Context, rs *runnerState, suite *WastTestSuite, cmd *Command) {
 	// Clear skip state — a new module command resets it
-	rs.skipUntilNextModule = false
-	rs.skipReason = ""
+	rs.failedModule = false
+	rs.failReason = ""
 
 	if cmd.Filename == "" {
-		t.Skip("no wasm file for this command")
+		t.Errorf("no wasm file for this command")
 		return
 	}
 
@@ -229,9 +228,9 @@ func runModuleInstantiateTest(t *testing.T, ctx context.Context, rs *runnerState
 	// Compile the component
 	compiled, err := rs.rt.CompileComponent(ctx, wasmBytes)
 	if err != nil {
-		rs.skipUntilNextModule = true
-		rs.skipReason = fmt.Sprintf("compilation failed: %v", err)
-		t.Skipf("decoder limitation: CompileComponent failed at line %d: %v", cmd.Line, err)
+		rs.failedModule = true
+		rs.failReason = fmt.Sprintf("compilation failed: %v", err)
+		t.Errorf("CompileComponent failed at line %d: %v", cmd.Line, err)
 		return
 	}
 
@@ -239,9 +238,9 @@ func runModuleInstantiateTest(t *testing.T, ctx context.Context, rs *runnerState
 	instance, err := rs.rt.InstantiateComponent(ctx, compiled)
 	if err != nil {
 		compiled.Close(ctx)
-		rs.skipUntilNextModule = true
-		rs.skipReason = fmt.Sprintf("instantiation failed: %v", err)
-		t.Skipf("pipeline limitation: InstantiateComponent failed at line %d: %v", cmd.Line, err)
+		rs.failedModule = true
+		rs.failReason = fmt.Sprintf("instantiation failed: %v", err)
+		t.Errorf("InstantiateComponent failed at line %d: %v", cmd.Line, err)
 		return
 	}
 
@@ -261,7 +260,7 @@ func runModuleInstantiateTest(t *testing.T, ctx context.Context, rs *runnerState
 // Used for module_definition commands.
 func runModuleCompileOnlyTest(t *testing.T, ctx context.Context, rs *runnerState, suite *WastTestSuite, cmd *Command) {
 	if cmd.Filename == "" {
-		t.Skip("no wasm file for this command")
+		t.Errorf("no wasm file for this command")
 		return
 	}
 
@@ -272,7 +271,7 @@ func runModuleCompileOnlyTest(t *testing.T, ctx context.Context, rs *runnerState
 
 	compiled, err := rs.rt.CompileComponent(ctx, wasmBytes)
 	if err != nil {
-		t.Skipf("decoder limitation: CompileComponent failed at line %d: %v", cmd.Line, err)
+		t.Errorf("CompileComponent failed at line %d: %v", cmd.Line, err)
 		return
 	}
 	defer compiled.Close(ctx)
@@ -283,17 +282,17 @@ func runModuleCompileOnlyTest(t *testing.T, ctx context.Context, rs *runnerState
 // runInvokeTest performs a standalone function invocation (bare invoke command).
 // The result is discarded; the test passes if the call does not error.
 func runInvokeTest(t *testing.T, ctx context.Context, rs *runnerState, cmd *Command) {
-	if rs.skipUntilNextModule {
-		t.Skipf("skipping invoke: %s", rs.skipReason)
+	if rs.failedModule {
+		t.Errorf("cannot invoke: prior module failed: %s", rs.failReason)
 		return
 	}
 	if cmd.Action == nil {
-		t.Skipf("invoke command at line %d has no action", cmd.Line)
+		t.Errorf("invoke command at line %d has no action", cmd.Line)
 		return
 	}
 	inst, err := rs.resolveInstance(cmd.Action)
 	if err != nil {
-		t.Skipf("cannot resolve instance for invoke at line %d: %v", cmd.Line, err)
+		t.Errorf("cannot resolve instance for invoke at line %d: %v", cmd.Line, err)
 		return
 	}
 	fn := inst.ExportedFunction(cmd.Action.Field)
@@ -312,17 +311,17 @@ func runInvokeTest(t *testing.T, ctx context.Context, rs *runnerState, cmd *Comm
 
 // runAssertReturnTest invokes a function and compares results to expected values.
 func runAssertReturnTest(t *testing.T, ctx context.Context, rs *runnerState, cmd *Command) {
-	if rs.skipUntilNextModule {
-		t.Skipf("skipping assert_return: %s", rs.skipReason)
+	if rs.failedModule {
+		t.Errorf("cannot assert_return: prior module failed: %s", rs.failReason)
 		return
 	}
 	if cmd.Action == nil {
-		t.Skipf("assert_return command at line %d has no action", cmd.Line)
+		t.Errorf("assert_return command at line %d has no action", cmd.Line)
 		return
 	}
 	inst, err := rs.resolveInstance(cmd.Action)
 	if err != nil {
-		t.Skipf("cannot resolve instance for assert_return at line %d: %v", cmd.Line, err)
+		t.Errorf("cannot resolve instance for assert_return at line %d: %v", cmd.Line, err)
 		return
 	}
 	fn := inst.ExportedFunction(cmd.Action.Field)
@@ -342,23 +341,23 @@ func runAssertReturnTest(t *testing.T, ctx context.Context, rs *runnerState, cmd
 
 // runAssertTrapTest invokes a function and asserts that it traps (returns an error).
 func runAssertTrapTest(t *testing.T, ctx context.Context, rs *runnerState, cmd *Command) {
-	if rs.skipUntilNextModule {
-		t.Skipf("skipping assert_trap: %s", rs.skipReason)
+	if rs.failedModule {
+		t.Errorf("cannot assert_trap: prior module failed: %s", rs.failReason)
 		return
 	}
 	if cmd.Action == nil {
 		// assert_trap can also contain an inline module (module that traps at
 		// instantiation). Handle that case.
 		if cmd.Filename != "" {
-			t.Skipf("assert_trap with inline module at line %d not yet supported", cmd.Line)
+			t.Errorf("assert_trap with inline module at line %d not yet supported", cmd.Line)
 			return
 		}
-		t.Skipf("assert_trap command at line %d has no action", cmd.Line)
+		t.Errorf("assert_trap command at line %d has no action", cmd.Line)
 		return
 	}
 	inst, err := rs.resolveInstance(cmd.Action)
 	if err != nil {
-		t.Skipf("cannot resolve instance for assert_trap at line %d: %v", cmd.Line, err)
+		t.Errorf("cannot resolve instance for assert_trap at line %d: %v", cmd.Line, err)
 		return
 	}
 	fn := inst.ExportedFunction(cmd.Action.Field)
@@ -386,8 +385,8 @@ func runAssertTrapTest(t *testing.T, ctx context.Context, rs *runnerState, cmd *
 
 // runRegisterTest registers the current instance under a name for later reference.
 func runRegisterTest(t *testing.T, rs *runnerState, cmd *Command) {
-	if rs.skipUntilNextModule {
-		t.Skipf("skipping register: %s", rs.skipReason)
+	if rs.failedModule {
+		t.Errorf("cannot register: prior module failed: %s", rs.failReason)
 		return
 	}
 	if cmd.As == "" {
@@ -732,7 +731,7 @@ func TestRestrictionsWast(t *testing.T) {
 // runAssertInvalidTest tests that an invalid component fails to compile
 func runAssertInvalidTest(t *testing.T, ctx context.Context, rt wazero.Runtime, suite *WastTestSuite, cmd *Command) {
 	if cmd.Filename == "" {
-		t.Skip("no wasm file for this command")
+		t.Errorf("no wasm file for this command")
 		return
 	}
 
@@ -746,7 +745,7 @@ func runAssertInvalidTest(t *testing.T, ctx context.Context, rt wazero.Runtime, 
 	if err == nil {
 		// Component compiled successfully when it should have failed
 		compiled.Close(ctx)
-		t.Skipf("validation gap: wazero accepts invalid component at line %d that should fail with: %q", cmd.Line, cmd.Text)
+		t.Errorf("validation gap: wazero accepts invalid component at line %d that should fail with: %q", cmd.Line, cmd.Text)
 		return
 	}
 
