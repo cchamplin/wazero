@@ -48,6 +48,13 @@ func (l *ComponentLinker) instantiateNestedComponent(
 	// ReentranceTracker, may_leave=true).
 	nestedInst := newInstance(nestedComp, l.nextInstanceID(), parent)
 
+	// Propagate the store-wide ResourceStore from the parent so all
+	// instances in the same instantiation tree share the same registry.
+	if parent.rt.Store != nil {
+		nestedInst.rt.Store = parent.rt.Store
+		parent.rt.Store.RegisterInstance(nestedInst.rt.ID, nestedInst)
+	}
+
 	// Set parent relationship (wrapper-layer child list; rt.Parent is
 	// already wired by newInstance via the parent argument).
 	parent.AddChild(nestedInst)

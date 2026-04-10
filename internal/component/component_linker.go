@@ -174,6 +174,13 @@ func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledCom
 	// Step 1 — Allocate instance + runtime.ComponentInstance.
 	inst := newInstance(c, l.nextInstanceID(), nil)
 
+	// Create a store-wide ResourceStore and wire it into the instance.
+	// All nested instances created during this Instantiate call share
+	// this store, enabling cross-instance (sibling) resource resolution.
+	store := runtime.NewResourceStore()
+	inst.rt.Store = store
+	store.RegisterInstance(inst.rt.ID, inst)
+
 	// Step 2 — Bind resource type declarations to runtime identities.
 	// Matches wasmtime Instantiator::resource at instance.rs:912-931.
 	// Session 1 Decision 2.
@@ -1047,6 +1054,10 @@ func (l *ComponentLinker) bindResourceTypes(inst *Instance, c *Component) error 
 			DtorCallback: dtorCallback,
 		}
 		inst.rt.ResourceTypes = append(inst.rt.ResourceTypes, rt)
+		// Register in the store-wide registry for cross-instance lookups.
+		if inst.rt.Store != nil {
+			inst.rt.Store.Register(inst.rt.ID, uint32(rtIdx), rt)
+		}
 	}
 	return nil
 }

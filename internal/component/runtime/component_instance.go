@@ -18,8 +18,8 @@ import "github.com/tetratelabs/wazero/internal/component/types"
 //
 // The async-concurrency fields from the spec (backpressure, exclusive,
 // num_waiting_to_enter) are intentionally absent in Session 0 and will
-// be added when async task primitives land. The spec's `store` field has
-// no wazero counterpart at this layer.
+// be added when async task primitives land. The Store field provides a
+// store-wide resource type registry for cross-instance resolution.
 type ComponentInstance struct {
 	// ID is a monotonically-assigned runtime instance identifier.
 	ID uint32
@@ -66,6 +66,13 @@ type ComponentInstance struct {
 
 	// Reentrance tracks call-site reentrance for this instance.
 	Reentrance *ReentranceTracker
+
+	// Store is the store-wide resource type registry shared across all
+	// instances created during a single top-level Instantiate call. It
+	// enables cross-instance (sibling) resource type resolution that the
+	// parent-chain walk in findInstance cannot reach. Set by the linker
+	// after construction; nil until wired.
+	Store *ResourceStore
 }
 
 // NewComponentInstance creates a new instance with the given ID and
@@ -121,13 +128,18 @@ func (c *ComponentInstance) LookupResourceType(
 	resourceIdx types.ResourceIdx,
 ) *ResourceType {
 	target := c.findInstance(uint32(instanceIdx))
-	if target == nil {
-		return nil
+	if target != nil {
+		if int(resourceIdx) >= len(target.ResourceTypes) {
+			return nil
+		}
+		return target.ResourceTypes[resourceIdx]
 	}
-	if int(resourceIdx) >= len(target.ResourceTypes) {
-		return nil
+	// Fallback: the target instance is not in the parent chain (sibling
+	// instance). Consult the store-wide registry if available.
+	if c.Store != nil {
+		return c.Store.Lookup(uint32(instanceIdx), uint32(resourceIdx))
 	}
-	return target.ResourceTypes[resourceIdx]
+	return nil
 }
 
 // findInstance walks the parent chain to find the instance with the
