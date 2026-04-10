@@ -142,6 +142,12 @@ func DecodeModule(
 				return nil, fmt.Errorf("data count section not supported as %v", err)
 			}
 			m.DataCountSection, err = decodeDataCountSection(r)
+		case wasm.SectionIDTag:
+			// Tag section (exception handling proposal): skip the contents.
+			// The section is decoded to keep the byte stream aligned.
+			if _, err = io.CopyN(io.Discard, r, int64(sectionSize)); err != nil {
+				return nil, fmt.Errorf("section tag: %v", err)
+			}
 		default:
 			err = ErrInvalidSectionID
 		}
@@ -195,10 +201,21 @@ func checkSectionOrder(current, previous wasm.SectionID) (byte, bool) {
 		return previous, true
 	}
 
-	// DataCount was introduced in Wasm 2.0,
-	// and it's the maximum we support so far.
+	// Tag section (exception handling proposal, section ID 0x0D = 13).
+	// In section ordering, it comes after Memory and before Global.
+	// We accept it after any section up to Memory (1..5).
+	if current == wasm.SectionIDTag {
+		return current, previous <= wasm.SectionIDMemory
+	}
+	if previous == wasm.SectionIDTag {
+		// After Tag, we expect Global (6) or later standard sections,
+		// but also allow DataCount (12).
+		return current, current >= wasm.SectionIDGlobal && current <= wasm.SectionIDDataCount
+	}
+
+	// DataCount was introduced in Wasm 2.0.
 	// It must come after Element and before Code.
-	if current > wasm.SectionIDDataCount {
+	if current > wasm.SectionIDDataCount && current != wasm.SectionIDTag {
 		return current, false
 	}
 	if current == wasm.SectionIDDataCount {
@@ -207,9 +224,6 @@ func checkSectionOrder(current, previous wasm.SectionID) (byte, bool) {
 	if previous == wasm.SectionIDDataCount {
 		return current, current >= wasm.SectionIDCode
 	}
-
-	// Tag will be introduced in Wasm 3.0.
-	// It must come after Memory and before Global.
 
 	// Otherwise, strictly increasing order.
 	return current, current > previous

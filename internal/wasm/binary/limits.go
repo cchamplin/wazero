@@ -37,6 +37,29 @@ func decodeLimitsType(r *bytes.Reader) (min uint32, max *uint32, shared bool, er
 		} else {
 			max = &m
 		}
+	case 0x04: // memory64, min only (u64 LEB128, truncated to u32)
+		var min64 int64
+		min64, _, err = leb128.DecodeInt64(r)
+		if err != nil {
+			err = fmt.Errorf("read min of limit (i64): %v", err)
+			return
+		}
+		min = uint32(min64)
+	case 0x05: // memory64, min+max (u64 LEB128, truncated to u32)
+		var min64 int64
+		min64, _, err = leb128.DecodeInt64(r)
+		if err != nil {
+			err = fmt.Errorf("read min of limit (i64): %v", err)
+			return
+		}
+		min = uint32(min64)
+		var max64 int64
+		if max64, _, err = leb128.DecodeInt64(r); err != nil {
+			err = fmt.Errorf("read max of limit (i64): %v", err)
+		} else {
+			m := uint32(max64)
+			max = &m
+		}
 	default:
 		err = fmt.Errorf("%v for limits: %#x not in (0x00, 0x01, 0x02, 0x03)", ErrInvalidByte, flag)
 	}

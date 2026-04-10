@@ -44,16 +44,27 @@ func decodeComponentInstance(r *bytes.Reader) (component.ParsedComponentInstance
 				return ci, fmt.Errorf("reading arg %d sort: %w", i, err)
 			}
 
+			arg := component.ComponentInstantiateArg{
+				Name: name,
+				Sort: component.Sort(sortByte),
+			}
+
+			// Handle core sort prefix
+			if sortByte == 0x00 {
+				coreSortByte, err := r.ReadByte()
+				if err != nil {
+					return ci, fmt.Errorf("reading arg %d core sort: %w", i, err)
+				}
+				arg.CoreSort = component.CoreSort(coreSortByte)
+			}
+
 			idx, _, err := leb128.DecodeUint32(r)
 			if err != nil {
 				return ci, fmt.Errorf("reading arg %d index: %w", i, err)
 			}
+			arg.Idx = idx
 
-			ci.Args[i] = component.ComponentInstantiateArg{
-				Name: name,
-				Sort: component.Sort(sortByte),
-				Idx:  idx,
-			}
+			ci.Args[i] = arg
 		}
 
 	case component.ComponentInstanceExprInline:
@@ -64,7 +75,7 @@ func decodeComponentInstance(r *bytes.Reader) (component.ParsedComponentInstance
 
 		ci.InlineExports = make([]component.ComponentInlineExport, exportCount)
 		for i := uint32(0); i < exportCount; i++ {
-			name, err := decodeName(r)
+			name, err := decodeExportName(r)
 			if err != nil {
 				return ci, fmt.Errorf("reading export %d name: %w", i, err)
 			}
@@ -74,16 +85,27 @@ func decodeComponentInstance(r *bytes.Reader) (component.ParsedComponentInstance
 				return ci, fmt.Errorf("reading export %d sort: %w", i, err)
 			}
 
+			exp := component.ComponentInlineExport{
+				Name: name,
+				Sort: component.Sort(sortByte),
+			}
+
+			// Handle core sort prefix
+			if sortByte == 0x00 {
+				coreSortByte, err := r.ReadByte()
+				if err != nil {
+					return ci, fmt.Errorf("reading export %d core sort: %w", i, err)
+				}
+				exp.CoreSort = component.CoreSort(coreSortByte)
+			}
+
 			idx, _, err := leb128.DecodeUint32(r)
 			if err != nil {
 				return ci, fmt.Errorf("reading export %d index: %w", i, err)
 			}
+			exp.Idx = idx
 
-			ci.InlineExports[i] = component.ComponentInlineExport{
-				Name: name,
-				Sort: component.Sort(sortByte),
-				Idx:  idx,
-			}
+			ci.InlineExports[i] = exp
 		}
 
 	default:

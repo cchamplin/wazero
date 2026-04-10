@@ -195,6 +195,49 @@ func decodeCoreTypeDefForInstance(r *bytes.Reader) (*component.CoreTypeDef, erro
 	}
 
 	switch opcode {
+	case 0x00:
+		// Disambiguation prefix: 0x00 0x50 vec(typeidx) comptype
+		nextByte, err := r.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("read next byte after 0x00: %w", err)
+		}
+		if nextByte != 0x50 {
+			return nil, fmt.Errorf("expected 0x50 after 0x00 prefix, got 0x%02x", nextByte)
+		}
+		// Skip super type indices and composite type
+		if err := skipVecU32(r); err != nil {
+			return nil, fmt.Errorf("skip super type indices: %w", err)
+		}
+		if _, err := decodeCoreCompositeType(r); err != nil {
+			return nil, fmt.Errorf("decode composite type: %w", err)
+		}
+		return &component.CoreTypeDef{
+			Kind: component.CoreTypeDefKindRecGroup,
+		}, nil
+
+	case 0x4e:
+		// Rec group: 0x4e vec(subtype)
+		recGroup, err := decodeCoreRecGroup(r)
+		if err != nil {
+			return nil, fmt.Errorf("decode core rec group: %w", err)
+		}
+		return &component.CoreTypeDef{
+			Kind:     component.CoreTypeDefKindRecGroup,
+			RecGroup: recGroup,
+		}, nil
+
+	case 0x4f:
+		// Final sub type: 0x4f vec(typeidx) comptype
+		if err := skipVecU32(r); err != nil {
+			return nil, fmt.Errorf("skip super type indices: %w", err)
+		}
+		if _, err := decodeCoreCompositeType(r); err != nil {
+			return nil, fmt.Errorf("decode composite type: %w", err)
+		}
+		return &component.CoreTypeDef{
+			Kind: component.CoreTypeDefKindRecGroup,
+		}, nil
+
 	case 0x60: // func type
 		funcType, err := decodeCoreFunc(r)
 		if err != nil {
@@ -204,6 +247,18 @@ func decodeCoreTypeDefForInstance(r *bytes.Reader) (*component.CoreTypeDef, erro
 			Kind: component.CoreTypeDefKindFunc,
 			Func: funcType,
 		}, nil
+
+	case 0x5f, 0x5e: // struct or array type
+		if err := r.UnreadByte(); err != nil {
+			return nil, err
+		}
+		if _, err := decodeCoreCompositeType(r); err != nil {
+			return nil, fmt.Errorf("decode composite type: %w", err)
+		}
+		return &component.CoreTypeDef{
+			Kind: component.CoreTypeDefKindRecGroup,
+		}, nil
+
 	case 0x50: // module type
 		moduleType, err := decodeCoreModuleType(r)
 		if err != nil {
@@ -213,6 +268,7 @@ func decodeCoreTypeDefForInstance(r *bytes.Reader) (*component.CoreTypeDef, erro
 			Kind:   component.CoreTypeDefKindModule,
 			Module: moduleType,
 		}, nil
+
 	default:
 		return nil, fmt.Errorf("unsupported core type opcode: 0x%02x", opcode)
 	}
@@ -288,7 +344,8 @@ func decodeNestedTypeDef(r *bytes.Reader) (*component.TypeDef, error) {
 	case ValTypeOpcodeRecord, ValTypeOpcodeVariant, ValTypeOpcodeList,
 		ValTypeOpcodeTuple, ValTypeOpcodeFlags, ValTypeOpcodeEnum,
 		ValTypeOpcodeOption, ValTypeOpcodeResult,
-		ValTypeOpcodeStream, ValTypeOpcodeFuture, ValTypeOpcodeFixedSizeList:
+		ValTypeOpcodeStream, ValTypeOpcodeFuture, ValTypeOpcodeFixedSizeList,
+		ValTypeOpcodeMap:
 		if err := skipDefinedTypeBody(r, opcode); err != nil {
 			return nil, fmt.Errorf("skip nested defined type: %w", err)
 		}
@@ -431,6 +488,14 @@ func skipDefinedTypeBody(r *bytes.Reader, opcode byte) error {
 			}
 		default:
 			return fmt.Errorf("skipDefinedTypeBody: invalid stream/future has-element flag 0x%02x", hasElem)
+		}
+	case ValTypeOpcodeMap:
+		// map<K, V>: keytype valtype
+		if err := skipValType(r); err != nil {
+			return err
+		}
+		if err := skipValType(r); err != nil {
+			return err
 		}
 	default:
 		return fmt.Errorf("skipDefinedTypeBody: unknown opcode 0x%02x", opcode)

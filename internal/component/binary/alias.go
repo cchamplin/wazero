@@ -123,6 +123,9 @@ func decodeAliasSection(dc *decodeContext, r *bytes.Reader) error {
 			case component.CoreSortGlobal:
 				alias.Idx = c.NextCoreGlobalIdx
 				c.NextCoreGlobalIdx++
+			case component.CoreSortTag:
+				// Tag aliases: no dedicated counter yet, use a placeholder.
+				alias.Idx = 0
 			case component.CoreSortType:
 				alias.Idx = c.NextCoreTypeIdx
 				c.NextCoreTypeIdx++
@@ -139,6 +142,36 @@ func decodeAliasSection(dc *decodeContext, r *bytes.Reader) error {
 		case component.AliasKindExport:
 			// Component export aliases add to the appropriate component index space.
 			switch alias.Sort {
+			case component.SortCoreSort:
+				// Core sort within a component export alias: dispatch on the nested core sort.
+				switch alias.CoreSort {
+				case component.CoreSortFunc:
+					alias.Idx = c.NextCoreFuncIdx
+					c.NextCoreFuncIdx++
+				case component.CoreSortTable:
+					alias.Idx = c.NextCoreTableIdx
+					c.NextCoreTableIdx++
+				case component.CoreSortMemory:
+					alias.Idx = c.NextCoreMemoryIdx
+					c.NextCoreMemoryIdx++
+				case component.CoreSortGlobal:
+					alias.Idx = c.NextCoreGlobalIdx
+					c.NextCoreGlobalIdx++
+				case component.CoreSortTag:
+					// Tag aliases: no dedicated counter yet, use a placeholder.
+					alias.Idx = 0
+				case component.CoreSortType:
+					alias.Idx = c.NextCoreTypeIdx
+					c.NextCoreTypeIdx++
+				case component.CoreSortModule:
+					alias.Idx = c.NextModuleIdx
+					c.NextModuleIdx++
+				case component.CoreSortInstance:
+					alias.Idx = c.NextModuleInstanceIdx
+					c.NextModuleInstanceIdx++
+				default:
+					return fmt.Errorf("unknown core sort in export alias: 0x%02x", alias.CoreSort)
+				}
 			case component.SortFunc:
 				alias.Idx = c.NextFuncIdx
 				c.NextFuncIdx++

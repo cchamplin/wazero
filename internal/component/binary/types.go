@@ -218,10 +218,18 @@ func decodeValType(
 		return types.ValType{}, fmt.Errorf("type index %d out of range", idx)
 	}
 	entry := scope.entries[idx]
-	if entry.kind != scopeEntryValType {
+	switch entry.kind {
+	case scopeEntryValType:
+		return entry.valType, nil
+	case scopeEntryAlias:
+		// Alias entries are placeholders that resolve at link time.
+		// Return the alias's resource as an own-handle placeholder so
+		// that the binary stream stays aligned. Full validation occurs
+		// during instantiation when the alias is resolved.
+		return b.InternOwnHandle(entry.resource), nil
+	default:
 		return types.ValType{}, fmt.Errorf("type index %d refers to a non-value-type declaration (kind %d)", idx, entry.kind)
 	}
-	return entry.valType, nil
 }
 
 // primitiveOpcodeToValType converts a primitive-valtype opcode to the

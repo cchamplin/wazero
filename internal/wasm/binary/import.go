@@ -42,6 +42,12 @@ func decodeImport(
 		ret.DescMem, err = decodeMemory(r, enabledFeatures, memorySizer, memoryLimitPages)
 	case wasm.ExternTypeGlobal:
 		ret.DescGlobal, err = decodeGlobalType(r)
+	case wasm.ExternTypeTag:
+		// Exception handling proposal: tag imports have attribute byte + type index.
+		if _, err = r.ReadByte(); err != nil { // attribute byte (always 0x00)
+			break
+		}
+		ret.DescFunc, _, err = leb128.DecodeUint32(r) // type index (reuse DescFunc field)
 	default:
 		err = fmt.Errorf("%w: invalid byte for importdesc: %#x", ErrInvalidByte, b)
 	}

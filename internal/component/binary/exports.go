@@ -51,15 +51,25 @@ func decodeExport(r *bytes.Reader) (component.Export, error) {
 			return exp, fmt.Errorf("read core sort: %w", err)
 		}
 		// Map core sort to export kind
-		switch coreSortByte {
-		case 0x00:
+		exp.IsCoreSort = true
+		exp.CoreSort = component.CoreSort(coreSortByte)
+		switch component.CoreSort(coreSortByte) {
+		case component.CoreSortFunc:
 			exp.Kind = component.ExportKindFunc
-		case 0x01:
+		case component.CoreSortTable:
 			exp.Kind = component.ExportKindTable
-		case 0x02:
+		case component.CoreSortMemory:
 			exp.Kind = component.ExportKindMemory
-		case 0x03:
+		case component.CoreSortGlobal:
 			exp.Kind = component.ExportKindGlobal
+		case component.CoreSortTag:
+			exp.Kind = component.ExportKindTag
+		case component.CoreSortType:
+			exp.Kind = component.ExportKindType
+		case component.CoreSortModule:
+			exp.Kind = component.ExportKindModule
+		case component.CoreSortInstance:
+			exp.Kind = component.ExportKindCoreInstance
 		default:
 			return exp, fmt.Errorf("unknown core sort: 0x%02x", coreSortByte)
 		}
