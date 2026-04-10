@@ -144,7 +144,7 @@ func TestOption(t *testing.T) {
 	})
 }
 
-// TestList demonstrates passing lists as []any slices.
+// TestList demonstrates passing lists as ValList values.
 func TestList(t *testing.T) {
 	ctx := context.Background()
 	rt := wazero.NewRuntime(ctx)
