@@ -5,7 +5,7 @@ import (
 )
 
 func TestParseWastFile(t *testing.T) {
-	// Parse a simple .wast test file
+	// Parse the upstream simple.wast test file
 	commands, err := ParseWastFile("testdata/simple.wast")
 	if err != nil {
 		t.Fatalf("ParseWastFile: %v", err)
@@ -14,24 +14,25 @@ func TestParseWastFile(t *testing.T) {
 		t.Error("Expected at least one command")
 	}
 
-	// Verify we have the expected commands
-	if len(commands) != 2 {
-		t.Errorf("Expected 2 commands, got %d", len(commands))
+	// The upstream simple.wast has 8 commands:
+	// 4 module definitions, 2 assert_invalid, 1 module, 1 assert_return
+	if len(commands) != 8 {
+		t.Errorf("Expected 8 commands, got %d", len(commands))
 	}
 
 	// First command should be a module
 	if commands[0].Type != "module" {
 		t.Errorf("Expected first command type to be 'module', got %q", commands[0].Type)
 	}
-	if commands[0].Line != 2 {
-		t.Errorf("Expected first command line to be 2, got %d", commands[0].Line)
+	if commands[0].Line != 1 {
+		t.Errorf("Expected first command line to be 1, got %d", commands[0].Line)
 	}
 
-	// Second command should be assert_invalid
-	if commands[1].Type != "assert_invalid" {
-		t.Errorf("Expected second command type to be 'assert_invalid', got %q", commands[1].Type)
-	}
-	if commands[1].Text != "unknown func" {
-		t.Errorf("Expected second command text to be 'unknown func', got %q", commands[1].Text)
+	// Verify we have the expected command types
+	expectedTypes := []string{"module", "module", "module", "module", "assert_invalid", "assert_invalid", "module", "assert_return"}
+	for i, cmd := range commands {
+		if i < len(expectedTypes) && cmd.Type != expectedTypes[i] {
+			t.Errorf("Expected command[%d] type to be %q, got %q", i, expectedTypes[i], cmd.Type)
+		}
 	}
 }

@@ -28,3 +28,9 @@
 [submodule "debug-vendored/go-modules"]
 	path = debug-vendored/go-modules
 	url = https://github.com/bytecodealliance/go-modules.git
+[submodule "debug-vendored/testsuite"]
+	path = debug-vendored/testsuite
+	url = https://github.com/WebAssembly/testsuite.git
+[submodule "debug-vendored/wasi-testsuite"]
+	path = debug-vendored/wasi-testsuite
+	url = https://github.com/WebAssembly/wasi-testsuite.git
