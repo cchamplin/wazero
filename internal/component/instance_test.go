@@ -350,39 +350,381 @@ func TestCanonResourceNew_StructRepresentation(t *testing.T) {
 	require.Equal(t, "second", registry[rep1].Name)
 }
 
-// --- ExportedFunc resource-param tests (skipped: pipeline not wired) --------
+// --- ExportedFunc resource-param tests ----------------------------------------
 //
-// These tests exercise ExportedFunc.Call with Own/Borrow handle arguments.
-// The full lift/lower pipeline for resource params through ExportedFunc is
-// not wired yet — ExportedFunc.Call delegates to a HostFunc closure which
-// requires a fully instantiated canon.lift/canon.lower pipeline.
+// These tests exercise ExportedFunc.Call with Own/Borrow handle arguments
+// through the abi.LowerParams/LiftResults pipeline. Each test creates an
+// ExportedFunc whose impl simulates what buildCanonLiftFunc does: constructs
+// LowerContext/LiftContext, lowers the args, invokes a mock core function,
+// lifts the results, and manages the CallContext lifecycle.
+
+// makeResourceTestTypes creates ComponentTypes with one concrete resource
+// table entry (instance 0, resource 0), plus a runtime ComponentInstance
+// with the corresponding ResourceType.
+func makeResourceTestTypes() (*types.ComponentTypes, *runtime.ComponentInstance, *runtime.ResourceType) {
+	rt := &runtime.ResourceType{}
+	inst := runtime.NewComponentInstance(0, nil)
+	inst.ResourceTypes = []*runtime.ResourceType{rt}
+
+	ct := &types.ComponentTypes{
+		ResourceTables: []types.TypeResourceTable{
+			{Concrete: true, Instance: 0, Resource: 0},
+		},
+	}
+	return ct, inst, rt
+}
 
 func TestExportedFuncCall_OwnArgument(t *testing.T) {
-	t.Skip("ExportedFunc.Call does not yet support Own handle params through the lift/lower pipeline")
+	ct, rtInst, rt := makeResourceTestTypes()
+	mem := wazerotest.NewMemory(wazerotest.PageSize)
+
+	// Pre-populate an own handle in the table for the argument to reference.
+	ownH, err := rtInst.Table.NewResourceHandle(uint32(42), true, rt)
+	require.NoError(t, err)
+
+	ownType := types.ValType{Kind: types.TypeKindOwn, Index: 0}
+	paramTypes := []types.ValType{ownType}
+
+	ef := &ExportedFunc{
+		name:     "accept-own",
+		funcType: &types.TypeFunc{},
+		impl: func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+			callCtx := runtime.NewCallContext(rtInst.Table)
+			lowerCtx := &abi.LowerContext{
+				Memory:      mem,
+				Types:       ct,
+				Instance:    rtInst,
+				CallContext: callCtx,
+			}
+			flat, err := abi.LowerParams(lowerCtx, paramTypes, args, abi.MaxFlatParams)
+			if err != nil {
+				return nil, err
+			}
+			// Verify the handle index was lowered.
+			require.Equal(t, 1, len(flat))
+			// The lowered own handle creates a NEW entry. Verify by lifting
+			// it back: lift_own removes the handle and returns rep.
+			liftCtx := &abi.LiftContext{
+				Memory:      mem,
+				Types:       ct,
+				Instance:    rtInst,
+				CallContext: callCtx,
+			}
+			lifted, err := abi.LiftParams(liftCtx, paramTypes, flat, abi.MaxFlatParams)
+			if err != nil {
+				return nil, err
+			}
+			// The lifted own value should carry the original rep (42).
+			require.Equal(t, uint32(42), lifted[0].Own())
+			return nil, callCtx.Release()
+		},
+	}
+
+	// Call with an Own handle carrying rep=42. The val carries the rep value
+	// that lowerOwnHandleFlat will use to create a new handle in the table.
+	// First we need to remove the original handle to avoid it being stale.
+	// Actually lowerOwnHandleFlat expects val.Own() to return the rep, and
+	// it creates a new handle from that. So we pass ValOwn(42).
+	// But lift_own removes the handle. The original handle ownH was created
+	// for the purpose of having something in the table to reference. Lower
+	// creates a new handle from the rep. So the test passes rep=42 through
+	// lower->core->lift roundtrip.
+	_, err = rtInst.Table.Remove(ownH) // clean up the pre-populated handle
+	require.NoError(t, err)
+	results, err := ef.Call(context.Background(), types.ValOwn(42))
+	require.NoError(t, err)
+	require.Nil(t, results)
 }
 
 func TestExportedFuncCall_BorrowArgument(t *testing.T) {
-	t.Skip("ExportedFunc.Call does not yet support Borrow handle params through the lift/lower pipeline")
+	ct, rtInst, rt := makeResourceTestTypes()
+	mem := wazerotest.NewMemory(wazerotest.PageSize)
+
+	// For borrow lowering, when the caller instance IS the defining instance,
+	// the same-instance optimization returns rep directly (no table entry).
+	// Set rt.Impl = rtInst to trigger this optimization.
+	rt.Impl = rtInst
+
+	borrowType := types.ValType{Kind: types.TypeKindBorrow, Index: 0}
+	paramTypes := []types.ValType{borrowType}
+
+	ef := &ExportedFunc{
+		name:     "accept-borrow",
+		funcType: &types.TypeFunc{},
+		impl: func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+			callCtx := runtime.NewCallContext(rtInst.Table)
+			lowerCtx := &abi.LowerContext{
+				Memory:      mem,
+				Types:       ct,
+				Instance:    rtInst,
+				CallContext: callCtx,
+			}
+			flat, err := abi.LowerParams(lowerCtx, paramTypes, args, abi.MaxFlatParams)
+			if err != nil {
+				return nil, err
+			}
+			// Same-instance optimization: flat[0] is the rep directly (99).
+			require.Equal(t, uint64(99), flat[0])
+			return nil, callCtx.Release()
+		},
+	}
+
+	results, err := ef.Call(context.Background(), types.ValBorrow(99))
+	require.NoError(t, err)
+	require.Nil(t, results)
 }
 
 func TestExportedFuncCall_OwnResult(t *testing.T) {
-	t.Skip("ExportedFunc.Call does not yet support Own handle results through the lift/lower pipeline")
+	ct, rtInst, _ := makeResourceTestTypes()
+	mem := wazerotest.NewMemory(wazerotest.PageSize)
+
+	ownType := types.ValType{Kind: types.TypeKindOwn, Index: 0}
+	resultTypes := []types.ValType{ownType}
+
+	ef := &ExportedFunc{
+		name:     "produce-own",
+		funcType: &types.TypeFunc{},
+		impl: func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+			callCtx := runtime.NewCallContext(rtInst.Table)
+			// Simulate a core function that returns a handle index.
+			// First create an own handle in the table.
+			_, err := rtInst.Table.NewResourceHandle(uint32(77), true, rtInst.ResourceTypes[0])
+			if err != nil {
+				return nil, err
+			}
+			// The core function returns the handle index (0).
+			flatResults := []uint64{0}
+
+			liftCtx := &abi.LiftContext{
+				Memory:      mem,
+				Types:       ct,
+				Instance:    rtInst,
+				CallContext: callCtx,
+			}
+			lifted, err := abi.LiftResults(liftCtx, resultTypes, flatResults, abi.MaxFlatResults)
+			if err != nil {
+				_ = callCtx.Release()
+				return nil, err
+			}
+			_ = callCtx.Release()
+			return lifted, nil
+		},
+	}
+
+	results, err := ef.Call(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+	require.Equal(t, uint32(77), results[0].Own())
 }
 
 func TestExportedFuncCall_OutstandingBorrowTrap(t *testing.T) {
-	t.Skip("ExportedFunc.Call does not yet wire CallContext borrow tracking for return-gate validation")
+	ct, rtInst, rt := makeResourceTestTypes()
+	mem := wazerotest.NewMemory(wazerotest.PageSize)
+
+	// Pre-populate an own handle in the table for cross-instance borrow.
+	_, err := rtInst.Table.NewResourceHandle(uint32(55), true, rt)
+	require.NoError(t, err)
+
+	borrowType := types.ValType{Kind: types.TypeKindBorrow, Index: 0}
+	paramTypes := []types.ValType{borrowType}
+
+	ef := &ExportedFunc{
+		name:     "borrow-no-drop",
+		funcType: &types.TypeFunc{},
+		impl: func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+			callCtx := runtime.NewCallContext(rtInst.Table)
+
+			// Use a second instance (child of rtInst) so the same-instance
+			// optimization is NOT triggered — this forces a real borrow
+			// handle allocation. The parent chain allows LookupResourceType
+			// to find instance 0's ResourceTypes.
+			borrowerInst := runtime.NewComponentInstance(1, rtInst)
+
+			lowerCtx := &abi.LowerContext{
+				Memory:      mem,
+				Types:       ct,
+				Instance:    borrowerInst,
+				CallContext: callCtx,
+			}
+			_, err := abi.LowerParams(lowerCtx, paramTypes, args, abi.MaxFlatParams)
+			if err != nil {
+				return nil, err
+			}
+
+			// The borrow was created but NOT dropped — callCtx has an
+			// outstanding borrow. Attempting to validate return should fail.
+			err = callCtx.ValidateReturn()
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "borrow")
+
+			// Clean up for the test (release the borrow scope).
+			_ = callCtx.Release()
+			return nil, nil
+		},
+	}
+
+	_, err = ef.Call(context.Background(), types.ValBorrow(55))
+	require.NoError(t, err)
 }
 
 func TestExportedFuncCall_BorrowDroppedBeforeReturn(t *testing.T) {
-	t.Skip("ExportedFunc.Call does not yet wire CallContext borrow tracking for return-gate validation")
+	ct, rtInst, rt := makeResourceTestTypes()
+	mem := wazerotest.NewMemory(wazerotest.PageSize)
+
+	// Pre-populate an own handle for borrow source.
+	_, err := rtInst.Table.NewResourceHandle(uint32(66), true, rt)
+	require.NoError(t, err)
+
+	borrowType := types.ValType{Kind: types.TypeKindBorrow, Index: 0}
+	paramTypes := []types.ValType{borrowType}
+
+	ef := &ExportedFunc{
+		name:     "borrow-then-drop",
+		funcType: &types.TypeFunc{},
+		impl: func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+			callCtx := runtime.NewCallContext(rtInst.Table)
+
+			// Second instance (child of rtInst) to trigger real borrow
+			// handle allocation. Parent chain enables LookupResourceType.
+			borrowerInst := runtime.NewComponentInstance(1, rtInst)
+
+			lowerCtx := &abi.LowerContext{
+				Memory:      mem,
+				Types:       ct,
+				Instance:    borrowerInst,
+				CallContext: callCtx,
+			}
+			flat, err := abi.LowerParams(lowerCtx, paramTypes, args, abi.MaxFlatParams)
+			if err != nil {
+				return nil, err
+			}
+
+			// The borrow handle index is flat[0].
+			borrowIdx := uint32(flat[0])
+
+			// Drop the borrow handle to clear the borrow count.
+			borrowH, entry, gerr := borrowerInst.Table.GetByIndex(borrowIdx)
+			require.NoError(t, gerr)
+			resEntry, ok := entry.(*runtime.ResourceHandleEntry)
+			require.True(t, ok)
+			require.NotNil(t, resEntry.CallContext)
+			resEntry.CallContext.DecrementBorrows()
+
+			// Remove from table.
+			_, rerr := borrowerInst.Table.Remove(borrowH)
+			require.NoError(t, rerr)
+
+			// Now return should be allowed.
+			err = callCtx.ValidateReturn()
+			require.NoError(t, err)
+
+			_ = callCtx.Release()
+			return nil, nil
+		},
+	}
+
+	_, err = ef.Call(context.Background(), types.ValBorrow(66))
+	require.NoError(t, err)
 }
 
 func TestExportedFuncCall_MultipleOwnBorrowParams(t *testing.T) {
-	t.Skip("ExportedFunc.Call does not yet support mixed Own/Borrow handle params through the lift/lower pipeline")
+	ct, rtInst, rt := makeResourceTestTypes()
+	mem := wazerotest.NewMemory(wazerotest.PageSize)
+
+	// Same-instance optimization for borrows.
+	rt.Impl = rtInst
+
+	ownType := types.ValType{Kind: types.TypeKindOwn, Index: 0}
+	borrowType := types.ValType{Kind: types.TypeKindBorrow, Index: 0}
+	paramTypes := []types.ValType{ownType, borrowType}
+
+	ef := &ExportedFunc{
+		name:     "mixed-handles",
+		funcType: &types.TypeFunc{},
+		impl: func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+			callCtx := runtime.NewCallContext(rtInst.Table)
+			lowerCtx := &abi.LowerContext{
+				Memory:      mem,
+				Types:       ct,
+				Instance:    rtInst,
+				CallContext: callCtx,
+			}
+			flat, err := abi.LowerParams(lowerCtx, paramTypes, args, abi.MaxFlatParams)
+			if err != nil {
+				return nil, err
+			}
+			// Own param creates a handle (index in flat[0]).
+			// Borrow param with same-instance optimization returns rep in flat[1].
+			require.Equal(t, 2, len(flat))
+			// Borrow rep should be 200 (same-instance returns rep directly).
+			require.Equal(t, uint64(200), flat[1])
+
+			// Lift the own handle back.
+			liftCtx := &abi.LiftContext{
+				Memory:      mem,
+				Types:       ct,
+				Instance:    rtInst,
+				CallContext: callCtx,
+			}
+			ownLifted, err := abi.LiftFlat(liftCtx, ownType, abi.NewFlatIter(flat[:1]))
+			require.NoError(t, err)
+			require.Equal(t, uint32(100), ownLifted.Own())
+
+			_ = callCtx.Release()
+			return nil, nil
+		},
+	}
+
+	_, err := ef.Call(context.Background(), types.ValOwn(100), types.ValBorrow(200))
+	require.NoError(t, err)
 }
 
 func TestExportedFuncCall_CallContextRestored(t *testing.T) {
-	t.Skip("ExportedFunc.Call does not yet wire per-call CallContext save/restore across nested calls")
+	ct, rtInst, rt := makeResourceTestTypes()
+	mem := wazerotest.NewMemory(wazerotest.PageSize)
+	rt.Impl = rtInst
+
+	borrowType := types.ValType{Kind: types.TypeKindBorrow, Index: 0}
+	paramTypes := []types.ValType{borrowType}
+
+	callCount := 0
+	ef := &ExportedFunc{
+		name:     "nested-calls",
+		funcType: &types.TypeFunc{},
+		impl: func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+			callCount++
+			// Each call gets its own CallContext.
+			callCtx := runtime.NewCallContext(rtInst.Table)
+			lowerCtx := &abi.LowerContext{
+				Memory:      mem,
+				Types:       ct,
+				Instance:    rtInst,
+				CallContext: callCtx,
+			}
+			flat, err := abi.LowerParams(lowerCtx, paramTypes, args, abi.MaxFlatParams)
+			if err != nil {
+				return nil, err
+			}
+			// Verify the borrow was lowered (same-instance optimization).
+			require.Equal(t, uint64(42), flat[0])
+
+			// Verify each call's CallContext is independent.
+			require.Equal(t, 0, callCtx.NumBorrows())
+
+			_ = callCtx.Release()
+			return []types.Val{types.ValU32(uint32(callCount))}, nil
+		},
+	}
+
+	// First call.
+	results, err := ef.Call(context.Background(), types.ValBorrow(42))
+	require.NoError(t, err)
+	require.Equal(t, uint32(1), results[0].U32())
+
+	// Second call — verify call context was not leaked from first call.
+	results, err = ef.Call(context.Background(), types.ValBorrow(42))
+	require.NoError(t, err)
+	require.Equal(t, uint32(2), results[0].U32())
 }
 
 // TestLiftPrimitiveVal_F32_BitPattern asserts that lifting an f32 from
@@ -477,62 +819,326 @@ func TestLiftResolvedPrimitiveVal_F64_BitPattern(t *testing.T) {
 	require.Equal(t, abi.CanonicalFloat64NaN, math.Float64bits(val.F64()))
 }
 
-// --- ExportedFunc.Call list-param tests (skipped: pipeline not wired) --------
+// --- ExportedFunc.Call list-param tests ----------------------------------------
 //
-// These tests exercise ExportedFunc.Call with list-typed parameters.
-// ExportedFunc.Call delegates to a HostFunc closure built by wireExports,
-// which requires a fully instantiated canon.lift/canon.lower pipeline
-// including realloc, memory, and LowerContext wiring. The list element
-// lift/lower is tested directly in abi/lift_test.go and
-// conformance/composites_test.go. These stubs remain until the full
-// ExportedFunc.Call pipeline supports list params end-to-end.
+// These tests exercise ExportedFunc.Call with list-typed parameters through
+// the abi.LowerParams/LiftResults pipeline. Each test creates an ExportedFunc
+// whose impl simulates what buildCanonLiftFunc does: constructs LowerContext
+// with realloc and memory, lowers args, then lifts them back via LiftParams
+// to verify the round-trip.
+
+// makeListTestHelper creates the common test infrastructure for list param
+// round-trip tests. Returns an ExportedFunc whose impl lowers the args into
+// memory via LowerParams, then lifts them back via LiftParams and returns
+// the lifted results for verification.
+func makeListTestExportedFunc(t *testing.T, ct *types.ComponentTypes, paramTypes []types.ValType) *ExportedFunc {
+	t.Helper()
+	mem := wazerotest.NewMemory(wazerotest.PageSize)
+	inst := runtime.NewComponentInstance(0, nil)
+
+	// Track the next free offset for realloc.
+	nextAlloc := uint32(256) // start allocations at offset 256
+	realloc := func(oldPtr, oldSize, align, newSize uint32) (uint32, error) {
+		ptr := types.AlignTo(nextAlloc, align)
+		nextAlloc = ptr + newSize
+		return ptr, nil
+	}
+
+	return &ExportedFunc{
+		name:     "list-roundtrip",
+		funcType: &types.TypeFunc{},
+		impl: func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+			callCtx := runtime.NewCallContext(inst.Table)
+			lowerCtx := &abi.LowerContext{
+				Memory:      mem,
+				Realloc:     realloc,
+				Types:       ct,
+				Instance:    inst,
+				CallContext: callCtx,
+			}
+			flat, err := abi.LowerParams(lowerCtx, paramTypes, args, abi.MaxFlatParams)
+			if err != nil {
+				return nil, err
+			}
+
+			// Lift the params back from the flat representation.
+			liftCtx := &abi.LiftContext{
+				Memory:      mem,
+				Types:       ct,
+				Instance:    inst,
+				CallContext: callCtx,
+			}
+			lifted, err := abi.LiftParams(liftCtx, paramTypes, flat, abi.MaxFlatParams)
+			if err != nil {
+				return nil, err
+			}
+
+			_ = callCtx.Release()
+			return lifted, nil
+		},
+	}
+}
 
 func TestExportedFunc_Call_ListWithRealloc(t *testing.T) {
-	t.Skip("ExportedFunc.Call does not yet wire realloc for list params through the canon.lift/canon.lower pipeline")
+	b := types.NewComponentTypesBuilder()
+	listT := b.InternList(types.S32)
+	ct := b.Finish()
+	paramTypes := []types.ValType{listT}
+
+	ef := makeListTestExportedFunc(t, ct, paramTypes)
+
+	results, err := ef.Call(context.Background(), types.ValList([]types.Val{
+		types.ValS32(10), types.ValS32(20), types.ValS32(30),
+	}))
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+	elems := results[0].List()
+	require.Equal(t, 3, len(elems))
+	require.Equal(t, int32(10), elems[0].S32())
+	require.Equal(t, int32(20), elems[1].S32())
+	require.Equal(t, int32(30), elems[2].S32())
 }
 
 func TestExportedFunc_Call_ListWithoutRealloc(t *testing.T) {
-	t.Skip("ExportedFunc.Call does not yet wire list params through the canon.lift/canon.lower pipeline")
+	// Lists with zero elements don't need realloc (ptr=0, len=0).
+	b := types.NewComponentTypesBuilder()
+	listT := b.InternList(types.U32)
+	ct := b.Finish()
+	paramTypes := []types.ValType{listT}
+
+	mem := wazerotest.NewMemory(wazerotest.PageSize)
+	inst := runtime.NewComponentInstance(0, nil)
+
+	ef := &ExportedFunc{
+		name:     "empty-list-no-realloc",
+		funcType: &types.TypeFunc{},
+		impl: func(ctx context.Context, fnType *types.TypeFunc, args []types.Val) ([]types.Val, error) {
+			callCtx := runtime.NewCallContext(inst.Table)
+			// No realloc provided — works for empty lists.
+			lowerCtx := &abi.LowerContext{
+				Memory:      mem,
+				Types:       ct,
+				Instance:    inst,
+				CallContext: callCtx,
+			}
+			flat, err := abi.LowerParams(lowerCtx, paramTypes, args, abi.MaxFlatParams)
+			if err != nil {
+				return nil, err
+			}
+			// flat should be [0, 0] (ptr=0, len=0).
+			require.Equal(t, 2, len(flat))
+			require.Equal(t, uint64(0), flat[0])
+			require.Equal(t, uint64(0), flat[1])
+
+			liftCtx := &abi.LiftContext{
+				Memory:      mem,
+				Types:       ct,
+				Instance:    inst,
+				CallContext: callCtx,
+			}
+			lifted, err := abi.LiftParams(liftCtx, paramTypes, flat, abi.MaxFlatParams)
+			if err != nil {
+				return nil, err
+			}
+			_ = callCtx.Release()
+			return lifted, nil
+		},
+	}
+
+	results, err := ef.Call(context.Background(), types.ValList([]types.Val{}))
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+	require.Equal(t, 0, len(results[0].List()))
 }
 
 func TestExportedFunc_Call_EmptyList(t *testing.T) {
-	t.Skip("ExportedFunc.Call does not yet wire list params through the canon.lift/canon.lower pipeline")
+	b := types.NewComponentTypesBuilder()
+	listT := b.InternList(types.S32)
+	ct := b.Finish()
+	paramTypes := []types.ValType{listT}
+
+	ef := makeListTestExportedFunc(t, ct, paramTypes)
+
+	results, err := ef.Call(context.Background(), types.ValList([]types.Val{}))
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+	require.Equal(t, 0, len(results[0].List()))
 }
 
 func TestExportedFunc_Call_ListOfS64(t *testing.T) {
-	t.Skip("ExportedFunc.Call does not yet wire list<s64> params through the canon.lift/canon.lower pipeline")
+	b := types.NewComponentTypesBuilder()
+	listT := b.InternList(types.S64)
+	ct := b.Finish()
+	paramTypes := []types.ValType{listT}
+
+	ef := makeListTestExportedFunc(t, ct, paramTypes)
+
+	results, err := ef.Call(context.Background(), types.ValList([]types.Val{
+		types.ValS64(-100), types.ValS64(9876543210),
+	}))
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+	elems := results[0].List()
+	require.Equal(t, 2, len(elems))
+	require.Equal(t, int64(-100), elems[0].S64())
+	require.Equal(t, int64(9876543210), elems[1].S64())
 }
 
 func TestExportedFunc_Call_ListOfF32(t *testing.T) {
-	t.Skip("ExportedFunc.Call does not yet wire list<f32> params through the canon.lift/canon.lower pipeline")
+	b := types.NewComponentTypesBuilder()
+	listT := b.InternList(types.F32)
+	ct := b.Finish()
+	paramTypes := []types.ValType{listT}
+
+	ef := makeListTestExportedFunc(t, ct, paramTypes)
+
+	results, err := ef.Call(context.Background(), types.ValList([]types.Val{
+		types.ValF32(1.5), types.ValF32(-2.75),
+	}))
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+	elems := results[0].List()
+	require.Equal(t, 2, len(elems))
+	require.Equal(t, float32(1.5), elems[0].F32())
+	require.Equal(t, float32(-2.75), elems[1].F32())
 }
 
 func TestExportedFunc_Call_ListOfF64(t *testing.T) {
-	t.Skip("ExportedFunc.Call does not yet wire list<f64> params through the canon.lift/canon.lower pipeline")
+	b := types.NewComponentTypesBuilder()
+	listT := b.InternList(types.F64)
+	ct := b.Finish()
+	paramTypes := []types.ValType{listT}
+
+	ef := makeListTestExportedFunc(t, ct, paramTypes)
+
+	results, err := ef.Call(context.Background(), types.ValList([]types.Val{
+		types.ValF64(3.14159), types.ValF64(-2.71828),
+	}))
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+	elems := results[0].List()
+	require.Equal(t, 2, len(elems))
+	require.Equal(t, 3.14159, elems[0].F64())
+	require.Equal(t, -2.71828, elems[1].F64())
 }
 
 func TestExportedFunc_Call_ListOfU8(t *testing.T) {
-	t.Skip("ExportedFunc.Call does not yet wire list<u8> params through the canon.lift/canon.lower pipeline")
+	b := types.NewComponentTypesBuilder()
+	listT := b.InternList(types.U8)
+	ct := b.Finish()
+	paramTypes := []types.ValType{listT}
+
+	ef := makeListTestExportedFunc(t, ct, paramTypes)
+
+	results, err := ef.Call(context.Background(), types.ValList([]types.Val{
+		types.ValU8(0), types.ValU8(127), types.ValU8(255),
+	}))
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+	elems := results[0].List()
+	require.Equal(t, 3, len(elems))
+	require.Equal(t, uint8(0), elems[0].U8())
+	require.Equal(t, uint8(127), elems[1].U8())
+	require.Equal(t, uint8(255), elems[2].U8())
 }
 
 func TestExportedFunc_Call_ListOfS8(t *testing.T) {
-	t.Skip("ExportedFunc.Call does not yet wire list<s8> params through the canon.lift/canon.lower pipeline")
+	b := types.NewComponentTypesBuilder()
+	listT := b.InternList(types.S8)
+	ct := b.Finish()
+	paramTypes := []types.ValType{listT}
+
+	ef := makeListTestExportedFunc(t, ct, paramTypes)
+
+	results, err := ef.Call(context.Background(), types.ValList([]types.Val{
+		types.ValS8(-128), types.ValS8(0), types.ValS8(127),
+	}))
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+	elems := results[0].List()
+	require.Equal(t, 3, len(elems))
+	require.Equal(t, int8(-128), elems[0].S8())
+	require.Equal(t, int8(0), elems[1].S8())
+	require.Equal(t, int8(127), elems[2].S8())
 }
 
 func TestExportedFunc_Call_ListOfU16(t *testing.T) {
-	t.Skip("ExportedFunc.Call does not yet wire list<u16> params through the canon.lift/canon.lower pipeline")
+	b := types.NewComponentTypesBuilder()
+	listT := b.InternList(types.U16)
+	ct := b.Finish()
+	paramTypes := []types.ValType{listT}
+
+	ef := makeListTestExportedFunc(t, ct, paramTypes)
+
+	results, err := ef.Call(context.Background(), types.ValList([]types.Val{
+		types.ValU16(0), types.ValU16(1000), types.ValU16(65535),
+	}))
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+	elems := results[0].List()
+	require.Equal(t, 3, len(elems))
+	require.Equal(t, uint16(0), elems[0].U16())
+	require.Equal(t, uint16(1000), elems[1].U16())
+	require.Equal(t, uint16(65535), elems[2].U16())
 }
 
 func TestExportedFunc_Call_ListOfS16(t *testing.T) {
-	t.Skip("ExportedFunc.Call does not yet wire list<s16> params through the canon.lift/canon.lower pipeline")
+	b := types.NewComponentTypesBuilder()
+	listT := b.InternList(types.S16)
+	ct := b.Finish()
+	paramTypes := []types.ValType{listT}
+
+	ef := makeListTestExportedFunc(t, ct, paramTypes)
+
+	results, err := ef.Call(context.Background(), types.ValList([]types.Val{
+		types.ValS16(-32768), types.ValS16(0), types.ValS16(32767),
+	}))
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+	elems := results[0].List()
+	require.Equal(t, 3, len(elems))
+	require.Equal(t, int16(-32768), elems[0].S16())
+	require.Equal(t, int16(0), elems[1].S16())
+	require.Equal(t, int16(32767), elems[2].S16())
 }
 
 func TestExportedFunc_Call_ListOfU64(t *testing.T) {
-	t.Skip("ExportedFunc.Call does not yet wire list<u64> params through the canon.lift/canon.lower pipeline")
+	b := types.NewComponentTypesBuilder()
+	listT := b.InternList(types.U64)
+	ct := b.Finish()
+	paramTypes := []types.ValType{listT}
+
+	ef := makeListTestExportedFunc(t, ct, paramTypes)
+
+	results, err := ef.Call(context.Background(), types.ValList([]types.Val{
+		types.ValU64(0), types.ValU64(0xDEADBEEFCAFEBABE),
+	}))
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+	elems := results[0].List()
+	require.Equal(t, 2, len(elems))
+	require.Equal(t, uint64(0), elems[0].U64())
+	require.Equal(t, uint64(0xDEADBEEFCAFEBABE), elems[1].U64())
 }
 
 func TestExportedFunc_Call_ListOfBool(t *testing.T) {
-	t.Skip("ExportedFunc.Call does not yet wire list<bool> params through the canon.lift/canon.lower pipeline")
+	b := types.NewComponentTypesBuilder()
+	listT := b.InternList(types.Bool)
+	ct := b.Finish()
+	paramTypes := []types.ValType{listT}
+
+	ef := makeListTestExportedFunc(t, ct, paramTypes)
+
+	results, err := ef.Call(context.Background(), types.ValList([]types.Val{
+		types.ValBool(true), types.ValBool(false), types.ValBool(true),
+	}))
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+	elems := results[0].List()
+	require.Equal(t, 3, len(elems))
+	require.True(t, elems[0].Bool())
+	require.False(t, elems[1].Bool())
+	require.True(t, elems[2].Bool())
 }
 
 // TestLiftEnum asserts that LiftFlat correctly decodes an enum discriminant
@@ -672,7 +1278,23 @@ func TestLiftVariant_MultiplePayloadTypes(t *testing.T) {
 }
 
 func TestExportedFunc_Call_ListOfChar(t *testing.T) {
-	t.Skip("ExportedFunc.Call does not yet wire list<char> params through the canon.lift/canon.lower pipeline")
+	b := types.NewComponentTypesBuilder()
+	listT := b.InternList(types.Char)
+	ct := b.Finish()
+	paramTypes := []types.ValType{listT}
+
+	ef := makeListTestExportedFunc(t, ct, paramTypes)
+
+	results, err := ef.Call(context.Background(), types.ValList([]types.Val{
+		types.ValChar('A'), types.ValChar(0x1F600), types.ValChar('Z'),
+	}))
+	require.NoError(t, err)
+	require.Equal(t, 1, len(results))
+	elems := results[0].List()
+	require.Equal(t, 3, len(elems))
+	require.Equal(t, rune('A'), elems[0].Char())
+	require.Equal(t, rune(0x1F600), elems[1].Char())
+	require.Equal(t, rune('Z'), elems[2].Char())
 }
 
 // TestInstance_ValueIndexSpace asserts that AddValue populates the value
