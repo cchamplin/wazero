@@ -54,7 +54,6 @@ type runnerState struct {
 // newRunnerState creates a fresh runner state for a test suite.
 func newRunnerState(rt wazero.Runtime) *runnerState {
 	linker := rt.NewComponentLinker()
-	linker.DefineUnknownImportsAsTraps()
 	return &runnerState{
 		rt:           rt,
 		linker:       linker,
@@ -630,8 +629,10 @@ func runAssertUninstantiableTest(t *testing.T, ctx context.Context, rs *runnerSt
 		return
 	}
 
-	// Compilation succeeded — try to instantiate; expect failure.
-	instance, err := rs.linker.Instantiate(ctx, compiled)
+	// Instantiate with a bare linker (no shared state) per wasmtime semantics —
+	// assert_uninstantiable tests runtime failures (e.g., start function traps),
+	// not import resolution. Wasmtime uses a fresh store per component.
+	instance, err := rs.rt.InstantiateComponent(ctx, compiled)
 	compiled.Close(ctx)
 	if err != nil {
 		// Instantiation failed as expected.
