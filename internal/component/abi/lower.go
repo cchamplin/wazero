@@ -672,21 +672,25 @@ func lowerBorrowHandleFlat(ctx *LowerContext, typ types.ValType, val types.Val) 
 	if ctx.Instance == expectedRT.Impl {
 		return []uint64{uint64(rep)}, nil
 	}
+	// Spec: definitions.py:1645 — assert(isinstance(cx.borrow_scope, Task))
+	// The CallContext (borrow_scope) must be present for cross-instance borrows.
+	if ctx.CallContext == nil {
+		return nil, fmt.Errorf("lower borrow: CallContext (borrow_scope) is required for cross-instance borrow")
+	}
 	// Cross-instance: allocate a borrow handle in the caller's table.
 	h, err := ctx.Instance.Table.NewResourceHandle(uint32(rep), false /* borrow */, expectedRT)
 	if err != nil {
 		return nil, err
 	}
-	if ctx.CallContext != nil {
-		ctx.CallContext.IncrementBorrows()
-		// Fix: set the CallContext on the borrow handle entry so that
-		// resource.drop can find it to decrement num_borrows.
-		// Spec: definitions.py lower_borrow sets h.borrow_scope.
-		_, entry, gerr := ctx.Instance.Table.GetByIndex(h.Index())
-		if gerr == nil {
-			if resEntry, ok := entry.(*runtime.ResourceHandleEntry); ok {
-				resEntry.CallContext = ctx.CallContext
-			}
+	// Spec: definitions.py:1649 — h.borrow_scope.num_borrows += 1
+	ctx.CallContext.IncrementBorrows()
+	// Set the CallContext on the borrow handle entry so that
+	// resource.drop can find it to decrement num_borrows.
+	// Spec: definitions.py:1648 — ResourceHandle(..., borrow_scope=cx.borrow_scope)
+	_, entry, gerr := ctx.Instance.Table.GetByIndex(h.Index())
+	if gerr == nil {
+		if resEntry, ok := entry.(*runtime.ResourceHandleEntry); ok {
+			resEntry.CallContext = ctx.CallContext
 		}
 	}
 	return []uint64{uint64(h.Index())}, nil
