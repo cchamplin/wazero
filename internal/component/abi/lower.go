@@ -688,11 +688,14 @@ func lowerBorrowHandleFlat(ctx *LowerContext, typ types.ValType, val types.Val) 
 	// resource.drop can find it to decrement num_borrows.
 	// Spec: definitions.py:1648 — ResourceHandle(..., borrow_scope=cx.borrow_scope)
 	_, entry, gerr := ctx.Instance.Table.GetByIndex(h.Index())
-	if gerr == nil {
-		if resEntry, ok := entry.(*runtime.ResourceHandleEntry); ok {
-			resEntry.CallContext = ctx.CallContext
-		}
+	if gerr != nil {
+		return nil, fmt.Errorf("lower borrow: internal error: handle %d not found after insert: %w", h.Index(), gerr)
 	}
+	resEntry, ok := entry.(*runtime.ResourceHandleEntry)
+	if !ok {
+		return nil, fmt.Errorf("lower borrow: internal error: handle entry is %T, want *ResourceHandleEntry", entry)
+	}
+	resEntry.CallContext = ctx.CallContext
 	return []uint64{uint64(h.Index())}, nil
 }
 
