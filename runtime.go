@@ -457,6 +457,21 @@ func (r *runtime) CompileComponent(ctx context.Context, binary []byte) (api.Comp
 		return nil, fmt.Errorf("decode component: %w", err)
 	}
 
+	// Validate root-level component constraints.
+	// The component model spec does not allow the root component to import
+	// another component or to export a nested component.
+	// Ref: wasmtime crates/environ/src/component/translate/inline.rs
+	for _, imp := range parsed.Imports {
+		if imp.ExternDesc.Kind == component.ImportExternDescComponent {
+			return nil, fmt.Errorf("root-level component imports are not supported")
+		}
+	}
+	for _, exp := range parsed.Exports {
+		if exp.Kind == component.ExportKindComponent {
+			return nil, fmt.Errorf("exporting a component from the root component is not supported")
+		}
+	}
+
 	// Pre-compile all embedded core modules using the pre-parsed modules
 	// which have AllowEmptyModuleName=true set
 	compiledModules := make([]component.CompiledModuleCloser, len(parsed.CoreModules))
