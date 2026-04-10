@@ -100,6 +100,12 @@ func (ip *InstancePre) Instantiate(ctx context.Context) (*Instance, error) {
 	// Step 6 -- Align instance index space with instance imports.
 	l.alignInstanceImports(inst, c)
 
+	// Step 6.5 -- Populate instance import slots with synthetic instances
+	// built from the resolved InstanceDef imports. This must happen before
+	// step 9 (processNestedInstances) because nested components reference
+	// parent.instanceSpace via resolveFromParentScope.
+	l.populateInstanceImports(inst, ip.resolvedImports, ip.instanceToImport)
+
 	// Step 7 -- Build component function index space from canon.lift
 	// declarations + resolved function imports.
 	l.buildComponentFuncs(inst, c, ip.resolvedImports)
@@ -118,8 +124,6 @@ func (ip *InstancePre) Instantiate(ctx context.Context) (*Instance, error) {
 
 	// Step 11 -- Build function alias map for inline instance resolution.
 	funcAliases := l.buildFuncAliases(c)
-
-	_ = ip.instanceToImport
 
 	// Step 12 -- Instantiate core modules with wired host exports.
 	if err := l.instantiateCoreModules(ctx, inst, c, ip.compiled.CompiledModules(),

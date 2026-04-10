@@ -84,6 +84,9 @@ func (l *ComponentLinker) instantiateNestedComponent(
 	// Step 6 — Align instance index space with instance imports.
 	l.alignInstanceImports(nestedInst, nestedComp)
 
+	// Step 6.5 — Populate instance import slots with synthetic instances.
+	l.populateInstanceImports(nestedInst, resolvedImports, instanceToImport)
+
 	// Step 7 — Build component function index space from canon.lift
 	// declarations + resolved function imports.
 	l.buildComponentFuncs(nestedInst, nestedComp, resolvedImports)
@@ -96,8 +99,6 @@ func (l *ComponentLinker) instantiateNestedComponent(
 	if err != nil {
 		return nil, fmt.Errorf("nested: nested instances: %w", err)
 	}
-
-	_ = instanceToImport
 
 	// Step 10 — Build canon lower / canon resource info maps.
 	canonLowers, canonResources := l.buildCanonMaps(nestedComp)
