@@ -505,75 +505,71 @@ return rep directly without allocating a borrow handle."
 
 ---
 
-### Task 4: Reentrance Check at canon_lift Entry
+### Task 4: Entry Guard at canon_lift (may_enter + reentrance)
 
-**Purpose:** Enforce the reentrance guard at `canon_lift` entry that prevents recursive calls into a component instance.
+**Purpose:** Enforce the entry guard at `canon_lift` that prevents entering a component instance that is not ready to accept calls. This covers TWO checks that wasmtime performs.
 
 **Files:**
 - Modify: `internal/component/component_linker.go` (buildCanonLiftFunc)
+- Modify: `internal/component/runtime/component_instance.go` (add NeedsPostReturn flag)
 - Test: `internal/component/conformance/reentrance_test.go`
 
-**Spec reference:** `definitions.py:1978-2002` (canon_lift). **CRITICAL: Read the actual vendored spec file before implementing.** The spec uses `call_might_be_recursive(caller, inst)` at the canon_lift entry point, which is a structural check on the instance ancestry graph (see `definitions.py:290-299`). This is NOT a boolean `may_enter` flag — it is a check that walks the caller's and callee's ancestor chains for overlap.
+**Wasmtime reference:** `func.rs:624` calls `store.0.may_enter(instance)`. In the non-concurrent path (`concurrent_disabled.rs:159-169`), this checks `!flags.needs_post_return()` — an instance waiting for post-return cannot be entered. In the concurrent path (`concurrent.rs:1393-1401`), it additionally checks the task call stack.
 
-**Before starting:** Read `definitions.py` lines 1978-2002 in full. Search for `may_enter` in the file — if it does not appear, do NOT add a `MayEnter` field. Use whatever mechanism the spec actually uses. The `CallMightBeRecursive` method already exists on `Instance` at `instance.go:457` and implements the reflexive-ancestor walk from `definitions.py:290-299`.
+**Spec reference:** `definitions.py:290-299` (`call_might_be_recursive`) — structural ancestor walk. The spec may not have a literal `may_enter` field, but wasmtime implements it as a guard combining `needs_post_return` + structural reentrance. For wasmtime parity, we implement both checks.
 
-- [ ] **Step 1: Read the spec and verify the reentrance mechanism**
+- [ ] **Step 1: Read wasmtime's may_enter implementations**
 
-Read `debug-vendored/component-model/design/mvp/canonical-abi/definitions.py` lines 1978-2002. Identify EXACTLY what check is performed at canon_lift entry. Search for `may_enter` — if it exists, use it. If it doesn't, use whatever the spec actually says.
+Read `debug-vendored/wasmtime/crates/wasmtime/src/runtime/component/concurrent_disabled.rs` lines 159-169. This is the sync-mode check: `!flags.needs_post_return()`.
 
-Also read lines 290-299 (`call_might_be_recursive`) to understand the structural check.
+Also read `debug-vendored/wasmtime/crates/wasmtime/src/runtime/component/func.rs` around line 624.
 
-- [ ] **Step 2: Read the existing CallMightBeRecursive implementation**
+- [ ] **Step 2: Add NeedsPostReturn flag to ComponentInstance**
 
-Read `internal/component/instance.go` at `CallMightBeRecursive` (line 457). Verify it matches the spec's `call_might_be_recursive` function.
-
-- [ ] **Step 3: Write failing test**
-
-Add to `internal/component/conformance/reentrance_test.go`:
+Read `internal/component/runtime/component_instance.go`. Add:
 
 ```go
-func TestCanonLiftReentranceCheck(t *testing.T) {
-	// Spec: definitions.py canon_lift entry — the spec's reentrance
-	// check prevents recursive calls into the same component instance.
-	// Verify the check uses the mechanism from the actual spec.
-	inst := component.NewInstance(&component.Component{}, 1, nil)
-
-	// A call from an instance to itself should be detected as recursive
-	require.True(t, inst.CallMightBeRecursive(inst))
-
-	// A call from nil caller (host) should not be recursive
-	require.False(t, inst.CallMightBeRecursive(nil))
-}
+// NeedsPostReturn tracks whether this instance has a pending post-return
+// call. When true, the instance cannot be entered via canon_lift.
+// Wasmtime parallel: concurrent_disabled.rs:159-169 may_enter checks
+// !flags.needs_post_return().
+NeedsPostReturn bool
 ```
 
-- [ ] **Step 4: Wire into buildCanonLiftFunc**
+- [ ] **Step 3: Wire both checks into buildCanonLiftFunc**
 
-In `internal/component/component_linker.go`, in `buildCanonLiftFunc`, add the reentrance check at the top of the closure. The exact check depends on what the spec says — use the spec, not this plan, as the authority:
+At the top of the `buildCanonLiftFunc` closure:
 
 ```go
-// At entry: check for reentrance per spec canon_lift entry.
-// The caller is retrieved from context (set by the calling instance).
+// Check 1: needs_post_return guard (wasmtime may_enter)
+if inst.Runtime().NeedsPostReturn {
+    return nil, fmt.Errorf("trap: cannot enter component instance (post-return pending)")
+}
+
+// Check 2: structural reentrance (spec call_might_be_recursive)
 caller := GetCallerInstance(ctx)
 if inst.CallMightBeRecursive(caller) {
     return nil, errReentrance
 }
 ```
 
-- [ ] **Step 5: Run tests**
+Also set `inst.Runtime().NeedsPostReturn = true` after the core function returns (before `PostReturn` runs), and clear it in `PostReturn`.
 
-Run: `go test ./internal/component/conformance/ -run TestCanonLift -v`
-Expected: PASS
+- [ ] **Step 4: Write tests**
 
-Run: `go test ./internal/component/... -count=1 2>&1 | tail -10`
-Expected: no new failures
+Test both guards:
+1. Instance with NeedsPostReturn=true rejects entry
+2. Same-instance recursive call is rejected
+3. Normal call succeeds
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Run tests and commit**
 
 ```bash
-git commit -m "component: add reentrance check at canon_lift entry
+git commit -m "component: add may_enter guard at canon_lift entry
 
-Spec: definitions.py canon_lift entry + call_might_be_recursive at :290-299.
-Uses structural ancestor-chain walk, not a boolean flag."
+Wasmtime parity: concurrent_disabled.rs:159-169 may_enter.
+Check 1: needs_post_return prevents entry before post-return.
+Check 2: call_might_be_recursive prevents structural reentrance."
 ```
 
 ---
@@ -1400,21 +1396,20 @@ func (r ResourceType) Equal(other ResourceType) bool {
 }
 ```
 
-- [ ] **Step 2: Add ResourceHandle public type**
+- [ ] **Step 2: Add ResourceHandle public type wrapping existing ResourceHandleEntry**
 
-Per the design spec 4B, add a `ResourceHandle` type that covers wasmtime's `resource_any_t` use case:
+The internal `runtime.ResourceHandleEntry` already exists at `runtime/table.go:62` with fields `RT *ResourceType`, `Rep uint32`, `Own bool`, `NumLends uint32`, `BorrowScope *BorrowScope`. Do NOT create a new struct with duplicate fields. Create a thin public wrapper:
 
 ```go
-// ResourceHandle represents an opaque resource handle (guest or host).
+// ResourceHandle is a read-only public view of a resource handle.
+// Wraps the internal runtime.ResourceHandleEntry.
 type ResourceHandle struct {
-	rt    ResourceType
-	owned bool
-	rep   uint32
+	inner *runtime.ResourceHandleEntry
 }
 
-func (h ResourceHandle) Type() ResourceType { return h.rt }
-func (h ResourceHandle) Owned() bool        { return h.owned }
-func (h ResourceHandle) Rep() uint32        { return h.rep }
+func (h ResourceHandle) Type() ResourceType { return ResourceType{inner: h.inner.RT} }
+func (h ResourceHandle) Owned() bool        { return h.inner.Own }
+func (h ResourceHandle) Rep() uint32        { return h.inner.Rep }
 ```
 
 - [ ] **Step 3: Add resource operations**

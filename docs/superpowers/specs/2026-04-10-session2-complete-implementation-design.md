@@ -158,19 +158,25 @@ if opts.post_return is not None:
 
 3. **Borrow scope lifecycle:** Each `Call` creates a `runtime.CallContext` with a `BorrowScope`, passes it to `LowerContext`. `PostReturn` verifies all borrows are dropped (spec `deliver_resolve` at `:738-742`), then invokes the post-return core function.
 
-### 1C. Reentrance Check at `canon_lift` Entry
+### 1C. Entry Guard at `canon_lift`
 
-**Problem:** The spec requires a reentrance check at `canon_lift` entry that is not fully wired.
+**Problem:** The canon_lift entry point needs a guard that prevents entering a component instance that is not ready to accept calls.
 
-**Spec requirement:** Read `definitions.py` lines 1978-2002 (canon_lift). The spec's reentrance check at canon_lift entry uses `call_might_be_recursive` (defined at `definitions.py:290-299`), which is a structural check on the instance ancestry graph — NOT a boolean `may_enter` flag. Verify by searching `definitions.py` for the actual mechanism before implementing.
+**Wasmtime reference:** Wasmtime implements `may_enter(instance)` at `func.rs:624` which checks TWO conditions:
+1. `!flags.needs_post_return()` — the instance is not waiting for a post-return call (from `concurrent_disabled.rs:159-169`)
+2. In concurrent mode: the instance is not already on the caller's task stack (from `concurrent.rs:1393-1401`)
 
-The `CallMightBeRecursive` method already exists on `Instance` at `instance.go:457` and implements the reflexive-ancestor walk from `definitions.py:290-299`.
+The `needs_post_return` flag is the two-phase protocol guard: after `Call` returns results but before `PostReturn` runs, the instance cannot be entered again. This is wasmtime's enforcement of the post-return contract.
+
+The `call_might_be_recursive` check (`definitions.py:290-299`) is a separate structural check on ancestor overlap. Both are needed.
+
+**Spec note:** The vendored `definitions.py` does not contain a literal `may_enter` field. Wasmtime adds this as a practical guard. For wasmtime parity, we implement both checks.
 
 **Changes:**
 
-1. In `buildCanonLiftFunc`: at entry, check for reentrance using the spec's actual mechanism. The caller instance is retrieved from context (`GetCallerInstance(ctx)`).
-2. If the spec uses `call_might_be_recursive`, wire `inst.CallMightBeRecursive(caller)` at canon_lift entry.
-3. If the spec has a `may_enter` boolean (verify by reading the file), add it. Do not add it based on assumption.
+1. Add a `needsPostReturn bool` flag on `runtime.ComponentInstance` (or use the `ExportedFunc.needsPostReturn` from Task 5). At `canon_lift` entry, trap if the instance has a pending post-return.
+2. At `canon_lift` entry, also check `CallMightBeRecursive(caller)` for the structural reentrance guard.
+3. The `CallMightBeRecursive` method already exists on `Instance` at `instance.go:457`.
 
 ### 1D. ExportedFunc.Call Handle + List Wiring
 
@@ -356,11 +362,12 @@ Wasmtime's C API distinguishes `resource_any_t` (opaque, could be guest or host)
    - `Equal(other ResourceType) bool` — pointer identity per spec
    - Created at instantiation time; returned by linker and instance APIs
 
-2. **`ResourceHandle` public type** — represents an opaque resource handle (guest or host):
-   - `Type() ResourceType` — the resource type
-   - `Owned() bool` — true for own handles, false for borrow
-   - `Rep() uint32` — the representation (only valid for host-defined resources)
+2. **`ResourceHandle` public type** — a read-only public wrapper around the existing `runtime.ResourceHandleEntry` (at `runtime/table.go:62`) which already has fields `RT *ResourceType`, `Rep uint32`, `Own bool`, `NumLends uint32`, `BorrowScope *BorrowScope`:
+   - `Type() ResourceType` — wraps `entry.RT`
+   - `Owned() bool` — wraps `entry.Own`
+   - `Rep() uint32` — wraps `entry.Rep`
    - This covers the `resource_any_t` use case. The `resource_host_t` distinction is implicit: if the embedder created the resource via `ResourceNew`, they know the rep. If they received it from a guest call, they use `Rep()` to get it.
+   - Do NOT create a new struct with duplicate fields — wrap the existing `*runtime.ResourceHandleEntry`.
 
 3. **`Instance.GetResource(name string) (ResourceType, bool)`** — resolve exported resource type.
 
