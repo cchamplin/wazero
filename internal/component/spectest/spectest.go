@@ -20,6 +20,7 @@ type Command struct {
 	ModuleType string          `json:"module_type,omitempty"`
 	Name       string          `json:"name,omitempty"`
 	As         string          `json:"as,omitempty"`
+	Instance   string          `json:"instance,omitempty"` // For module_instance: new instance name
 }
 
 // Action represents a test action to perform (invoke, get, etc.)
