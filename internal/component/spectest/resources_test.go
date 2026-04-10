@@ -318,6 +318,10 @@ func runModuleCompileOnlyTest(t *testing.T, ctx context.Context, rs *runnerState
 	}
 
 	if cmd.Name != "" {
+		// Close any previous definition with the same name before overwriting.
+		if old, exists := rs.compiledDefs[cmd.Name]; exists {
+			old.Close(ctx)
+		}
 		// Store for later use by module_instance; will be closed by rs.closeCompiledDefs.
 		rs.compiledDefs[cmd.Name] = compiled
 	} else {
@@ -520,9 +524,9 @@ func runModuleInstanceTest(t *testing.T, ctx context.Context, rs *runnerState, c
 }
 
 // runAssertUnlinkableTest compiles and tries to instantiate a component,
-// expecting a link error. If compilation itself fails, the assertion passes
-// (the component cannot be linked). If both compile and instantiate succeed,
-// the test fails.
+// expecting a link error during instantiation. Per spec, compilation must
+// succeed — assert_unlinkable tests that a valid component fails at link
+// time, not at compile time. If compilation fails, that's a test failure.
 func runAssertUnlinkableTest(t *testing.T, ctx context.Context, rs *runnerState, suite *WastTestSuite, cmd *Command) {
 	if cmd.Filename == "" {
 		t.Errorf("no wasm file for assert_unlinkable at line %d", cmd.Line)
@@ -536,8 +540,9 @@ func runAssertUnlinkableTest(t *testing.T, ctx context.Context, rs *runnerState,
 
 	compiled, err := rs.rt.CompileComponent(ctx, wasmBytes)
 	if err != nil {
-		// Compilation failed — the component can't be linked. Assertion satisfied.
-		t.Logf("assert_unlinkable at line %d: compilation failed (acceptable): %v", cmd.Line, err)
+		// Per spec, assert_unlinkable requires compilation to succeed.
+		// A compile failure here means wazero is rejecting at the wrong phase.
+		t.Errorf("assert_unlinkable at line %d: compilation should succeed but failed: %v", cmd.Line, err)
 		return
 	}
 
@@ -549,7 +554,7 @@ func runAssertUnlinkableTest(t *testing.T, ctx context.Context, rs *runnerState,
 		if cmd.Text != "" {
 			errStr := err.Error()
 			if !containsErrorText(errStr, cmd.Text) {
-				t.Logf("assert_unlinkable at line %d: link error mismatch (expected %q, got %q) — still counts as unlinkable",
+				t.Logf("assert_unlinkable at line %d: link error mismatch (expected %q, got %q)",
 					cmd.Line, cmd.Text, errStr)
 			}
 		}
@@ -558,7 +563,7 @@ func runAssertUnlinkableTest(t *testing.T, ctx context.Context, rs *runnerState,
 	}
 
 	// Both compilation and instantiation succeeded — this is a test failure.
-	_ = instance
+	instance.Close(ctx)
 	t.Errorf("assert_unlinkable at line %d: expected link error %q but component linked successfully", cmd.Line, cmd.Text)
 }
 
@@ -603,8 +608,9 @@ func runAssertMalformedTest(t *testing.T, ctx context.Context, rt wazero.Runtime
 }
 
 // runAssertUninstantiableTest compiles and instantiates a component, expecting
-// the instantiation to fail (e.g., a trap during the start function).
-// If compilation fails, that's also acceptable. If both succeed, the test fails.
+// instantiation to fail (e.g., a trap during the start function). Per spec,
+// compilation must succeed — assert_uninstantiable tests runtime instantiation
+// failures, not compile-time validation.
 func runAssertUninstantiableTest(t *testing.T, ctx context.Context, rs *runnerState, suite *WastTestSuite, cmd *Command) {
 	if cmd.Filename == "" {
 		t.Errorf("no wasm file for assert_uninstantiable at line %d", cmd.Line)
@@ -618,8 +624,9 @@ func runAssertUninstantiableTest(t *testing.T, ctx context.Context, rs *runnerSt
 
 	compiled, err := rs.rt.CompileComponent(ctx, wasmBytes)
 	if err != nil {
-		// Compilation failed — the component can't be instantiated. Assertion satisfied.
-		t.Logf("assert_uninstantiable at line %d: compilation failed (acceptable): %v", cmd.Line, err)
+		// Per spec, assert_uninstantiable requires compilation to succeed.
+		// A compile failure here means wazero is rejecting at the wrong phase.
+		t.Errorf("assert_uninstantiable at line %d: compilation should succeed but failed: %v", cmd.Line, err)
 		return
 	}
 
@@ -631,7 +638,7 @@ func runAssertUninstantiableTest(t *testing.T, ctx context.Context, rs *runnerSt
 		if cmd.Text != "" {
 			errStr := err.Error()
 			if !containsErrorText(errStr, cmd.Text) {
-				t.Logf("assert_uninstantiable at line %d: error mismatch (expected %q, got %q) — still counts as uninstantiable",
+				t.Logf("assert_uninstantiable at line %d: error mismatch (expected %q, got %q)",
 					cmd.Line, cmd.Text, errStr)
 			}
 		}
@@ -640,7 +647,7 @@ func runAssertUninstantiableTest(t *testing.T, ctx context.Context, rs *runnerSt
 	}
 
 	// Both compilation and instantiation succeeded — this is a test failure.
-	_ = instance
+	instance.Close(ctx)
 	t.Errorf("assert_uninstantiable at line %d: expected instantiation error %q but component instantiated successfully", cmd.Line, cmd.Text)
 }
 
