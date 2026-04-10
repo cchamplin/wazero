@@ -14,6 +14,7 @@ package spectest
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"strconv"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 // resourcesWastPath is the path to the resources.wast test file
@@ -480,9 +482,64 @@ func convertValueToAny(v Value) any {
 	case "char":
 		n, _ := strconv.ParseInt(v.Value, 10, 32)
 		return rune(n)
+	case "enum":
+		// Enum values are case name strings. Must be types.ValEnum so that
+		// anyToVal preserves the enum kind rather than treating it as a string.
+		return types.ValEnum(v.Value)
+	case "tuple":
+		// Tuple values are JSON arrays of nested Value objects.
+		var nested []Value
+		if err := json.Unmarshal([]byte(v.Value), &nested); err != nil {
+			return v.Value // fallback to raw string
+		}
+		vals := make([]types.Val, len(nested))
+		for i, nv := range nested {
+			anyVal := convertValueToAny(nv)
+			if av, ok := anyVal.(types.Val); ok {
+				vals[i] = av
+			} else {
+				// Wrap primitive Go values via the same path the runtime uses
+				vals[i] = primitiveToVal(anyVal)
+			}
+		}
+		return types.ValTuple(vals)
 	default:
 		// Return the raw string for unsupported types
 		return v.Value
+	}
+}
+
+// primitiveToVal converts a Go primitive to the corresponding types.Val.
+// This mirrors the anyToVal logic in linker_api.go for the types that
+// convertValueToAny produces.
+func primitiveToVal(v any) types.Val {
+	switch a := v.(type) {
+	case bool:
+		return types.ValBool(a)
+	case int8:
+		return types.ValS8(a)
+	case uint8:
+		return types.ValU8(a)
+	case int16:
+		return types.ValS16(a)
+	case uint16:
+		return types.ValU16(a)
+	case int32:
+		return types.ValS32(a)
+	case uint32:
+		return types.ValU32(a)
+	case int64:
+		return types.ValS64(a)
+	case uint64:
+		return types.ValU64(a)
+	case float32:
+		return types.ValF32(a)
+	case float64:
+		return types.ValF64(a)
+	case string:
+		return types.ValString(a)
+	default:
+		return types.ValString(fmt.Sprintf("%v", v))
 	}
 }
 
@@ -596,6 +653,30 @@ func valuesMatch(actual any, expected Value) bool {
 		exp, _ := strconv.ParseInt(expected.Value, 10, 32)
 		a, ok := actual.(rune)
 		return ok && a == rune(exp)
+	case "enum":
+		// valToAny converts ValKindEnum to string (the case name).
+		a, ok := actual.(string)
+		return ok && a == expected.Value
+	case "tuple":
+		// valToAny converts ValKindTuple to []any. The expected value is
+		// a JSON array of nested Value objects.
+		actSlice, ok := actual.([]any)
+		if !ok {
+			return false
+		}
+		var nested []Value
+		if err := json.Unmarshal([]byte(expected.Value), &nested); err != nil {
+			return false
+		}
+		if len(actSlice) != len(nested) {
+			return false
+		}
+		for i, nv := range nested {
+			if !valuesMatch(actSlice[i], nv) {
+				return false
+			}
+		}
+		return true
 	default:
 		// For unsupported types, log and return false
 		return false
