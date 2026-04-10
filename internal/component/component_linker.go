@@ -196,104 +196,15 @@ func (b *ComponentInstanceBuilder) Build() error {
 // closure creation at :1978-2040 and :2064-2130.
 // Wasmtime parallel: runtime/component/instance.rs:710-833 Instantiator.
 //
-// Session 1 rebuild: this is the 14-step pipeline from the design doc
-// (design lines 829-913). Each helper method gets its own task in the
-// implementation plan. This skeleton wires steps 1-3 and returns the
-// partially-constructed Instance. Steps 4-14 land in Tasks C6-C11.
+// This delegates to InstantiatePre + InstancePre.Instantiate so that
+// import resolution can be cached and reused when creating multiple
+// instances from the same compiled component.
 func (l *ComponentLinker) Instantiate(ctx context.Context, compiled *CompiledComponent) (*Instance, error) {
-	_ = ctx
-	if compiled == nil {
-		return nil, fmt.Errorf("Instantiate: compiled is nil")
-	}
-	c := compiled.Internal()
-	if c == nil {
-		return nil, fmt.Errorf("Instantiate: compiled.Internal() is nil")
-	}
-
-	// Step 1 — Allocate instance + runtime.ComponentInstance.
-	inst := newInstance(c, l.nextInstanceID(), nil)
-
-	// Create a store-wide ResourceStore and wire it into the instance.
-	// All nested instances created during this Instantiate call share
-	// this store, enabling cross-instance (sibling) resource resolution.
-	store := runtime.NewResourceStore()
-	inst.rt.Store = store
-	store.RegisterInstance(inst.rt.ID, inst)
-
-	// Step 2 — Bind resource type declarations to runtime identities.
-	// Matches wasmtime Instantiator::resource at instance.rs:912-931.
-	// Session 1 Decision 2.
-	if err := l.bindResourceTypes(inst, c); err != nil {
-		return nil, fmt.Errorf("Instantiate: bind resource types: %w", err)
-	}
-
-	// Step 3 — Build index spaces from aliases (funcSpace, memSpace).
-	funcSpace := NewCoreFuncIndexSpace()
-	memSpace := NewCoreMemoryIndexSpace()
-	l.buildCoreIndexSpaces(c, funcSpace, memSpace)
-
-	// Step 4 — Resolve and type-check imports.
-	tc := NewTypeChecker(c)
-	resolvedImports := make(map[string]Definition)
-	instanceToImport := make(map[uint32]string)
-	if err := l.resolveAndCheckImports(c, tc, resolvedImports, instanceToImport); err != nil {
-		return nil, fmt.Errorf("Instantiate: resolve imports: %w", err)
-	}
-
-	// Step 5 — Populate value index space from value imports.
-	l.populateValueImports(inst, c, resolvedImports)
-
-	// Step 6 — Align instance index space with instance imports.
-	l.alignInstanceImports(inst, c)
-
-	// Step 7 — Build component function index space from canon.lift
-	// declarations + resolved function imports.
-	l.buildComponentFuncs(inst, c, resolvedImports)
-
-	// Step 8 — Build type index space for nested instantiation arg
-	// resolution.
-	l.buildTypeSpace(inst, c)
-
-	// Step 9 — Process nested component instances.
-	componentInstDefs, err := l.processNestedInstances(ctx, inst, c)
+	pre, err := l.InstantiatePre(compiled)
 	if err != nil {
-		return nil, fmt.Errorf("Instantiate: nested instances: %w", err)
+		return nil, err
 	}
-
-	// Step 10 — Build canon lower / canon resource info maps from CanonicalDef.
-	canonLowers, canonResources := l.buildCanonMaps(c)
-
-	// Step 11 — Build function alias map for inline instance resolution.
-	funcAliases := l.buildFuncAliases(c)
-
-	_ = instanceToImport
-
-	// Step 12 — Instantiate core modules with wired host exports.
-	if err := l.instantiateCoreModules(ctx, inst, c, compiled.CompiledModules(),
-		canonLowers, canonResources, funcAliases); err != nil {
-		return nil, fmt.Errorf("Instantiate: core modules: %w", err)
-	}
-
-	// Step 12.5 — Resolve pending guest destructors and reallocs.
-	// After core modules are instantiated, back-patch the lazy dtorRef.fn
-	// pointers so guest resource destructors can invoke the actual core
-	// functions. Spec: definitions.py:351-361 ResourceType.dtor.
-	l.resolvePendingDtors(inst, funcSpace)
-	// Back-patch lazy reallocRef.fn pointers so canon.lower closures
-	// resolve realloc by index through the funcSpace per spec
-	// (definitions.py:2064-2130), not by hardcoded export name.
-	l.resolvePendingReallocs(inst, funcSpace)
-
-	// Step 13 — Execute start function.
-	if err := l.executeStartFunction(ctx, inst, c); err != nil {
-		return nil, fmt.Errorf("Instantiate: start function: %w", err)
-	}
-
-	// Step 14 — Wire exports.
-	if err := l.wireExports(inst, c, componentInstDefs, funcSpace, memSpace); err != nil {
-		return nil, fmt.Errorf("Instantiate: wire exports: %w", err)
-	}
-	return inst, nil
+	return pre.Instantiate(ctx)
 }
 
 // --- Task C8-b: core-module host wiring + export wiring ----------------

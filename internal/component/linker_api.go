@@ -18,6 +18,7 @@ var (
 	_ api.Component                = (*ComponentWrapper)(nil)
 	_ api.Component                = (*ComponentInstanceWrapper)(nil)
 	_ api.ComponentFunc            = (*ComponentFuncWrapper)(nil)
+	_ api.InstancePre              = (*InstancePreWrapper)(nil)
 )
 
 // ComponentLinkerWrapper wraps the internal ComponentLinker to implement api.ComponentLinker.
@@ -80,6 +81,42 @@ func (l *ComponentLinkerWrapper) Instantiate(ctx context.Context, compiled api.C
 	}
 
 	return &ComponentWrapper{instance: inst}, nil
+}
+
+// InstantiatePre performs import resolution and type-checking, returning
+// an InstancePre that can create multiple instances cheaply.
+func (l *ComponentLinkerWrapper) InstantiatePre(compiled api.CompiledComponent) (api.InstancePre, error) {
+	cc, ok := compiled.(*CompiledComponent)
+	if !ok {
+		return nil, fmt.Errorf("invalid compiled component type: expected *CompiledComponent")
+	}
+
+	pre, err := l.linker.InstantiatePre(cc)
+	if err != nil {
+		return nil, err
+	}
+
+	return &InstancePreWrapper{inner: pre}, nil
+}
+
+// InstancePreWrapper wraps the internal InstancePre to implement api.InstancePre.
+type InstancePreWrapper struct {
+	internalapi.WazeroOnlyType
+	inner *InstancePre
+}
+
+// Instantiate creates a new component instance using the pre-resolved imports.
+func (w *InstancePreWrapper) Instantiate(ctx context.Context) (api.Component, error) {
+	inst, err := w.inner.Instantiate(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &ComponentWrapper{instance: inst}, nil
+}
+
+// Component returns the compiled component this InstancePre was created from.
+func (w *InstancePreWrapper) Component() api.CompiledComponent {
+	return w.inner.Component()
 }
 
 // ComponentInstanceBuilderWrapper wraps InstanceBuilder to implement api.ComponentInstanceBuilder.

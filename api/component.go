@@ -237,10 +237,40 @@ type ComponentLinker interface {
 	// Returns an error if any required import is not defined.
 	Instantiate(ctx context.Context, compiled CompiledComponent) (Component, error)
 
+	// InstantiatePre performs import resolution and type-checking against
+	// the compiled component and caches the result. The returned
+	// InstancePre can then create multiple instances cheaply.
+	// This is useful when the same component will be instantiated many
+	// times with the same set of host imports.
+	InstantiatePre(compiled CompiledComponent) (InstancePre, error)
+
 	// SetRelaxedSemverMatching enables or disables relaxed semver matching.
 	// When enabled, pre-1.0 versions (0.x.y) match any patch version within
 	// the same minor version (e.g., 0.2.0 matches 0.2.3).
 	SetRelaxedSemverMatching(relaxed bool)
+
+	internalapi.WazeroOnly
+}
+
+// InstancePre holds a pre-computed import resolution for a compiled
+// component. Import resolution and type-checking are done once at
+// [ComponentLinker.InstantiatePre] time. Multiple instances can then be
+// created cheaply from the same InstancePre via [InstancePre.Instantiate].
+//
+// Reference: wasmtime InstancePre (runtime/component/instance.rs).
+//
+// # Notes
+//
+//   - This is an interface for decoupling, not third-party implementations.
+//     All implementations are in wazero.
+type InstancePre interface {
+	// Instantiate creates a new component instance using the pre-resolved
+	// imports. Each call creates a distinct instance with its own state.
+	Instantiate(ctx context.Context) (Component, error)
+
+	// Component returns the compiled component this InstancePre was
+	// created from.
+	Component() CompiledComponent
 
 	internalapi.WazeroOnly
 }
