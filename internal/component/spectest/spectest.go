@@ -31,9 +31,41 @@ type Action struct {
 }
 
 // Value represents a typed value used in test assertions and invocations.
+// The JSON "value" field can be a string, boolean, number, array, or object
+// depending on the component model type. UnmarshalJSON normalizes everything
+// to a string so the rest of the runner can use simple string comparisons.
 type Value struct {
 	Type  string `json:"type"`            // Value type (e.g., "i32", "f64")
 	Value string `json:"value,omitempty"` // String representation of the value
+}
+
+// UnmarshalJSON implements custom JSON unmarshaling for Value to handle
+// non-string value fields (booleans, arrays, objects) emitted by wasm-tools.
+func (v *Value) UnmarshalJSON(data []byte) error {
+	// Use a raw struct to avoid infinite recursion
+	var raw struct {
+		Type  string          `json:"type"`
+		Value json.RawMessage `json:"value,omitempty"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	v.Type = raw.Type
+
+	if len(raw.Value) == 0 {
+		return nil
+	}
+
+	// Try to unmarshal as a string first (the common case)
+	var s string
+	if err := json.Unmarshal(raw.Value, &s); err == nil {
+		v.Value = s
+		return nil
+	}
+
+	// For non-string values (bool, number, array, object), store the raw JSON
+	v.Value = string(raw.Value)
+	return nil
 }
 
 // wastJSON is the top-level structure of wasm-tools json-from-wast output

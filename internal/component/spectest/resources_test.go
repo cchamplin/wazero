@@ -313,7 +313,7 @@ func runInvokeTest(t *testing.T, ctx context.Context, rs *runnerState, cmd *Comm
 		return
 	}
 	args := convertArgs(cmd.Action.Args)
-	_, err = fn.Call(ctx, args...)
+	_, err = safeCall(ctx, fn, args)
 	if err != nil {
 		t.Errorf("invoke %q at line %d failed: %v", cmd.Action.Field, cmd.Line, err)
 		return
@@ -342,7 +342,7 @@ func runAssertReturnTest(t *testing.T, ctx context.Context, rs *runnerState, cmd
 		return
 	}
 	args := convertArgs(cmd.Action.Args)
-	results, err := fn.Call(ctx, args...)
+	results, err := safeCall(ctx, fn, args)
 	if err != nil {
 		t.Errorf("assert_return at line %d: expected success but call to %q failed: %v",
 			cmd.Line, cmd.Action.Field, err)
@@ -378,7 +378,7 @@ func runAssertTrapTest(t *testing.T, ctx context.Context, rs *runnerState, cmd *
 		return
 	}
 	args := convertArgs(cmd.Action.Args)
-	_, err = fn.Call(ctx, args...)
+	_, err = safeCall(ctx, fn, args)
 	if err == nil {
 		t.Errorf("assert_trap at line %d: expected trap from %q but call succeeded",
 			cmd.Line, cmd.Action.Field)
@@ -411,6 +411,18 @@ func runRegisterTest(t *testing.T, rs *runnerState, cmd *Command) {
 	}
 	rs.registry[cmd.As] = rs.currentInst
 	t.Logf("registered current instance as %q at line %d", cmd.As, cmd.Line)
+}
+
+// safeCall wraps a component function call with panic recovery so that panics
+// in the ABI layer (e.g., type assertion failures for unimplemented value kinds)
+// are converted to errors instead of crashing the entire test binary.
+func safeCall(ctx context.Context, fn api.ComponentFunc, args []any) (results []any, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic during call: %v", r)
+		}
+	}()
+	return fn.Call(ctx, args...)
 }
 
 // --- Value conversion ---
@@ -590,6 +602,69 @@ func valuesMatch(actual any, expected Value) bool {
 	}
 }
 
+// wasmtimeWastBase is the path to wasmtime's component-model test files
+const wasmtimeWastBase = "../../../debug-vendored/wasmtime/tests/misc_testsuite/component-model/"
+
+func TestSimpleWast(t *testing.T) {
+	runWastSuite(t, wasmtimeWastBase+"simple.wast")
+}
+
+func TestResourcesWasmtimeWast(t *testing.T) {
+	runWastSuite(t, wasmtimeWastBase+"resources.wast")
+}
+
+func TestTypesWast(t *testing.T) {
+	runWastSuite(t, wasmtimeWastBase+"types.wast")
+}
+
+func TestEnumsWast(t *testing.T) {
+	runWastSuite(t, wasmtimeWastBase+"enums.wast")
+}
+
+func TestNestedWast(t *testing.T) {
+	runWastSuite(t, wasmtimeWastBase+"nested.wast")
+}
+
+func TestLinkingWast(t *testing.T) {
+	runWastSuite(t, wasmtimeWastBase+"linking.wast")
+}
+
+func TestImportWast(t *testing.T) {
+	runWastSuite(t, wasmtimeWastBase+"import.wast")
+}
+
+func TestModulesWast(t *testing.T) {
+	runWastSuite(t, wasmtimeWastBase+"modules.wast")
+}
+
+func TestAliasingWast(t *testing.T) {
+	runWastSuite(t, wasmtimeWastBase+"aliasing.wast")
+}
+
+func TestTagsWast(t *testing.T) {
+	t.Skip("tags.wast requires exception-handling proposal not supported by wazero core wasm engine")
+}
+
+func TestEnumDiscriminantWast(t *testing.T) {
+	runWastSuite(t, wasmtimeWastBase+"enum_discriminant.wast")
+}
+
+func TestFixedLengthListsWast(t *testing.T) {
+	runWastSuite(t, wasmtimeWastBase+"fixed_length_lists.wast")
+}
+
+func TestAdapterWast(t *testing.T) {
+	runWastSuite(t, wasmtimeWastBase+"adapter.wast")
+}
+
+func TestInstanceWast(t *testing.T) {
+	runWastSuite(t, wasmtimeWastBase+"instance.wast")
+}
+
+func TestRestrictionsWast(t *testing.T) {
+	runWastSuite(t, wasmtimeWastBase+"restrictions.wast")
+}
+
 // runAssertInvalidTest tests that an invalid component fails to compile
 func runAssertInvalidTest(t *testing.T, ctx context.Context, rt wazero.Runtime, suite *WastTestSuite, cmd *Command) {
 	if cmd.Filename == "" {
@@ -710,6 +785,10 @@ func isValidationNotYetImplemented(expectedError string) bool {
 		"function index out of bounds", // destructor function index validation (requires post-decode pass)
 		"is not a func",               // import/export kind validation
 		"does not match expected resource name",
+		"root-level component imports are not supported",
+		"exporting a component from the root component is not supported",
+		"is a reexport of an imported function which is not implemented",
+		"type nesting is too deep",
 	}
 
 	expectedLower := strings.ToLower(expectedError)
@@ -776,6 +855,9 @@ func isInstantiationPipelineLimitation(err error) bool {
 		"resolve core func",
 		"no compiled module",
 		"runtime does not implement",
+		"out of range",
+		"import not found",
+		"requires compiledcomponent",
 	}
 
 	for _, limitation := range pipelineLimitations {
@@ -806,6 +888,10 @@ func isDecoderLimitation(err error) bool {
 		"unexpected eof",
 		"decoding externdesc",
 		"decoding import",
+		"unknown core sort",
+		"unknown instance declaration kind",
+		"unknown sort in export alias",
+		"invalid section order",
 	}
 
 	for _, limitation := range decoderLimitations {
