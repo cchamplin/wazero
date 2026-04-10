@@ -33,6 +33,24 @@ import (
 // to memory via a return pointer.
 const MaxFlatResults = 1
 
+// dtorRef holds a lazily-resolved reference to a guest destructor function.
+// At bindResourceTypes time the core modules haven't been instantiated yet, so
+// the api.Function cannot be resolved immediately. The closure captured in
+// rt.HostDestructor reads ref.fn at call time; Task 9 (post-instantiation
+// memory capture) resolves ref.fn once core modules are live.
+type dtorRef struct {
+	fn api.Function
+}
+
+// pendingDtor records a guest resource type whose destructor needs to be
+// resolved after core modules are instantiated. Stored on ComponentLinker
+// and resolved during post-instantiation setup (Task 9).
+type pendingDtor struct {
+	rt          *runtime.ResourceType
+	ref         *dtorRef
+	coreFuncIdx uint32
+}
+
 // ComponentLinker resolves component imports and instantiates components.
 //
 // Session 0 compile-fix: only the shape and the public API surface are
@@ -43,6 +61,11 @@ type ComponentLinker struct {
 	definitions     map[string]Definition
 	relaxedSemver   bool
 	instanceCounter uint32
+
+	// pendingDtors collects guest resource types whose destructors need
+	// to be resolved after core modules are instantiated. Populated by
+	// bindResourceTypes, consumed by Task 9 post-instantiation wiring.
+	pendingDtors []pendingDtor
 }
 
 // NewComponentLinker creates a new component linker with access to a runtime.
@@ -1052,6 +1075,25 @@ func (l *ComponentLinker) bindResourceTypes(inst *Instance, c *Component) error 
 			Dtor:         dtor,
 			DtorAsync:    dtorAsync,
 			DtorCallback: dtorCallback,
+		}
+		// Wire HostDestructor closure for guest resources with destructors.
+		// At this point core modules haven't been instantiated yet, so we
+		// capture a dtorRef whose fn field will be resolved post-instantiation
+		// (Task 9). The closure reads ref.fn lazily at call time.
+		if dtor != nil {
+			ref := &dtorRef{}
+			rt.HostDestructor = func(rep uint32) error {
+				if ref.fn == nil {
+					return fmt.Errorf("guest destructor not yet resolved (core modules not instantiated)")
+				}
+				_, err := ref.fn.Call(context.Background(), uint64(rep))
+				return err
+			}
+			l.pendingDtors = append(l.pendingDtors, pendingDtor{
+				rt:          rt,
+				ref:         ref,
+				coreFuncIdx: *dtor,
+			})
 		}
 		inst.rt.ResourceTypes = append(inst.rt.ResourceTypes, rt)
 		// Register in the store-wide registry for cross-instance lookups.

@@ -342,14 +342,23 @@ func (i *Instance) ResourceDrop(resourceIdx types.ResourceIdx, handleIdx uint32)
 				}
 			}
 		} else {
-			// Cross-instance: Session 2 wiring.
+			// Cross-instance: invoke destructor on the defining instance.
 			// Spec: definitions.py:2154-2160 (canon_lift/canon_lower path)
-			if rt.HasDestructor() {
-				return fmt.Errorf("resource.drop: cross-instance destructor invocation deferred (spec definitions.py:2154-2160 — Session 2 wiring)")
+			if rt.HostDestructor != nil {
+				if err := rt.HostDestructor(resEntry.Rep); err != nil {
+					return fmt.Errorf("resource.drop: cross-instance destructor: %w", err)
+				}
+			} else if rt.Dtor != nil {
+				// TODO(session2-pipeline): replace with canon_lift/canon_lower invocation
+				// per spec definitions.py:2154-2160. Requires buildCanonLiftFunc (Task 7).
+				return fmt.Errorf("resource.drop: guest cross-instance destructor requires canon_lift/canon_lower pipeline (spec definitions.py:2154-2160)")
+			} else {
+				// Spec: definitions.py:2162 — trap_if(call_might_be_recursive(...))
+				definingInst := getDefiningInstance(i, rt)
+				if definingInst != nil && definingInst.CallMightBeRecursive(i) {
+					return errReentrance
+				}
 			}
-			// Spec: definitions.py:2162 — trap_if(call_might_be_recursive(...))
-			// Session 1: no cross-instance reentrance check needed for
-			// same-instance-only model.
 		}
 	}
 	if !resEntry.Own {
@@ -385,6 +394,24 @@ func invokeLocalDestructor(inst *Instance, rt *runtime.ResourceType, rep uint32)
 		)
 	}
 	// No destructor declared — nothing to do.
+	return nil
+}
+
+// getDefiningInstance resolves the *Instance wrapper for the component
+// instance that defines the given resource type. Uses the store-wide
+// ResourceStore to look up the instance by its runtime ID (rt.Impl.ID).
+// Returns nil if the store is not wired or the instance is not registered.
+//
+// Spec: definitions.py:2154-2162 — the cross-instance destructor and
+// reentrance check paths need the defining instance.
+func getDefiningInstance(caller *Instance, rt *runtime.ResourceType) *Instance {
+	if caller.rt.Store == nil {
+		return nil
+	}
+	wrapper := caller.rt.Store.GetInstance(rt.Impl.ID)
+	if inst, ok := wrapper.(*Instance); ok {
+		return inst
+	}
 	return nil
 }
 

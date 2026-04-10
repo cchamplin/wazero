@@ -229,8 +229,9 @@ func TestDestructors(t *testing.T) {
 	})
 
 	// ------------------------------------------------------------------
-	// Case 6: CrossInstanceDestructorDeferred — own handle where the
-	// dropping instance differs from rt.Impl → cross-instance path.
+	// Case 6: CrossInstanceDestructor — own handle where the dropping
+	// instance differs from rt.Impl → cross-instance destructor via
+	// HostDestructor closure.
 	// ------------------------------------------------------------------
 	//
 	// Spec: definitions.py:2154-2160
@@ -242,9 +243,143 @@ func TestDestructors(t *testing.T) {
 	//       callee = partial(canon_lift, callee_opts, rt.impl, ft, rt.dtor)
 	//       [] = canon_lower(caller_opts, ft, callee, thread, [h.rep])
 	//
-	// Cross-instance destructor dispatch requires canon_lift/canon_lower
-	// wiring which is deferred to Session 2.
-	t.Run("CrossInstanceDestructorDeferred", func(t *testing.T) {
-		t.Skip("Session 2: cross-instance destructor dispatch (spec definitions.py:2154-2160)")
+	// The HostDestructor closure bridges the cross-instance gap until
+	// canon_lift/canon_lower pipeline lands (Task 7/9).
+	t.Run("CrossInstanceDestructor", func(t *testing.T) {
+		// Two instances sharing a store — instA defines the resource,
+		// instB drops it.
+		store := runtime.NewResourceStore()
+		instA := component.NewInstance(&component.Component{}, 1, nil)
+		instA.Runtime().Store = store
+		instB := component.NewInstance(&component.Component{}, 2, nil)
+		instB.Runtime().Store = store
+
+		var destructorCalled bool
+		var destructorRep uint32
+		rt := &runtime.ResourceType{
+			Impl: instA.Runtime(),
+			HostDestructor: func(rep uint32) error {
+				destructorCalled = true
+				destructorRep = rep
+				return nil
+			},
+		}
+		instA.Runtime().ResourceTypes = append(instA.Runtime().ResourceTypes, rt)
+		store.Register(1, 0, rt)
+		store.RegisterInstance(1, instA)
+		store.RegisterInstance(2, instB)
+
+		// Register the resource type on instB so ResourceDrop can look it up.
+		instB.Runtime().ResourceTypes = append(instB.Runtime().ResourceTypes, rt)
+
+		// Create an own handle in instB's table for this resource type.
+		h, err := instB.Runtime().Table.NewResourceHandle(uint32(55), true, rt)
+		require.NoError(t, err)
+
+		// Drop from instB — should invoke destructor via cross-instance path
+		// because instB.rt != rt.Impl (which is instA.rt).
+		err = instB.ResourceDrop(types.ResourceIdx(0), h.Index())
+		require.NoError(t, err)
+		require.True(t, destructorCalled, "cross-instance destructor should have been invoked")
+		require.Equal(t, uint32(55), destructorRep)
+	})
+
+	// ------------------------------------------------------------------
+	// Case 7: CrossInstanceNoDestructorReentranceCheck — cross-instance
+	// drop with no destructor checks call_might_be_recursive.
+	// ------------------------------------------------------------------
+	//
+	// Spec: definitions.py:2162
+	//   else:
+	//     trap_if(call_might_be_recursive(thread.task, rt.impl))
+	//
+	// When there's no destructor and the drop is cross-instance, the
+	// spec requires a reentrance check. If the defining instance is
+	// already on the call stack, the drop must trap.
+	t.Run("CrossInstanceNoDestructorReentranceCheck", func(t *testing.T) {
+		store := runtime.NewResourceStore()
+		// instA defines the resource (no destructor).
+		instA := component.NewInstance(&component.Component{}, 1, nil)
+		instA.Runtime().Store = store
+		// instB drops it.
+		instB := component.NewInstance(&component.Component{}, 2, nil)
+		instB.Runtime().Store = store
+
+		rt := &runtime.ResourceType{
+			Impl: instA.Runtime(),
+			// No destructor — HostDestructor and Dtor are both nil.
+		}
+		instA.Runtime().ResourceTypes = append(instA.Runtime().ResourceTypes, rt)
+		instB.Runtime().ResourceTypes = append(instB.Runtime().ResourceTypes, rt)
+		store.Register(1, 0, rt)
+		store.RegisterInstance(1, instA)
+		store.RegisterInstance(2, instB)
+
+		// Create an own handle in instB's table.
+		h, err := instB.Runtime().Table.NewResourceHandle(uint32(66), true, rt)
+		require.NoError(t, err)
+
+		// Without reentrance: drop should succeed.
+		err = instB.ResourceDrop(types.ResourceIdx(0), h.Index())
+		require.NoError(t, err)
+
+		// Now simulate instA being on the call stack by making instB a
+		// child of instA (so isReflexiveAncestor(instB, instA) is true,
+		// meaning CallMightBeRecursive returns true).
+		instA2 := component.NewInstance(&component.Component{}, 1, nil)
+		instA2.Runtime().Store = store
+		instB2 := component.NewInstance(&component.Component{}, 2, instA2)
+		instB2.Runtime().Store = store
+		instA2.AddChild(instB2)
+
+		rt2 := &runtime.ResourceType{
+			Impl: instA2.Runtime(),
+		}
+		instA2.Runtime().ResourceTypes = append(instA2.Runtime().ResourceTypes, rt2)
+		instB2.Runtime().ResourceTypes = append(instB2.Runtime().ResourceTypes, rt2)
+		store.Register(1, 0, rt2)
+		store.RegisterInstance(1, instA2)
+		store.RegisterInstance(2, instB2)
+
+		h2, err := instB2.Runtime().Table.NewResourceHandle(uint32(77), true, rt2)
+		require.NoError(t, err)
+
+		// instB2 is a child of instA2, so CallMightBeRecursive(instB2)
+		// on instA2 returns true → drop should trap.
+		err = instB2.ResourceDrop(types.ResourceIdx(0), h2.Index())
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "recursive")
+	})
+
+	// ------------------------------------------------------------------
+	// Case 8: CrossInstanceDestructorError — cross-instance destructor
+	// returns an error → ResourceDrop propagates it.
+	// ------------------------------------------------------------------
+	t.Run("CrossInstanceDestructorError", func(t *testing.T) {
+		store := runtime.NewResourceStore()
+		instA := component.NewInstance(&component.Component{}, 1, nil)
+		instA.Runtime().Store = store
+		instB := component.NewInstance(&component.Component{}, 2, nil)
+		instB.Runtime().Store = store
+
+		dtorErr := errors.New("cross-instance destructor failed")
+		rt := &runtime.ResourceType{
+			Impl: instA.Runtime(),
+			HostDestructor: func(rep uint32) error {
+				return dtorErr
+			},
+		}
+		instA.Runtime().ResourceTypes = append(instA.Runtime().ResourceTypes, rt)
+		instB.Runtime().ResourceTypes = append(instB.Runtime().ResourceTypes, rt)
+		store.Register(1, 0, rt)
+		store.RegisterInstance(1, instA)
+		store.RegisterInstance(2, instB)
+
+		h, err := instB.Runtime().Table.NewResourceHandle(uint32(88), true, rt)
+		require.NoError(t, err)
+
+		err = instB.ResourceDrop(types.ResourceIdx(0), h.Index())
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "cross-instance destructor")
 	})
 }
