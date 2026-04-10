@@ -82,13 +82,13 @@ func TestComponentLinking_ProviderConsumer(t *testing.T) {
 	// Build provider component
 	providerBytes, err := testutil.BuildComponentFromWAT(providerWAT)
 	if err != nil {
-		t.Skipf("BuildComponentFromWAT (provider): %v", err)
+		t.Skipf("wasm-tools WAT compilation (provider) failed: %v", err)
 	}
 
 	// Build consumer component
 	consumerBytes, err := testutil.BuildComponentFromWAT(consumerWAT)
 	if err != nil {
-		t.Skipf("BuildComponentFromWAT (consumer): %v", err)
+		t.Skipf("wasm-tools WAT compilation (consumer) failed: %v", err)
 	}
 
 	// Use separate runtimes for provider and consumer to avoid module name conflicts
@@ -101,14 +101,14 @@ func TestComponentLinking_ProviderConsumer(t *testing.T) {
 	// Compile provider component
 	compiledProvider, err := providerRT.CompileComponent(ctx, providerBytes)
 	if err != nil {
-		t.Skipf("CompileComponent (provider): %v", err)
+		t.Skipf("decoder limitation: CompileComponent (provider) failed: %v", err)
 	}
 	defer compiledProvider.Close(ctx)
 
 	// Compile consumer component
 	compiledConsumer, err := consumerRT.CompileComponent(ctx, consumerBytes)
 	if err != nil {
-		t.Skipf("CompileComponent (consumer): %v", err)
+		t.Skipf("decoder limitation: CompileComponent (consumer) failed: %v", err)
 	}
 	defer compiledConsumer.Close(ctx)
 
@@ -122,7 +122,7 @@ func TestComponentLinking_ProviderConsumer(t *testing.T) {
 	// Instantiate the provider component
 	providerInstance, err := providerLinker.Instantiate(testCtx, compiledProvider.(*component.CompiledComponent))
 	if err != nil {
-		t.Skipf("Instantiate (provider): %v", err)
+		t.Skipf("pipeline limitation: Instantiate (provider) failed: %v", err)
 	}
 
 	// Get the provider's exported "add" function
@@ -163,7 +163,7 @@ func TestComponentLinking_ProviderConsumer(t *testing.T) {
 	// Instantiate the consumer component
 	consumerInstance, err := consumerLinker.Instantiate(testCtx, compiledConsumer.(*component.CompiledComponent))
 	if err != nil {
-		t.Skipf("Instantiate (consumer): %v", err)
+		t.Skipf("pipeline limitation: Instantiate (consumer) failed: %v", err)
 	}
 
 	// Get the consumer's exported "double-add" function
@@ -243,12 +243,12 @@ func TestComponentLinking_MultipleValues(t *testing.T) {
 
 	providerBytes, err := testutil.BuildComponentFromWAT(providerWAT)
 	if err != nil {
-		t.Skipf("BuildComponentFromWAT (provider): %v", err)
+		t.Skipf("wasm-tools WAT compilation (provider) failed: %v", err)
 	}
 
 	consumerBytes, err := testutil.BuildComponentFromWAT(consumerWAT)
 	if err != nil {
-		t.Skipf("BuildComponentFromWAT (consumer): %v", err)
+		t.Skipf("wasm-tools WAT compilation (consumer) failed: %v", err)
 	}
 
 	// Use separate runtimes for provider and consumer
@@ -260,13 +260,13 @@ func TestComponentLinking_MultipleValues(t *testing.T) {
 
 	compiledProvider, err := providerRT.CompileComponent(ctx, providerBytes)
 	if err != nil {
-		t.Skipf("CompileComponent (provider): %v", err)
+		t.Skipf("decoder limitation: CompileComponent (provider) failed: %v", err)
 	}
 	defer compiledProvider.Close(ctx)
 
 	compiledConsumer, err := consumerRT.CompileComponent(ctx, consumerBytes)
 	if err != nil {
-		t.Skipf("CompileComponent (consumer): %v", err)
+		t.Skipf("decoder limitation: CompileComponent (consumer) failed: %v", err)
 	}
 	defer compiledConsumer.Close(ctx)
 
@@ -278,7 +278,7 @@ func TestComponentLinking_MultipleValues(t *testing.T) {
 
 	providerInstance, err := providerLinker.Instantiate(testCtx, compiledProvider.(*component.CompiledComponent))
 	if err != nil {
-		t.Skipf("Instantiate (provider): %v", err)
+		t.Skipf("pipeline limitation: Instantiate (provider) failed: %v", err)
 	}
 
 	providerAddFunc := providerInstance.ExportedFunction("add")
@@ -304,7 +304,7 @@ func TestComponentLinking_MultipleValues(t *testing.T) {
 
 	consumerInstance, err := consumerLinker.Instantiate(testCtx, compiledConsumer.(*component.CompiledComponent))
 	if err != nil {
-		t.Skipf("Instantiate (consumer): %v", err)
+		t.Skipf("pipeline limitation: Instantiate (consumer) failed: %v", err)
 	}
 
 	doubleAddFunc := consumerInstance.ExportedFunction("double-add")
@@ -378,12 +378,12 @@ func TestComponentLinking_ExportDiscovery(t *testing.T) {
 
 	providerBytes, err := testutil.BuildComponentFromWAT(providerWAT)
 	if err != nil {
-		t.Skipf("BuildComponentFromWAT: %v", err)
+		t.Skipf("wasm-tools WAT compilation failed: %v", err)
 	}
 
 	compiledProvider, err := rt.CompileComponent(ctx, providerBytes)
 	if err != nil {
-		t.Skipf("CompileComponent: %v", err)
+		t.Skipf("decoder limitation: CompileComponent failed: %v", err)
 	}
 	defer compiledProvider.Close(ctx)
 
@@ -395,7 +395,7 @@ func TestComponentLinking_ExportDiscovery(t *testing.T) {
 
 	providerInstance, err := providerLinker.Instantiate(testCtx, compiledProvider.(*component.CompiledComponent))
 	if err != nil {
-		t.Skipf("Instantiate: %v", err)
+		t.Skipf("pipeline limitation: Instantiate failed: %v", err)
 	}
 
 	// Test that we can discover both exported functions
@@ -495,12 +495,12 @@ func TestComponentLinking_ProviderCallCount(t *testing.T) {
 
 	providerBytes, err := testutil.BuildComponentFromWAT(providerWAT)
 	if err != nil {
-		t.Skipf("BuildComponentFromWAT (provider): %v", err)
+		t.Skipf("wasm-tools WAT compilation (provider) failed: %v", err)
 	}
 
 	consumerBytes, err := testutil.BuildComponentFromWAT(consumerWAT)
 	if err != nil {
-		t.Skipf("BuildComponentFromWAT (consumer): %v", err)
+		t.Skipf("wasm-tools WAT compilation (consumer) failed: %v", err)
 	}
 
 	// Use separate runtimes for provider and consumer
@@ -512,13 +512,13 @@ func TestComponentLinking_ProviderCallCount(t *testing.T) {
 
 	compiledProvider, err := providerRT.CompileComponent(ctx, providerBytes)
 	if err != nil {
-		t.Skipf("CompileComponent (provider): %v", err)
+		t.Skipf("decoder limitation: CompileComponent (provider) failed: %v", err)
 	}
 	defer compiledProvider.Close(ctx)
 
 	compiledConsumer, err := consumerRT.CompileComponent(ctx, consumerBytes)
 	if err != nil {
-		t.Skipf("CompileComponent (consumer): %v", err)
+		t.Skipf("decoder limitation: CompileComponent (consumer) failed: %v", err)
 	}
 	defer compiledConsumer.Close(ctx)
 
@@ -530,7 +530,7 @@ func TestComponentLinking_ProviderCallCount(t *testing.T) {
 
 	providerInstance, err := providerLinker.Instantiate(testCtx, compiledProvider.(*component.CompiledComponent))
 	if err != nil {
-		t.Skipf("Instantiate (provider): %v", err)
+		t.Skipf("pipeline limitation: Instantiate (provider) failed: %v", err)
 	}
 
 	providerAddFunc := providerInstance.ExportedFunction("add")
@@ -559,7 +559,7 @@ func TestComponentLinking_ProviderCallCount(t *testing.T) {
 
 	consumerInstance, err := consumerLinker.Instantiate(testCtx, compiledConsumer.(*component.CompiledComponent))
 	if err != nil {
-		t.Skipf("Instantiate (consumer): %v", err)
+		t.Skipf("pipeline limitation: Instantiate (consumer) failed: %v", err)
 	}
 
 	doubleAddFunc := consumerInstance.ExportedFunction("double-add")

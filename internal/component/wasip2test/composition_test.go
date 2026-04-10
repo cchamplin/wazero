@@ -234,7 +234,7 @@ func TestServiceMiddlewareComposition_CompileComponents(t *testing.T) {
 	// Compile service component
 	compiledService, err := rt.CompileComponent(ctx, serviceBytes)
 	if err != nil {
-		t.Skipf("CompileComponent (service): %v", err)
+		t.Skipf("decoder limitation: CompileComponent (service) failed: %v", err)
 	}
 	defer compiledService.Close(ctx)
 	t.Log("Service component compiled successfully")
@@ -250,7 +250,7 @@ func TestServiceMiddlewareComposition_CompileComponents(t *testing.T) {
 
 	compiledMiddleware, err := middlewareRT.CompileComponent(ctx, middlewareBytes)
 	if err != nil {
-		t.Skipf("CompileComponent (middleware): %v", err)
+		t.Skipf("decoder limitation: CompileComponent (middleware) failed: %v", err)
 	}
 	defer compiledMiddleware.Close(ctx)
 	t.Log("Middleware component compiled successfully")
@@ -272,7 +272,7 @@ func TestServiceMiddlewareComposition_InstantiateService(t *testing.T) {
 	// Compile service component
 	compiledService, err := rt.CompileComponent(ctx, serviceBytes)
 	if err != nil {
-		t.Skipf("CompileComponent: %v", err)
+		t.Skipf("decoder limitation: CompileComponent failed: %v", err)
 	}
 	defer compiledService.Close(ctx)
 
@@ -302,7 +302,7 @@ func TestServiceMiddlewareComposition_InstantiateService(t *testing.T) {
 	// Try to instantiate the service
 	_, err = linker.Instantiate(testCtx, compiledService.(*component.CompiledComponent))
 	if err != nil {
-		t.Skipf("Instantiate (service): %v (component composition may not be fully implemented)", err)
+		t.Skipf("pipeline limitation: Instantiate (service) failed: %v", err)
 	}
 
 	t.Log("Service component instantiated successfully")
@@ -334,13 +334,13 @@ func TestServiceMiddlewareComposition_FullComposition(t *testing.T) {
 	// Compile both components
 	compiledService, err := serviceRT.CompileComponent(ctx, serviceBytes)
 	if err != nil {
-		t.Skipf("CompileComponent (service): %v", err)
+		t.Skipf("decoder limitation: CompileComponent (service) failed: %v", err)
 	}
 	defer compiledService.Close(ctx)
 
 	compiledMiddleware, err := middlewareRT.CompileComponent(ctx, middlewareBytes)
 	if err != nil {
-		t.Skipf("CompileComponent (middleware): %v", err)
+		t.Skipf("decoder limitation: CompileComponent (middleware) failed: %v", err)
 	}
 	defer compiledMiddleware.Close(ctx)
 
@@ -367,7 +367,7 @@ func TestServiceMiddlewareComposition_FullComposition(t *testing.T) {
 
 	serviceInstance, err := serviceLinker.Instantiate(testCtx, compiledService.(*component.CompiledComponent))
 	if err != nil {
-		t.Skipf("Instantiate (service): %v", err)
+		t.Skipf("pipeline limitation: Instantiate (service) failed: %v", err)
 	}
 
 	// Get the service's exported handler.execute function
@@ -406,7 +406,7 @@ func TestServiceMiddlewareComposition_FullComposition(t *testing.T) {
 
 	middlewareInstance, err := middlewareLinker.Instantiate(testCtx, compiledMiddleware.(*component.CompiledComponent))
 	if err != nil {
-		t.Skipf("Instantiate (middleware): %v", err)
+		t.Skipf("pipeline limitation: Instantiate (middleware) failed: %v", err)
 	}
 
 	// Get the middleware's exported handler.execute function
@@ -444,7 +444,7 @@ func TestServiceMiddlewareComposition_FullComposition(t *testing.T) {
 	// Call the middleware's execute function
 	result, err := middlewareHandlerExecute.CallAndPostReturn(testCtx, types.ValOwn(uint32(requestHandle)))
 	if err != nil {
-		t.Skipf("middleware execute call failed: %v", err)
+		t.Skipf("pipeline limitation: middleware execute call failed: %v", err)
 	}
 
 	// Check the result
@@ -530,7 +530,7 @@ func TestServiceMiddlewareComposition_FullComposition(t *testing.T) {
 func TestServiceMiddlewareComposition_ErrorHandling(t *testing.T) {
 	// This test would verify that errors from the service propagate through middleware
 	// For now, we skip since the full composition may not be implemented
-	t.Skip("Error handling test requires full composition support")
+	t.Skip("pipeline limitation: requires full service-middleware composition which depends on multi-component instantiation")
 }
 
 // Helper function to define the logging interface for a linker

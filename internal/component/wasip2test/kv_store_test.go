@@ -531,12 +531,12 @@ func TestResourceLifecycle_ComponentWithResource(t *testing.T) {
 
 	wasmBytes, err := testutil.BuildComponentFromWAT(wat)
 	if err != nil {
-		t.Skipf("WAT compilation requires wasm-tools: %v", err)
+		t.Skipf("wasm-tools WAT compilation failed: %v", err)
 	}
 
 	compiled, err := rt.CompileComponent(ctx, wasmBytes)
 	if err != nil {
-		t.Skipf("Component compilation not fully supported: %v", err)
+		t.Skipf("decoder limitation: CompileComponent failed: %v", err)
 	}
 	defer compiled.Close(ctx)
 
@@ -549,7 +549,7 @@ func TestResourceLifecycle_ComponentWithResource(t *testing.T) {
 	// Try to instantiate
 	instance, err := linker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
 	if err != nil {
-		t.Skipf("Resource import instantiation not fully supported: %v", err)
+		t.Skipf("pipeline limitation: Instantiate failed: %v", err)
 	}
 
 	// Call the exported function

@@ -78,7 +78,7 @@ func runWasiExercise(t *testing.T, wasmFile string) {
 
 	instance, err := linker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
 	if err != nil {
-		t.Skipf("Instantiate: %v", err)
+		t.Skipf("pipeline limitation: Instantiate failed: %v", err)
 	}
 
 	for _, tc := range wasiExerciseExports {

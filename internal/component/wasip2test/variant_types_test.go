@@ -25,7 +25,7 @@ func TestVariantPlugin_EnumTypeResolution(t *testing.T) {
 
 	compiled, err := rt.CompileComponent(ctx, wasmBytes)
 	if err != nil {
-		t.Skipf("CompileComponent: %v", err)
+		t.Skipf("decoder limitation: CompileComponent failed: %v", err)
 	}
 	defer compiled.Close(ctx)
 

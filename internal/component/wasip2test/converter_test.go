@@ -77,7 +77,7 @@ func TestComponentConvert(t *testing.T) {
 
 	wasmBytes, err := testutil.BuildComponentFromWAT(wat)
 	if err != nil {
-		t.Skipf("BuildComponentFromWAT: %v", err)
+		t.Skipf("wasm-tools WAT compilation failed: %v", err)
 	}
 
 	// Create linker and define host instance with multiply function
@@ -99,7 +99,7 @@ func TestComponentConvert(t *testing.T) {
 
 	compiled, err := rt.CompileComponent(ctx, wasmBytes)
 	if err != nil {
-		t.Skipf("CompileComponent: %v", err)
+		t.Skipf("decoder limitation: CompileComponent failed: %v", err)
 	}
 	defer compiled.Close(ctx)
 
@@ -113,7 +113,7 @@ func TestComponentConvert(t *testing.T) {
 
 	instance, err := componentLinker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
 	if err != nil {
-		t.Skipf("Instantiate: %v", err)
+		t.Skipf("pipeline limitation: Instantiate failed: %v", err)
 	}
 
 	// Call convert-celsius-to-fahrenheit(100)
@@ -180,7 +180,7 @@ func TestComponentConvert_NegativeTemperature(t *testing.T) {
 
 	wasmBytes, err := testutil.BuildComponentFromWAT(wat)
 	if err != nil {
-		t.Skipf("BuildComponentFromWAT: %v", err)
+		t.Skipf("wasm-tools WAT compilation failed: %v", err)
 	}
 
 	linker := component.NewLinker()
@@ -198,7 +198,7 @@ func TestComponentConvert_NegativeTemperature(t *testing.T) {
 
 	compiled, err := rt.CompileComponent(ctx, wasmBytes)
 	if err != nil {
-		t.Skipf("CompileComponent: %v", err)
+		t.Skipf("decoder limitation: CompileComponent failed: %v", err)
 	}
 	defer compiled.Close(ctx)
 
@@ -212,7 +212,7 @@ func TestComponentConvert_NegativeTemperature(t *testing.T) {
 
 	instance, err := componentLinker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
 	if err != nil {
-		t.Skipf("Instantiate: %v", err)
+		t.Skipf("pipeline limitation: Instantiate failed: %v", err)
 	}
 
 	fn := instance.ExportedFunction("convert-celsius-to-fahrenheit")
@@ -278,7 +278,7 @@ func TestComponentConvert_Zero(t *testing.T) {
 
 	wasmBytes, err := testutil.BuildComponentFromWAT(wat)
 	if err != nil {
-		t.Skipf("BuildComponentFromWAT: %v", err)
+		t.Skipf("wasm-tools WAT compilation failed: %v", err)
 	}
 
 	linker := component.NewLinker()
@@ -296,7 +296,7 @@ func TestComponentConvert_Zero(t *testing.T) {
 
 	compiled, err := rt.CompileComponent(ctx, wasmBytes)
 	if err != nil {
-		t.Skipf("CompileComponent: %v", err)
+		t.Skipf("decoder limitation: CompileComponent failed: %v", err)
 	}
 	defer compiled.Close(ctx)
 
@@ -310,7 +310,7 @@ func TestComponentConvert_Zero(t *testing.T) {
 
 	instance, err := componentLinker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
 	if err != nil {
-		t.Skipf("Instantiate: %v", err)
+		t.Skipf("pipeline limitation: Instantiate failed: %v", err)
 	}
 
 	fn := instance.ExportedFunction("convert-celsius-to-fahrenheit")
@@ -381,7 +381,7 @@ func TestComponentConvert_HostFunctionCalled(t *testing.T) {
 
 	wasmBytes, err := testutil.BuildComponentFromWAT(wat)
 	if err != nil {
-		t.Skipf("BuildComponentFromWAT: %v", err)
+		t.Skipf("wasm-tools WAT compilation failed: %v", err)
 	}
 
 	linker := component.NewLinker()
@@ -404,7 +404,7 @@ func TestComponentConvert_HostFunctionCalled(t *testing.T) {
 
 	compiled, err := rt.CompileComponent(ctx, wasmBytes)
 	if err != nil {
-		t.Skipf("CompileComponent: %v", err)
+		t.Skipf("decoder limitation: CompileComponent failed: %v", err)
 	}
 	defer compiled.Close(ctx)
 
@@ -418,7 +418,7 @@ func TestComponentConvert_HostFunctionCalled(t *testing.T) {
 
 	instance, err := componentLinker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
 	if err != nil {
-		t.Skipf("Instantiate: %v", err)
+		t.Skipf("pipeline limitation: Instantiate failed: %v", err)
 	}
 
 	fn := instance.ExportedFunction("convert-celsius-to-fahrenheit")
@@ -496,7 +496,7 @@ func TestComponentConvert_MultipleConversions(t *testing.T) {
 
 	wasmBytes, err := testutil.BuildComponentFromWAT(wat)
 	if err != nil {
-		t.Skipf("BuildComponentFromWAT: %v", err)
+		t.Skipf("wasm-tools WAT compilation failed: %v", err)
 	}
 
 	linker := component.NewLinker()
@@ -514,7 +514,7 @@ func TestComponentConvert_MultipleConversions(t *testing.T) {
 
 	compiled, err := rt.CompileComponent(ctx, wasmBytes)
 	if err != nil {
-		t.Skipf("CompileComponent: %v", err)
+		t.Skipf("decoder limitation: CompileComponent failed: %v", err)
 	}
 	defer compiled.Close(ctx)
 
@@ -528,7 +528,7 @@ func TestComponentConvert_MultipleConversions(t *testing.T) {
 
 	instance, err := componentLinker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
 	if err != nil {
-		t.Skipf("Instantiate: %v", err)
+		t.Skipf("pipeline limitation: Instantiate failed: %v", err)
 	}
 
 	fn := instance.ExportedFunction("convert-celsius-to-fahrenheit")

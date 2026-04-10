@@ -52,7 +52,7 @@ func TestCalculatorPlugins(t *testing.T) {
 			// Compile component
 			compiled, err := rt.CompileComponent(ctx, wasmBytes)
 			if err != nil {
-				t.Skipf("CompileComponent: %v", err)
+				t.Skipf("decoder limitation: CompileComponent failed: %v", err)
 			}
 			defer compiled.Close(ctx)
 
@@ -84,7 +84,7 @@ func TestCalculatorPlugins(t *testing.T) {
 			// Instantiate the component
 			instance, err := linker.Instantiate(testCtx, compiled.(*component.CompiledComponent))
 			if err != nil {
-				t.Skipf("Instantiate: %v", err)
+				t.Skipf("pipeline limitation: Instantiate failed: %v", err)
 			}
 
 			// Test get-plugin-name

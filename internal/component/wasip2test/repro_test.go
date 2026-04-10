@@ -75,7 +75,7 @@ func newPublicAPIInstance(t *testing.T, overrides map[string]apicomponent.HostFu
 	compiled, err := rt.CompileComponent(ctx, wasmBytes)
 	if err != nil {
 		rt.Close(ctx)
-		t.Skipf("CompileComponent: %v", err)
+		t.Skipf("decoder limitation: CompileComponent failed: %v", err)
 	}
 
 	linker := rt.NewComponentLinker()
@@ -136,7 +136,7 @@ func newPublicAPIInstance(t *testing.T, overrides map[string]apicomponent.HostFu
 	if err != nil {
 		compiled.Close(ctx)
 		rt.Close(ctx)
-		t.Skipf("Instantiate: %v", err)
+		t.Skipf("pipeline limitation: Instantiate failed: %v", err)
 	}
 
 	cleanup := func() {
