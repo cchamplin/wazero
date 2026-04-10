@@ -1250,7 +1250,12 @@ func (l *ComponentLinker) buildCanonLiftFunc(
 
 	return func(goCtx context.Context, fnType *types.TypeFunc, args []types.Val) (results []types.Val, retErr error) {
 		_ = fnType // captured via funcType at construction time
-		// :1979 — structural/tracker reentrance check.
+		// Check 1: needs_post_return guard (wasmtime may_enter)
+		// Wasmtime: concurrent_disabled.rs:159-169
+		if inst.rt.NeedsPostReturn {
+			return nil, fmt.Errorf("trap: cannot enter component instance (post-return pending)")
+		}
+		// Check 2 (:1979) — structural/tracker reentrance check.
 		if inst.rt.Reentrance.CallMightBeRecursive(inst.rt.ID) {
 			return nil, errReentrance
 		}
@@ -1307,15 +1312,24 @@ func (l *ComponentLinker) buildCanonLiftFunc(
 		}
 		results = liftedResults
 
+		// Mark instance as needing post-return before running it.
+		// Wasmtime: concurrent_disabled.rs:159-169 — between Call return
+		// and PostReturn completion the instance may not be entered.
+		inst.rt.NeedsPostReturn = true
+
 		// :2000-2002 post_return with may_leave toggled off.
 		if postReturn != nil {
 			inst.rt.MayLeave = false
 			_, perr := postReturn.Call(goCtx, flatResults...)
 			inst.rt.MayLeave = prevMayLeave
 			if perr != nil {
+				inst.rt.NeedsPostReturn = false
 				return nil, fmt.Errorf("canon.lift: post_return: %w", perr)
 			}
 		}
+
+		// Post-return complete (or absent); instance is re-enterable.
+		inst.rt.NeedsPostReturn = false
 
 		// :738-742 deliver_resolve is handled by the deferred borrow release.
 		return results, nil

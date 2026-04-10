@@ -64,6 +64,12 @@ type ComponentInstance struct {
 	// Destructors is this instance's destructor registry.
 	Destructors *DestructorRegistry
 
+	// NeedsPostReturn tracks whether this instance has a pending post-return
+	// call. When true, the instance cannot be entered via canon_lift.
+	// Wasmtime parallel: concurrent_disabled.rs:159-169 may_enter checks
+	// !flags.needs_post_return().
+	NeedsPostReturn bool
+
 	// Reentrance tracks call-site reentrance for this instance.
 	Reentrance *ReentranceTracker
 
