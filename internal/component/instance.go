@@ -82,6 +82,10 @@ type Instance struct {
 	// Set by canon.resource.drop (and other GoModuleFuncs) before calling into
 	// ResourceDrop, so that HostDestructor closures can use the caller's context
 	// instead of context.Background(). Reset to nil after the call completes.
+	//
+	// Not thread-safe: relies on the component model's single-threaded sync
+	// execution model. If async/concurrent calls are added, this must be
+	// replaced with atomic.Pointer[context.Context] or a per-call parameter.
 	activeCtx context.Context
 }
 
@@ -443,7 +447,10 @@ func (i *Instance) ResourceDrop(resourceIdx types.ResourceIdx, handleIdx uint32)
 			if rt.HostDestructor != nil {
 				// Spec: canon_lift at :1979 — trap_if(call_might_be_recursive)
 				// on the defining instance before invoking the destructor.
-				if rt.Impl.Reentrance.CallMightBeRecursive(rt.Impl.ID) {
+				// Uses the structural reflexive-ancestor check (Instance.CallMightBeRecursive)
+				// consistent with the no-destructor branch and definitions.py:290-299.
+				definingInst := getDefiningInstance(i, rt)
+				if definingInst != nil && definingInst.CallMightBeRecursive(i) {
 					return errReentrance
 				}
 				if err := rt.HostDestructor(resEntry.Rep); err != nil {
