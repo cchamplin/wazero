@@ -33,12 +33,15 @@ type ResourceType struct {
 	// DtorCallback is the callback function index for async destructors.
 	DtorCallback *uint32
 
-	// HostDestructor is the Go-side destructor callback for host-managed
-	// resources. Called by Delete() when dropping an owned handle whose
-	// ResourceType has this field set. Nil for guest-defined resources.
+	// HostDestructor is the Go-side destructor callback. Called when
+	// dropping an owned handle whose ResourceType has this field set.
+	// For host-declared resources, this is set directly by the embedder.
+	// For guest-declared resources, this is set at bind time as a
+	// lazy closure that invokes the core destructor function once
+	// core modules are instantiated (see ComponentLinker.bindResourceTypes).
 	//
-	// Spec: definitions.py:351-361 (ResourceType); the host destructor
-	// path is an implementation detail for host-imported resources.
+	// Spec: definitions.py:351-361 (ResourceType), :2151-2160 (destructor
+	// dispatch in canon_resource_drop).
 	HostDestructor func(rep uint32) error
 }
 
