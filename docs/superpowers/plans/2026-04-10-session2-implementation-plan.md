@@ -413,94 +413,171 @@ Spec: definitions.py:2142-2165 canon_resource_drop.
 
 ---
 
-### Task 3: lower_borrow Same-Instance Optimization
+### Task 3: Unify CallContext and BorrowScope into CallContext
 
-**Purpose:** Implement the spec-required optimization where `lower_borrow` returns `rep` directly when the calling instance IS the defining instance, skipping the borrow handle allocation.
+**Purpose:** The codebase has two types tracking the same per-call borrow state: `runtime.CallContext` and `runtime.BorrowScope`. The spec has one concept (Task/Subtask borrow tracking). Wasmtime has one type (`CallContext` at `resources.rs:189-192`). The current split causes a real bug: `lowerBorrowHandleFlat` increments `CallContext.numBorrows` but `ResourceDrop` tries to decrement `BorrowScope.numBorrows` — and the handle's `BorrowScope` is never set, so the decrement is dead code.
 
 **Files:**
-- Modify: `internal/component/abi/lower.go` (lowerBorrowHandleFlat, lowerBorrowHandleHeap)
+- Modify: `internal/component/runtime/call_context.go` (absorb BorrowScope functionality)
+- Delete: `internal/component/runtime/borrow_scope.go` (after merging into CallContext)
+- Modify: `internal/component/runtime/table.go` (ResourceHandleEntry.BorrowScope → CallContext)
+- Modify: `internal/component/runtime/subtask.go` (borrowScope → callContext)
+- Modify: `internal/component/abi/context.go` (LiftContext.BorrowScope → CallContext)
+- Modify: `internal/component/abi/lift.go` (use CallContext instead of BorrowScope)
+- Modify: `internal/component/abi/lower.go` (set CallContext on handle)
+- Modify: `internal/component/component_linker.go` (remove BorrowScope creation)
+- Modify: `internal/component/instance.go` (use CallContext in ResourceDrop)
+- Test: existing tests should continue passing
+
+**Spec reference:** `definitions.py:1645-1651` (lower_borrow sets `borrow_scope`), `:2163-2164` (resource_drop decrements `borrow_scope.num_borrows`), `:1342-1346` (lift_borrow adds lender to `borrow_scope`). Wasmtime: `resources.rs:189-192` (`CallContext { lenders, borrow_count }`).
+
+- [ ] **Step 1: Read both types in full**
+
+Read `internal/component/runtime/call_context.go` and `internal/component/runtime/borrow_scope.go` in full. Map which methods on BorrowScope have equivalents on CallContext:
+
+| BorrowScope method | CallContext equivalent | Notes |
+|---|---|---|
+| `AddLender(h Handle) error` | `AddLender(h Handle)` (no error) | BorrowScope increments NumLends on table; CallContext just appends |
+| `ReleaseBorrow(h Handle) error` | (missing) | BorrowScope decrements NumLends and removes from list |
+| `Release() error` | `ExitCall(table *Table) error` | Both undo lends; BorrowScope iterates lenders, ExitCall does same |
+| `IncrementBorrows()` | `IncrementBorrows()` | Identical |
+| `DecrementBorrows()` | `DecrementBorrows()` | Identical |
+| `NumBorrows() int` | `NumBorrows() int` | Identical |
+| `HasOutstandingBorrows() bool` | `CanReturn() bool` (inverted) | Same check, opposite polarity |
+| `LendCount() int` | (missing) | Count of lenders |
+
+- [ ] **Step 2: Merge BorrowScope functionality into CallContext**
+
+Add to `CallContext`:
+- `table *Table` field (needed for `AddLender` to increment NumLends, and `ExitCall` to decrement)
+- Update `AddLender(h Handle)` to also call `table.IncrementLends(h)` (matching BorrowScope.AddLender)
+- Add `ReleaseBorrow(h Handle) error` (matching BorrowScope.ReleaseBorrow)
+- Update `NewCallContext` to accept `*Table`
+
+Update constructor: `func NewCallContext(table *Table) *CallContext`
+
+- [ ] **Step 3: Change ResourceHandleEntry.BorrowScope to CallContext**
+
+In `runtime/table.go:67`:
+```go
+// Before:
+BorrowScope *BorrowScope
+// After:
+CallContext *CallContext  // The call scope that created this borrow (spec: borrow_scope)
+```
+
+- [ ] **Step 4: Update all BorrowScope references to CallContext**
+
+Process every reference found by grep. Key changes:
+
+- `abi/context.go:79` — `LiftContext.BorrowScope *runtime.BorrowScope` → remove this field. `LiftContext` already has access to `CallContext` via `LowerContext` in the call flow. OR: rename to `CallContext *runtime.CallContext` on LiftContext.
+- `abi/lift.go:714,748` — `ctx.BorrowScope` → `ctx.CallContext`
+- `abi/lower.go:675` — after `NewResourceHandle`, set `entry.CallContext = ctx.CallContext` on the handle
+- `component_linker.go:1245,1365` — replace `runtime.NewBorrowScope(inst.rt.Table)` with `runtime.NewCallContext(inst.rt.Table)`
+- `component_linker.go:1288,1385` — `BorrowScope: borrow` → `CallContext: callCtx` (or however the LiftContext field is named)
+- `instance.go:359` — `resEntry.BorrowScope.DecrementBorrows()` → `resEntry.CallContext.DecrementBorrows()`
+- `runtime/subtask.go:28` — `borrowScope *BorrowScope` → `callContext *CallContext`
+
+- [ ] **Step 5: Fix the lower_borrow bug — set CallContext on borrow handles**
+
+In `abi/lower.go` `lowerBorrowHandleFlat`, after `NewResourceHandle`:
+```go
+h, err := ctx.Instance.Table.NewResourceHandle(uint32(rep), false, expectedRT)
+if err != nil {
+    return nil, err
+}
+// Fix: set the call context on the handle so resource_drop can find it.
+// Spec: definitions.py:1649 — h = ResourceHandle(..., borrow_scope=cx.borrow_scope)
+entry, _ := ctx.Instance.Table.GetResourceHandle(h)
+if entry != nil {
+    entry.CallContext = ctx.CallContext
+}
+// Spec: definitions.py:1650 — h.borrow_scope.num_borrows += 1
+if ctx.CallContext != nil {
+    ctx.CallContext.IncrementBorrows()
+}
+```
+
+OR: add a `NewBorrowHandle(rep, rt, callCtx)` method on Table that sets CallContext at creation time.
+
+- [ ] **Step 6: Delete borrow_scope.go**
+
+After all references are migrated, delete `internal/component/runtime/borrow_scope.go`.
+
+- [ ] **Step 7: Run full test suite**
+
+```bash
+go test ./internal/component/... -count=1 -v 2>&1 | tail -30
+```
+
+Fix any compilation errors or test failures from the type changes.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git commit -m "runtime: unify CallContext and BorrowScope into CallContext
+
+The codebase had two types tracking the same per-call borrow state.
+The spec has one concept (Task/Subtask borrow scope). Wasmtime has one
+type (CallContext at resources.rs:189-192). The split caused a bug:
+lower_borrow incremented CallContext but resource_drop tried to
+decrement BorrowScope (which was never set on handles).
+
+Merged BorrowScope into CallContext. ResourceHandleEntry.BorrowScope
+is now ResourceHandleEntry.CallContext. All callers updated."
+```
+
+---
+
+### Task 3b: lower_borrow Same-Instance Optimization
+
+**Purpose:** Verify and fix the same-instance optimization in `lower_borrow`. This MUST run after Task 3 (CallContext unification).
+
+**Files:**
+- Modify: `internal/component/abi/lower.go` (lowerBorrowHandleFlat)
 - Test: `internal/component/abi/lower_test.go`
 
 **Spec reference:** `definitions.py:1645-1651`:
 ```python
 def lower_borrow(cx, rep, t):
+    assert(isinstance(cx.borrow_scope, Task))
     if cx.inst is t.rt.impl:
         return rep
     h = ResourceHandle(t.rt, rep, own=False, borrow_scope=cx.borrow_scope)
+    h.borrow_scope.num_borrows += 1
     return cx.inst.table.add(h)
 ```
 
-- [ ] **Step 1: Read the current lowerBorrowHandle implementation**
+- [ ] **Step 1: Verify the same-instance optimization exists**
 
-Read `internal/component/abi/lower.go` starting at the `lowerBorrowHandleFlat` function (around line 644). Check if it already implements the same-instance optimization. If it does, this task is done — verify with a test and move on.
+Read `abi/lower.go` `lowerBorrowHandleFlat`. The optimization (lines 671-672 as of discovery) already exists: `if ctx.Instance == expectedRT.Impl { return []uint64{uint64(rep)}, nil }`. If it's there, verify it's correct and move to Step 3.
 
-- [ ] **Step 2: Write failing test if optimization is missing**
+- [ ] **Step 2: If missing, add it**
 
-Add to `internal/component/abi/lower_test.go`:
-
+At the top of `lowerBorrowHandleFlat`, before handle allocation:
 ```go
-func TestLowerBorrowSameInstanceReturnsRep(t *testing.T) {
-	// Spec: definitions.py:1645-1647 — if cx.inst is t.rt.impl: return rep
-	inst := runtime.NewComponentInstance(1, nil)
-	rt := &runtime.ResourceType{Impl: inst}
-	inst.ResourceTypes = append(inst.ResourceTypes, rt)
-
-	// The borrow's resource type is defined by the same instance
-	// that is doing the lowering. The spec says: return rep directly.
-	ctx := &LowerContext{
-		Instance: inst,
-		Types:    /* minimal types bag with a resource table entry pointing at rt */,
-	}
-
-	// Lower a borrow of rep=42 — should get 42 back, not a handle index
-	result, err := LowerFlat(ctx, types.ValBorrow(42), /* borrow valtype */)
-	require.NoError(t, err)
-	require.Equal(t, uint64(42), result[0], "same-instance borrow should return rep directly")
-
-	// Verify no handle was allocated in the table
-	require.Equal(t, 0, inst.Table.Len(), "no handle should be allocated for same-instance borrow")
+if ctx.Instance == expectedRT.Impl {
+    return []uint64{uint64(rep)}, nil
 }
 ```
 
-Note: the exact test setup depends on how `LowerContext` and the types bag are constructed. Read the existing lower_test.go tests for the pattern.
+- [ ] **Step 3: Verify non-same-instance path sets CallContext on handle**
 
-- [ ] **Step 3: Implement the optimization and verify borrow_scope handling**
+After Task 3's unification, the non-same-instance path must:
+1. Create handle with `own=false`
+2. Set `entry.CallContext` on the handle (so resource_drop can decrement)
+3. Call `ctx.CallContext.IncrementBorrows()`
 
-In `lowerBorrowHandleFlat` (and `lowerBorrowHandleHeap` if it exists), add the same-instance check at the top:
+Verify all three are present. If any is missing, fix it.
 
-```go
-// Spec: definitions.py:1645-1647
-// If the calling instance IS the defining instance, return rep directly.
-// No borrow handle is allocated, no borrow_scope tracking needed.
-if ctx.Instance == rt.Impl {
-    return []uint64{uint64(rep)}, nil  // for flat path
-}
+- [ ] **Step 4: Write test and commit**
 
-// Spec: definitions.py:1648-1650
-// Non-same-instance: allocate a borrow handle WITH borrow_scope.
-// h = ResourceHandle(t.rt, rep, own=False, borrow_scope=cx.borrow_scope)
-// h.borrow_scope.num_borrows += 1
-// The borrow_scope comes from the LowerContext's CallContext.
-```
-
-Also verify that the NON-same-instance path in the existing code correctly:
-1. Creates the handle with `own=false` and sets `BorrowScope` from the context
-2. Increments `BorrowScope.NumBorrows` (or equivalent)
-If either is missing, fix it. Read `runtime/borrow_scope.go` for the increment API.
-
-- [ ] **Step 4: Run tests**
-
-Run: `go test ./internal/component/abi/ -run TestLowerBorrow -v`
-Expected: PASS
-
-- [ ] **Step 5: Commit**
+Test both the same-instance path (returns rep directly, no handle allocated) and the cross-instance path (handle allocated, CallContext set, borrow count incremented).
 
 ```bash
-git add internal/component/abi/lower.go internal/component/abi/lower_test.go
-git commit -m "abi: implement lower_borrow same-instance optimization
+git commit -m "abi: verify lower_borrow same-instance optimization and CallContext wiring
 
-Spec: definitions.py:1645-1647. When cx.inst is t.rt.impl,
-return rep directly without allocating a borrow handle."
+Spec: definitions.py:1645-1651."
 ```
 
 ---

@@ -121,7 +121,24 @@ def canon_resource_drop(rt, thread, i):
 
 4. **Store-wide resource type registry**: `LookupResourceType` currently walks the `Parent` chain, which fails for sibling instances. Add a `runtime.ResourceStore` struct — a shared object holding `map[resourceTypeKey]*ResourceType` where the key is `(RuntimeComponentInstanceIdx, ResourceIdx)`. The `ResourceStore` is created once per top-level `ComponentLinker.Instantiate` call and injected into every `runtime.ComponentInstance` constructed during that instantiation (including nested instances). `LookupResourceType` consults the store when the parent-chain walk fails. The `ResourceStore` also holds a `map[uint32]*component.Instance` mapping instance IDs to wrapper instances, enabling cross-instance `CallMightBeRecursive` resolution without an import cycle (the map stores an `interface{}` in `runtime/` and is type-asserted in `component/`).
 
-5. **`lower_borrow` same-instance optimization** (spec `definitions.py:1645-1651`):
+5. **Unify `CallContext` and `BorrowScope` into `CallContext`**: The codebase currently has TWO types tracking the same per-call borrow state:
+   - `runtime.CallContext` (`call_context.go`) — has `numBorrows`, `lenders`, `ExitCall`
+   - `runtime.BorrowScope` (`borrow_scope.go`) — has `numBorrows`, `lenders`, `Release`, `AddLender`, `ReleaseBorrow`
+
+   These are the same concept. The spec has `Task.num_borrows` + `Subtask.lenders`. Wasmtime unifies both into a single `CallContext` struct (`resources.rs:189-192`) with `lenders: Vec<TypedResourceIndex>` and `borrow_count: u32`.
+
+   The current code has a bug: `lowerBorrowHandleFlat` increments `CallContext.numBorrows` but `ResourceDrop` decrements `BorrowScope.numBorrows`. The handle's `BorrowScope` field is never set, so the decrement path is dead code.
+
+   **Fix:** Merge `BorrowScope` functionality INTO `CallContext`. `CallContext` becomes the unified per-call scope with `table *Table`, `numBorrows`, `lenders`, `AddLender`, `Release`, `IncrementBorrows`, `DecrementBorrows`. Delete `borrow_scope.go`. Change `ResourceHandleEntry.BorrowScope` field to `CallContext *CallContext`. Update all callers:
+   - `abi/context.go:79` `LiftContext.BorrowScope` → `LiftContext.CallContext` (already exists at line 170 on `LowerContext`)
+   - `abi/lift.go:714,748` — use `ctx.CallContext` instead of `ctx.BorrowScope`
+   - `abi/lower.go:679` — already uses `ctx.CallContext`
+   - `component_linker.go:1245,1365` — create `CallContext` instead of `BorrowScope`
+   - `instance.go:359` — use `resEntry.CallContext` instead of `resEntry.BorrowScope`
+   - `runtime/subtask.go:28` — use `*CallContext` instead of `*BorrowScope`
+   - `runtime/table.go:67,581` — change field type and references
+
+6. **`lower_borrow` same-instance optimization** (spec `definitions.py:1645-1651`):
    ```python
    def lower_borrow(cx, rep, t):
        if cx.inst is t.rt.impl:
