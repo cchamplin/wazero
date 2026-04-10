@@ -50,12 +50,84 @@ const (
 type ComponentImport struct {
 	Name string
 	Kind ComponentExportKind
+	// FuncType provides type introspection for function imports.
+	// Non-nil only when Kind == ComponentExportKindFunc and the type
+	// was successfully resolved from the component's type information.
+	FuncType *ComponentFuncType
 }
 
 // ComponentExport describes an export provided by a component.
 type ComponentExport struct {
 	Name string
 	Kind ComponentExportKind
+	// FuncType provides type introspection for function exports.
+	// Non-nil only when Kind == ComponentExportKindFunc and the type
+	// was successfully resolved from the component's type information.
+	FuncType *ComponentFuncType
+}
+
+// ComponentFuncType provides introspection into a component function's type,
+// including its parameters and results. Obtain this from the FuncType field
+// of ComponentImport or ComponentExport.
+type ComponentFuncType struct {
+	inner *types.TypeFunc
+	types *types.ComponentTypes
+}
+
+// NewComponentFuncType creates a ComponentFuncType wrapping the given internal
+// types. This is intended for use by the runtime implementation.
+func NewComponentFuncType(ft *types.TypeFunc, ct *types.ComponentTypes) *ComponentFuncType {
+	return &ComponentFuncType{inner: ft, types: ct}
+}
+
+// NumParams returns the number of parameters this function type expects.
+func (f *ComponentFuncType) NumParams() int {
+	tup := &f.types.Tuples[f.inner.Params.Index]
+	return len(tup.Types)
+}
+
+// NumResults returns the number of results this function type returns.
+func (f *ComponentFuncType) NumResults() int {
+	tup := &f.types.Tuples[f.inner.Results.Index]
+	return len(tup.Types)
+}
+
+// ComponentFuncParam describes a named parameter or result of a component function.
+type ComponentFuncParam struct {
+	// Name is the parameter name. May be empty for results.
+	Name string
+	// Kind is the component model type kind of this parameter.
+	Kind types.TypeKind
+}
+
+// Params returns the function's parameters as a slice of ComponentFuncParam values.
+func (f *ComponentFuncType) Params() []ComponentFuncParam {
+	tup := &f.types.Tuples[f.inner.Params.Index]
+	out := make([]ComponentFuncParam, len(tup.Types))
+	for i, vt := range tup.Types {
+		name := ""
+		if i < len(f.inner.ParamNames) {
+			name = f.inner.ParamNames[i]
+		}
+		out[i] = ComponentFuncParam{
+			Name: name,
+			Kind: vt.Kind,
+		}
+	}
+	return out
+}
+
+// Results returns the function's results as a slice of ComponentFuncParam values.
+func (f *ComponentFuncType) Results() []ComponentFuncParam {
+	tup := &f.types.Tuples[f.inner.Results.Index]
+	out := make([]ComponentFuncParam, len(tup.Types))
+	for i, vt := range tup.Types {
+		out[i] = ComponentFuncParam{
+			Name: "",
+			Kind: vt.Kind,
+		}
+	}
+	return out
 }
 
 // CompiledComponent is a parsed and pre-compiled component.

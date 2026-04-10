@@ -101,6 +101,9 @@ func (c *CompiledComponent) Imports() []api.ComponentImport {
 			Name: imp.Name,
 			Kind: convertImportKind(imp.ExternDesc),
 		}
+		if imp.ExternDesc.Kind == ImportExternDescFunc {
+			result[i].FuncType = c.resolveFuncType(imp.ExternDesc.TypeIdx)
+		}
 	}
 	return result
 }
@@ -113,8 +116,48 @@ func (c *CompiledComponent) Exports() []api.ComponentExport {
 			Name: exp.Name,
 			Kind: convertExportKind(exp.Kind),
 		}
+		if exp.Kind == ExportKindFunc {
+			result[i].FuncType = c.resolveExportFuncType(&exp)
+		}
 	}
 	return result
+}
+
+// resolveFuncType resolves a type index into a ComponentFuncType.
+// Returns nil if the type cannot be resolved (e.g., alias cycle, out of range,
+// or the resolved type is not a function type).
+func (c *CompiledComponent) resolveFuncType(typeIdx uint32) *api.ComponentFuncType {
+	td, _, err := c.component.ResolveTypeDef(typeIdx)
+	if err != nil || td.Kind != TypeDefKindFunc {
+		return nil
+	}
+	idx := int(td.Func)
+	if idx >= len(c.component.Types.Funcs) {
+		return nil
+	}
+	return api.NewComponentFuncType(&c.component.Types.Funcs[idx], c.component.Types)
+}
+
+// resolveExportFuncType resolves the function type for a function export.
+// It first tries the export's TypeIdx annotation, then falls back to the
+// canonical lift's TypeIdx.
+func (c *CompiledComponent) resolveExportFuncType(exp *Export) *api.ComponentFuncType {
+	// Try the export's own type annotation first.
+	if exp.TypeIdx != nil {
+		if ft := c.resolveFuncType(*exp.TypeIdx); ft != nil {
+			return ft
+		}
+	}
+	// Fall back to the canonical lift's type.
+	if canonIdx, ok := c.component.FuncIdxToCanonical[exp.Idx]; ok {
+		if int(canonIdx) < len(c.component.Canonicals) {
+			canon := &c.component.Canonicals[canonIdx]
+			if canon.Kind == CanonKindLift {
+				return c.resolveFuncType(canon.TypeIdx)
+			}
+		}
+	}
+	return nil
 }
 
 // Close releases resources associated with this compiled component.

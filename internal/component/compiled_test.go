@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/internal/component/types"
 )
 
 func TestCompiledComponentImports(t *testing.T) {
@@ -169,5 +170,215 @@ func TestConvertImportKind(t *testing.T) {
 				t.Errorf("convertImportKind(%d) = %d, want %d", tt.desc.Kind, result, tt.expected)
 			}
 		})
+	}
+}
+
+// buildTypesWithFunc creates a ComponentTypes with a single function type:
+// (a: u32, b: s32) -> (bool)
+// Returns the ComponentTypes and the FuncTypeIdx.
+func buildTypesWithFunc(t *testing.T) (*types.ComponentTypes, types.FuncTypeIdx) {
+	t.Helper()
+	b := types.NewComponentTypesBuilder()
+	paramsTup := b.InternTuple([]types.ValType{types.U32, types.S32})
+	resultsTup := b.InternTuple([]types.ValType{types.Bool})
+	funcIdx := b.InternFunc(false, []string{"a", "b"}, paramsTup, resultsTup)
+	ct := b.Finish()
+	return ct, funcIdx
+}
+
+func TestImportFuncTypeResolution(t *testing.T) {
+	ct, funcIdx := buildTypesWithFunc(t)
+	c := &Component{
+		Types: ct,
+		TypeDefs: []TypeDef{
+			{Kind: TypeDefKindFunc, Func: funcIdx},
+		},
+		Imports: []Import{
+			{
+				Name: "my:pkg/iface",
+				ExternDesc: ImportExternDesc{
+					Kind:    ImportExternDescFunc,
+					TypeIdx: 0, // points to TypeDefs[0]
+				},
+			},
+		},
+	}
+	cc := NewCompiledComponent(c, nil, nil)
+	imports := cc.Imports()
+
+	if len(imports) != 1 {
+		t.Fatalf("expected 1 import, got %d", len(imports))
+	}
+	imp := imports[0]
+	if imp.Kind != api.ComponentExportKindFunc {
+		t.Fatalf("expected func kind, got %d", imp.Kind)
+	}
+	if imp.FuncType == nil {
+		t.Fatal("expected FuncType to be non-nil for function import")
+	}
+	if imp.FuncType.NumParams() != 2 {
+		t.Errorf("NumParams() = %d, want 2", imp.FuncType.NumParams())
+	}
+	if imp.FuncType.NumResults() != 1 {
+		t.Errorf("NumResults() = %d, want 1", imp.FuncType.NumResults())
+	}
+	params := imp.FuncType.Params()
+	if params[0].Name != "a" {
+		t.Errorf("Params()[0].Name = %q, want %q", params[0].Name, "a")
+	}
+	if params[1].Name != "b" {
+		t.Errorf("Params()[1].Name = %q, want %q", params[1].Name, "b")
+	}
+	results := imp.FuncType.Results()
+	if results[0].Kind != types.TypeKindBool {
+		t.Errorf("Results()[0].Kind = %v, want TypeKindBool", results[0].Kind)
+	}
+}
+
+func TestImportFuncTypeNilForNonFunc(t *testing.T) {
+	c := &Component{
+		Imports: []Import{
+			{
+				Name: "wasi:io/streams@0.2.0",
+				ExternDesc: ImportExternDesc{
+					Kind: ImportExternDescInstance,
+				},
+			},
+		},
+	}
+	cc := NewCompiledComponent(c, nil, nil)
+	imports := cc.Imports()
+
+	if imports[0].FuncType != nil {
+		t.Error("expected FuncType to be nil for instance import")
+	}
+}
+
+func TestExportFuncTypeViaCanonicalLift(t *testing.T) {
+	ct, funcIdx := buildTypesWithFunc(t)
+	c := &Component{
+		Types: ct,
+		TypeDefs: []TypeDef{
+			{Kind: TypeDefKindFunc, Func: funcIdx},
+		},
+		Canonicals: []CanonicalDef{
+			{
+				Kind:             CanonKindLift,
+				ComponentFuncIdx: 0,
+				TypeIdx:          0, // points to TypeDefs[0]
+			},
+		},
+		FuncIdxToCanonical: map[uint32]uint32{
+			0: 0, // func index 0 -> canonical index 0
+		},
+		Exports: []Export{
+			{
+				Name: "add",
+				Kind: ExportKindFunc,
+				Idx:  0, // component function index 0
+			},
+		},
+	}
+	cc := NewCompiledComponent(c, nil, nil)
+	exports := cc.Exports()
+
+	if len(exports) != 1 {
+		t.Fatalf("expected 1 export, got %d", len(exports))
+	}
+	exp := exports[0]
+	if exp.Kind != api.ComponentExportKindFunc {
+		t.Fatalf("expected func kind, got %d", exp.Kind)
+	}
+	if exp.FuncType == nil {
+		t.Fatal("expected FuncType to be non-nil for function export")
+	}
+	if exp.FuncType.NumParams() != 2 {
+		t.Errorf("NumParams() = %d, want 2", exp.FuncType.NumParams())
+	}
+	if exp.FuncType.NumResults() != 1 {
+		t.Errorf("NumResults() = %d, want 1", exp.FuncType.NumResults())
+	}
+}
+
+func TestExportFuncTypeViaTypeIdx(t *testing.T) {
+	ct, funcIdx := buildTypesWithFunc(t)
+	typeIdx := uint32(0)
+	c := &Component{
+		Types: ct,
+		TypeDefs: []TypeDef{
+			{Kind: TypeDefKindFunc, Func: funcIdx},
+		},
+		Exports: []Export{
+			{
+				Name:    "add",
+				Kind:    ExportKindFunc,
+				Idx:     0,
+				TypeIdx: &typeIdx,
+			},
+		},
+	}
+	cc := NewCompiledComponent(c, nil, nil)
+	exports := cc.Exports()
+
+	if exports[0].FuncType == nil {
+		t.Fatal("expected FuncType to be non-nil when export has TypeIdx")
+	}
+	if exports[0].FuncType.NumParams() != 2 {
+		t.Errorf("NumParams() = %d, want 2", exports[0].FuncType.NumParams())
+	}
+}
+
+func TestExportFuncTypeNilForNonFunc(t *testing.T) {
+	c := &Component{
+		Exports: []Export{
+			{
+				Name: "my-instance",
+				Kind: ExportKindInstance,
+			},
+		},
+	}
+	cc := NewCompiledComponent(c, nil, nil)
+	exports := cc.Exports()
+
+	if exports[0].FuncType != nil {
+		t.Error("expected FuncType to be nil for instance export")
+	}
+}
+
+func TestImportFuncTypeThroughAlias(t *testing.T) {
+	ct, funcIdx := buildTypesWithFunc(t)
+	c := &Component{
+		Types: ct,
+		TypeDefs: []TypeDef{
+			// typeidx 0: concrete func type
+			{Kind: TypeDefKindFunc, Func: funcIdx},
+			// typeidx 1: alias -> typeidx 0
+			{
+				Kind: TypeDefKindAlias,
+				Alias: &AliasTarget{
+					IsExport:   false,
+					OuterCount: 0,
+					OuterIndex: 0,
+				},
+			},
+		},
+		Imports: []Import{
+			{
+				Name: "aliased-func",
+				ExternDesc: ImportExternDesc{
+					Kind:    ImportExternDescFunc,
+					TypeIdx: 1, // points to alias -> func type
+				},
+			},
+		},
+	}
+	cc := NewCompiledComponent(c, nil, nil)
+	imports := cc.Imports()
+
+	if imports[0].FuncType == nil {
+		t.Fatal("expected FuncType to be non-nil after resolving alias")
+	}
+	if imports[0].FuncType.NumParams() != 2 {
+		t.Errorf("NumParams() = %d, want 2", imports[0].FuncType.NumParams())
 	}
 }
