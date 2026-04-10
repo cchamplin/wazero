@@ -1289,11 +1289,19 @@ func (l *ComponentLinker) buildCanonLiftFunc(
 			return nil, fmt.Errorf("canon.lift: lower params: %w", err)
 		}
 
+		// Mark instance as needing post-return before the core call.
+		// Wasmtime: func.rs:970 — set_needs_post_return(true) is placed
+		// after lowering params and before entering wasm, so that the
+		// may_enter guard blocks re-entry during the entire execution
+		// window (core call → lift → post-return).
+		inst.rt.NeedsPostReturn = true
+
 		// :1995 callee invocation.
 		var flatResults []uint64
 		if coreFunc != nil {
 			flatResults, err = coreFunc.Call(goCtx, flatArgs...)
 			if err != nil {
+				inst.rt.NeedsPostReturn = false
 				return nil, fmt.Errorf("canon.lift: core call: %w", err)
 			}
 		}
@@ -1308,14 +1316,10 @@ func (l *ComponentLinker) buildCanonLiftFunc(
 		}
 		liftedResults, err := abi.LiftResults(liftCtx, resultElems, flatResults, abi.MaxFlatResults)
 		if err != nil {
+			inst.rt.NeedsPostReturn = false
 			return nil, fmt.Errorf("canon.lift: lift results: %w", err)
 		}
 		results = liftedResults
-
-		// Mark instance as needing post-return before running it.
-		// Wasmtime: concurrent_disabled.rs:159-169 — between Call return
-		// and PostReturn completion the instance may not be entered.
-		inst.rt.NeedsPostReturn = true
 
 		// :2000-2002 post_return with may_leave toggled off.
 		if postReturn != nil {
