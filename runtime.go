@@ -612,6 +612,17 @@ func (r *runtime) InstantiateHostModule(ctx context.Context, moduleName string, 
 		return nil, err
 	}
 
+	// The component model allows empty-string "" as a valid import module name
+	// for inline core instances. The normal registerModule path skips adding
+	// empty-named modules to the lookup map (to preserve the public API's
+	// anonymous-module semantics), so we explicitly alias it here so that
+	// import resolution can find it.
+	if moduleName == "" {
+		if modInst, ok := mod.(*wasm.ModuleInstance); ok {
+			r.store.AliasModule("", modInst)
+		}
+	}
+
 	// Set up function forwarding for aliased exports
 	// This ensures that FunctionInstanceReference returns the source's reference
 	// (with correct moduleCtxPtr) for table initialization

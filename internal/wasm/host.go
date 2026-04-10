@@ -1,7 +1,6 @@
 package wasm
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/tetratelabs/wazero/api"
@@ -51,10 +50,9 @@ func NewHostModule(
 	nameToHostFunc map[string]*HostFunc,
 	enabledFeatures api.CoreFeatures,
 ) (m *Module, err error) {
+	m = &Module{}
 	if moduleName != "" {
-		m = &Module{NameSection: &NameSection{ModuleName: moduleName}}
-	} else {
-		return nil, errors.New("a module name must not be empty")
+		m.NameSection = &NameSection{ModuleName: moduleName}
 	}
 
 	if exportCount := uint32(len(nameToHostFunc)); exportCount > 0 {

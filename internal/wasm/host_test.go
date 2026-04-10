@@ -22,9 +22,11 @@ func swap(ctx context.Context, x, y uint32) (uint32, uint32) {
 }
 
 func TestNewHostModule(t *testing.T) {
-	t.Run("empty name not allowed", func(t *testing.T) {
-		_, err := NewHostModule("", nil, nil, api.CoreFeaturesV2)
-		require.Error(t, err)
+	t.Run("empty name allowed", func(t *testing.T) {
+		m, err := NewHostModule("", nil, nil, api.CoreFeaturesV2)
+		require.NoError(t, err)
+		require.NotNil(t, m)
+		require.Nil(t, m.NameSection)
 	})
 
 	swapName := "swap"

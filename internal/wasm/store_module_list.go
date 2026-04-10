@@ -85,6 +85,29 @@ func (s *Store) registerModule(m *ModuleInstance) error {
 	return nil
 }
 
+// AliasModule adds a name -> module mapping so that the given module instance
+// can also be resolved by moduleName during import resolution. This is used by
+// the component model to support empty-string module names for inline core
+// instances, which the normal registerModule path skips to preserve the
+// anonymous-module semantics used by the public API.
+func (s *Store) AliasModule(moduleName string, m *ModuleInstance) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+	if s.nameToModule != nil {
+		s.nameToModule[moduleName] = m
+	}
+}
+
+// UnaliasModule removes a name -> module mapping previously added by
+// AliasModule. It does NOT close or unregister the module instance itself.
+func (s *Store) UnaliasModule(moduleName string) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+	if s.nameToModule != nil {
+		delete(s.nameToModule, moduleName)
+	}
+}
+
 // Module implements wazero.Runtime Module
 func (s *Store) Module(moduleName string) *ModuleInstance {
 	m, err := s.module(moduleName)
