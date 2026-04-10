@@ -263,7 +263,7 @@ func TestResources(t *testing.T) {
 		require.Error(t, err)
 
 		// Call context release at exit-call time decrements lender NumLends.
-		err = callCtx.Release()
+		err = callCtx.ExitCall()
 		require.NoError(t, err)
 		require.Equal(t, lendsBefore-1, ownEntry.NumLends)
 	})
@@ -491,7 +491,7 @@ func TestResources(t *testing.T) {
 		require.Equal(t, 2, callCtx.LendCount())
 
 		// Release decrements all.
-		err = callCtx.Release()
+		err = callCtx.ExitCall()
 		require.NoError(t, err)
 		require.Equal(t, uint32(0), entry.NumLends)
 	})
@@ -677,7 +677,7 @@ func TestResources(t *testing.T) {
 		require.Error(t, err)
 
 		// Release call context — both lenders' NumLends decremented.
-		err = callCtx.Release()
+		err = callCtx.ExitCall()
 		require.NoError(t, err)
 		require.Equal(t, uint32(0), entry1.NumLends)
 		require.Equal(t, uint32(0), entry2.NumLends)

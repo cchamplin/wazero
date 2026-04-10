@@ -115,8 +115,8 @@ func TestDestructors(t *testing.T) {
 		// Destructor must NOT have been called.
 		require.False(t, dtorCalled, "destructor must not be called for borrow handle drop")
 
-		// Cleanup: release call context and drop the own handle.
-		err = callCtx.Release()
+		// Cleanup: exit call context and drop the own handle.
+		err = callCtx.ExitCall()
 		require.NoError(t, err)
 		err = inst.ResourceDrop(types.ResourceIdx(0), ownIdx)
 		require.NoError(t, err)

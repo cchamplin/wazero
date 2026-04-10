@@ -283,8 +283,8 @@ func TestPostReturn_IntegrationWithResourceTable(t *testing.T) {
 	// Host function finishes using the borrow.
 	ctx.DecrementBorrows()
 
-	// Release the call context — drops lends back to zero.
-	err = ctx.Release()
+	// ExitCall cleans up the call context — drops lends back to zero.
+	err = ctx.ExitCall()
 	require.NoError(t, err)
 
 	// Now everything is clean.

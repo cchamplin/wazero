@@ -227,8 +227,8 @@ func TestInstanceResourceDropBorrowBranch(t *testing.T) {
 	_, _, err = inst.rt.Table.GetByIndex(borrowFull.Index())
 	require.Error(t, err)
 
-	// Step 8: callCtx.Release() at exit-call time decrements lender NumLends.
-	err = callCtx.Release()
+	// Step 8: callCtx.ExitCall() at exit-call time decrements lender NumLends.
+	err = callCtx.ExitCall()
 	require.NoError(t, err)
 	require.Equal(t, lendsBefore-1, ownEntry.NumLends)
 }
