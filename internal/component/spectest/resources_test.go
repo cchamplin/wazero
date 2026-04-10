@@ -52,8 +52,17 @@ type runnerState struct {
 }
 
 // newRunnerState creates a fresh runner state for a test suite.
-func newRunnerState(rt wazero.Runtime) *runnerState {
+func newRunnerState(t *testing.T, rt wazero.Runtime) *runnerState {
 	linker := rt.NewComponentLinker()
+
+	// Populate the linker with the component model spectest host fixture.
+	// This provides the "host" instance, root-level functions, and resources
+	// that the spec tests import (equivalent to wasmtime's
+	// link_component_spectest()).
+	if err := LinkComponentSpectest(linker); err != nil {
+		t.Fatalf("LinkComponentSpectest: %v", err)
+	}
+
 	return &runnerState{
 		rt:           rt,
 		linker:       linker,
@@ -110,7 +119,7 @@ func runWastSuite(t *testing.T, wastPath string) {
 	rt := wazero.NewRuntime(ctx)
 	defer rt.Close(ctx)
 
-	rs := newRunnerState(rt)
+	rs := newRunnerState(t, rt)
 	defer rs.closeCompiledDefs(ctx)
 
 	// Track test statistics

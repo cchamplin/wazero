@@ -145,6 +145,14 @@ func (b *ComponentInstanceBuilderWrapper) Resource(name string, dtor func(rep ui
 	return b
 }
 
+// Instance adds a nested instance export. Not supported on the basic
+// Linker wrapper — returns self, silently ignoring the nested instance.
+// This type is never instantiated in practice (DefineInstance always returns
+// ComponentInstanceBuilderWrapper2), so the no-op is safe.
+func (b *ComponentInstanceBuilderWrapper) Instance(name string) api.ComponentInstanceBuilder {
+	return b
+}
+
 // SkipValidation disables type checking for this instance definition.
 func (b *ComponentInstanceBuilderWrapper) SkipValidation() api.ComponentInstanceBuilder {
 	b.builder.SkipValidation()
@@ -174,6 +182,13 @@ func (b *ComponentInstanceBuilderWrapper2) Func(name string, fn api.HostFunc) ap
 func (b *ComponentInstanceBuilderWrapper2) Resource(name string, dtor func(rep uint32)) api.ComponentInstanceBuilder {
 	b.builder.Resource(name, dtor)
 	return b
+}
+
+// Instance adds a nested instance export to the instance being built.
+func (b *ComponentInstanceBuilderWrapper2) Instance(name string) api.ComponentInstanceBuilder {
+	return &ComponentInstanceBuilderWrapper2{
+		builder: b.builder.Instance(name),
+	}
 }
 
 // SkipValidation disables type checking for this instance definition.

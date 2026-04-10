@@ -295,6 +295,11 @@ type ComponentInstanceBuilder interface {
 	// Resource adds a resource type definition to the instance.
 	Resource(name string, dtor func(rep uint32)) ComponentInstanceBuilder
 
+	// Instance adds a nested instance export to the instance being built.
+	// The returned builder configures the nested instance; call Build on the
+	// outer builder (not the nested one) to finalize everything.
+	Instance(name string) ComponentInstanceBuilder
+
 	// SkipValidation disables type checking for this instance definition.
 	// Use this when the type checker's index mapping may be misaligned
 	// for components with many type aliases across multiple instances.

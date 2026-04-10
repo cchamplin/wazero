@@ -98,6 +98,16 @@ func NewComponentLinker(rt any) *ComponentLinker {
 	}
 }
 
+// definitionKey builds the map key for a definition. When namespace is
+// empty the key is just the name (root-level import); otherwise
+// it is "namespace/name".
+func definitionKey(namespace, name string) string {
+	if namespace == "" {
+		return name
+	}
+	return namespace + "/" + name
+}
+
 // SetRelaxedSemverMatching enables or disables relaxed semver matching.
 func (l *ComponentLinker) SetRelaxedSemverMatching(relaxed bool) {
 	l.relaxedSemver = relaxed
@@ -158,7 +168,7 @@ func (l *ComponentLinker) DefineFunc(namespace, name string, fn HostFunc) error 
 	if fn == nil {
 		return fmt.Errorf("DefineFunc: nil HostFunc for %q.%q", namespace, name)
 	}
-	key := namespace + "/" + name
+	key := definitionKey(namespace, name)
 	if _, exists := l.definitions[key]; exists {
 		return fmt.Errorf("definition already exists: %s", key)
 	}
@@ -171,7 +181,7 @@ func (l *ComponentLinker) DefineFunc(namespace, name string, fn HostFunc) error 
 
 // DefineResource adds a resource type definition.
 func (l *ComponentLinker) DefineResource(namespace, name string, destructor func(rep uint32)) error {
-	key := namespace + "/" + name
+	key := definitionKey(namespace, name)
 	if _, exists := l.definitions[key]; exists {
 		return fmt.Errorf("definition already exists: %s", key)
 	}
@@ -181,7 +191,7 @@ func (l *ComponentLinker) DefineResource(namespace, name string, destructor func
 
 // DefineValue adds a value definition for value imports.
 func (l *ComponentLinker) DefineValue(namespace, name string, value types.Val) error {
-	key := namespace + "/" + name
+	key := definitionKey(namespace, name)
 	if _, exists := l.definitions[key]; exists {
 		return fmt.Errorf("definition already exists: %s", key)
 	}
@@ -195,6 +205,8 @@ type ComponentInstanceBuilder struct {
 	namespace      string
 	exports        map[string]Definition
 	skipValidation bool
+	parent         *ComponentInstanceBuilder // non-nil for nested instance builders
+	childName      string                    // export name in parent (only set when parent != nil)
 }
 
 // DefineInstance starts building an instance definition.
@@ -219,6 +231,20 @@ func (b *ComponentInstanceBuilder) Resource(name string, destructor func(rep uin
 	return b
 }
 
+// Instance adds a nested instance export. The returned builder shares the
+// same parent; callers chain methods on it and then call Build on the
+// outermost builder to finalize everything.
+func (b *ComponentInstanceBuilder) Instance(name string) *ComponentInstanceBuilder {
+	child := &ComponentInstanceBuilder{
+		linker:    b.linker,
+		namespace: b.namespace + "/" + name,
+		exports:   make(map[string]Definition),
+		parent:    b,
+		childName: name,
+	}
+	return child
+}
+
 // SkipValidation disables validation for this instance definition.
 // Use this when providing a partial implementation of a WASI interface.
 func (b *ComponentInstanceBuilder) SkipValidation() *ComponentInstanceBuilder {
@@ -226,8 +252,17 @@ func (b *ComponentInstanceBuilder) SkipValidation() *ComponentInstanceBuilder {
 	return b
 }
 
-// Build finalizes the instance definition.
+// Build finalizes the instance definition. For nested instance builders
+// (created via Instance()), Build inserts the nested InstanceDef into
+// the parent's exports map and returns the parent builder for continued
+// chaining. For top-level builders, Build registers the definition on
+// the linker.
 func (b *ComponentInstanceBuilder) Build() error {
+	if b.parent != nil {
+		// Nested builder: insert into parent's exports map.
+		b.parent.exports[b.childName] = &InstanceDef{Exports: b.exports, SkipValidation: b.skipValidation}
+		return nil
+	}
 	if _, exists := b.linker.definitions[b.namespace]; exists {
 		return fmt.Errorf("definition already exists: %s", b.namespace)
 	}
